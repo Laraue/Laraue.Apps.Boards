@@ -45,6 +45,7 @@ public class WebApiTestHostScope : IDisposable
 {
     private readonly IServiceScope _scope;
     public DatabaseContext Database => _scope.ServiceProvider.GetRequiredService<DatabaseContext>();
+    private long _lastTelegramId;
 
     public WebApiTestHostScope(IServiceScope scope)
     {
@@ -64,7 +65,10 @@ public class WebApiTestHostScope : IDisposable
     
     public async Task<Guid> CreateUser(Action<User>? setupUser = null)
     {
-        var user = new User();
+        var user = new User
+        {
+            TelegramId = ++_lastTelegramId,
+        };
         
         setupUser?.Invoke(user);
         

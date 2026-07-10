@@ -1,5 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Core.DateTime.Services.Abstractions;
+using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
@@ -16,9 +18,11 @@ public interface ICoreUserService
     Task<UserPreferencesResponse> GetPreferences(
         Guid userId,
         CancellationToken cancellationToken);
+
+    Task<Guid> CreateIfTelegramIdNotExists(User user, CancellationToken cancellationToken);
 }
 
-public class CoreUserService(DatabaseContext context) : ICoreUserService
+public class CoreUserService(DatabaseContext context, IDateTimeProvider dateTimeProvider) : ICoreUserService
 {
     public async Task UpdatePreferences(
         Guid userId,
@@ -56,7 +60,42 @@ public class CoreUserService(DatabaseContext context) : ICoreUserService
             EpicSortOrder = preferences.EpicSortOrder,
         };
     }
-    
+
+    public async Task<Guid> CreateIfTelegramIdNotExists(User user, CancellationToken cancellationToken)
+    {
+        var timestamp = dateTimeProvider.UtcNow;
+        
+        user.Color = Palette.RandomColor();
+        user.Id = Guid.NewGuid();
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        
+        var insertedCount = await context.Users
+            .Merge()
+            .Using([user])
+            .On((t, s) => t.TelegramId == s.TelegramId)
+            .InsertWhenNotMatched()
+            .MergeAsync(cancellationToken);
+
+        if (insertedCount > 0)
+        {
+            var organization = OrganizationDefaults.GetNewOrganizationEntity(
+                user.Id,
+                OrganizationDefaults.GetPersonalOrganizationSlug(user.TelegramUserName),
+                OrganizationDefaults.GetPersonalOrganizationName(user.TelegramLanguageCode),
+                Palette.RandomColor(),
+                timestamp,
+                isPersonal: true);
+
+            context.Organizations.Add(organization);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return user.Id;
+    }
+
     private static UserPreferences GetDefaultPreferences(Guid userId)
     {
         return new UserPreferences

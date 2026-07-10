@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <ItemGroup>
-        <ProjectReference Include="..\Laraue.Apps.StructuredMessages.DataAccess\Laraue.Apps.StructuredMessages.DataAccess.csproj" />
+        <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />
         <ProjectReference Include="..\Laraue.Apps.Boards.Services\Laraue.Apps.Boards.Services.csproj" />
     </ItemGroup>
 

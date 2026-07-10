@@ -7,7 +7,7 @@ using LinqToDB.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.TelegramServices;
 
-public class TelegramUserQueryService(DatabaseContext context, IDateTimeProvider dateTimeProvider)
+public class TelegramUserQueryService(DatabaseContext context, IDateTimeProvider dateTimeProvider, ICoreUserService userService)
     : ITelegramUserQueryService<User, Guid>
 {
     public Task<User?> FindAsync(long telegramId, CancellationToken cancellationToken = default)
@@ -17,29 +17,8 @@ public class TelegramUserQueryService(DatabaseContext context, IDateTimeProvider
             .FirstOrDefaultAsyncEF(cancellationToken);
     }
 
-    public async Task<Guid> CreateAsync(User user, CancellationToken cancellationToken = default)
+    public Task<Guid> CreateAsync(User user, CancellationToken cancellationToken = default)
     {
-        var timestamp = dateTimeProvider.UtcNow;
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        
-        user.Color = Palette.RandomColor();
-        context.Users.Add(user);
-        await context.SaveChangesAsync(cancellationToken);
-
-        var organization = OrganizationDefaults.GetNewOrganizationEntity(
-            user.Id,
-            OrganizationDefaults.GetPersonalOrganizationSlug(user.TelegramUserName),
-            OrganizationDefaults.GetPersonalOrganizationName(user.TelegramLanguageCode),
-            Palette.RandomColor(),
-            timestamp,
-            isPersonal: true);
-        
-        context.Organizations.Add(organization);
-        await context.SaveChangesAsync(cancellationToken);
-        
-        await transaction.CommitAsync(cancellationToken);
-        
-        return user.Id;
+        return userService.CreateIfTelegramIdNotExists(user, cancellationToken);
     }
 }

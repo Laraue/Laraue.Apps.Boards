@@ -136,5 +136,10 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasIndex(x => new { x.SlugPostfix, x.Slug })
                 .IsUnique();
         });
+        
+        modelBuilder.Entity<User>(builder =>
+        {
+            builder.HasIndex(x => x.TelegramId).IsUnique();
+        });
     }
 }

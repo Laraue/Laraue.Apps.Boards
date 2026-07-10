@@ -36,7 +36,8 @@ public class TelegramAuthService(
     IOptions<TelegramOptions> options,
     DatabaseContext context,
     IAuthService authService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ICoreUserService coreUserService)
     : ITelegramAuthService
 {
     public Task<string> Authenticate(
@@ -155,12 +156,10 @@ public class TelegramAuthService(
         return generatedHash;
     }
     
-    public async Task<Guid> RegisterUser(
+    public Task<Guid> RegisterUser(
         MiniAppUser user,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        
         var newUser = new User
         {
             CreatedAt = dateTimeProvider.UtcNow,
@@ -171,24 +170,8 @@ public class TelegramAuthService(
             TelegramLastName = user.LastName,
             Color = Palette.RandomColor(),
         };
-        
-        context.Users.Add(newUser);
-        await context.SaveChangesAsync(cancellationToken);
-        
-        var organization = OrganizationDefaults.GetNewOrganizationEntity(
-            newUser.Id,
-            OrganizationDefaults.GetPersonalOrganizationSlug(user.Username),
-            OrganizationDefaults.GetPersonalOrganizationName(newUser.TelegramLanguageCode),
-            Palette.RandomColor(),
-            newUser.CreatedAt,
-            isPersonal: true);
-        
-        context.Organizations.Add(organization);
-        await context.SaveChangesAsync(cancellationToken);
-        
-        await transaction.CommitAsync(cancellationToken);
 
-        return newUser.Id;
+        return coreUserService.CreateIfTelegramIdNotExists(newUser, cancellationToken);
     }
 }
 
