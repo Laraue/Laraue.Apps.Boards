@@ -4,6 +4,8 @@ using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Scalar.AspNetCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOptions<TelegramOptions>();
@@ -28,6 +30,18 @@ app.UseAuthorization();
 app.MapControllers();
 app.Services.UseLinq2Db();
 app.UseMiddleware<ExceptionHandleMiddleware>();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference(options =>
+    {
+        options
+            .WithTitle("Laraue Boards API")
+            .WithTheme(ScalarTheme.Purple)
+            .WithDefaultHttpClient(ScalarTarget.JavaScript, ScalarClient.Axios);
+    });
+}
 
 using (var scope = app.Services.CreateScope())
 {

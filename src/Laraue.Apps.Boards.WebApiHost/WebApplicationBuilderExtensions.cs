@@ -37,6 +37,9 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ExceptionHandleMiddleware>();
             
             builder.Services.AddControllers();
+            
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddOpenApi();
 
             return builder;
         }
