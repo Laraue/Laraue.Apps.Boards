@@ -25,6 +25,20 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+var origins = builder
+    .Configuration
+    .GetSection("Cors:Hosts")
+    .Get<string[]>();
+
+if (origins is not null)
+{
+    app.UseCors(corsPolicyBuilder =>
+        corsPolicyBuilder.WithOrigins(origins)
+            .AllowCredentials()
+            .AllowAnyMethod()
+            .AllowAnyHeader());
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
@@ -47,20 +61,6 @@ using (var scope = app.Services.CreateScope())
 {
     await using var db = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
     await db.Database.MigrateAsync();
-}
-
-var origins = builder
-    .Configuration
-    .GetSection("Cors:Hosts")
-    .Get<string[]>();
-
-if (origins is not null)
-{
-    app.UseCors(corsPolicyBuilder =>
-        corsPolicyBuilder.WithOrigins(origins)
-            .AllowCredentials()
-            .AllowAnyMethod()
-            .AllowAnyHeader());
 }
 
 app.MapHealthChecks("/_health");
