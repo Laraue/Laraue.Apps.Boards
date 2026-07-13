@@ -490,7 +490,9 @@ public class IssuesService(
                 Id = x.Id,
                 Content = x.Content,
                 Time = x.CreatedAt,
+                CategoryId = x.Status!.EpicId,
                 CategoryName = x.Status!.Epic!.Name,
+                StatusId = x.StatusId,
                 StatusName = x.Status!.Epic!.IsDefault ? null : x.Status!.Name,
                 TelegramFirstName = x.User!.TelegramFirstName,
                 TelegramLastName = x.User!.TelegramLastName,
@@ -543,7 +545,9 @@ public class IssuesService(
             Sender = sender.Sender,
             SenderInitial = sender.Initial,
             Time = result.Time,
+            EpicId = result.CategoryId,
             EpicName = result.CategoryName,
+            StatusId = result.StatusId,
             StatusName = result.StatusName,
             EpicColor = result.CategoryColor,
             StatusColor = result.StatusColor,
@@ -1057,8 +1061,10 @@ public class IssueDetailDto
     public required string? Sender { get; set; }
     public string? SenderInitial { get; set; }
     public required string? Content { get; set; }
+    public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
     public required string? EpicColor { get; set; }
+    public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
     public required string SpaceColor { get; set; }
@@ -1092,8 +1098,10 @@ public class IssueDetailDtoData
     public required string? TelegramFirstName { get; set; }
     public required string? TelegramLastName { get; set; }
     public required string? Content { get; set; }
+    public required long CategoryId { get; set; }
     public required string? CategoryName { get; set; }
     public required string? CategoryColor { get; set; }
+    public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
     public required long OrganizationId { get; set; }
