@@ -30,9 +30,9 @@ public class TelegramAuthController(
     }
 
     [HttpPost("logout")]
-    public IActionResult Logout()
+    public Task Logout()
     {
         AuthCookies.Delete(Response, environment);
-        return NoContent();
+        return Task.CompletedTask;
     }
 }
