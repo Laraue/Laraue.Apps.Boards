@@ -67,6 +67,7 @@ public static class WebApplicationBuilderExtensions
                         ValidateIssuerSigningKey = true,
                         ValidateLifetime = false,
                     };
+                    ReadTokenFromCookie(options, AuthCookies.User);
                 })
                 .AddJwtBearer(AuthSchemas.Organization, options =>
                 {
@@ -80,9 +81,26 @@ public static class WebApplicationBuilderExtensions
                         ValidateIssuerSigningKey = true,
                         ValidateLifetime = false,
                     };
+                    ReadTokenFromCookie(options, AuthCookies.Organization);
                 });
 
             return builder;
         }
+    }
+
+    private static void ReadTokenFromCookie(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions options, string cookie)
+    {
+        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (!context.Request.Headers.ContainsKey("Authorization"))
+                {
+                    context.Token = context.Request.Cookies[cookie];
+                }
+
+                return Task.CompletedTask;
+            },
+        };
     }
 }

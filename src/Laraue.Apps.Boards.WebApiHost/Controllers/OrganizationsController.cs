@@ -9,7 +9,9 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Authorize(AuthenticationSchemes = AuthSchemas.User)]
 [ApiController]
 [Route("/api/organizations")]
-public class OrganizationsController(IOrganizationsService organizationsService) : ControllerBase
+public class OrganizationsController(
+    IOrganizationsService organizationsService,
+    IWebHostEnvironment environment) : ControllerBase
 {
     [HttpPost]
     public Task<CreateOrganizationResponse> Create(
@@ -135,16 +137,18 @@ public class OrganizationsController(IOrganizationsService organizationsService)
     }
     
     [HttpPost("login")]
-    public Task<string> Login(
+    public async Task<string> Login(
         [FromBody] LoginRequest request,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.Login(
+        var token = await organizationsService.Login(
             request with
             {
                 UserId = HttpContext.User.GetId(),
             },
             cancellationToken);
+        AuthCookies.Append(Response, AuthCookies.Organization, token, environment);
+        return token;
     }
     
     [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
