@@ -175,7 +175,7 @@ public record GetSpacesRequest
 
 public record SpaceListDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Name { get; set; }
     public required string Color { get; set; }
     public required string Key { get; set; }
