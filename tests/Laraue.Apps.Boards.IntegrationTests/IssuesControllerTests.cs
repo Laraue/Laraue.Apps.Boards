@@ -359,8 +359,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var issueDto = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.GetIssue(issue.Id));
-        
+
+        var space = organization.GetSpace(0);
         Assert.NotNull(issueDto);
+        Assert.Equal(space.Id, issueDto.SpaceId);
+        Assert.Equal(space.Name, issueDto.SpaceName);
     }
     
     [Fact]

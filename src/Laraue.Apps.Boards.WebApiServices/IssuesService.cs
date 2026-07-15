@@ -502,7 +502,9 @@ public class IssuesService(
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
                 OrganizationId = x.Status.Epic.Space!.OrganizationId,
                 Number = x.IssueNumber!.Number,
+                SpaceId = x.Status.Epic.Space.Id,
                 SpaceKey = x.Status.Epic.Space.Key,
+                SpaceName = x.Status.Epic.Space.Name,
                 SpaceColor = x.Status.Epic.Space.Color,
             })
             .FirstAsyncEF(cancellationToken);
@@ -554,6 +556,8 @@ public class IssuesService(
             CanEdit = issueAccessLevels.CanUpdateIssue,
             AttributeValues = attributeValues,
             Key = $"{result.SpaceKey}-{result.Number}",
+            SpaceId = result.SpaceId,
+            SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
         };
     }
@@ -1067,6 +1071,8 @@ public class IssueDetailDto
     public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
+    public required long SpaceId { get; set; }
+    public required string SpaceName { get; set; }
     public required string SpaceColor { get; set; }
     public required bool CanEdit { get; set; }
     public required string Key { get; set; }
@@ -1106,7 +1112,9 @@ public class IssueDetailDtoData
     public required string? StatusColor { get; set; }
     public required long OrganizationId { get; set; }
     public required int Number { get; set; }
+    public required long SpaceId { get; set; }
     public required string SpaceKey { get; set; }
+    public required string SpaceName { get; set; }
     public required string SpaceColor { get; set; }
 }
 
