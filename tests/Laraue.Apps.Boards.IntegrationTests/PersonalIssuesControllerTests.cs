@@ -206,6 +206,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("sn", issueDto.SenderInitial);
         Assert.Equal("snake1977", issueDto.Sender);
         Assert.Equal(timestamp, issueDto.Time);
+        Assert.Equal(timestamp, issueDto.UpdatedAt);
     }
     
     [Fact]

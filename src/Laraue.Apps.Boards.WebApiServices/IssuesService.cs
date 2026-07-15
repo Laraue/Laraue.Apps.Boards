@@ -490,6 +490,7 @@ public class IssuesService(
                 Id = x.Id,
                 Content = x.Content,
                 Time = x.CreatedAt,
+                UpdatedAt = x.UpdatedAt,
                 CategoryId = x.Status!.EpicId,
                 CategoryName = x.Status!.Epic!.Name,
                 StatusId = x.StatusId,
@@ -547,6 +548,7 @@ public class IssuesService(
             Sender = sender.Sender,
             SenderInitial = sender.Initial,
             Time = result.Time,
+            UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
             EpicName = result.CategoryName,
             StatusId = result.StatusId,
@@ -1062,6 +1064,7 @@ public class IssueDetailDto
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
+    public required DateTime UpdatedAt { get; set; }
     public required string? Sender { get; set; }
     public string? SenderInitial { get; set; }
     public required string? Content { get; set; }
@@ -1076,22 +1079,22 @@ public class IssueDetailDto
     public required string SpaceColor { get; set; }
     public required bool CanEdit { get; set; }
     public required string Key { get; set; }
-    public DetailIssueAttributeDto[] AttributeValues { get; set; } = [];
+    public required DetailIssueAttributeDto[] AttributeValues { get; set; }
 }
 
 public record DetailIssueAttributeDto
 {
-    public long Id { get; set; }
-    public AttributeType Type { get; set; }
+    public required long Id { get; set; }
+    public required AttributeType Type { get; set; }
     public required string Name { get; set; }
     public required string Value { get; set; }
     public required string Color { get; set; }
-    public IssueAttributeListValueDto[]? ListValues { get; set; }
+    public required IssueAttributeListValueDto[] ListValues { get; set; }
 }
 
 public record IssueAttributeListValueDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Name { get; set; }
 }
 
@@ -1099,6 +1102,7 @@ public class IssueDetailDtoData
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
+    public required DateTime UpdatedAt { get; set; }
     public required long TelegramId { get; set; }
     public required string? TelegramUsername { get; set; }
     public required string? TelegramFirstName { get; set; }
