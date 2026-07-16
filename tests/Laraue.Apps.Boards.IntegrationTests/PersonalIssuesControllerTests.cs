@@ -455,9 +455,12 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                             .WithAttributeValue(0, 1))))); // Color is 'Green'
         
         var redAttribute = organization.GetAttribute(0);
-        var searchFilters = new Dictionary<long, JsonElement>
+        var searchFilters = new Dictionary<long, AttributeFilterValue>
         {
-            [redAttribute.Id] = JsonElement.Parse($"[{redAttribute.GetListValue(0).Id}]") // Search by 'Color' = 'Red'
+            [redAttribute.Id] = new EnumAttributeFilterValue // Search by 'Color' = 'Red'
+            {
+                Ids = [redAttribute.GetListValue(0).Id]
+            }
         };
 
         var searchResult = await _issuesController
@@ -494,9 +497,12 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                             .WithAttributeValue(0, "53312")))));
         
         var issueNumberAttribute = organization.GetAttribute(0);
-        var searchFilters = new Dictionary<long, JsonElement>
+        var searchFilters = new Dictionary<long, AttributeFilterValue>
         {
-            [issueNumberAttribute.Id] = JsonElement.Parse("\"5331\"")
+            [issueNumberAttribute.Id] = new StringAttributeFilterValue
+            {
+                SearchString = "5331"
+            }
         };
 
         var searchResult = await _issuesController

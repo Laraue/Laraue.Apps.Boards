@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
@@ -403,72 +404,67 @@ public class IssuesService(
         {
             if (!filterTypes.TryGetValue(filter.Key, out var filterType))
             {
-                errors.Add(filter.Key, "Property was not found");
+                errors.Add(filter.Key, $"Filter with id: '{filter.Key}' is not found");
                 continue;
             }
 
-            if (filterType == AttributeType.Text)
+            query = filterType switch
             {
-                if (filter.Value.ValueKind != JsonValueKind.String)
-                {
-                    errors.Add(filter.Key, "String value was excepted");
-                    continue;
-                }
-
-                var filterValue = filter.Value.GetString();
-                if (string.IsNullOrEmpty(filterValue))
-                    continue;
-                
-                query = query.InnerJoin(
-                    context.IssueAttributeTextValues,
-                    (i, a) => i.Id == a.IssueId
-                        && a.AttributeId == filter.Key
-                        && a.Text.ILike(filterValue.AsSearchable()),
-                    (i, a) => i);
-            }
-
-            if (filterType == AttributeType.List)
-            {
-                if (filter.Value.ValueKind != JsonValueKind.Array)
-                {
-                    errors.Add(filter.Key, "Number array was excepted");
-                    continue;
-                }
-
-                var listAndValues = new List<long>();
-                var hasParsingErrors = false;
-                foreach (var arrayToken in filter.Value.EnumerateArray())
-                {
-                    if (arrayToken.ValueKind != JsonValueKind.Number)
-                    {
-                        errors.Add(filter.Key, $"Got: {arrayToken.GetString()}, but number was excepted");
-                        hasParsingErrors = true;
-                        continue;
-                    }
-                    
-                    listAndValues.Add(arrayToken.GetInt64());
-                }
-                
-                if (hasParsingErrors)
-                    continue;
-                
-                if (listAndValues.Count == 0)
-                    continue;
-                
-                query = query.InnerJoin(
-                    context.IssueAttributeListValues,
-                    (i, a) => i.Id == a.IssueId && a.AttributeId == filter.Key && ((IEnumerable<long>)listAndValues).Contains(a.AttributeListValueId),
-                    (i, a) => i);
-            }
+                AttributeType.Text => ApplyTextFilter(query, filter, errors),
+                AttributeType.List => ApplyEnumFilter(query, filter, errors),
+                _ => throw new InvalidOperationException($"Unsupported filter type '{filterType}'")
+            };
         }
 
-        if (errors.Any())
+        if (errors.Count != 0)
             throw new BadRequestException(new Dictionary<string, string?[]>
             {
                 [nameof(request.Filters)] = errors.Select(x => $"{x.Key}: {x.Value}").ToArray()
             });
 
         return query;
+    }
+
+    private IQueryable<Issue> ApplyTextFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not StringAttributeFilterValue stringValue)
+        {
+            errors.Add(filter.Key, $"String filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (string.IsNullOrEmpty(stringValue.SearchString))
+            return query;
+                
+        return query.InnerJoin(
+            context.IssueAttributeTextValues,
+            (i, a) => i.Id == a.IssueId
+                      && a.AttributeId == filter.Key
+                      && a.Text.ILike(stringValue.SearchString.AsSearchable()),
+            (i, a) => i);
+    }
+    
+    private IQueryable<Issue> ApplyEnumFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not EnumAttributeFilterValue enumValue)
+        {
+            errors.Add(filter.Key, $"Enum filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (enumValue.Ids.Length == 0)
+            return query;
+                
+        return query.InnerJoin(
+            context.IssueAttributeListValues,
+            (i, a) => i.Id == a.IssueId && a.AttributeId == filter.Key && ((IEnumerable<long>)enumValue.Ids).Contains(a.AttributeListValueId),
+            (i, a) => i);
     }
 
     public async Task<IssueDetailDto> GetIssue(
@@ -918,7 +914,7 @@ public record GetIssuesRequest : BatchRequest, IHasAttributeFilters
     public OrganizationAuthData AuthData { get; set; } = new();
     public long StatusId { get; set; }
     public string? SearchString { get; set; }
-    public Dictionary<long, JsonElement> Filters { get; set; } = new();
+    public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
 }
 
 public record GetIssueRequest
@@ -935,7 +931,7 @@ public record GetBoardRequest : IHasAttributeFilters
     [Range(1, 100)]
     public int Take { get; init; }
     public string? SearchString { get; init; }
-    public Dictionary<long, JsonElement> Filters { get; set; } = new();
+    public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
 }
 
 public record GetBoardSummaryRequest
@@ -1045,8 +1041,30 @@ public record UpdateIssueRequest
 
 public interface IHasAttributeFilters
 {
-    Dictionary<long, JsonElement> Filters { get; }
+    Dictionary<long, AttributeFilterValue> Filters { get; }
     public OrganizationAuthData AuthData { get; }
+}
+
+[JsonDerivedType(typeof(StringAttributeFilterValue), "string")]
+[JsonDerivedType(typeof(EnumAttributeFilterValue), "enum")]
+public abstract record AttributeFilterValue
+{
+}
+
+public record StringAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// String value to filter by.
+    /// </summary>
+    public required string SearchString { get; set; }
+}
+
+public record EnumAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// Enum identifiers to filter by.
+    /// </summary>
+    public required long[] Ids { get; set; }
 }
 
 public record SearchRequest : IPaginationData, IHasAttributeFilters
@@ -1057,7 +1075,7 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters
     public string? SearchString { get; set; }
     public int Page { get; init; }
     public int PerPage { get; init; }
-    public Dictionary<long, JsonElement> Filters { get; set; } = new();
+    public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
 }
 
 public class IssueDetailDto
