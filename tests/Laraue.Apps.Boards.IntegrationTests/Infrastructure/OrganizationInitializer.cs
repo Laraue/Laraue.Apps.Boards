@@ -188,7 +188,8 @@ public class OrganizationInitializer(
                         statusForIssue.Issues.Add(new Issue
                         {
                             Content = issue.Content,
-                            UserId = issue.CreatorId,
+                            OwnerId = issue.CreatorId,
+                            AssigneeId = issue.CreatorId,
                             CreatedAt = issue.Timestamp,
                             UpdatedAt = issue.Timestamp,
                             IssueNumber = new IssueNumber

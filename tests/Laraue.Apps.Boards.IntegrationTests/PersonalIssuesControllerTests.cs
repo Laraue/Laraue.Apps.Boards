@@ -39,6 +39,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 [noteAttribute.Id] = "My note",
                 [typeAttribute.Id] = typeAttribute.GetListValue(1).Id.ToString(), // Set ID of 'Feature' value
             },
+            AssigneeId = userId,
         };
         var issueId = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -50,7 +51,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(defaultStatus.Id, issue.StatusId);
         Assert.NotEqual(default, issue.CreatedAt);
         Assert.NotEqual(default, issue.UpdatedAt);
-        Assert.Equal(userId, issue.UserId);
+        Assert.Equal(userId, issue.OwnerId);
         
         var textAttribute = await testScope.Database.IssueAttributeTextValues.SingleAsyncEF();
         Assert.Equal(issue.Id, textAttribute.IssueId);
@@ -81,7 +82,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 new CreateIssueRequest
                 {
                     Content = "New Issue",
-                    StatusId = defaultStatus.Id
+                    StatusId = defaultStatus.Id,
+                    AssigneeId = userId,
                 }));
 
         var issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issueId);
@@ -94,7 +96,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 new CreateIssueRequest
                 {
                     Content = "New Issue",
-                    StatusId = defaultStatus.Id
+                    StatusId = defaultStatus.Id,
+                    AssigneeId = userId,
                 }));
 
         issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issueId);
@@ -128,6 +131,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 [noteAttribute.Id] = "My note",
                 [typeAttribute.Id] = typeAttribute.GetListValue(1).Id.ToString(), // Set ID of 'Feature' value
             },
+            AssigneeId = userId,
         };
         
         await _issuesController
@@ -241,7 +245,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.NotNull(issuesResult);
         var issueDto = Assert.Single(issuesResult.Data);
         Assert.Equal("Hi", issueDto.Content);
-        Assert.Equal("sn", issueDto.SenderInitial);
+        Assert.Equal("sn", issueDto.AssigneeInitial);
         Assert.Equal("snake1977", issueDto.Sender);
         Assert.Equal(status.Id, issueDto.StatusId);
         Assert.Equal(timestamp, issueDto.Time);
@@ -319,7 +323,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.False(backlogColumn.Items.HasNext);
         var backlogIssue = Assert.Single(backlogColumn.Items.Data);
         Assert.Equal("Deliver app", backlogIssue.Content);
-        Assert.Equal("sn", backlogIssue.SenderInitial);
+        Assert.Equal("sn", backlogIssue.AssigneeInitial);
         Assert.Equal("snake1977", backlogIssue.Sender);
         Assert.Equal(backlogStatus.Id, backlogIssue.StatusId);
         Assert.Equal(epic.Id, backlogIssue.EpicId);
@@ -366,7 +370,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var item = Assert.Single(searchResult.Data);
         
         Assert.Equal("Build app", item.Content);
-        Assert.Equal("sn", item.SenderInitial);
+        Assert.Equal("sn", item.AssigneeInitial);
         Assert.Equal("snake1977", item.Sender);
         Assert.Equal(backlogStatus.Id, item.StatusId);
         Assert.Equal(epic.Id, item.EpicId);

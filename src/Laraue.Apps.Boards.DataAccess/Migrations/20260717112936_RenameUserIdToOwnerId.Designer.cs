@@ -3,6 +3,7 @@ using System;
 using Laraue.Apps.Boards.DataAccess;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    partial class DatabaseContextModelSnapshot : ModelSnapshot
+    [Migration("20260717112936_RenameUserIdToOwnerId")]
+    partial class RenameUserIdToOwnerId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -220,10 +223,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<Guid>("AssigneeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("assignee_id");
-
                     b.Property<string>("Content")
                         .HasMaxLength(4096)
                         .HasColumnType("character varying(4096)")
@@ -251,9 +250,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_issues");
-
-                    b.HasIndex("AssigneeId")
-                        .HasDatabaseName("ix_issues_assignee_id");
 
                     b.HasIndex("Content")
                         .HasDatabaseName("ix_issues_content");
@@ -1042,13 +1038,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Issue", b =>
                 {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Assignee")
-                        .WithMany()
-                        .HasForeignKey("AssigneeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_issues_users_assignee_id");
-
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
                         .WithMany()
                         .HasForeignKey("OwnerId")
@@ -1067,8 +1056,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .WithOne("Issue")
                         .HasForeignKey("Laraue.Apps.Boards.DataAccess.Models.Issue", "TelegramMessageId")
                         .HasConstraintName("fk_issues_telegram_messages_telegram_message_id");
-
-                    b.Navigation("Assignee");
 
                     b.Navigation("Owner");
 

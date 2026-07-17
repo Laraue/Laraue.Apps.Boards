@@ -25,13 +25,13 @@ public class TelegramMessageServiceRepository(DatabaseContext databaseContext)
             .Where(x => x.Id == id)
             .Select(x => new MessageDto
             {
-                UserId = x.UserId,
+                UserId = x.OwnerId,
                 CategoryId = x.Status!.EpicId,
                 CategoryName = x.Status.Epic!.Name,
                 Id = x.Id,
                 StatusId = x.StatusId,
                 StatusName = x.Status!.Name,
-                UserTelegramId = x.User!.TelegramId,
+                UserTelegramId = x.Owner!.TelegramId,
                 TelegramMessageId = x.TelegramMessageId,
                 Content = x.Content,
             })

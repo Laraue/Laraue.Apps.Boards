@@ -49,11 +49,12 @@ public class CoreIssuesService(
         var issue = new Issue
         {
             Content = request.Text,
-            UserId = request.UserId,
+            OwnerId = request.UserId,
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.CreatedAt,
             TelegramMessageId = request.TelegramMessageId,
             StatusId = request.StatusId,
+            AssigneeId = request.AssigneeId ?? request.UserId,
         };
         
         var issueNumber = new IssueNumber
@@ -226,6 +227,12 @@ public class CoreIssuesService(
 public class CreateIssueRequest
 {
     public Guid UserId { get; set; }
+    
+    /// <summary>
+    /// Set the issue assignee. When the field is not set the creator id will be used.
+    /// </summary>
+    public Guid? AssigneeId { get; set; }
+    
     public required string? Text { get; set; }
     public required DateTime CreatedAt { get; set; }
     public long? TelegramMessageId { get; set; }
