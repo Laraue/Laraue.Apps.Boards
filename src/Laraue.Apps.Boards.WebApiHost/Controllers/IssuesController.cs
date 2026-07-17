@@ -24,6 +24,21 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             },
             cancellationToken);
     }
+
+    [HttpPost("by-status/{statusId:long}/search")]
+    public Task<BatchResult<IssueListDto>> SearchIssuesByStatus(
+        long statusId,
+        [FromBody] GetIssuesRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.GetIssues(
+            request with
+            {
+                StatusId = statusId,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
     
     
     [HttpGet("{id:long}")]
@@ -120,4 +135,4 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             },
             cancellationToken);
     }
-}   
+}
