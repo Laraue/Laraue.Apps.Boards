@@ -279,6 +279,65 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var issueDto = Assert.Single(issuesResult.Data);
         Assert.Equal("John", issueDto.Content);
     }
+
+    [Fact]
+    public async Task User_ShouldPageFilteredStatusIssues_WithStableSorting()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var older = new DateTime(2026, 01, 01, 0, 0, 0, DateTimeKind.Utc);
+        var newer = older.AddDays(1);
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddListAttribute("Priority", ["High", "Low"])
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Older high")
+                            .WithTimestamp(older)
+                            .WithAttributeValue(0, 0))
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Newer high")
+                            .WithTimestamp(newer)
+                            .WithAttributeValue(0, 0))
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Ignored low")
+                            .WithAttributeValue(0, 1)))));
+
+        var status = organization.GetStatus(1, 1, 0);
+        var priority = organization.GetAttribute(0);
+        var request = new GetIssuesRequest
+        {
+            Filters = new Dictionary<long, AttributeFilterValue>
+            {
+                [priority.Id] = new EnumAttributeFilterValue
+                {
+                    Ids = [priority.GetListValue(0).Id]
+                }
+            },
+            Sorting = new ByPropertyIssueSorting
+            {
+                Direction = SortingDirection.Descending,
+                Property = IssueProperty.UpdatedAt,
+            },
+            Skip = 0,
+            Take = 1,
+        };
+
+        var firstPage = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.SearchIssuesByStatus(status.Id, request));
+        request.Skip = 1;
+        var secondPage = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.SearchIssuesByStatus(status.Id, request));
+
+        Assert.Equal("Newer high", Assert.Single(firstPage!.Data).Content);
+        Assert.True(firstPage.HasNext);
+        Assert.Equal("Older high", Assert.Single(secondPage!.Data).Content);
+        Assert.False(secondPage.HasNext);
+    }
     
     [Fact]
     public async Task User_ShouldGetBoard_Always()
