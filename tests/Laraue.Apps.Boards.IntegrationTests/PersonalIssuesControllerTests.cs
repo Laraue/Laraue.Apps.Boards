@@ -34,11 +34,19 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         {
             Content = "New Issue",
             StatusId = defaultStatus.Id,
-            AttributeValues = new Dictionary<long, string>
-            {
-                [noteAttribute.Id] = "My note",
-                [typeAttribute.Id] = typeAttribute.GetListValue(1).Id.ToString(), // Set ID of 'Feature' value
-            },
+            AttributeValues =
+            [
+                new StringAttributeValue
+                {
+                    Value = "My note",
+                    AttributeId = noteAttribute.Id,
+                },
+                new EnumAttributeValue
+                {
+                    ValueId = typeAttribute.GetListValue(1).Id,
+                    AttributeId = typeAttribute.Id,  // Set ID of 'Feature' value
+                }
+            ],
             AssigneeId = userId,
         };
         var issueId = await _issuesController
@@ -126,11 +134,19 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var request = new UpdateIssueRequest
         {
             Content = "New",
-            AttributeValues = new Dictionary<long, string>
-            {
-                [noteAttribute.Id] = "My note",
-                [typeAttribute.Id] = typeAttribute.GetListValue(1).Id.ToString(), // Set ID of 'Feature' value
-            },
+            AttributeValues =
+            [
+                new StringAttributeValue
+                {
+                    Value = "My note",
+                    AttributeId = noteAttribute.Id,
+                },
+                new EnumAttributeValue
+                {
+                    ValueId = typeAttribute.GetListValue(1).Id,
+                    AttributeId = typeAttribute.Id,  // Set ID of 'Feature' value
+                }
+            ],
             AssigneeId = userId,
         };
         

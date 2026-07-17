@@ -169,7 +169,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new UpdateIssueRequest
                 {
                     Content = "New",
-                    AttributeValues = new Dictionary<long, string>(),
+                    AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
                 }));
 
@@ -199,7 +199,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new UpdateIssueRequest
                 {
                     Content = "New",
-                    AttributeValues = new Dictionary<long, string>(),
+                    AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
                 })));
         
@@ -229,7 +229,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new UpdateIssueRequest
                 {
                     Content = "New",
-                    AttributeValues = new Dictionary<long, string>(),
+                    AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
                 }));
 
@@ -259,7 +259,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new UpdateIssueRequest
                 {
                     Content = "New",
-                    AttributeValues = new Dictionary<long, string>(),
+                    AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = participatorId,
                 }));
 
