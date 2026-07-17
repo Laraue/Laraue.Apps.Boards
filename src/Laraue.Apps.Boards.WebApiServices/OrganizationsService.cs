@@ -370,6 +370,7 @@ public class OrganizationsService(
                         FirstName = x.User.TelegramFirstName,
                         LastName = x.User.TelegramLastName,
                         OrganizationUserId = x.Id,
+                        UserId = x.UserId,
                         Username = x.User.TelegramUserName,
                         Initials = null,
                         IsOwner = x.Organization!.OwnerId == x.UserId,
@@ -649,6 +650,7 @@ public record GetOrganizationJoinCodeRequest
 public record OrganizationMember
 {
     public long OrganizationUserId { get; set; }
+    public required Guid UserId { get; set; }
     public string? Username { get; set; }
     public string? FirstName { get; set; }
     public string? LastName { get; set; }

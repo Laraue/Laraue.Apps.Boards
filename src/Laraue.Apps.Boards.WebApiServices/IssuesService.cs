@@ -598,6 +598,7 @@ public class IssuesService(
             .Select(x => new IssueDetailDtoData
             {
                 Id = x.Id,
+                AssigneeId = x.AssigneeId,
                 Content = x.Content,
                 Time = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
@@ -654,6 +655,7 @@ public class IssuesService(
         return new IssueDetailDto
         {
             Id = result.Id,
+            AssigneeId = result.AssigneeId,
             Content = result.Content,
             Sender = sender.Sender,
             SenderInitial = sender.Initial,
@@ -1239,6 +1241,7 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
 public class IssueDetailDto
 {
     public required long Id { get; set; }
+    public required Guid AssigneeId { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required string? Sender { get; set; }
@@ -1277,6 +1280,7 @@ public record IssueAttributeListValueDto
 public class IssueDetailDtoData
 {
     public required long Id { get; set; }
+    public required Guid AssigneeId { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long TelegramId { get; set; }
