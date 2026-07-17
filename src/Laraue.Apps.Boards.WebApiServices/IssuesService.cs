@@ -676,57 +676,73 @@ public class IssuesService(
 
     private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
         long organizationId,
-        Dictionary<long, string> attributeValues,
+        AttributeValue[] attributeValues,
         CancellationToken ct)
     {
-        if (attributeValues.Count == 0)
+        if (attributeValues.Length == 0)
             return [];
+
+        var uniqueValues = attributeValues
+            .DistinctBy(x => x.AttributeId)
+            .ToArray();
         
         var requests = new List<UpdateIssueAttributeRequest>();
         var attributeValidationErrors = new List<string>();
         
         var attributes = await context.Attributes
             .Where(x => x.OrganizationId == organizationId)
-            .Where(x => attributeValues.Keys.Contains(x.Id))
+            .Where(x => uniqueValues.Select(v => v.AttributeId).Contains(x.Id))
             .Select(x => new { x.Id, x.AttributeType })
             .ToDictionaryAsyncEF(x => x.Id, x => x.AttributeType, ct);
 
-        foreach (var attribute in attributeValues)
+        foreach (var attribute in uniqueValues)
         {
-            if (!attributes.TryGetValue(attribute.Key, out var attributeType))
-                attributeValidationErrors.Add($"Attribute: {attribute.Key} is not found");
+            if (!attributes.TryGetValue(attribute.AttributeId, out var attributeType))
+                attributeValidationErrors.Add($"Attribute: {attribute.AttributeId} is not found");
 
             switch (attributeType)
             {
                 case AttributeType.List:
                 {
-                    if (!long.TryParse(attribute.Value, out var value))
+                    if (attribute is not EnumAttributeValue enumAttributeValue)
                     {
-                        attributeValidationErrors.Add($"Value: {value} is not a number");
+                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be an enum attribute value");
                         continue;
                     }
                     
                     requests.Add(
                         new UpdateIssueListAttributeRequest
                         {
-                            Id = attribute.Key,
-                            Value = value
+                            Id = enumAttributeValue.AttributeId,
+                            Value = enumAttributeValue.ValueId
                         });
                     break;
                 }
-                case AttributeType.Text when attribute.Value.Length > 255:
-                    attributeValidationErrors.Add($"Value: '{attribute.Value}' length is more than 255 characters");
-                    continue;
                 case AttributeType.Text:
+                {
+                    if (attribute is not StringAttributeValue stringAttributeValue)
+                    {
+                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a string attribute value");
+                        continue;
+                    }
+
+                    if (stringAttributeValue.Value.Length > 255)
+                    {
+                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' value should be less or equal to 255 characters");
+                        continue;
+                    }
+                    
                     requests.Add(
                         new UpdateIssueTextAttributeRequest
                         {
-                            Id = attribute.Key,
-                            Value = attribute.Value,
+                            Id = stringAttributeValue.AttributeId,
+                            Value = stringAttributeValue.Value,
                         });
                     break;
+                }
+                    
                 default:
-                    throw new NotImplementedException();
+                    throw new InvalidOperationException($"Attribute type {attributeType} is not supported");
             }
         }
 
@@ -1145,7 +1161,24 @@ public record CreateIssueRequest
     public long StatusId { get; set; }
     public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
-    public Dictionary<long, string> AttributeValues { get; set; } = new();
+    public AttributeValue[] AttributeValues { get; set; } = [];
+}
+
+[JsonDerivedType(typeof(EnumAttributeValue), "enum")]
+[JsonDerivedType(typeof(StringAttributeValue), "string")]
+public abstract record AttributeValue
+{
+    public long AttributeId { get; set; }
+}
+
+public record EnumAttributeValue : AttributeValue
+{
+    public required long ValueId { get; set; }
+}
+
+public record StringAttributeValue : AttributeValue
+{
+    public required string Value { get; set; }
 }
 
 public record UpdateIssueRequest
@@ -1154,7 +1187,7 @@ public record UpdateIssueRequest
     public long Id { get; set; }
     public required string Content { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required Dictionary<long, string> AttributeValues { get; set; }
+    public required AttributeValue[] AttributeValues { get; set; }
 }
 
 public interface IHasAttributeFilters
