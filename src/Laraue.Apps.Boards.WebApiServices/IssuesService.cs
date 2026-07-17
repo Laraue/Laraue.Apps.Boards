@@ -599,6 +599,9 @@ public class IssuesService(
             {
                 Id = x.Id,
                 AssigneeId = x.AssigneeId,
+                AssigneeTelegramFirstName = x.Assignee!.TelegramFirstName,
+                AssigneeTelegramLastName = x.Assignee.TelegramLastName,
+                AssigneeTelegramUsername = x.Assignee.TelegramUserName,
                 Content = x.Content,
                 Time = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
@@ -625,6 +628,10 @@ public class IssuesService(
             result.TelegramUsername,
             result.TelegramFirstName,
             result.TelegramLastName);
+        var assignee = UserInitialsUtility.GetInitials(
+            result.AssigneeTelegramUsername,
+            result.AssigneeTelegramFirstName,
+            result.AssigneeTelegramLastName);
 
         var attributeValues = await context.Attributes
             .Where(x => x.OrganizationId == result.OrganizationId)
@@ -656,8 +663,10 @@ public class IssuesService(
         {
             Id = result.Id,
             AssigneeId = result.AssigneeId,
+            Assignee = assignee.DisplayName,
+            AssigneeInitial = assignee.Initial,
             Content = result.Content,
-            Sender = sender.Sender,
+            Sender = sender.DisplayName,
             SenderInitial = sender.Initial,
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
@@ -805,7 +814,7 @@ public class IssuesService(
                 Id = element.Id,
                 Content = element.Content,
                 Key = element.Key,
-                Sender = element.Sender,
+                Assignee = element.Assignee,
                 AssigneeColor = element.AssigneeColor,
                 Time = element.Time,
                 Media = element.Media,
@@ -1031,7 +1040,7 @@ public class IssuesService(
             StatusId = source.StatusId,
             Content = source.Content,
             EpicId = source.EpicId,
-            Sender = assigneeData.Sender,
+            Assignee = assigneeData.DisplayName,
             AssigneeInitial = assigneeData.Initial,
             Time = source.Time,
             AssigneeColor = source.AssigneeUserColor,
@@ -1107,7 +1116,7 @@ public record IssueListDto : ICanContainMedia
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
-    public required string? Sender { get; set; }
+    public required string Assignee { get; set; }
     public required string Key { get; set; }
     public string? AssigneeInitial { get; set; }
     public required string AssigneeColor { get; set; }
@@ -1242,6 +1251,8 @@ public class IssueDetailDto
 {
     public required long Id { get; set; }
     public required Guid AssigneeId { get; set; }
+    public required string Assignee { get; set; }
+    public required string AssigneeInitial { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required string? Sender { get; set; }
@@ -1281,6 +1292,9 @@ public class IssueDetailDtoData
 {
     public required long Id { get; set; }
     public required Guid AssigneeId { get; set; }
+    public required string? AssigneeTelegramUsername { get; set; }
+    public required string? AssigneeTelegramFirstName { get; set; }
+    public required string? AssigneeTelegramLastName { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long TelegramId { get; set; }

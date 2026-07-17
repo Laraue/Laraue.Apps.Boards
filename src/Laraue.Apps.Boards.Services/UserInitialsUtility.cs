@@ -7,36 +7,36 @@ public static class UserInitialsUtility
         string? firstName,
         string? lastName)
     {
-        var sender = username;
-        var initial = sender?.Length > 1 ? sender[..2] : "";
+        var displayName = username;
+        var initial = displayName?.Length > 1 ? displayName[..2] : "";
 
-        if (sender is null)
+        if (displayName is null)
         {
             if (firstName?.Length > 0 && lastName?.Length > 0)
             {
-                sender = $"{firstName} {lastName}";
+                displayName = $"{firstName} {lastName}";
                 initial = $"{firstName[0]}{lastName[0]}";
             }
             else if (firstName?.Length > 1)
             {
-                sender = firstName;
+                displayName = firstName;
                 initial = firstName[..1];
             }
             else if (lastName?.Length > 1)
             {
-                sender = lastName;
+                displayName = lastName;
                 initial = lastName[..1];
             }
             else
             {
-                sender = "Unknown";
+                displayName = "Unknown";
                 initial = "UN";
             }
         }
 
         return new UserInitials
         {
-            Sender = sender,
+            DisplayName = displayName,
             Initial = initial
         };
     }
@@ -44,6 +44,6 @@ public static class UserInitialsUtility
 
 public class UserInitials
 {
-    public required string Sender { get; set; }
+    public required string DisplayName { get; set; }
     public required string Initial { get; set; }
 }
