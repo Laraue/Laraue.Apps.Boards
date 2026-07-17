@@ -23,10 +23,16 @@ public class Issue
     public DateTime UpdatedAt { get; set; }
     
     /// <summary>
-    /// The user messages belongs to.
+    /// The user which created the issue.
     /// </summary>
-    public Guid UserId { get; set; }
-    public User? User { get; set; }
+    public Guid OwnerId { get; set; }
+    public User? Owner { get; set; }
+    
+    /// <summary>
+    /// The user issue was assigned to
+    /// </summary>
+    public Guid AssigneeId { get; set; }
+    public User? Assignee { get; set; }
 
     /// <summary>
     /// Actual message status.

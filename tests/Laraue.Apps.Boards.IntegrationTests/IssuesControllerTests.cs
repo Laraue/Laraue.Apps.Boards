@@ -27,6 +27,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     Content = "New Issue",
                     StatusId = status.Id,
+                    AssigneeId = userId,
                 }));
 
         var issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issueId);
@@ -54,7 +55,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new CreateIssueRequest
                 {
                     Content = "New Issue",
-                    StatusId = status.Id
+                    StatusId = status.Id,
+                    AssigneeId = userId,
                 })));
         
         var notFound = ex.HasInnerException<NotFoundException>();
@@ -81,11 +83,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new CreateIssueRequest
                 {
                     Content = "New Issue",
-                    StatusId = status.Id
+                    StatusId = status.Id,
+                    AssigneeId = userId,
                 }));
 
         var issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issueId);
         Assert.Equal("New Issue", issue.Content);
+        Assert.Equal(userId, issue.AssigneeId);
     }
     
     [Fact]
@@ -108,11 +112,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new CreateIssueRequest
                 {
                     Content = "New Issue",
-                    StatusId = status.Id
+                    StatusId = status.Id,
+                    AssigneeId = participatorId,
                 }));
 
         var issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issueId);
         Assert.Equal("New Issue", issue.Content);
+        Assert.Equal(participatorId, issue.AssigneeId);
     }
     
     [Fact]
@@ -136,7 +142,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 new CreateIssueRequest
                 {
                     Content = "New Issue",
-                    StatusId = statusWhereSpaceAccessMissing.Id
+                    StatusId = statusWhereSpaceAccessMissing.Id,
+                    AssigneeId = participatorId,
                 })));
         
         var notFound = ex.HasInnerException<NotFoundException>();
@@ -163,6 +170,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     Content = "New",
                     AttributeValues = new Dictionary<long, string>(),
+                    AssigneeId = userId,
                 }));
 
         issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
@@ -192,6 +200,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     Content = "New",
                     AttributeValues = new Dictionary<long, string>(),
+                    AssigneeId = userId,
                 })));
         
         var notFound = ex.HasInnerException<ForbiddenException>();
@@ -221,6 +230,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     Content = "New",
                     AttributeValues = new Dictionary<long, string>(),
+                    AssigneeId = userId,
                 }));
 
         issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
@@ -250,10 +260,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     Content = "New",
                     AttributeValues = new Dictionary<long, string>(),
+                    AssigneeId = participatorId,
                 }));
 
         issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
         Assert.Equal("New", issue.Content);
+        Assert.Equal(participatorId, issue.AssigneeId);
     }
     
     [Fact]

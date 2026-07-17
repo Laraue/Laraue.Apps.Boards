@@ -52,6 +52,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasIndex(x => x.Content)
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops");
+
+            entity.HasIndex(x => x.AssigneeId);
         });
         
         modelBuilder.Entity<IssueNumber>(entity =>

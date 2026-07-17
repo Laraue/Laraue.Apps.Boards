@@ -8,8 +8,12 @@ namespace Laraue.Apps.Boards.Services;
 
 public interface IOrganizationAccessService
 {
-    Task<T> GetAvailable<T>(
+    Task<T> GetOrganizations<T>(
         Guid userId,
+        Func<IQueryable<OrganizationUser>, Task<T>> map);
+    
+    Task<T> GetOrganizationMembers<T>(
+        long organizationId,
         Func<IQueryable<OrganizationUser>, Task<T>> map);
     
     Task CanCreateSpacesOrThrow(
@@ -25,10 +29,18 @@ public interface IOrganizationAccessService
 
 public class OrganizationAccessService(DatabaseContext context) : IOrganizationAccessService
 {
-    public Task<T> GetAvailable<T>(Guid userId, Func<IQueryable<OrganizationUser>, Task<T>> map)
+    public Task<T> GetOrganizations<T>(Guid userId, Func<IQueryable<OrganizationUser>, Task<T>> map)
     {
         var query = context.OrganizationUsers
             .Where(x => x.UserId == userId);
+        
+        return map(query);
+    }
+
+    public Task<T> GetOrganizationMembers<T>(long organizationId, Func<IQueryable<OrganizationUser>, Task<T>> map)
+    {
+        var query = context.OrganizationUsers
+            .Where(x => x.OrganizationId == organizationId);
         
         return map(query);
     }
@@ -38,7 +50,7 @@ public class OrganizationAccessService(DatabaseContext context) : IOrganizationA
         Guid userId,
         CancellationToken cancellationToken)
     {
-        var result = await GetAvailable(userId, (organizationUsers) =>
+        var result = await GetOrganizations(userId, (organizationUsers) =>
         {
             return organizationUsers
                 .Where(ou => ou.OrganizationId == organizationId)
@@ -51,7 +63,7 @@ public class OrganizationAccessService(DatabaseContext context) : IOrganizationA
 
     public async Task HasAccessOrThrow(OrganizationAuthData authData, AdminAccessLevel accessLevel, CancellationToken cancellationToken)
     {
-        var result = await GetAvailable(authData.UserId, (organizationUsers) =>
+        var result = await GetOrganizations(authData.UserId, (organizationUsers) =>
         {
             return organizationUsers
                 .Where(ou => ou.OrganizationId == authData.OrganizationId)

@@ -101,7 +101,7 @@ public class OrganizationsService(
         GetOrganizationsRequest request,
         CancellationToken cancellationToken)
     {
-        var allOrganizations = await organizationAccessService.GetAvailable(
+        var allOrganizations = await organizationAccessService.GetOrganizations(
             request.UserId,
             organizationUsers => organizationUsers
                 .OrderByDescending(x => x.Organization!.Type)
@@ -126,7 +126,7 @@ public class OrganizationsService(
 
     public async Task<OrganizationDto> GetOrganization(GetOrganizationRequest request, CancellationToken cancellationToken)
     {
-        var organization = await organizationAccessService.GetAvailable(
+        var organization = await organizationAccessService.GetOrganizations(
             request.AuthData.UserId,
             organizations => organizations
                 .Where(o => o.OrganizationId == request.AuthData.OrganizationId)
@@ -344,7 +344,7 @@ public class OrganizationsService(
 
     public async Task<string> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.GetAvailable(
+        await organizationAccessService.GetOrganizations(
             request.UserId,
             organizations => organizations
                 .Where(o => o.UserId == request.UserId)
@@ -359,25 +359,24 @@ public class OrganizationsService(
         GetOrganizationMembersRequest request,
         CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
-            request.AuthData,
-            AdminAccessLevel.Manage,
-            cancellationToken);
-
-        var data = await context.OrganizationUsers
-            .Where(o => o.OrganizationId == request.AuthData.OrganizationId)
-            .Select(x => new OrganizationMember
+        var data = await organizationAccessService.GetOrganizationMembers(
+            request.AuthData.OrganizationId,
+            query =>
             {
-                Color = x.User!.Color,
-                FirstName = x.User.TelegramFirstName,
-                LastName = x.User.TelegramLastName,
-                OrganizationUserId = x.Id,
-                Username = x.User.TelegramUserName,
-                Initials = null,
-                IsOwner = x.Organization!.OwnerId == x.UserId,
-                AdminAccessLevel = x.AdminAccessLevel,
-            })
-            .ToArrayAsyncEF(cancellationToken);
+                return query
+                    .Select(x => new OrganizationMember
+                    {
+                        Color = x.User!.Color,
+                        FirstName = x.User.TelegramFirstName,
+                        LastName = x.User.TelegramLastName,
+                        OrganizationUserId = x.Id,
+                        Username = x.User.TelegramUserName,
+                        Initials = null,
+                        IsOwner = x.Organization!.OwnerId == x.UserId,
+                        AdminAccessLevel = x.AdminAccessLevel,
+                    })
+                    .ToArrayAsyncEF(cancellationToken);
+            });
 
         foreach (var item in data)
         {

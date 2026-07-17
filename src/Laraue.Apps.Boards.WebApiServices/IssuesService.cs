@@ -57,7 +57,8 @@ public class IssuesService(
     DatabaseContext context,
     ICoreIssuesService issuesService,
     IAccessService accessService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IOrganizationAccessService organizationAccessService)
     : IIssuesService
 {
     public async Task<BatchResult<IssueListDto>> GetIssues(
@@ -297,6 +298,8 @@ public class IssuesService(
         if (!issuesAccessLevel.CanCreateIssue)
             throw new NotFoundException($"Status: {request.StatusId} issue creation is forbidden");
         
+        await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
+        
         var attributeUpdateRequests = await GetAttributeUpdateRequests(
             request.AuthData.OrganizationId,
             request.AttributeValues,
@@ -311,6 +314,7 @@ public class IssuesService(
                 Text = request.Content,
                 UserId = request.AuthData.UserId,
                 StatusId = request.StatusId,
+                AssigneeId = request.AssigneeId,
             },
             ct);
         
@@ -334,6 +338,8 @@ public class IssuesService(
         if (!accessLevels.CanUpdateIssue)
             throw new ForbiddenException($"Issue: {request.Id} update is forbidden");
         
+        await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
+        
         var attributeUpdateRequests = await GetAttributeUpdateRequests(
             request.AuthData.OrganizationId,
             request.AttributeValues,
@@ -344,13 +350,32 @@ public class IssuesService(
         await issuesService.Update(
             request.Id,
             upd => upd
-                .SetProperty(x => x.Content, request.Content),
+                .SetProperty(x => x.Content, request.Content)
+                .SetProperty(x => x.AssigneeId, request.AssigneeId),
             ct);
         await issuesService.UpdateAttributes(request.Id, attributeUpdateRequests, ct);
             
         await transaction.CommitAsync(ct);
     }
 
+    private async Task EnsureUserBelongsToOrganization(
+        OrganizationAuthData authData,
+        Guid userId,
+        CancellationToken ct)
+    {
+        var userExists = await organizationAccessService.GetOrganizationMembers(
+            authData.OrganizationId,
+            members =>
+            {
+                return members
+                    .Where(x => x.UserId == userId)
+                    .AnyAsyncEF(ct);
+            });
+        
+        if (!userExists)
+            throw new NotFoundException($"User: {userId} is not belongs to organization");
+    }
+    
     public async Task<ShortPaginatedResult<SearchIssueDto>> Search(
         SearchRequest request,
         CancellationToken ct)
@@ -580,10 +605,10 @@ public class IssuesService(
                 CategoryName = x.Status!.Epic!.Name,
                 StatusId = x.StatusId,
                 StatusName = x.Status!.Epic!.IsDefault ? null : x.Status!.Name,
-                TelegramFirstName = x.User!.TelegramFirstName,
-                TelegramLastName = x.User!.TelegramLastName,
-                TelegramId = x.User.TelegramId,
-                TelegramUsername = x.User.TelegramUserName,
+                TelegramFirstName = x.Owner!.TelegramFirstName,
+                TelegramLastName = x.Owner!.TelegramLastName,
+                TelegramId = x.Owner.TelegramId,
+                TelegramUsername = x.Owner.TelegramUserName,
                 CategoryColor = x.Status.Epic.Color,
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
                 OrganizationId = x.Status.Epic.Space!.OrganizationId,
@@ -763,10 +788,10 @@ public class IssuesService(
                 Content = element.Content,
                 Key = element.Key,
                 Sender = element.Sender,
-                SenderColor = element.SenderColor,
+                AssigneeColor = element.AssigneeColor,
                 Time = element.Time,
                 Media = element.Media,
-                SenderInitial = element.SenderInitial,
+                AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
             });
         }
@@ -964,11 +989,11 @@ public class IssuesService(
             Time = x.CreatedAt,
             EpicId = x.Status!.EpicId,
             StatusId = x.StatusId,
-            TelegramFirstName = x.User!.TelegramFirstName,
-            TelegramLastName = x.User!.TelegramLastName,
-            TelegramId = x.User.TelegramId,
-            TelegramUsername = x.User.TelegramUserName,
-            UserColor = x.User.Color,
+            AssigneeTelegramFirstName = x.Assignee!.TelegramFirstName,
+            AssigneeTelegramLastName = x.Assignee!.TelegramLastName,
+            AssigneeTelegramId = x.Assignee.TelegramId,
+            AssigneeTelegramUsername = x.Assignee.TelegramUserName,
+            AssigneeUserColor = x.Assignee.Color,
             Number = x.IssueNumber!.Number,
             SpaceKey = x.Status.Epic!.Space!.Key,
             SpaceId = x.Status.Epic.SpaceId
@@ -977,10 +1002,10 @@ public class IssuesService(
     
     private static IssueListDto Map(IssueListDtoData source)
     {
-        var senderData = UserInitialsUtility.GetInitials(
-            source.TelegramUsername,
-            source.TelegramFirstName,
-            source.TelegramLastName);
+        var assigneeData = UserInitialsUtility.GetInitials(
+            source.AssigneeTelegramUsername,
+            source.AssigneeTelegramFirstName,
+            source.AssigneeTelegramLastName);
 
         return new IssueListDto
         {
@@ -988,10 +1013,10 @@ public class IssuesService(
             StatusId = source.StatusId,
             Content = source.Content,
             EpicId = source.EpicId,
-            Sender = senderData.Sender,
-            SenderInitial = senderData.Initial,
+            Sender = assigneeData.Sender,
+            AssigneeInitial = assigneeData.Initial,
             Time = source.Time,
-            SenderColor = source.UserColor,
+            AssigneeColor = source.AssigneeUserColor,
             Key = $"{source.SpaceKey}-{source.Number}",
             SpaceId = source.SpaceId,
         };
@@ -1041,12 +1066,12 @@ public class IssueListDtoData
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
-    public required long TelegramId { get; set; }
-    public required string? TelegramUsername { get; set; }
-    public required string? TelegramFirstName { get; set; }
-    public required string? TelegramLastName { get; set; }
+    public required long AssigneeTelegramId { get; set; }
+    public required string? AssigneeTelegramUsername { get; set; }
+    public required string? AssigneeTelegramFirstName { get; set; }
+    public required string? AssigneeTelegramLastName { get; set; }
     public required string? Content { get; set; }
-    public required string UserColor { get; set; }
+    public required string AssigneeUserColor { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
     public required int Number { get; set; }
@@ -1066,8 +1091,8 @@ public record IssueListDto : ICanContainMedia
     public required DateTime Time { get; set; }
     public required string? Sender { get; set; }
     public required string Key { get; set; }
-    public string? SenderInitial { get; set; }
-    public required string SenderColor { get; set; }
+    public string? AssigneeInitial { get; set; }
+    public required string AssigneeColor { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
@@ -1118,6 +1143,7 @@ public record CreateIssueRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public long StatusId { get; set; }
+    public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
     public Dictionary<long, string> AttributeValues { get; set; } = new();
 }
@@ -1127,6 +1153,7 @@ public record UpdateIssueRequest
     public OrganizationAuthData AuthData { get; set; } = new();
     public long Id { get; set; }
     public required string Content { get; set; }
+    public required Guid AssigneeId { get; set; }
     public required Dictionary<long, string> AttributeValues { get; set; }
 }
 
