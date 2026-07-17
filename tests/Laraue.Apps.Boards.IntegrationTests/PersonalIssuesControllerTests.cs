@@ -1,5 +1,6 @@
-﻿using System.Text.Json;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using LinqToDB.EntityFrameworkCore;
@@ -518,5 +519,114 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.NotNull(searchResult);
         var result = Assert.Single(searchResult.Data);
         Assert.Equal("Deliver app", result.Content);
+    }
+    
+    [Theory]
+    [InlineData(SortingDirection.Ascending)]
+    [InlineData(SortingDirection.Descending)]
+    public async Task User_ShouldSearchIssues_WhenSortingByEnumProperty(SortingDirection direction)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddListAttribute("Color", ["Red", "Green"])
+                .AddSpace(userId, "SP2", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Build app")
+                            .WithAttributeValue(0, 0)) // Color is 'Red'
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Deliver app")
+                            .WithAttributeValue(0, 1))))); // Color is 'Green'
+        
+        var redAttribute = organization.GetAttribute(0);
+
+        var searchResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Sorting = new ByAttributeIssueSorting
+                    {
+                        AttributeId = redAttribute.Id,
+                        Direction = direction,
+                    }
+                }));
+        
+        Assert.NotNull(searchResult);
+        string[] excepted = direction == SortingDirection.Ascending
+            ? ["Build app", "Deliver app"]
+            : ["Deliver app", "Build app"];
+        Assert.Equal(excepted, searchResult.Data.Select(x => x.Content));
+    }
+    
+    [Theory]
+    [InlineData(SortingDirection.Ascending)]
+    [InlineData(SortingDirection.Descending)]
+    public async Task User_ShouldSearchIssues_WhenSortingByCreatedAt(SortingDirection direction)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "SP2", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Build app"))
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Deliver app")))));
+
+        var searchResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Sorting = new ByPropertyIssueSorting
+                    {
+                        Property = IssueProperty.CreatedAt,
+                        Direction = direction,
+                    }
+                }));
+        
+        Assert.NotNull(searchResult);
+        string[] excepted = direction == SortingDirection.Ascending
+            ? ["Build app", "Deliver app"]
+            : ["Deliver app", "Build app"];
+        Assert.Equal(excepted, searchResult.Data.Select(x => x.Content));
+    }
+    
+    [Fact]
+    public async Task User_ShouldSearchIssues_WhenSortingIsNotSet()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "SP2", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Build app"))
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Deliver app")))));
+
+        var searchResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10
+                }));
+        
+        Assert.NotNull(searchResult);
+        Assert.Equal(["Deliver app", "Build app"], searchResult.Data.Select(x => x.Content));
     }
 }
