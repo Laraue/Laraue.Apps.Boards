@@ -570,7 +570,7 @@ public record GetOrganizationRequest
 
 public record OrganizationListDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Name { get; set; }
     public required string? Color { get; set; }
     public required bool CanUpdate { get; set; }
@@ -583,7 +583,7 @@ public record OrganizationListDto
 
 public record OrganizationDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Name { get; set; }
     public required string? Color { get; set; }
     public required bool CanCreateSpaces { get; set; }

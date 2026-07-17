@@ -1,9 +1,11 @@
 ﻿using System.ComponentModel.DataAnnotations;
-using System.Text.Json;
+using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DataAccess.Extensions;
@@ -12,6 +14,7 @@ using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
+using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -77,6 +80,7 @@ public class IssuesService(
             .Where(i => i.StatusId == request.StatusId);
 
         query = await ApplyFilters(query, request, cancellationToken);
+        query = await ApplySorting(query, request, cancellationToken);
             
         if (!string.IsNullOrEmpty(request.SearchString))
         {
@@ -85,8 +89,7 @@ public class IssuesService(
                     .ILike(request.SearchString.AsSearchable()));
         }
 
-        var ordered = query.OrderByDescending(x => x.Id);
-        var temporaryResult = ProjectToTemporaryDto(ordered);
+        var temporaryResult = ProjectToTemporaryDto(query);
         var result = await ToBatchResult(temporaryResult, request, cancellationToken);
 
         var projected = result.Data
@@ -145,6 +148,7 @@ public class IssuesService(
         
         var commonQuery = context.Issues.AsQueryable();
         commonQuery = await ApplyFilters(commonQuery, request, cancellationToken);
+        commonQuery = await ApplySorting(commonQuery, request, cancellationToken);
         
         foreach (var statusId in statusIds)
         {
@@ -155,8 +159,7 @@ public class IssuesService(
                 query = query
                     .Where(x => x.Content!.ILike(request.SearchString.AsSearchable()));
             
-            var statusResult = await ProjectToTemporaryDto(query
-                .OrderByDescending(x => x.Id))
+            var statusResult = await ProjectToTemporaryDto(query)
                 .FullPaginateLinq2DbAsync(
                     new PaginationData
                     {
@@ -363,12 +366,13 @@ public class IssuesService(
                     issues = issues.Where(x => ((IEnumerable<long>)request.SpaceIds).Contains(x.Status!.Epic!.SpaceId));
                 
                 issues = await ApplyFilters(issues, request, ct);
+                issues = await ApplySorting(issues, request, ct);
         
                 if (!string.IsNullOrEmpty(request.SearchString))
                     issues = issues
                         .Where(x => x.Content!.ILike(request.SearchString.AsSearchable()));
 
-                return await ProjectToTemporaryDto(issues.OrderByDescending(i => i.Id))
+                return await ProjectToTemporaryDto(issues)
                     .ShortPaginateLinq2DbAsync(request, ct);
             }, ct);
         
@@ -392,8 +396,7 @@ public class IssuesService(
         if (request.Filters.Count == 0)
             return query;
 
-        var filterTypes = await context.Attributes
-            .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
+        var filterTypes = await GetAllowedOrganizationAttributesQuery(request.AuthData)
             .Where(x => request.Filters.Keys.Any(y => y == x.Id))
             .ToDictionaryAsyncEF(x => x.Id, x => x.AttributeType, cancellationToken);
 
@@ -403,72 +406,154 @@ public class IssuesService(
         {
             if (!filterTypes.TryGetValue(filter.Key, out var filterType))
             {
-                errors.Add(filter.Key, "Property was not found");
+                errors.Add(filter.Key, $"Filter with id: '{filter.Key}' is not found");
                 continue;
             }
 
-            if (filterType == AttributeType.Text)
+            query = filterType switch
             {
-                if (filter.Value.ValueKind != JsonValueKind.String)
-                {
-                    errors.Add(filter.Key, "String value was excepted");
-                    continue;
-                }
-
-                var filterValue = filter.Value.GetString();
-                if (string.IsNullOrEmpty(filterValue))
-                    continue;
-                
-                query = query.InnerJoin(
-                    context.IssueAttributeTextValues,
-                    (i, a) => i.Id == a.IssueId
-                        && a.AttributeId == filter.Key
-                        && a.Text.ILike(filterValue.AsSearchable()),
-                    (i, a) => i);
-            }
-
-            if (filterType == AttributeType.List)
-            {
-                if (filter.Value.ValueKind != JsonValueKind.Array)
-                {
-                    errors.Add(filter.Key, "Number array was excepted");
-                    continue;
-                }
-
-                var listAndValues = new List<long>();
-                var hasParsingErrors = false;
-                foreach (var arrayToken in filter.Value.EnumerateArray())
-                {
-                    if (arrayToken.ValueKind != JsonValueKind.Number)
-                    {
-                        errors.Add(filter.Key, $"Got: {arrayToken.GetString()}, but number was excepted");
-                        hasParsingErrors = true;
-                        continue;
-                    }
-                    
-                    listAndValues.Add(arrayToken.GetInt64());
-                }
-                
-                if (hasParsingErrors)
-                    continue;
-                
-                if (listAndValues.Count == 0)
-                    continue;
-                
-                query = query.InnerJoin(
-                    context.IssueAttributeListValues,
-                    (i, a) => i.Id == a.IssueId && a.AttributeId == filter.Key && ((IEnumerable<long>)listAndValues).Contains(a.AttributeListValueId),
-                    (i, a) => i);
-            }
+                AttributeType.Text => ApplyTextFilter(query, filter, errors),
+                AttributeType.List => ApplyEnumFilter(query, filter, errors),
+                _ => throw new InvalidOperationException($"Unsupported filter type '{filterType}'")
+            };
         }
 
-        if (errors.Any())
+        if (errors.Count != 0)
             throw new BadRequestException(new Dictionary<string, string?[]>
             {
                 [nameof(request.Filters)] = errors.Select(x => $"{x.Key}: {x.Value}").ToArray()
             });
 
         return query;
+    }
+
+    private IQueryable<Attribute> GetAllowedOrganizationAttributesQuery(OrganizationAuthData authData)
+    {
+        return context.Attributes
+            .Where(x => x.OrganizationId == authData.OrganizationId);
+    }
+
+    private IQueryable<Issue> ApplyTextFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not StringAttributeFilterValue stringValue)
+        {
+            errors.Add(filter.Key, $"String filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (string.IsNullOrEmpty(stringValue.SearchString))
+            return query;
+                
+        return query.InnerJoin(
+            context.IssueAttributeTextValues,
+            (i, a) => i.Id == a.IssueId
+                      && a.AttributeId == filter.Key
+                      && a.Text.ILike(stringValue.SearchString.AsSearchable()),
+            (i, a) => i);
+    }
+    
+    private IQueryable<Issue> ApplyEnumFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not EnumAttributeFilterValue enumValue)
+        {
+            errors.Add(filter.Key, $"Enum filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (enumValue.Ids.Length == 0)
+            return query;
+                
+        return query.InnerJoin(
+            context.IssueAttributeListValues,
+            (i, a) => i.Id == a.IssueId && a.AttributeId == filter.Key && ((IEnumerable<long>)enumValue.Ids).Contains(a.AttributeListValueId),
+            (i, a) => i);
+    }
+    
+    private Task<IQueryable<Issue>> ApplySorting(
+        IQueryable<Issue> query,
+        IHasSorting request,
+        CancellationToken cancellationToken = default)
+    {
+        return request.Sorting switch
+        {
+            null =>
+                Task.FromResult<IQueryable<Issue>>(query.OrderByDescending(x => x.CreatedAt)),
+            ByAttributeIssueSorting byAttributeIssueSorting =>
+                ApplyByAttributeSorting(query, byAttributeIssueSorting, request.AuthData, cancellationToken),
+            ByPropertyIssueSorting byPropertyIssueSorting =>
+                Task.FromResult(ApplyByPropertySorting(query, byPropertyIssueSorting)),
+            _ =>
+                throw new InvalidOperationException($"Unsupported sorting type '{request.Sorting}'")
+        };
+    }
+
+    private async Task<IQueryable<Issue>> ApplyByAttributeSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken = default)
+    {
+        var attribute = await GetAllowedOrganizationAttributesQuery(authData)
+            .Where(x => x.Id == sorting.AttributeId)
+            .Select(x => new { x.AttributeType })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (attribute is null)
+            throw new BadRequestException(
+                nameof(IHasSorting.Sorting),
+                $"Attribute: {sorting.AttributeId} is not found");
+
+        return attribute.AttributeType switch
+        {
+            AttributeType.Text => ApplyTextSorting(query, sorting),
+            AttributeType.List => ApplyEnumSorting(query, sorting),
+            _ => throw new InvalidOperationException($"Sorting by '{attribute.AttributeType}' is not supported")
+        };
+    }
+    
+    private IQueryable<Issue> ApplyTextSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeTextValues,
+                (issue, textValue) => issue.Id == textValue.IssueId && textValue.AttributeId == sorting.AttributeId,
+                (issue, textValue) => new { Issue = issue, TextValue = textValue })
+            .ApplySorting(a => a.TextValue.Text, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+    
+    private IQueryable<Issue> ApplyEnumSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeListValues,
+                (issue, listValue) => issue.Id == listValue.IssueId && listValue.AttributeId == sorting.AttributeId,
+                (issue, listValue) => new { Issue = issue, ListValue = listValue })
+            .ApplySorting(a => a.ListValue.AttributeListValueId, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+
+    private IQueryable<Issue> ApplyByPropertySorting(
+        IQueryable<Issue> query,
+        ByPropertyIssueSorting sorting)
+    {
+        return sorting.Property switch
+        {
+            IssueProperty.CreatedAt => query.ApplySorting(x => x.CreatedAt, sorting.Direction),
+            IssueProperty.UpdatedAt => query.ApplySorting(x => x.UpdatedAt, sorting.Direction),
+            IssueProperty.Content => query.ApplySorting(x => x.Content, sorting.Direction),
+            _ => throw new InvalidOperationException($"Sorting by '{sorting.Property}' is not supported")
+        };
     }
 
     public async Task<IssueDetailDto> GetIssue(
@@ -490,7 +575,10 @@ public class IssuesService(
                 Id = x.Id,
                 Content = x.Content,
                 Time = x.CreatedAt,
+                UpdatedAt = x.UpdatedAt,
+                CategoryId = x.Status!.EpicId,
                 CategoryName = x.Status!.Epic!.Name,
+                StatusId = x.StatusId,
                 StatusName = x.Status!.Epic!.IsDefault ? null : x.Status!.Name,
                 TelegramFirstName = x.User!.TelegramFirstName,
                 TelegramLastName = x.User!.TelegramLastName,
@@ -500,7 +588,9 @@ public class IssuesService(
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
                 OrganizationId = x.Status.Epic.Space!.OrganizationId,
                 Number = x.IssueNumber!.Number,
+                SpaceId = x.Status.Epic.Space.Id,
                 SpaceKey = x.Status.Epic.Space.Key,
+                SpaceName = x.Status.Epic.Space.Name,
                 SpaceColor = x.Status.Epic.Space.Color,
             })
             .FirstAsyncEF(cancellationToken);
@@ -543,13 +633,18 @@ public class IssuesService(
             Sender = sender.Sender,
             SenderInitial = sender.Initial,
             Time = result.Time,
+            UpdatedAt = result.UpdatedAt,
+            EpicId = result.CategoryId,
             EpicName = result.CategoryName,
+            StatusId = result.StatusId,
             StatusName = result.StatusName,
             EpicColor = result.CategoryColor,
             StatusColor = result.StatusColor,
             CanEdit = issueAccessLevels.CanUpdateIssue,
             AttributeValues = attributeValues,
             Key = $"{result.SpaceKey}-{result.Number}",
+            SpaceId = result.SpaceId,
+            SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
         };
     }
@@ -903,12 +998,13 @@ public class IssuesService(
     }
 }
 
-public record GetIssuesRequest : BatchRequest, IHasAttributeFilters
+public record GetIssuesRequest : BatchRequest, IHasAttributeFilters, IHasSorting
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public long StatusId { get; set; }
     public string? SearchString { get; set; }
-    public Dictionary<long, JsonElement> Filters { get; set; } = new();
+    public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
+    public IssueSorting? Sorting { get; set; }
 }
 
 public record GetIssueRequest
@@ -917,7 +1013,7 @@ public record GetIssueRequest
     public long IssueId { get; set; }
 }
 
-public record GetBoardRequest : IHasAttributeFilters
+public record GetBoardRequest : IHasAttributeFilters, IHasSorting
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public long EpicId { get; set; }
@@ -925,7 +1021,8 @@ public record GetBoardRequest : IHasAttributeFilters
     [Range(1, 100)]
     public int Take { get; init; }
     public string? SearchString { get; init; }
-    public Dictionary<long, JsonElement> Filters { get; set; } = new();
+    public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
+    public IssueSorting? Sorting { get; set; }
 }
 
 public record GetBoardSummaryRequest
@@ -1035,11 +1132,39 @@ public record UpdateIssueRequest
 
 public interface IHasAttributeFilters
 {
-    Dictionary<long, JsonElement> Filters { get; }
+    Dictionary<long, AttributeFilterValue> Filters { get; }
     public OrganizationAuthData AuthData { get; }
 }
 
-public record SearchRequest : IPaginationData, IHasAttributeFilters
+public interface IHasSorting
+{
+    IssueSorting? Sorting { get; }
+    public OrganizationAuthData AuthData { get; }
+}
+
+[JsonDerivedType(typeof(StringAttributeFilterValue), "string")]
+[JsonDerivedType(typeof(EnumAttributeFilterValue), "enum")]
+public abstract record AttributeFilterValue
+{
+}
+
+public record StringAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// String value to filter by.
+    /// </summary>
+    public required string SearchString { get; set; }
+}
+
+public record EnumAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// Enum identifiers to filter by.
+    /// </summary>
+    public required long[] Ids { get; set; }
+}
+
+public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public long[] EpicIds { get; set; } = [];
@@ -1047,39 +1172,45 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters
     public string? SearchString { get; set; }
     public int Page { get; init; }
     public int PerPage { get; init; }
-    public Dictionary<long, JsonElement> Filters { get; set; } = new();
+    public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
+    public IssueSorting? Sorting { get; set; }
 }
 
 public class IssueDetailDto
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
+    public required DateTime UpdatedAt { get; set; }
     public required string? Sender { get; set; }
     public string? SenderInitial { get; set; }
     public required string? Content { get; set; }
+    public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
     public required string? EpicColor { get; set; }
+    public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
+    public required long SpaceId { get; set; }
+    public required string SpaceName { get; set; }
     public required string SpaceColor { get; set; }
     public required bool CanEdit { get; set; }
     public required string Key { get; set; }
-    public DetailIssueAttributeDto[] AttributeValues { get; set; } = [];
+    public required DetailIssueAttributeDto[] AttributeValues { get; set; }
 }
 
 public record DetailIssueAttributeDto
 {
-    public long Id { get; set; }
-    public AttributeType Type { get; set; }
+    public required long Id { get; set; }
+    public required AttributeType Type { get; set; }
     public required string Name { get; set; }
     public required string Value { get; set; }
     public required string Color { get; set; }
-    public IssueAttributeListValueDto[]? ListValues { get; set; }
+    public required IssueAttributeListValueDto[] ListValues { get; set; }
 }
 
 public record IssueAttributeListValueDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Name { get; set; }
 }
 
@@ -1087,18 +1218,23 @@ public class IssueDetailDtoData
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
+    public required DateTime UpdatedAt { get; set; }
     public required long TelegramId { get; set; }
     public required string? TelegramUsername { get; set; }
     public required string? TelegramFirstName { get; set; }
     public required string? TelegramLastName { get; set; }
     public required string? Content { get; set; }
+    public required long CategoryId { get; set; }
     public required string? CategoryName { get; set; }
     public required string? CategoryColor { get; set; }
+    public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
     public required long OrganizationId { get; set; }
     public required int Number { get; set; }
+    public required long SpaceId { get; set; }
     public required string SpaceKey { get; set; }
+    public required string SpaceName { get; set; }
     public required string SpaceColor { get; set; }
 }
 

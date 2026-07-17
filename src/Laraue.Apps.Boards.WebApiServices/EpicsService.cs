@@ -46,6 +46,8 @@ public class EpicsService(
             request.AuthData,
             epics => epics
                 .Where(x => x.SpaceId == request.SpaceId)
+                .OrderBy(x => x.IsDefault ? 0 : 1)
+                .ThenBy(x => x.Name)
                 .Select(x => new EpicListDto
                 {
                     Id = x.Id,

@@ -1,12 +1,15 @@
 ﻿using System.Net;
+using System.Net.Http.Json;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -687,6 +690,37 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.NotNull(getSpacesResponse);
     }
     
+    [Fact]
+    public async Task Cookies_ShouldAuthenticateUserAndOrganizationRequests()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var authService = host.Services.GetRequiredService<IAuthService>();
+
+        using var userClient = host.CreateClient();
+        userClient.DefaultRequestHeaders.Add(
+            "Cookie",
+            $"{AuthCookies.User}={authService.CreateUserToken(userId)}");
+
+        var loginResponse = await userClient.PostAsJsonAsync(
+            "/api/organizations/login",
+            new LoginRequest { OrganizationId = organization.Id });
+
+        loginResponse.EnsureSuccessStatusCode();
+        var setCookie = Assert.Single(
+            loginResponse.Headers.GetValues("Set-Cookie"),
+            value => value.StartsWith($"{AuthCookies.Organization}=", StringComparison.Ordinal));
+        Assert.Contains("httponly", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", setCookie, StringComparison.OrdinalIgnoreCase);
+
+        using var organizationClient = host.CreateClient();
+        organizationClient.DefaultRequestHeaders.Add("Cookie", setCookie.Split(';')[0]);
+        var spacesResponse = await organizationClient.GetAsync("/api/spaces");
+
+        Assert.Equal(HttpStatusCode.OK, spacesResponse.StatusCode);
+    }
+
     [Fact]
     public async Task Login_ShouldReturnTokenForOrganization_WhenHasAccess()
     {
