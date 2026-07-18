@@ -405,7 +405,7 @@ public class IssuesService(
         await EnrichMedia(mapped.Data, ct);
         await EnrichAttributes(mapped.Data, ct);
         
-        var result = await MapToSearchDtos(mapped.Data, ct);
+        var result = await MapToSearchDtos(request.AuthData, mapped.Data, ct);
         return new ShortPaginatedResult<SearchIssueDto>(
             mapped.Page,
             mapped.PerPage,
@@ -767,7 +767,10 @@ public class IssuesService(
         return requests.ToArray();
     }
 
-    private async Task<List<SearchIssueDto>> MapToSearchDtos(IList<IssueListDto> elements, CancellationToken ct)
+    private async Task<List<SearchIssueDto>> MapToSearchDtos(
+        OrganizationAuthData authData,
+        IList<IssueListDto> elements,
+        CancellationToken ct)
     {
         var spaces = await context.Spaces
             .Where(x => elements.Select(y => y.SpaceId).Distinct().Contains(x.Id))
@@ -800,6 +803,15 @@ public class IssuesService(
                     Color = x.Color,
                 }, ct);
 
+        var spacesWithAllowedUpdate = (await accessService.GetSpacesWithAllowedIssuesUpdate(
+            authData,
+            query => query
+                .Where(x => spaces.Select(s => s.Key).Contains(x.Id))
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(ct),
+            ct))
+            .ToHashSet();
+        
         var result = new List<SearchIssueDto>();
 
         foreach (var element in elements)
@@ -821,6 +833,7 @@ public class IssuesService(
                 Media = element.Media,
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
+                CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceId),
             });
         }
         
@@ -1140,6 +1153,7 @@ public record SearchIssueDto : IssueListDto
     public required NameAndColor Epic { get; set; }
     public required NameAndColor? Status { get; set; }
     public required NameAndColor Space { get; set; }
+    public required bool CanEdit { get; set; }
 }
 
 public record NameAndColor

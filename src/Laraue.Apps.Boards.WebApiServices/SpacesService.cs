@@ -142,8 +142,7 @@ public class SpacesService(
                     x.User.TelegramFirstName,
                     x.User.TelegramLastName,
                 })
-                .ToArrayAsyncEF(cancellationToken),
-            cancellationToken);
+                .ToArrayAsyncEF(cancellationToken));
 
         var result = new List<SpaceMember>();
         
