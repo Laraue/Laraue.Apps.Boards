@@ -359,34 +359,50 @@ public class OrganizationsService(
         GetOrganizationMembersRequest request,
         CancellationToken cancellationToken)
     {
+        await organizationAccessService.HasAccessOrThrow(
+            request.AuthData,
+            AdminAccessLevel.Manage,
+            cancellationToken);
+        
         var data = await organizationAccessService.GetOrganizationMembers(
             request.AuthData.OrganizationId,
             query =>
             {
                 return query
-                    .Select(x => new OrganizationMember
+                    .Select(x => new
                     {
-                        Color = x.User!.Color,
+                        x.User!.Color,
                         FirstName = x.User.TelegramFirstName,
                         LastName = x.User.TelegramLastName,
                         OrganizationUserId = x.Id,
                         Username = x.User.TelegramUserName,
-                        Initials = null,
                         IsOwner = x.Organization!.OwnerId == x.UserId,
-                        AdminAccessLevel = x.AdminAccessLevel,
+                        x.AdminAccessLevel,
                     })
                     .ToArrayAsyncEF(cancellationToken);
             });
 
+        var result = new List<OrganizationMember>();
+        
         foreach (var item in data)
         {
-            item.Initials = UserInitialsUtility.GetInitials(
+            var initials = UserInitialsUtility.GetInitials(
                 item.Username,
                 item.FirstName,
-                item.LastName).Initial;
+                item.LastName);
+            
+            result.Add(new OrganizationMember
+            {
+                DisplayName = initials.DisplayName,
+                Initials = initials.Initials,
+                AdminAccessLevel = item.AdminAccessLevel,
+                Color = item.Color,
+                IsOwner = item.IsOwner,
+                OrganizationUserId = item.OrganizationUserId,
+            });
         }
         
-        return data;
+        return result.ToArray();
     }
 
     public async Task<string?> GetOrganizationJoinCode(GetOrganizationJoinCodeRequest request, CancellationToken cancellationToken)
@@ -649,11 +665,9 @@ public record GetOrganizationJoinCodeRequest
 public record OrganizationMember
 {
     public long OrganizationUserId { get; set; }
-    public string? Username { get; set; }
-    public string? FirstName { get; set; }
-    public string? LastName { get; set; }
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
     public required string Color { get; set; }
-    public string? Initials { get; set; }
     public required bool IsOwner { get; set; }
     public required AdminAccessLevel AdminAccessLevel { get; set; }
 }

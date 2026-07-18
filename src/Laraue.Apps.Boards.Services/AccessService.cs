@@ -17,6 +17,15 @@ public interface IAccessService
         CancellationToken cancellationToken);
     
     /// <summary>
+    /// Returns members that can read the requested space.
+    /// </summary>
+    Task<T> GetSpaceMembers<T>(
+        OrganizationAuthData authData,
+        long spaceId,
+        Func<IQueryable<OrganizationUser>, Task<T>> map,
+        CancellationToken cancellationToken);
+    
+    /// <summary>
     /// Get all spaces where user can create epics.
     /// </summary>
     Task<T> GetSpacesWithAllowedEpicCreation<T>(
@@ -98,6 +107,32 @@ public class AccessService(DatabaseContext context) : IAccessService
             .Select(sos => sos.Space!);
         
         return await map(query); 
+    }
+
+    public Task<T> GetSpaceMembers<T>(
+        OrganizationAuthData authData,
+        long spaceId,
+        Func<IQueryable<OrganizationUser>, Task<T>> map,
+        CancellationToken cancellationToken)
+    {
+        var organizationUsersWithOrganizationLevelRead = context.OrganizationUsers
+            .Where(ou => ou.OrganizationId == authData.OrganizationId)
+            .Where(ou => ou.CanRead)
+            .Select(ou => ou.Id);
+
+        var organizationUsersWithDirectSpaceRead = context.DirectSpacePermissions
+            .Where(sos => sos.OrganizationUser!.OrganizationId == authData.OrganizationId)
+            .Where(sos => sos.SpaceId == spaceId)
+            .Where(sos => sos.CanRead)
+            .Select(sos => sos.OrganizationUserId);
+
+        var spaceMemberIds = organizationUsersWithOrganizationLevelRead
+            .Union(organizationUsersWithDirectSpaceRead);
+
+        var query = context.OrganizationUsers
+            .Where(ou => spaceMemberIds.Contains(ou.Id));
+        
+        return map(query);
     }
 
     public async Task<T> GetSpacesWithAllowedEpicCreation<T>(

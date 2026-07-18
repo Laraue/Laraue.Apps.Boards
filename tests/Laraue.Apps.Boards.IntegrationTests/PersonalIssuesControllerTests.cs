@@ -224,8 +224,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("#121212", issueDto.EpicColor);
         Assert.Equal("Beautiful status", issueDto.StatusName);
         Assert.Equal("#212121", issueDto.StatusColor);
-        Assert.Equal("sn", issueDto.SenderInitial);
-        Assert.Equal("snake1977", issueDto.Sender);
+        Assert.Equal("sn", issueDto.OwnerInitials);
+        Assert.Equal("snake1977", issueDto.OwnerDisplayName);
         Assert.Equal(timestamp, issueDto.Time);
         Assert.Equal(timestamp, issueDto.UpdatedAt);
     }
@@ -262,7 +262,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var issueDto = Assert.Single(issuesResult.Data);
         Assert.Equal("Hi", issueDto.Content);
         Assert.Equal("sn", issueDto.AssigneeInitial);
-        Assert.Equal("snake1977", issueDto.Sender);
+        Assert.Equal("snake1977", issueDto.Assignee);
         Assert.Equal(status.Id, issueDto.StatusId);
         Assert.Equal(timestamp, issueDto.Time);
         Assert.Equal(epic.Id, issueDto.EpicId);
@@ -399,7 +399,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var backlogIssue = Assert.Single(backlogColumn.Items.Data);
         Assert.Equal("Deliver app", backlogIssue.Content);
         Assert.Equal("sn", backlogIssue.AssigneeInitial);
-        Assert.Equal("snake1977", backlogIssue.Sender);
+        Assert.Equal("snake1977", backlogIssue.Assignee);
         Assert.Equal(backlogStatus.Id, backlogIssue.StatusId);
         Assert.Equal(epic.Id, backlogIssue.EpicId);
         Assert.Empty(backlogIssue.Media);
@@ -446,7 +446,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         Assert.Equal("Build app", item.Content);
         Assert.Equal("sn", item.AssigneeInitial);
-        Assert.Equal("snake1977", item.Sender);
+        Assert.Equal("snake1977", item.Assignee);
         Assert.Equal(backlogStatus.Id, item.StatusId);
         Assert.Equal(epic.Id, item.EpicId);
         Assert.Empty(item.Media);

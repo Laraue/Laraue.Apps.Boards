@@ -361,7 +361,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldViewIssue_WhenIsOrganizationOwner()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser();
+        var userId = await testScope.CreateUser(user => user.TelegramUserName = "assignee");
         var organization = await testScope.InitializeOrganization(
             userId,
             o => o.AddIssueToDefaultStatus(userId));
@@ -374,6 +374,9 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var space = organization.GetSpace(0);
         Assert.NotNull(issueDto);
+        Assert.Equal(userId, issueDto.AssigneeId);
+        Assert.Equal("assignee", issueDto.Assignee);
+        Assert.Equal("as", issueDto.AssigneeInitial);
         Assert.Equal(space.Id, issueDto.SpaceId);
         Assert.Equal(space.Name, issueDto.SpaceName);
     }

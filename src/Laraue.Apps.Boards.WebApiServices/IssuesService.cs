@@ -598,6 +598,10 @@ public class IssuesService(
             .Select(x => new IssueDetailDtoData
             {
                 Id = x.Id,
+                AssigneeId = x.AssigneeId,
+                AssigneeTelegramFirstName = x.Assignee!.TelegramFirstName,
+                AssigneeTelegramLastName = x.Assignee.TelegramLastName,
+                AssigneeTelegramUsername = x.Assignee.TelegramUserName,
                 Content = x.Content,
                 Time = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
@@ -620,10 +624,15 @@ public class IssuesService(
             })
             .FirstAsyncEF(cancellationToken);
 
-        var sender = UserInitialsUtility.GetInitials(
+        var owner = UserInitialsUtility.GetInitials(
             result.TelegramUsername,
             result.TelegramFirstName,
             result.TelegramLastName);
+        
+        var assignee = UserInitialsUtility.GetInitials(
+            result.AssigneeTelegramUsername,
+            result.AssigneeTelegramFirstName,
+            result.AssigneeTelegramLastName);
 
         var attributeValues = await context.Attributes
             .Where(x => x.OrganizationId == result.OrganizationId)
@@ -654,9 +663,12 @@ public class IssuesService(
         return new IssueDetailDto
         {
             Id = result.Id,
+            AssigneeId = result.AssigneeId,
+            Assignee = assignee.DisplayName,
+            AssigneeInitial = assignee.Initials,
             Content = result.Content,
-            Sender = sender.Sender,
-            SenderInitial = sender.Initial,
+            OwnerDisplayName = owner.DisplayName,
+            OwnerInitials = owner.Initials,
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
@@ -803,7 +815,7 @@ public class IssuesService(
                 Id = element.Id,
                 Content = element.Content,
                 Key = element.Key,
-                Sender = element.Sender,
+                Assignee = element.Assignee,
                 AssigneeColor = element.AssigneeColor,
                 Time = element.Time,
                 Media = element.Media,
@@ -1029,8 +1041,8 @@ public class IssuesService(
             StatusId = source.StatusId,
             Content = source.Content,
             EpicId = source.EpicId,
-            Sender = assigneeData.Sender,
-            AssigneeInitial = assigneeData.Initial,
+            Assignee = assigneeData.DisplayName,
+            AssigneeInitial = assigneeData.Initials,
             Time = source.Time,
             AssigneeColor = source.AssigneeUserColor,
             Key = $"{source.SpaceKey}-{source.Number}",
@@ -1105,7 +1117,7 @@ public record IssueListDto : ICanContainMedia
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
-    public required string? Sender { get; set; }
+    public required string Assignee { get; set; }
     public required string Key { get; set; }
     public string? AssigneeInitial { get; set; }
     public required string AssigneeColor { get; set; }
@@ -1239,10 +1251,13 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
 public class IssueDetailDto
 {
     public required long Id { get; set; }
+    public required Guid AssigneeId { get; set; }
+    public required string Assignee { get; set; }
+    public required string AssigneeInitial { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
-    public required string? Sender { get; set; }
-    public string? SenderInitial { get; set; }
+    public required string? OwnerDisplayName { get; set; }
+    public string? OwnerInitials { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
@@ -1277,6 +1292,10 @@ public record IssueAttributeListValueDto
 public class IssueDetailDtoData
 {
     public required long Id { get; set; }
+    public required Guid AssigneeId { get; set; }
+    public required string? AssigneeTelegramUsername { get; set; }
+    public required string? AssigneeTelegramFirstName { get; set; }
+    public required string? AssigneeTelegramLastName { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long TelegramId { get; set; }

@@ -88,4 +88,19 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);
+    
+    [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
+    [HttpGet("{id:long}/members")]
+    public Task<SpaceMember[]> GetSpaceMembers(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return spacesService.GetMembers(
+            new GetSpaceMembersRequest
+            {
+                SpaceId = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
 }

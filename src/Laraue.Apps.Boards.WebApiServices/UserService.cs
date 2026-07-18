@@ -57,7 +57,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
             user.FirstName,
             user.LastName);
 
-        user.Initials = initials.Initial;
+        user.Initials = initials.Initials;
         user.Preferences = await coreService.GetPreferences(userId, cancellationToken);
         
         return user;
