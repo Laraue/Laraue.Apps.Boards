@@ -474,6 +474,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.NotNull(issuesResult);
         var issueDto = Assert.Single(issuesResult.Data);
         Assert.Equal("John", issueDto.Content);
+        Assert.False(issueDto.CanEdit);
     }
     
     [Fact]
@@ -486,7 +487,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             userId,
             o => o
                 .AddUser(participatorId, u => u
-                    .SetSpaceAccessLevel(1, x => x.CanRead = true))
+                    .SetSpaceAccessLevel(1, x => { x.CanRead = true; x.CanUpdateIssues = true; }))
                 .AddIssueToDefaultStatus(userId, issue => issue.WithContent("John 1"))
                 .AddSpace(userId, space => space
                     .AddEpic(userId, e => e
@@ -505,6 +506,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.NotNull(issuesResult);
         var issueDto = Assert.Single(issuesResult.Data);
         Assert.Equal("John 2", issueDto.Content);
+        Assert.True(issueDto.CanEdit);
     }
     
     [Fact]

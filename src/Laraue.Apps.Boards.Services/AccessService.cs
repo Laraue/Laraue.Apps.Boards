@@ -22,13 +22,20 @@ public interface IAccessService
     Task<T> GetSpaceMembers<T>(
         OrganizationAuthData authData,
         long spaceId,
-        Func<IQueryable<OrganizationUser>, Task<T>> map,
-        CancellationToken cancellationToken);
+        Func<IQueryable<OrganizationUser>, Task<T>> map);
     
     /// <summary>
     /// Get all spaces where user can create epics.
     /// </summary>
     Task<T> GetSpacesWithAllowedEpicCreation<T>(
+        OrganizationAuthData authData,
+        Func<IQueryable<Space>, Task<T>> map,
+        CancellationToken cancellationToken);
+    
+    /// <summary>
+    /// Get all spaces where user can edit issues.
+    /// </summary>
+    Task<T> GetSpacesWithAllowedIssuesUpdate<T>(
         OrganizationAuthData authData,
         Func<IQueryable<Space>, Task<T>> map,
         CancellationToken cancellationToken);
@@ -112,8 +119,7 @@ public class AccessService(DatabaseContext context) : IAccessService
     public Task<T> GetSpaceMembers<T>(
         OrganizationAuthData authData,
         long spaceId,
-        Func<IQueryable<OrganizationUser>, Task<T>> map,
-        CancellationToken cancellationToken)
+        Func<IQueryable<OrganizationUser>, Task<T>> map)
     {
         var organizationUsersWithOrganizationLevelRead = context.OrganizationUsers
             .Where(ou => ou.OrganizationId == authData.OrganizationId)
@@ -135,20 +141,47 @@ public class AccessService(DatabaseContext context) : IAccessService
         return map(query);
     }
 
-    public async Task<T> GetSpacesWithAllowedEpicCreation<T>(
+    public Task<T> GetSpacesWithAllowedEpicCreation<T>(
         OrganizationAuthData authData,
         Func<IQueryable<Space>, Task<T>> map,
         CancellationToken cancellationToken)
     {
-        var canGloballyCreateEpics = await GetUserData(authData, x => x.CanCreateEpics, cancellationToken);
+        return GetSpacesWithPermissionCondition(
+            authData,
+            x => x.CanCreateEpics,
+            x => x.CanCreateEpics,
+            map,
+            cancellationToken);
+    }
+
+    public Task<T> GetSpacesWithAllowedIssuesUpdate<T>(
+        OrganizationAuthData authData,
+        Func<IQueryable<Space>, Task<T>> map,
+        CancellationToken cancellationToken)
+    {
+        return GetSpacesWithPermissionCondition(
+            authData,
+            x => x.CanUpdateIssues,
+            x => x.CanUpdateIssues,
+            map,
+            cancellationToken);
+    }
+
+    private async Task<T> GetSpacesWithPermissionCondition<T>(
+        OrganizationAuthData authData,
+        Expression<Func<OrganizationUser, bool>> whenAllowedOnOrganizationLevel,
+        Expression<Func<DirectSpacePermission, bool>> whenAllowedOnSpaceLevel,
+        Func<IQueryable<Space>, Task<T>> map,
+        CancellationToken cancellationToken)
+    {
+        var canGloballyCreateEpics = await GetUserData(authData, whenAllowedOnOrganizationLevel, cancellationToken);
         if (canGloballyCreateEpics)
             return await map(GetAllSpacesQuery(authData));
         
         var query = context.DirectSpacePermissions
             .Where(sos => sos.OrganizationUser!.OrganizationId == authData.OrganizationId)
             .Where(sos => sos.OrganizationUser!.UserId == authData.UserId)
-            .Where(sos => sos.CanRead)
-            .Where(sos => sos.CanCreateEpics)
+            .Where(whenAllowedOnSpaceLevel)
             .Select(sos => sos.Space!);
         
         return await map(query); 
@@ -195,7 +228,8 @@ public class AccessService(DatabaseContext context) : IAccessService
 
     public Task<T> GetAvailableEpics<T>(
         OrganizationAuthData authData,
-        Func<IQueryable<Epic>, Task<T>> map, CancellationToken cancellationToken)
+        Func<IQueryable<Epic>, Task<T>> map,
+        CancellationToken cancellationToken)
     {
         return GetAvailableSpaces(
             authData,
