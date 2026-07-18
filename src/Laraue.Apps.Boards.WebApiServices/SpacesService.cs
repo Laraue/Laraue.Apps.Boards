@@ -26,6 +26,10 @@ public interface ISpacesService
     Task Delete(
         DeleteSpaceRequest request,
         CancellationToken cancellationToken);
+    
+    Task<SpaceMember[]> GetMembers(
+        GetSpaceMembersRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class SpacesService(
@@ -124,6 +128,42 @@ public class SpacesService(
         
         await coreSpacesService.Delete(request.Id, cancellationToken);
     }
+
+    public async Task<SpaceMember[]> GetMembers(GetSpaceMembersRequest request, CancellationToken cancellationToken)
+    {
+        var members = await accessService.GetSpaceMembers(
+            request.AuthData,
+            request.SpaceId,
+            query => query
+                .Select(x => new
+                {
+                    x.UserId,
+                    x.User!.TelegramUserName,
+                    x.User.TelegramFirstName,
+                    x.User.TelegramLastName,
+                })
+                .ToArrayAsyncEF(cancellationToken),
+            cancellationToken);
+
+        var result = new List<SpaceMember>();
+        
+        foreach (var member in members)
+        {
+            var initials = UserInitialsUtility.GetInitials(
+                member.TelegramUserName,
+                member.TelegramFirstName,
+                member.TelegramLastName);
+            
+            result.Add(new SpaceMember
+            {
+                UserId = member.UserId,
+                Initials = initials.Initial,
+                DisplayName = initials.DisplayName,
+            });
+        }
+        
+        return result.ToArray();
+    }
 }
 
 public record CreateSpaceRequest
@@ -193,4 +233,17 @@ public record SpaceDetailsDto
     public required bool CanCreateEpics { get; set; }
     public required bool CanUpdate { get; set; }
     public required bool CanDelete { get; set; }
+}
+
+public record GetSpaceMembersRequest
+{
+    public required OrganizationAuthData AuthData { get; set; }
+    public long SpaceId { get; set; }
+}
+
+public record SpaceMember
+{
+    public required Guid UserId { get; set; }
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
 }
