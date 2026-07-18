@@ -157,7 +157,7 @@ public class SpacesService(
             result.Add(new SpaceMember
             {
                 UserId = member.UserId,
-                Initials = initials.Initial,
+                Initials = initials.Initials,
                 DisplayName = initials.DisplayName,
             });
         }

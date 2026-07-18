@@ -37,7 +37,7 @@ public static class UserInitialsUtility
         return new UserInitials
         {
             DisplayName = displayName,
-            Initial = initial
+            Initials = initial
         };
     }
 }
@@ -45,5 +45,5 @@ public static class UserInitialsUtility
 public class UserInitials
 {
     public required string DisplayName { get; set; }
-    public required string Initial { get; set; }
+    public required string Initials { get; set; }
 }

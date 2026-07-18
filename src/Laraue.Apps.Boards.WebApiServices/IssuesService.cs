@@ -624,10 +624,11 @@ public class IssuesService(
             })
             .FirstAsyncEF(cancellationToken);
 
-        var sender = UserInitialsUtility.GetInitials(
+        var owner = UserInitialsUtility.GetInitials(
             result.TelegramUsername,
             result.TelegramFirstName,
             result.TelegramLastName);
+        
         var assignee = UserInitialsUtility.GetInitials(
             result.AssigneeTelegramUsername,
             result.AssigneeTelegramFirstName,
@@ -664,10 +665,10 @@ public class IssuesService(
             Id = result.Id,
             AssigneeId = result.AssigneeId,
             Assignee = assignee.DisplayName,
-            AssigneeInitial = assignee.Initial,
+            AssigneeInitial = assignee.Initials,
             Content = result.Content,
-            Sender = sender.DisplayName,
-            SenderInitial = sender.Initial,
+            OwnerDisplayName = owner.DisplayName,
+            OwnerInitials = owner.Initials,
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
@@ -1041,7 +1042,7 @@ public class IssuesService(
             Content = source.Content,
             EpicId = source.EpicId,
             Assignee = assigneeData.DisplayName,
-            AssigneeInitial = assigneeData.Initial,
+            AssigneeInitial = assigneeData.Initials,
             Time = source.Time,
             AssigneeColor = source.AssigneeUserColor,
             Key = $"{source.SpaceKey}-{source.Number}",
@@ -1255,8 +1256,8 @@ public class IssueDetailDto
     public required string AssigneeInitial { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
-    public required string? Sender { get; set; }
-    public string? SenderInitial { get; set; }
+    public required string? OwnerDisplayName { get; set; }
+    public string? OwnerInitials { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
