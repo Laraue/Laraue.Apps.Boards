@@ -618,6 +618,7 @@ public class IssuesService(
                 AssigneeTelegramFirstName = x.Assignee!.TelegramFirstName,
                 AssigneeTelegramLastName = x.Assignee.TelegramLastName,
                 AssigneeTelegramUsername = x.Assignee.TelegramUserName,
+                AssigneeColor = x.Assignee.Color,
                 Content = x.Content,
                 Time = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
@@ -629,6 +630,7 @@ public class IssuesService(
                 TelegramLastName = x.Owner!.TelegramLastName,
                 TelegramId = x.Owner.TelegramId,
                 TelegramUsername = x.Owner.TelegramUserName,
+                OwnerColor = x.Owner.Color,
                 CategoryColor = x.Status.Epic.Color,
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
                 OrganizationId = x.Status.Epic.Space!.OrganizationId,
@@ -682,9 +684,11 @@ public class IssuesService(
             AssigneeId = result.AssigneeId,
             Assignee = assignee.DisplayName,
             AssigneeInitial = assignee.Initials,
+            AssigneeColor = result.AssigneeColor,
             Content = result.Content,
             OwnerDisplayName = owner.DisplayName,
             OwnerInitials = owner.Initials,
+            OwnerColor = result.OwnerColor,
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
@@ -1297,10 +1301,12 @@ public class IssueDetailDto
     public required Guid AssigneeId { get; set; }
     public required string Assignee { get; set; }
     public required string AssigneeInitial { get; set; }
+    public required string AssigneeColor { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required string? OwnerDisplayName { get; set; }
     public string? OwnerInitials { get; set; }
+    public required string OwnerColor { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
@@ -1339,12 +1345,14 @@ public class IssueDetailDtoData
     public required string? AssigneeTelegramUsername { get; set; }
     public required string? AssigneeTelegramFirstName { get; set; }
     public required string? AssigneeTelegramLastName { get; set; }
+    public required string AssigneeColor { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long TelegramId { get; set; }
     public required string? TelegramUsername { get; set; }
     public required string? TelegramFirstName { get; set; }
     public required string? TelegramLastName { get; set; }
+    public required string OwnerColor { get; set; }
     public required string? Content { get; set; }
     public required long CategoryId { get; set; }
     public required string? CategoryName { get; set; }

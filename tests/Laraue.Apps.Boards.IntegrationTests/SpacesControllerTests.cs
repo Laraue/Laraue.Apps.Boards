@@ -275,8 +275,16 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
     public async Task User_ShouldViewSpaceMembers_Always()
     {
         using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser(x => x.TelegramUserName = "aa");
-        var spaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "bb");
+        var ownerId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "aa";
+            x.Color = "#111111";
+        });
+        var spaceMemberId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "bb";
+            x.Color = "#222222";
+        });
         var otherSpaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "cc");
         
         var organization = await testScope.InitializeOrganization(ownerId, org => org
@@ -294,5 +302,6 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
         
         Assert.Equal(2, members!.Length);
         Assert.Equal(["aa", "bb"], members.Select(x => x.Initials).OrderBy(x => x));
+        Assert.Equal(["#111111", "#222222"], members.Select(x => x.Color).OrderBy(x => x));
     }
 }

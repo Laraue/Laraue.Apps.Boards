@@ -141,6 +141,7 @@ public class SpacesService(
                     x.User!.TelegramUserName,
                     x.User.TelegramFirstName,
                     x.User.TelegramLastName,
+                    x.User.Color,
                 })
                 .ToArrayAsyncEF(cancellationToken));
 
@@ -158,6 +159,7 @@ public class SpacesService(
                 UserId = member.UserId,
                 Initials = initials.Initials,
                 DisplayName = initials.DisplayName,
+                Color = member.Color,
             });
         }
         
@@ -245,4 +247,5 @@ public record SpaceMember
     public required Guid UserId { get; set; }
     public required string DisplayName { get; set; }
     public required string Initials { get; set; }
+    public required string Color { get; set; }
 }
