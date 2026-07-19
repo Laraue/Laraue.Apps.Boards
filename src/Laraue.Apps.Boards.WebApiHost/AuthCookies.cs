@@ -24,5 +24,6 @@ public static class AuthCookies
         Path = "/",
         SameSite = SameSiteMode.Lax,
         Secure = !environment.IsDevelopment(),
+        MaxAge = TimeSpan.FromDays(365),
     };
 }
