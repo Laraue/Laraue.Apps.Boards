@@ -197,7 +197,11 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
     public async Task User_ShouldGetPersonalIssue_Always()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(u => { u.TelegramUserName = "snake1977"; });
+        var userId = await testScope.CreateUser(u =>
+        {
+            u.TelegramUserName = "snake1977";
+            u.Color = "#123456";
+        });
         var timestamp = new DateTime(2020, 01, 01, 0, 0, 0, DateTimeKind.Utc);
         var organization = await testScope.InitializePersonalOrganization(
             userId,
@@ -227,6 +231,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("#212121", issueDto.StatusColor);
         Assert.Equal("sn", issueDto.OwnerInitials);
         Assert.Equal("snake1977", issueDto.OwnerDisplayName);
+        Assert.Equal("#123456", issueDto.AssigneeColor);
+        Assert.Equal("#123456", issueDto.OwnerColor);
         Assert.Equal(timestamp, issueDto.Time);
         Assert.Equal(timestamp, issueDto.UpdatedAt);
     }
