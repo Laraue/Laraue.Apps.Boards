@@ -140,7 +140,7 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
                 case MemberExpression memberExpr:
                     var memberValue = Expression.Lambda(memberExpr).Compile().DynamicInvoke();
                     var memberType = memberValue!.GetType();
-                    if (memberType.IsClass)
+                    if (memberType.IsClass && memberType != typeof(string))
                     {
                         var properties = memberType.GetProperties(BindingFlags.Instance | BindingFlags.Public);
                         foreach (var property in properties)

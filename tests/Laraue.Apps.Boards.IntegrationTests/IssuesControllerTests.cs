@@ -20,7 +20,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var status = organization.GetStatus(0, 0, 0);
         
-        var issueId = await _issuesController
+        var issueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
@@ -30,10 +30,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     AssigneeId = userId,
                 }));
 
-        var issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issueId);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
+        Assert.NotNull(issue);
         Assert.Equal("New Issue", issue.Content);
         
-        var issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issueId);
+        var issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issue.Id);
         Assert.Equal(1, issueNumber.Number);
     }
     
@@ -87,7 +88,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     AssigneeId = userId,
                 }));
 
-        var issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issueId);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueId!);
+        Assert.NotNull(issue);
         Assert.Equal("New Issue", issue.Content);
         Assert.Equal(userId, issue.AssigneeId);
     }
@@ -116,7 +118,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     AssigneeId = participatorId,
                 }));
 
-        var issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issueId);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueId!);
+        Assert.NotNull(issue);
         Assert.Equal("New Issue", issue.Content);
         Assert.Equal(participatorId, issue.AssigneeId);
     }
@@ -160,12 +163,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             o => o
                 .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
-                issue.Id,
+                issueData.Key,
                 new UpdateIssueRequest
                 {
                     Content = "New",
@@ -173,7 +176,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     AssigneeId = userId,
                 }));
 
-        issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.NotNull(issue);
         Assert.Equal("New", issue.Content);
     }
     
@@ -190,12 +194,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetGlobalAccessLevel( x => x.CanCreateIssues = true))
                 .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Update(
-                issue.Id,
+                issueData.Key,
                 new UpdateIssueRequest
                 {
                     Content = "New",
@@ -204,7 +208,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 })));
         
         var notFound = ex.HasInnerException<ForbiddenException>();
-        Assert.Equal($"Issue: {issue.Id} update is forbidden", notFound.Message);
+        Assert.Equal($"Issue: {issueData.Key} update is forbidden", notFound.Message);
     }
     
     [Fact]
@@ -220,12 +224,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetGlobalAccessLevel( x => x.CanUpdateIssues = true))
                 .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Update(
-                issue.Id,
+                issueData.Key,
                 new UpdateIssueRequest
                 {
                     Content = "New",
@@ -233,7 +237,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     AssigneeId = userId,
                 }));
 
-        issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.NotNull(issue);
         Assert.Equal("New", issue.Content);
     }
     
@@ -250,12 +255,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetSpaceAccessLevel(0, x => x.CanUpdateIssues = true))
                 .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Update(
-                issue.Id,
+                issueData.Key,
                 new UpdateIssueRequest
                 {
                     Content = "New",
@@ -263,7 +268,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     AssigneeId = participatorId,
                 }));
 
-        issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.NotNull(issue);
         Assert.Equal("New", issue.Content);
         Assert.Equal(participatorId, issue.AssigneeId);
     }
@@ -278,13 +284,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             o => o
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.Delete(issue.Id));
+            .Execute(x => x.Delete(issueData.Key));
 
-        issue = await testScope.Database.Issues.FirstOrDefaultAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Null(issue);
     }
     
@@ -301,14 +307,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetGlobalAccessLevel( x => x.CanCreateIssues = true))
                 .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.Delete(issue.Id)));
+            .Execute(x => x.Delete(issueData.Key)));
         
         var notFound = ex.HasInnerException<ForbiddenException>();
-        Assert.Equal($"Issue: {issue.Id} delete is forbidden", notFound.Message);
+        Assert.Equal($"Issue: {issueData.Key} delete is forbidden", notFound.Message);
     }
     
     [Fact]
@@ -324,13 +330,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetGlobalAccessLevel( x => x.CanDeleteIssues = true))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.Delete(issue.Id));
+            .Execute(x => x.Delete(issueData.Key));
 
-        issue = await testScope.Database.Issues.FirstOrDefaultAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Null(issue);
     }
 
@@ -347,13 +353,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetSpaceAccessLevel(0, x => x.CanDeleteIssues = true))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.Delete(issue.Id));
+            .Execute(x => x.Delete(issueData.Key));
 
-        issue = await testScope.Database.Issues.FirstOrDefaultAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Null(issue);
     }
 
@@ -366,11 +372,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             userId,
             o => o.AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         var issueDto = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetIssue(issue.Id));
+            .Execute(x => x.GetIssue(issueData.Key));
 
         var space = organization.GetSpace(0);
         Assert.NotNull(issueDto);
@@ -393,14 +399,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 .AddUser(participatorId)
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetIssue(issue.Id)));
+            .Execute(x => x.GetIssue(issueData.Key)));
         
         var notFound = ex.HasInnerException<NotFoundException>();
-        Assert.Equal($"Issue: {issue.Id} is not found or not accessible", notFound.Message);
+        Assert.Equal($"Issue: {issueData.Key} is not found or not accessible", notFound.Message);
     }
 
     [Fact]
@@ -416,11 +422,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetGlobalAccessLevel( x => x.CanRead = true))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         var issueDto = await _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetIssue(issue.Id));
+            .Execute(x => x.GetIssue(issueData.Key));
         
         Assert.NotNull(issueDto);
     }
@@ -438,11 +444,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     .SetSpaceAccessLevel(0, x => x.CanRead = true))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         
         var issueDto = await _issuesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetIssue(issue.Id));
+            .Execute(x => x.GetIssue(issueData.Key));
         
         Assert.NotNull(issueDto);
     }

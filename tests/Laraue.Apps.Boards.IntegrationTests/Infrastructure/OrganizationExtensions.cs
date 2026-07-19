@@ -1,19 +1,29 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
+using Status = Laraue.Apps.Boards.DataAccess.Models.Status;
 
 namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
 public static class OrganizationExtensions
 {
-    public static Issue GetIssue(
+    public record IssueData(string Key, Issue Issue);
+    
+    public static IssueData GetIssueData(
         this Organization organization,
         int spaceIndex,
         int epicIndex,
         int statusIndex,
         int issueIndex)
     {
+        var space = organization.GetSpace(spaceIndex);
+        
         var status = organization.GetStatus(spaceIndex, epicIndex, statusIndex);
-        return status.Issues![issueIndex];
+        var issue = status.Issues![issueIndex];
+
+        var issueKey = new IssueKey(space.Key, issue.IssueNumber!.Number).ToString();
+        
+        return new IssueData(issueKey, issue);
     }
     
     public static Status GetStatus(

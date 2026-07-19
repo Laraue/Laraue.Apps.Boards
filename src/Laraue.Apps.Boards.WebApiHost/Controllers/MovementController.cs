@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.WebApiServices;
+﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -71,9 +72,9 @@ public class MovementController(IMovementService service) : ControllerBase
             cancellationToken);
     }
     
-    [HttpPost("issue/{id:long}/move-to-status/{statusId:long}")]
+    [HttpPost("issue/{key}/move-to-status/{statusId:long}")]
     public Task MoveIssue(
-        long id,
+        string key,
         long statusId,
         CancellationToken cancellationToken = default)
     {
@@ -81,7 +82,7 @@ public class MovementController(IMovementService service) : ControllerBase
             new MoveIssueRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
-                IssueId = id,
+                IssueKey = new IssueKey(key),
                 StatusId = statusId
             },
             cancellationToken);

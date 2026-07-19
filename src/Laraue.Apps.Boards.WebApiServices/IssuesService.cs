@@ -36,7 +36,7 @@ public interface IIssuesService
         DeleteIssueRequest request,
         CancellationToken ct);
     
-    Task<long> Create(
+    Task<string> Create(
         CreateIssueRequest request,
         CancellationToken ct);
     
@@ -50,6 +50,11 @@ public interface IIssuesService
     
     Task<IssueDetailDto> GetIssue(
         GetIssueRequest request,
+        CancellationToken cancellationToken);
+
+    Task<long> GetIssueIdByIssueKey(
+        long organizationId,
+        IssueKey issueKey,
         CancellationToken cancellationToken);
 }
 
@@ -266,21 +271,23 @@ public class IssuesService(
 
     public async Task Delete(DeleteIssueRequest request, CancellationToken ct)
     {
+        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, ct);
+        
         var accessLevel = await accessService.GetAccessLevelsByIssueId(
             request.AuthData,
-            request.IssueId,
+            issueId,
             ct);
 
         if (accessLevel is null)
-            throw new NotFoundException($"Issue: {request.IssueId} is not found");
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found");
 
         if (!accessLevel.CanDeleteIssue)
-            throw new ForbiddenException($"Issue: {request.IssueId} delete is forbidden");
+            throw new ForbiddenException($"Issue: {request.IssueKey} delete is forbidden");
 
-        await issuesService.Delete(request.IssueId, ct);
+        await issuesService.Delete(issueId, ct);
     }
 
-    public async Task<long> Create(CreateIssueRequest request, CancellationToken ct)
+    public async Task<string> Create(CreateIssueRequest request, CancellationToken ct)
     {
         var validationData = await context.Statuses
             .Where(s => s.Id == request.StatusId)
@@ -321,22 +328,29 @@ public class IssuesService(
         await issuesService.UpdateAttributes(id, attributeUpdateRequests, ct);
         
         await transaction.CommitAsync(ct);
+
+        var issueKey = await context.Issues
+            .Where(x => x.Id == id)
+            .Select(x => new IssueKey(x.IssueNumber!.Space!.Key, x.IssueNumber.Number))
+            .FirstAsyncEF(ct);
         
-        return id;
+        return issueKey.ToString();
     }
 
     public async Task Update(UpdateIssueRequest request, CancellationToken ct)
     {
+        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey.GetValueOrDefault(), ct);
+        
         var accessLevels = await accessService.GetAccessLevelsByIssueId(
             request.AuthData,
-            request.Id,
+            issueId,
             ct);
 
         if (accessLevels is null)
-            throw new NotFoundException($"Issue: {request.Id} is not found");
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found");
         
         if (!accessLevels.CanUpdateIssue)
-            throw new ForbiddenException($"Issue: {request.Id} update is forbidden");
+            throw new ForbiddenException($"Issue: {request.IssueKey} update is forbidden");
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
@@ -348,12 +362,12 @@ public class IssuesService(
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         await issuesService.Update(
-            request.Id,
+            issueId,
             upd => upd
                 .SetProperty(x => x.Content, request.Content)
                 .SetProperty(x => x.AssigneeId, request.AssigneeId),
             ct);
-        await issuesService.UpdateAttributes(request.Id, attributeUpdateRequests, ct);
+        await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
             
         await transaction.CommitAsync(ct);
     }
@@ -585,16 +599,18 @@ public class IssuesService(
         GetIssueRequest request,
         CancellationToken cancellationToken)
     {
+        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, cancellationToken);
+        
         var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
             request.AuthData,
-            request.IssueId,
+            issueId,
             cancellationToken);
 
         if (issueAccessLevels is null)
-            throw new NotFoundException($"Issue: {request.IssueId} is not found or not accessible");
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
 
         var result = await context.Issues
-            .Where(x => x.Id == request.IssueId)
+            .Where(x => x.Id == issueId)
             .Select(x => new IssueDetailDtoData
             {
                 Id = x.Id,
@@ -653,7 +669,7 @@ public class IssuesService(
             })
             .ToArrayAsyncEF(cancellationToken);
 
-        var attributeValuesResult = await GetIssueAttributeValues(request.IssueId, cancellationToken);
+        var attributeValuesResult = await GetIssueAttributeValues(issueId, cancellationToken);
         foreach (var attributeValue in attributeValues)
         {
             if (attributeValuesResult.TryGetValue(attributeValue.Id, out var value))
@@ -684,6 +700,19 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
         };
+    }
+
+    public Task<long> GetIssueIdByIssueKey(
+        long organizationId,
+        IssueKey issueKey,
+        CancellationToken cancellationToken)
+    {
+        return context.IssueNumbers
+            .Where(x => x.Number == issueKey.Number)
+            .Where(x => x.Space!.Key == issueKey.SpaceKey)
+            .Where(x => x.Space!.OrganizationId == organizationId)
+            .Select(x => x.IssueId)
+            .FirstOrThrowNotFoundEFAsync($"Issue: {issueKey} is not found in organization", cancellationToken);
     }
 
     private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
@@ -1058,7 +1087,7 @@ public class IssuesService(
             AssigneeInitial = assigneeData.Initials,
             Time = source.Time,
             AssigneeColor = source.AssigneeUserColor,
-            Key = $"{source.SpaceKey}-{source.Number}",
+            Key = new IssueKey(source.SpaceKey, source.Number).ToString(),
             SpaceId = source.SpaceId,
         };
     }
@@ -1076,7 +1105,7 @@ public record GetIssuesRequest : BatchRequest, IHasAttributeFilters, IHasSorting
 public record GetIssueRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
-    public long IssueId { get; set; }
+    public required IssueKey IssueKey { get; set; }
 }
 
 public record GetBoardRequest : IHasAttributeFilters, IHasSorting
@@ -1177,8 +1206,8 @@ public enum MediaType
 
 public record DeleteIssueRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
-    public long IssueId { get; set; }
+    public required OrganizationAuthData AuthData { get; set; } = new();
+    public required IssueKey IssueKey { get; set; }
 }
 
 public record CreateIssueRequest
@@ -1210,7 +1239,7 @@ public record StringAttributeValue : AttributeValue
 public record UpdateIssueRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
-    public long Id { get; set; }
+    public IssueKey? IssueKey { get; set; }
     public required string Content { get; set; }
     public required Guid AssigneeId { get; set; }
     public required AttributeValue[] AttributeValues { get; set; }
