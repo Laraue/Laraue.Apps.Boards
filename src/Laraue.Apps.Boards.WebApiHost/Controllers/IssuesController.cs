@@ -1,7 +1,9 @@
-﻿using Laraue.Apps.Boards.WebApiServices;
+﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using CreateIssueRequest = Laraue.Apps.Boards.WebApiServices.CreateIssueRequest;
 
 namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 
@@ -41,16 +43,16 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     
-    [HttpGet("{id:long}")]
+    [HttpGet("{key}")]
     public Task<IssueDetailDto> GetIssue(
-        long id,
+        string key,
         CancellationToken cancellationToken = default)
     {
         return issuesService.GetIssue(
             new GetIssueRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
-                IssueId = id,
+                IssueKey = new IssueKey(key),
             },
             cancellationToken);
     }
@@ -68,22 +70,22 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             cancellationToken);
     }
     
-    [HttpDelete("{id:long}")]
+    [HttpDelete("{key}")]
     public Task Delete(
-        long id,
+        string key,
         CancellationToken cancellationToken = default)
     {
         return issuesService.Delete(
             new DeleteIssueRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
-                IssueId = id,
+                IssueKey = new IssueKey(key),
             },
             cancellationToken);
     }
     
     [HttpPost]
-    public Task<long> Create(
+    public Task<string> Create(
         [FromBody] CreateIssueRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -95,9 +97,9 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             cancellationToken);
     }
     
-    [HttpPut("{id:long}")]
+    [HttpPut("{key}")]
     public Task Update(
-        [FromRoute] long id,
+        [FromRoute] string key,
         [FromBody] UpdateIssueRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -105,7 +107,7 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
-                Id = id,
+                IssueKey = new IssueKey(key),
             },
             cancellationToken);
     }

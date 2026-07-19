@@ -34,7 +34,8 @@ public class MovementService(
     ICoreMovementService movementService,
     IOrganizationAccessService organizationAccessService,
     DatabaseContext context,
-    IAccessService accessService)
+    IAccessService accessService,
+    IIssuesService issuesService)
     : IMovementService
 {
     public async Task MoveSpace(MoveSpaceRequest request, CancellationToken cancellationToken)
@@ -108,17 +109,19 @@ public class MovementService(
 
     public async Task MoveIssue(MoveIssueRequest request, CancellationToken ct)
     {
+        var issueId = await issuesService.GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, ct);
+        
         // Check that can move Issue
         var accessLevels = await accessService.GetAccessLevelsByIssueId(
             request.AuthData,
-            request.IssueId,
+            issueId,
             ct);
 
         if (accessLevels is null)
-            throw new NotFoundException($"Issue: {request.IssueId} is not found");
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found");
 
         if (!accessLevels.CanUpdateIssue)
-            throw new ForbiddenException($"Issue: {request.IssueId} is not accessible");
+            throw new ForbiddenException($"Issue: {request.IssueKey} is not accessible");
         
         // Check that can move to specified status
         var canMove = await accessService.CanMoveToStatus(
@@ -131,7 +134,7 @@ public class MovementService(
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         await movementService.MoveIssue(
-            request.IssueId,
+            issueId,
             request.StatusId,
             ct);
         await transaction.CommitAsync(ct);
@@ -208,7 +211,7 @@ public record DestinationSpace
 
 public record MoveIssueRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
-    public long IssueId { get; set; }
-    public long StatusId { get; set; }
+    public required OrganizationAuthData AuthData { get; set; }
+    public required IssueKey IssueKey { get; set; }
+    public required long StatusId { get; set; }
 }

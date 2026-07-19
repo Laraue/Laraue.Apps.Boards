@@ -264,17 +264,16 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
                     .AddEpic(userId, e => e.AddStatus()))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         var newStatus = organization.GetStatus(1, 1, 1);
         
         await _controller
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.MoveIssue(
-                issue.Id,
+                issueData.Key,
                 newStatus.Id));
 
-        issue = await testScope.Database.Issues.FirstOrDefaultAsyncEF(e => e.Id == issue.Id);
-        Assert.NotNull(issue);
+        var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal(newStatus.Id, issue.StatusId);
     }
 
@@ -293,15 +292,14 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
                     .AddEpic(userId, e => e.AddStatus()))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         var newStatus = organization.GetStatus(1, 1, 1);
         
         await _controller
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.MoveIssue(issue.Id, newStatus.Id));
+            .Execute(x => x.MoveIssue(issueData.Key, newStatus.Id));
 
-        issue = await testScope.Database.Issues.FirstOrDefaultAsyncEF(e => e.Id == issue.Id);
-        Assert.NotNull(issue);
+        var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal(newStatus.Id, issue.StatusId);
     }
 
@@ -320,15 +318,15 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
                     .AddEpic(userId, e => e.AddStatus()))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         var newStatus = organization.GetStatus(1, 1, 1);
         
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.MoveIssue(issue.Id, newStatus.Id)));
+            .Execute(x => x.MoveIssue(issueData.Key, newStatus.Id)));
         
         var notFound = ex.HasInnerException<ForbiddenException>();
-        Assert.Equal($"Issue: {issue.Id} is not accessible", notFound.Message);
+        Assert.Equal($"Issue: {issueData.Key} is not accessible", notFound.Message);
     }
 
     [Fact]
@@ -346,12 +344,12 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
                     .AddEpic(userId, e => e.AddStatus()))
                 .AddIssueToDefaultStatus(userId));
 
-        var issue = organization.GetIssue(0, 0, 0, 0);
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
         var newStatus = organization.GetStatus(1, 1, 1);
         
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.MoveIssue(issue.Id, newStatus.Id)));
+            .Execute(x => x.MoveIssue(issueData.Key, newStatus.Id)));
         
         var notFound = ex.HasInnerException<NotFoundException>();
         Assert.Equal($"Status: {newStatus.Id} is not found", notFound.Message);
@@ -371,14 +369,15 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
                         .AddStatus(st => st.WithName("Beautiful status"))
                         .AddIssue(userId, 0))));
 
-        var issue = organization.GetIssue(1, 1, 0, 0);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
         var newStatus = organization.GetStatus(1, 1, 1);
         
         await _controller
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.MoveIssue(issue.Id, newStatus.Id));
+            .Execute(x => x.MoveIssue(issueData.Key, newStatus.Id));
 
-        issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.NotNull(issue);
         Assert.Equal(newStatus.Id, issue.StatusId);
     }
     
@@ -394,11 +393,11 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
                     .AddEpic(userId, e => e
                         .AddIssue(userId, 0))));
 
-        var issue = organization.GetIssue(1, 1, 0, 0);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.MoveIssue(issue.Id, 0)));
+            .Execute(x => x.MoveIssue(issueData.Key, 0)));
         
         var notFoundException = ex.HasInnerException<NotFoundException>();
         Assert.Equal("Status: 0 is not found", notFoundException.Message);

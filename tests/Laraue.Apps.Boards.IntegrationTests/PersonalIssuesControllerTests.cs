@@ -49,12 +49,14 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             ],
             AssigneeId = userId,
         };
-        var issueId = await _issuesController
+        
+        var issueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(request));
 
-        var issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issueId);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
         
+        Assert.NotNull(issue);
         Assert.Equal("New Issue", issue.Content);
         Assert.Equal(defaultStatus.Id, issue.StatusId);
         Assert.NotEqual(default, issue.CreatedAt);
@@ -84,7 +86,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var defaultStatus = backlog.Statuses![0];
         
         // First issue has number 1
-        var issueId = await _issuesController
+        var issueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
@@ -94,11 +96,10 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                     AssigneeId = userId,
                 }));
 
-        var issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issueId);
-        Assert.Equal(1, issueNumber.Number);
+        Assert.Equal("DEF-1", issueKey);
         
         // Second issue has number 2
-        issueId = await _issuesController
+        issueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
@@ -108,8 +109,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                     AssigneeId = userId,
                 }));
 
-        issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issueId);
-        Assert.Equal(2, issueNumber.Number);
+        Assert.Equal("DEF-2", issueKey);
     }
     
     [Fact]
@@ -127,7 +127,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                         .AddIssue(userId, 0, i => i
                             .WithContent("Hi")))));
 
-        var issue = organization.GetIssue(1, 1, 0, 0);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
         var noteAttribute = organization.GetAttribute(0);
         var typeAttribute = organization.GetAttribute(1);
         
@@ -152,10 +152,11 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.Update(issue.Id, request));
+            .Execute(x => x.Update(issueData.Key, request));
 
-        issue = await testScope.Database.Issues.FirstAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         
+        Assert.NotNull(issue);
         Assert.True(issue.CreatedAt < issue.UpdatedAt);
         Assert.Equal("New", issue.Content);
 
@@ -182,13 +183,13 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                     .AddEpic(userId, e => e
                         .AddIssue(userId, 0))));
 
-        var issue = organization.GetIssue(1, 1, 0, 0);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.Delete(issue.Id));
+            .Execute(x => x.Delete(issueData.Key));
 
-        issue = await testScope.Database.Issues.FirstOrDefaultAsyncEF(e => e.Id == issue.Id);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Null(issue);
     }
     
@@ -212,11 +213,11 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                             .WithContent("Hi")
                             .WithTimestamp(timestamp)))));
 
-        var issue = organization.GetIssue(1, 1, 1, 0);
+        var issueData = organization.GetIssueData(1, 1, 1, 0);
         
         var issueDto = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetIssue(issue.Id));
+            .Execute(x => x.GetIssue(issueData.Key));
         
         Assert.NotNull(issueDto);
         Assert.Equal("Hi", issueDto.Content);
