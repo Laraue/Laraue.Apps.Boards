@@ -27,12 +27,24 @@ public interface ICoreIssuesService
     Task Delete(
         long id,
         CancellationToken cancellationToken);
+    
+    /// <summary>
+    /// Upload the file and link it to the issue.
+    /// </summary>
+    Task<MediaInfo> UploadAttachment(
+        Guid ownerId,
+        long issueId,
+        string fileName,
+        string contentType,
+        Stream stream,
+        CancellationToken cancellationToken);
 }
 
 public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
-    ISpaceCounterService spaceCounterService)
+    ISpaceCounterService spaceCounterService,
+    ICoreFilesService coreFilesService)
     : ICoreIssuesService
 {
     public async Task<long> Create(
@@ -210,6 +222,53 @@ public class CoreIssuesService(
         return context.Issues
             .Where(x => x.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public async Task<MediaInfo> UploadAttachment(
+        Guid ownerId,
+        long issueId,
+        string fileName,
+        string contentType,
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        var fileData = await coreFilesService.UploadFile(fileName, contentType, stream, cancellationToken);
+
+        var uploadTask = fileData.Type switch
+        {
+            MediaType.Photo => UploadImageAttachment(ownerId, issueId, fileName, contentType, fileData, cancellationToken),
+            _ => throw new InvalidOperationException($"Media type {fileData.Type} attachments are not supported yet.")
+        };
+
+        await uploadTask;
+
+        return fileData;
+    }
+
+    private async Task UploadImageAttachment(
+        Guid ownerId,
+        long issueId,
+        string fileName,
+        string contentType,
+        MediaInfo mediaInfo,
+        CancellationToken cancellationToken)
+    {
+        var imageAttachment = new ImageAttachment
+        {
+            Attachment = new Attachment
+            {
+                CreatedAt = dateTimeProvider.UtcNow,
+                IssueId = issueId,
+                FileName = fileName,
+                ContentType = contentType,
+                OwnerId = ownerId,
+            },
+            OriginalTelegramFileId = mediaInfo.PreviewFileId!.Value,
+            ThumbnailTelegramFileId = mediaInfo.PreviewFileId!.Value,
+        };
+
+        context.Add(imageAttachment);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     private Task<int> TouchMessageBoard(long issueId, DateTime touchedAt, CancellationToken ct)

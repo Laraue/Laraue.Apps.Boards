@@ -2,6 +2,9 @@
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
+/// <summary>
+/// All files that was received or uploaded by app Telegram Bot.
+/// </summary>
 public class TelegramFile
 {
     public Guid Id { get; set; }

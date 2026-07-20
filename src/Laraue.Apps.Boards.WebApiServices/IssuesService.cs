@@ -56,6 +56,10 @@ public interface IIssuesService
         long organizationId,
         IssueKey issueKey,
         CancellationToken cancellationToken);
+    
+    Task<MediaInfo> UploadAttachment(
+        UploadAttachmentRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class IssuesService(
@@ -102,7 +106,6 @@ public class IssuesService(
             .Select(Map)
             .ToArray();
         
-        await EnrichMedia(projected, cancellationToken);
         await EnrichAttributes(projected, cancellationToken);
 
         return new BatchResult<IssueListDto>
@@ -193,7 +196,6 @@ public class IssuesService(
             .SelectMany(x => x.Items.Data)
             .ToList();
         
-        await EnrichMedia(allData, cancellationToken);
         await EnrichAttributes(allData, cancellationToken);
 
         return result.ToArray();
@@ -416,7 +418,6 @@ public class IssuesService(
             }, ct);
         
         var mapped = temporaryResult.MapTo(Map);
-        await EnrichMedia(mapped.Data, ct);
         await EnrichAttributes(mapped.Data, ct);
         
         var result = await MapToSearchDtos(request.AuthData, mapped.Data, ct);
@@ -678,6 +679,8 @@ public class IssuesService(
                 attributeValue.Value = value;
         }
 
+        var media = await GetMedia(result.Id, cancellationToken);
+
         return new IssueDetailDto
         {
             Id = result.Id,
@@ -703,7 +706,122 @@ public class IssuesService(
             SpaceId = result.SpaceId,
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
+            Media = media,
         };
+    }
+
+    private async Task<List<MediaInfo>> GetMedia(long issueId, CancellationToken ct)
+    {
+        var result = new List<MediaInfo>();
+        
+        await AppendTelegramMedia(issueId, result, ct);
+        
+        return result;
+    }
+    
+    private async Task AppendTelegramMedia(long issueId, List<MediaInfo> result, CancellationToken ct)
+    {
+        var directLinkedMessages = await context
+            .TelegramMessages
+            .Where(x => issueId == x.Issue!.Id)
+            .Select(x => new { x.Id, x.TelegramMediaGroupId, CardId = x.Issue!.Id })
+            .ToListAsyncEF(ct);
+
+        var groupIds = directLinkedMessages
+            .Where(x => x.TelegramMediaGroupId.HasValue)
+            .Select(x => x.TelegramMediaGroupId!.Value)
+            .Distinct();
+
+        var nonDirectLinkedMessages = await context
+            .TelegramMessages
+            .Where(x => groupIds.Contains(x.TelegramMediaGroupId!.Value))
+            .Where(x => !directLinkedMessages.Select(y => y.Id).Contains(x.Id))
+            .Select(x => new { x.Id, x.TelegramMediaGroupId })
+            .ToArrayAsyncEF(ct);
+
+        var allTelegramMessageIds = directLinkedMessages
+            .Select(x => x.Id)
+            .Union(nonDirectLinkedMessages.Select(y => y.Id))
+            .ToArray();
+        
+        var photosData = await context.TelegramMessagePhotos
+            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
+            .Select(x => new
+            {
+                MessageId = x.TelegramMessageId,
+                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
+                x.TelegramFileId,
+                x.PhotoType,
+                x.GroupId,
+            })
+            .ToArrayAsyncEF(ct);
+
+        var cardIdByTelegramMessageId = directLinkedMessages
+            .ToDictionary(x => x.Id, x => x.CardId);
+        var cardIdByMediaGroupId = directLinkedMessages
+            .Where(x => x.TelegramMediaGroupId.HasValue)
+            .ToDictionary(x => x.TelegramMediaGroupId!.Value, x => x.CardId);
+        var photosByCardId = photosData
+            .GroupBy(x =>
+            {
+                if (x.MessageGroupId is not null)
+                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
+                return cardIdByTelegramMessageId[x.MessageId];
+            })
+            .ToDictionary(
+                x => x.Key,
+                x => x
+                    .GroupBy(y => y.GroupId)
+                    .ToDictionary(
+                        y => y.Key,
+                        y => y
+                            .Select(z => new { z.PhotoType, z.TelegramFileId })));
+        
+        var videosData = await context.TelegramMessageVideos
+            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
+            .Select(x => new
+            {
+                MessageId = x.TelegramMessageId,
+                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
+                x.ThumbnailFileId,
+                x.FileId
+            })
+            .ToArrayAsyncEF(ct);
+
+        var videosByCardId = videosData
+            .GroupBy(x =>
+            {
+                if (x.MessageGroupId is not null)
+                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
+                return cardIdByTelegramMessageId[x.MessageId];
+            })
+            .ToDictionary(x => x.Key);
+
+        if (photosByCardId.TryGetValue(issueId, out var photos))
+            foreach (var photoGroup in photos)
+                result.Add(new MediaInfo
+                {
+                    Type = MediaType.Photo,
+                    PreviewFileId = photoGroup.Value
+                        .FirstOrDefault(x => x.PhotoType == PhotoType.Thumbnail)
+                        ?.TelegramFileId,
+                    OriginalFileId = photoGroup.Value
+                        .FirstOrDefault(x => x.PhotoType == PhotoType.Original)
+                        ?.TelegramFileId,
+                });
+            
+        if (videosByCardId.TryGetValue(issueId, out var videos))
+        {
+            foreach (var video in videos)
+            {
+                result.Add(new MediaInfo
+                {
+                    Type = MediaType.Video,
+                    PreviewFileId = video.ThumbnailFileId,
+                    OriginalFileId = video.FileId,
+                });
+            }
+        }
     }
 
     public Task<long> GetIssueIdByIssueKey(
@@ -717,6 +835,27 @@ public class IssuesService(
             .Where(x => x.Space!.OrganizationId == organizationId)
             .Select(x => x.IssueId)
             .FirstOrThrowNotFoundEFAsync($"Issue: {issueKey} is not found in organization", cancellationToken);
+    }
+
+    public async Task<MediaInfo> UploadAttachment(UploadAttachmentRequest request, CancellationToken cancellationToken)
+    {
+        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, cancellationToken);
+        
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+            request.AuthData,
+            issueId,
+            cancellationToken);
+        
+        if (issueAccessLevels?.CanUpdateIssue != true)
+            throw new ForbiddenException($"Issue: {request.IssueKey} update is forbidden");
+
+        return await issuesService.UploadAttachment(
+            request.AuthData.UserId,
+            issueId,
+            request.FileName,
+            request.ContentType,
+            request.Stream,
+            cancellationToken);
     }
 
     private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
@@ -863,7 +1002,6 @@ public class IssuesService(
                 Assignee = element.Assignee,
                 AssigneeColor = element.AssigneeColor,
                 Time = element.Time,
-                Media = element.Media,
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
                 CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceId),
@@ -936,117 +1074,6 @@ public class IssuesService(
                     {
                         Value = attribute.Value,
                         Color = attribute.Color,
-                    });
-                }
-            }
-        }
-    }
-
-    private async Task EnrichMedia<T>(IList<T> elements, CancellationToken ct)
-        where T : class, ICanContainMedia
-    {
-        var cardIds = elements.Select(x => x.Id).ToList();
-        
-        var directLinkedMessages = await context
-            .TelegramMessages
-            .Where(x => cardIds.Contains(x.Issue!.Id))
-            .Select(x => new { x.Id, x.TelegramMediaGroupId, CardId = x.Issue!.Id })
-            .ToListAsyncEF(ct);
-
-        var groupIds = directLinkedMessages
-            .Where(x => x.TelegramMediaGroupId.HasValue)
-            .Select(x => x.TelegramMediaGroupId!.Value)
-            .Distinct();
-
-        var nonDirectLinkedMessages = await context
-            .TelegramMessages
-            .Where(x => groupIds.Contains(x.TelegramMediaGroupId!.Value))
-            .Where(x => !directLinkedMessages.Select(y => y.Id).Contains(x.Id))
-            .Select(x => new { x.Id, x.TelegramMediaGroupId })
-            .ToArrayAsyncEF(ct);
-
-        var allTelegramMessageIds = directLinkedMessages
-            .Select(x => x.Id)
-            .Union(nonDirectLinkedMessages.Select(y => y.Id))
-            .ToArray();
-        
-        var photosData = await context.TelegramPhotos
-            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
-            .Select(x => new
-            {
-                MessageId = x.TelegramMessageId,
-                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
-                x.TelegramFileId,
-                x.PhotoType,
-                x.GroupId,
-            })
-            .ToArrayAsyncEF(ct);
-
-        var cardIdByTelegramMessageId = directLinkedMessages
-            .ToDictionary(x => x.Id, x => x.CardId);
-        var cardIdByMediaGroupId = directLinkedMessages
-            .Where(x => x.TelegramMediaGroupId.HasValue)
-            .ToDictionary(x => x.TelegramMediaGroupId!.Value, x => x.CardId);
-        var photosByCardId = photosData
-            .GroupBy(x =>
-            {
-                if (x.MessageGroupId is not null)
-                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
-                return cardIdByTelegramMessageId[x.MessageId];
-            })
-            .ToDictionary(
-                x => x.Key,
-                x => x
-                    .GroupBy(y => y.GroupId)
-                    .ToDictionary(
-                        y => y.Key,
-                        y => y
-                            .Select(z => new { z.PhotoType, z.TelegramFileId })));
-        
-        var videosData = await context.TelegramVideos
-            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
-            .Select(x => new
-            {
-                MessageId = x.TelegramMessageId,
-                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
-                x.ThumbnailFileId,
-                x.FileId
-            })
-            .ToArrayAsyncEF(ct);
-
-        var videosByCardId = videosData
-            .GroupBy(x =>
-            {
-                if (x.MessageGroupId is not null)
-                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
-                return cardIdByTelegramMessageId[x.MessageId];
-            })
-            .ToDictionary(x => x.Key);
-        
-        foreach (var element in elements)
-        {
-            if (photosByCardId.TryGetValue(element.Id, out var photos))
-                foreach (var photoGroup in photos)
-                    element.Media.Add(new MediaInfo
-                    {
-                        Type = MediaType.Photo,
-                        PreviewFileId = photoGroup.Value
-                            .FirstOrDefault(x => x.PhotoType == PhotoType.Thumbnail)
-                            ?.TelegramFileId,
-                        OriginalFileId = photoGroup.Value
-                            .FirstOrDefault(x => x.PhotoType == PhotoType.Original)
-                            ?.TelegramFileId,
-                    });
-            
-            if (videosByCardId.TryGetValue(element.Id, out var videos))
-            {
-                foreach (var video in videos)
-                {
-                    element.Media.Add(new MediaInfo
-                    {
-                        Type = MediaType.Video,
-                        PreviewFileId = video.ThumbnailFileId,
-                        OriginalFileId = video.FileId,
                     });
                 }
             }
@@ -1153,13 +1180,7 @@ public class IssueListDtoData
     public required long SpaceId { get; set; }
 }
 
-public interface ICanContainMedia
-{
-    public long Id { get; set; }
-    public List<MediaInfo> Media { get; set; }
-}
-
-public record IssueListDto : ICanContainMedia
+public record IssueListDto
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
@@ -1171,7 +1192,6 @@ public record IssueListDto : ICanContainMedia
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
     public required long SpaceId { get; set; }
-    public List<MediaInfo> Media { get; set; } = [];
     public List<IssueListAttributeDto> Attributes { get; set; } = [];
 }
 
@@ -1193,19 +1213,6 @@ public record NameAndColor
 {
     public required string Name { get; set; }
     public required string Color { get; set; }
-}
-
-public class MediaInfo
-{
-    public Guid? PreviewFileId { get; set; }
-    public Guid? OriginalFileId { get; set; }
-    public MediaType Type { get; set; }
-}
-
-public enum MediaType
-{
-    Photo,
-    Video,
 }
 
 public record DeleteIssueRequest
@@ -1320,6 +1327,7 @@ public class IssueDetailDto
     public required bool CanEdit { get; set; }
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
+    public required List<MediaInfo> Media { get; set; }
 }
 
 public record DetailIssueAttributeDto
@@ -1402,4 +1410,13 @@ public record EpicSummary
     public required ColumnSummary[] Columns { get; set; }
     public required DateTime TouchedAt { get; set; }
     public required bool IsDefault { get; set; }
+}
+
+public record UploadAttachmentRequest
+{
+    public required OrganizationAuthData AuthData { get; init; }
+    public IssueKey IssueKey { get; init; }
+    public required string FileName { get; init; }
+    public required string ContentType { get; init; }
+    public required Stream Stream { get; init; }
 }

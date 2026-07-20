@@ -4,7 +4,6 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using Telegram.Bot;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
@@ -17,8 +16,7 @@ public interface ITelegramSaveMessageService
 
 public class TelegramSaveMessageService(
     DatabaseContext context,
-    IFileStorage fileStorage,
-    ITelegramBotClient botClient,
+    ICoreFilesService coreFilesService,
     ICoreIssuesService coreIssuesService)
     : ITelegramSaveMessageService
 {
@@ -56,17 +54,14 @@ public class TelegramSaveMessageService(
         
         if (request.Thumbnail is not null)
         {
-            videoFile.ThumbnailFileId = await GetOrCreateMessageFileId(
-                request.Thumbnail,
-                saveFileToStorage: true,
-                cancellationToken);
+            await coreFilesService.DownloadToLocalStorage(request.Thumbnail.FileId, request.Thumbnail.MimeType, cancellationToken);
+            videoFile.ThumbnailFileId = await coreFilesService.CreateDbFileIfNotExists(request.Thumbnail, cancellationToken);
             videoFile.ThumbnailHeight = request.Thumbnail.Height;
             videoFile.ThumbnailWidth = request.Thumbnail.Width;
         }
         
-        videoFile.FileId = await GetOrCreateMessageFileId(
+        videoFile.FileId = await coreFilesService.CreateDbFileIfNotExists(
             request.Video,
-            saveFileToStorage: false,
             cancellationToken);
         
         context.Add(videoFile);
@@ -86,7 +81,7 @@ public class TelegramSaveMessageService(
         // If not stored, then remove previous and store
         var thumbnailPhoto = request.Photos[0];
         var originalPhoto = request.Photos.Last();
-        var photos = new List<(PhotoSize, PhotoType)>
+        var photos = new List<(PhotoFile, PhotoType)>
         {
             (thumbnailPhoto!, PhotoType.Thumbnail)
         };
@@ -99,11 +94,10 @@ public class TelegramSaveMessageService(
         var groupId = Guid.NewGuid();
         foreach (var (photo, type) in photos)
         {
-            var fileId = await GetOrCreateMessageFileId(
-                photo,
-                saveFileToStorage: type == PhotoType.Thumbnail,
-                cancellationToken);
-
+            if (type == PhotoType.Thumbnail)
+                await coreFilesService.DownloadToLocalStorage(photo.FileId, photo.MimeType, cancellationToken);
+            
+            var fileId = await coreFilesService.CreateDbFileIfNotExists(photo, cancellationToken);
             var messageFile = new TelegramMessagePhoto
             {
                 TelegramMessageId = getOrCreateResult.TelegramMessageId,
@@ -123,78 +117,13 @@ public class TelegramSaveMessageService(
 
     private async Task DeleteOldAttachments(long telegramMessageId, CancellationToken cancellationToken)
     {
-        await context.TelegramPhotos
+        await context.TelegramMessagePhotos
             .Where(x => x.TelegramMessageId == telegramMessageId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        await context.TelegramVideos
+        await context.TelegramMessageVideos
             .Where(x => x.TelegramMessageId == telegramMessageId)
             .ExecuteDeleteAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Store file entity and upload it to storage if required.
-    /// </summary>
-    /// <param name="file"></param>
-    /// <param name="saveFileToStorage">
-    /// Store the file directly to storage.
-    /// If false - then when requesting the file it will be requesting directly from TG.
-    /// We can't request always from tg - static content will make too many calls.
-    /// And we can't store content always - it takes too much space.
-    /// </param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    private async Task<Guid> GetOrCreateMessageFileId(
-        File file,
-        bool saveFileToStorage,
-        CancellationToken cancellationToken)
-    {
-        var oldFileData = await context.TelegramFiles
-            .Where(x => x.FileUniqueId == file.FileUniqueId)
-            .Select(x => new { x.Id })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (oldFileData is not null)
-            return oldFileData.Id;
-        
-        if (saveFileToStorage)
-        {
-            var botFile = await botClient.GetFile(
-                file.FileId,
-                cancellationToken);
-
-            var stream = new MemoryStream();
-            await botClient.DownloadFile(
-                botFile,
-                stream,
-                cancellationToken);
-        
-            var extension = ExtensionUtility.GetExtension(file.MimeType);
-            var filePath = ShardedPathStrategy.GetPath(
-                botFile.FileUniqueId,
-                extension);
-        
-            stream.Position = 0;
-            await fileStorage.WriteFile(
-                filePath,
-                stream,
-                null,
-                cancellationToken);
-        }
-        
-        var telegramFile = new TelegramFile
-        {
-            FileId = file.FileId,
-            FileUniqueId = file.FileUniqueId,
-            Name = file.FileName,
-            Size = file.FileSize,
-            MimeType = file.MimeType,
-        };
-            
-        context.Add(telegramFile);
-        await context.SaveChangesAsync(cancellationToken);
-
-        return telegramFile.Id;
     }
         
     // New msg, old group

@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.TelegramHost.Resources;
+﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.TelegramHost.Resources;
 using Laraue.Apps.Boards.TelegramServices;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
 using Laraue.Telegram.NET.Abstractions;
@@ -6,8 +7,7 @@ using Laraue.Telegram.NET.Core.Extensions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
-using File = Laraue.Apps.Boards.TelegramServices.Services.Messages.File;
-using PhotoSize = Laraue.Apps.Boards.TelegramServices.Services.Messages.PhotoSize;
+using Services_File = Laraue.Apps.Boards.Services.File;
 
 namespace Laraue.Apps.Boards.TelegramHost;
 
@@ -88,7 +88,7 @@ public class HandleAllMessagesMiddleware(
             From = message.From?.Username,
             MediaGroupId = message.MediaGroupId,
             Photos = message.Photo!
-                .Select(photo => new PhotoSize
+                .Select(photo => new PhotoFile()
                 {
                     FileId = photo.FileId,
                     FileUniqueId = photo.FileUniqueId,
@@ -119,7 +119,7 @@ public class HandleAllMessagesMiddleware(
             Height = video.Height,
             Width = video.Width,
             Thumbnail = video.Thumbnail is not null
-                ? new PhotoSize
+                ? new PhotoFile
                 {
                     FileSize = video.Thumbnail.FileSize,
                     FileName = null,
@@ -129,7 +129,7 @@ public class HandleAllMessagesMiddleware(
                     Width = video.Thumbnail.Width,
                     MimeType = ThumbnailMimeType
                 } : null,
-            Video = new File
+            Video = new Services_File()
             {
                 FileSize = video.FileSize,
                 FileName = video.FileName,
@@ -158,7 +158,7 @@ public class HandleAllMessagesMiddleware(
             Height = video.Height,
             Width = video.Width,
             Thumbnail = video.Thumbnail is not null
-                ? new PhotoSize
+                ? new PhotoFile
                 {
                     FileSize = video.Thumbnail.FileSize,
                     FileName = null,
@@ -168,7 +168,7 @@ public class HandleAllMessagesMiddleware(
                     Width = video.Thumbnail.Width,
                     MimeType = ThumbnailMimeType
                 } : null,
-            Video = new File
+            Video = new Services_File
             {
                 FileSize = video.FileSize,
                 FileName = video.FileName,

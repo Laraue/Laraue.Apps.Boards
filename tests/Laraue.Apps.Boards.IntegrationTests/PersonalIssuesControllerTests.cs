@@ -273,7 +273,6 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(status.Id, issueDto.StatusId);
         Assert.Equal(timestamp, issueDto.Time);
         Assert.Equal(epic.Id, issueDto.EpicId);
-        Assert.Empty(issueDto.Media);
     }
     
     [Fact]
@@ -409,7 +408,6 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("snake1977", backlogIssue.Assignee);
         Assert.Equal(backlogStatus.Id, backlogIssue.StatusId);
         Assert.Equal(epic.Id, backlogIssue.EpicId);
-        Assert.Empty(backlogIssue.Media);
         
         var doneColumn = boardColumns[1];
         Assert.Equal(doneStatus.Id, doneColumn.StatusId);
@@ -456,7 +454,6 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("snake1977", item.Assignee);
         Assert.Equal(backlogStatus.Id, item.StatusId);
         Assert.Equal(epic.Id, item.EpicId);
-        Assert.Empty(item.Media);
     }
     
     [Fact]

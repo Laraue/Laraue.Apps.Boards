@@ -27,8 +27,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<OrganizationUser> OrganizationUsers { get; init; }
     public DbSet<Status> Statuses { get; init; }
     public DbSet<TelegramFile> TelegramFiles { get; init; }
-    public DbSet<TelegramMessagePhoto> TelegramPhotos { get; init; }
-    public DbSet<TelegramMessageVideo> TelegramVideos { get; init; }
+    public DbSet<TelegramMessagePhoto> TelegramMessagePhotos { get; init; }
+    public DbSet<TelegramMessageVideo> TelegramMessageVideos { get; init; }
     public DbSet<TelegramMessage> TelegramMessages { get; init; }
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
     

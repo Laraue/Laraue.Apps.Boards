@@ -9,8 +9,8 @@ using Telegram.Bot;
 namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 
 [ApiController]
-[Route("/api/telegram-files")]
-public class TelegramFilesController(
+[Route("/api/files")]
+public class FilesController(
     DatabaseContext db,
     IFileStorage fileStorage,
     ITelegramBotClient botClient,
