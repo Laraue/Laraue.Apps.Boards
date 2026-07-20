@@ -5,6 +5,7 @@
 /// </summary>
 public class ImageAttachment
 {
+    public long Id { get; set; }
     public Guid AttachmentId { get; set; }
     public Attachment? Attachment { get; set; }
     

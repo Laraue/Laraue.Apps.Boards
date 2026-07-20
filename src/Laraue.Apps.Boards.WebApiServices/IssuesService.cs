@@ -715,8 +715,25 @@ public class IssuesService(
         var result = new List<MediaInfo>();
         
         await AppendTelegramMedia(issueId, result, ct);
+        await AppendWebMedia(issueId, result, ct);
         
         return result;
+    }
+
+    private async Task AppendWebMedia(long issueId, List<MediaInfo> result, CancellationToken ct)
+    {
+        var attachments = await context
+            .ImageAttachments
+            .Where(x => issueId == x.Attachment!.IssueId)
+            .Select(x => new MediaInfo
+            {
+                Type = MediaType.Photo,
+                OriginalFileId = x.OriginalTelegramFileId,
+                PreviewFileId = x.ThumbnailTelegramFileId,
+            })
+            .ToListAsyncEF(ct);
+        
+        result.AddRange(attachments);
     }
     
     private async Task AppendTelegramMedia(long issueId, List<MediaInfo> result, CancellationToken ct)

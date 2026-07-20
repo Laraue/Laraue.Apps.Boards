@@ -14,6 +14,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     {
     }
     
+    public DbSet<Attachment> Attachments { get; set; }
+    public DbSet<ImageAttachment> ImageAttachments { get; set; }
     public DbSet<User> Users { get; init; }
     public DbSet<UserPreferences> UserPreferences { get; init; }
     public DbSet<UserOrganizationPreferences> UserOrganizationPreferences { get; init; }
@@ -142,6 +144,11 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         modelBuilder.Entity<User>(builder =>
         {
             builder.HasIndex(x => x.TelegramId).IsUnique();
+        });
+        
+        modelBuilder.Entity<ImageAttachment>(entity =>
+        {
+            entity.HasIndex(x => x.AttachmentId).IsUnique();
         });
     }
 }

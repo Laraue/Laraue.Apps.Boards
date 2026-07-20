@@ -137,10 +137,10 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             cancellationToken);
     }
 
-    [HttpGet("{key}/add-attachment")]
+    [HttpPost("{key}/add-attachment")]
     public async Task<MediaInfo> UploadFile(
         string key,
-        IFormFile file,
+        [FromForm] IFormFile file,
         CancellationToken cancellationToken)
     {
         await using var stream = file.OpenReadStream();
