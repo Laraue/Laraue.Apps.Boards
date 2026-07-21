@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260721111225_NewFilesSchema")]
+    [Migration("20260721202620_NewFilesSchema")]
     partial class NewFilesSchema
     {
         /// <inheritdoc />
@@ -360,6 +360,7 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasName("pk_issue_attachments");
 
                     b.HasIndex("AttachmentId")
+                        .IsUnique()
                         .HasDatabaseName("ix_issue_attachments_attachment_id");
 
                     b.ToTable("issue_attachments", (string)null);
@@ -781,9 +782,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<int?>("AttachmentType")
-                        .HasColumnType("integer")
-                        .HasColumnName("attachment_type");
+                    b.Property<Guid?>("AttachmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attachment_id");
 
                     b.Property<long>("ExternalChatId")
                         .HasColumnType("bigint")
@@ -793,29 +794,18 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("external_message_id");
 
-                    b.Property<long?>("TelegramFileId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("telegram_file_id");
-
                     b.Property<long?>("TelegramMediaGroupId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_media_group_id");
 
-                    b.Property<long?>("TelegramPreviewFileId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("telegram_preview_file_id");
-
                     b.HasKey("Id")
                         .HasName("pk_telegram_messages");
 
-                    b.HasIndex("TelegramFileId")
-                        .HasDatabaseName("ix_telegram_messages_telegram_file_id");
+                    b.HasIndex("AttachmentId")
+                        .HasDatabaseName("ix_telegram_messages_attachment_id");
 
                     b.HasIndex("TelegramMediaGroupId")
                         .HasDatabaseName("ix_telegram_messages_telegram_media_group_id");
-
-                    b.HasIndex("TelegramPreviewFileId")
-                        .HasDatabaseName("ix_telegram_messages_telegram_preview_file_id");
 
                     b.HasIndex("ExternalMessageId", "ExternalChatId")
                         .IsUnique()
@@ -1112,8 +1102,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueAttachment", b =>
                 {
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Attachment", "Attachment")
-                        .WithMany()
-                        .HasForeignKey("AttachmentId")
+                        .WithOne("IssueAttachment")
+                        .HasForeignKey("Laraue.Apps.Boards.DataAccess.Models.IssueAttachment", "AttachmentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_issue_attachments_attachments_attachment_id");
@@ -1282,26 +1272,24 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessage", b =>
                 {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramFile", "TelegramFile")
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Attachment", "Attachment")
                         .WithMany()
-                        .HasForeignKey("TelegramFileId")
-                        .HasConstraintName("fk_telegram_messages_telegram_files_telegram_file_id");
+                        .HasForeignKey("AttachmentId")
+                        .HasConstraintName("fk_telegram_messages_attachments_attachment_id");
 
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramMediaGroup", "TelegramMediaGroup")
                         .WithMany()
                         .HasForeignKey("TelegramMediaGroupId")
                         .HasConstraintName("fk_telegram_messages_telegram_media_groups_telegram_media_grou");
 
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramFile", "TelegramPreviewFile")
-                        .WithMany()
-                        .HasForeignKey("TelegramPreviewFileId")
-                        .HasConstraintName("fk_telegram_messages_telegram_files_telegram_preview_file_id");
-
-                    b.Navigation("TelegramFile");
+                    b.Navigation("Attachment");
 
                     b.Navigation("TelegramMediaGroup");
+                });
 
-                    b.Navigation("TelegramPreviewFile");
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Attachment", b =>
+                {
+                    b.Navigation("IssueAttachment");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Attribute", b =>

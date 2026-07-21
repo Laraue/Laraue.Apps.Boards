@@ -39,22 +39,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 table: "telegram_files",
                 newName: "external_file_unique_id");
 
-            migrationBuilder.AddColumn<int>(
-                name: "attachment_type",
+            migrationBuilder.AddColumn<Guid>(
+                name: "attachment_id",
                 table: "telegram_messages",
-                type: "integer",
-                nullable: true);
-
-            migrationBuilder.AddColumn<long>(
-                name: "telegram_file_id",
-                table: "telegram_messages",
-                type: "bigint",
-                nullable: true);
-
-            migrationBuilder.AddColumn<long>(
-                name: "telegram_preview_file_id",
-                table: "telegram_messages",
-                type: "bigint",
+                type: "uuid",
                 nullable: true);
 
             migrationBuilder.DropColumn(
@@ -166,14 +154,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "ix_telegram_messages_telegram_file_id",
+                name: "ix_telegram_messages_attachment_id",
                 table: "telegram_messages",
-                column: "telegram_file_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_telegram_messages_telegram_preview_file_id",
-                table: "telegram_messages",
-                column: "telegram_preview_file_id");
+                column: "attachment_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_telegram_files_file_id",
@@ -199,7 +182,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             migrationBuilder.CreateIndex(
                 name: "ix_issue_attachments_attachment_id",
                 table: "issue_attachments",
-                column: "attachment_id");
+                column: "attachment_id",
+                unique: true);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_telegram_files_files_file_id",
@@ -210,17 +194,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 onDelete: ReferentialAction.Cascade);
 
             migrationBuilder.AddForeignKey(
-                name: "fk_telegram_messages_telegram_files_telegram_file_id",
+                name: "fk_telegram_messages_attachments_attachment_id",
                 table: "telegram_messages",
-                column: "telegram_file_id",
-                principalTable: "telegram_files",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_telegram_messages_telegram_files_telegram_preview_file_id",
-                table: "telegram_messages",
-                column: "telegram_preview_file_id",
-                principalTable: "telegram_files",
+                column: "attachment_id",
+                principalTable: "attachments",
                 principalColumn: "id");
         }
 
@@ -232,11 +209,7 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 table: "telegram_files");
 
             migrationBuilder.DropForeignKey(
-                name: "fk_telegram_messages_telegram_files_telegram_file_id",
-                table: "telegram_messages");
-
-            migrationBuilder.DropForeignKey(
-                name: "fk_telegram_messages_telegram_files_telegram_preview_file_id",
+                name: "fk_telegram_messages_attachments_attachment_id",
                 table: "telegram_messages");
 
             migrationBuilder.DropTable(
@@ -249,11 +222,7 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 name: "files");
 
             migrationBuilder.DropIndex(
-                name: "ix_telegram_messages_telegram_file_id",
-                table: "telegram_messages");
-
-            migrationBuilder.DropIndex(
-                name: "ix_telegram_messages_telegram_preview_file_id",
+                name: "ix_telegram_messages_attachment_id",
                 table: "telegram_messages");
 
             migrationBuilder.DropIndex(
@@ -261,15 +230,7 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 table: "telegram_files");
 
             migrationBuilder.DropColumn(
-                name: "attachment_type",
-                table: "telegram_messages");
-
-            migrationBuilder.DropColumn(
-                name: "telegram_file_id",
-                table: "telegram_messages");
-
-            migrationBuilder.DropColumn(
-                name: "telegram_preview_file_id",
+                name: "attachment_id",
                 table: "telegram_messages");
 
             migrationBuilder.DropColumn(
