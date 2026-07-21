@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.EFCore.Extensions;
+using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using File = Laraue.Apps.Boards.Services.File;
@@ -18,7 +19,8 @@ public interface ITelegramSaveMessageService
 public class TelegramSaveMessageService(
     DatabaseContext context,
     ICoreFilesService coreFilesService,
-    ICoreIssuesService coreIssuesService)
+    ICoreIssuesService coreIssuesService,
+    IDateTimeProvider dateTimeProvider)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -30,7 +32,7 @@ public class TelegramSaveMessageService(
             SaveImageMessageTelegramRequest saveImageRequest =>
                 SaveImageEntity(saveImageRequest, cancellationToken),
             SaveTextMessageTelegramRequest saveTextRequest =>
-                SaveMessageEntity(saveTextRequest, cancellationToken),
+                SaveMessageEntity(saveTextRequest, null, cancellationToken),
             SaveVideoMessageTelegramRequest saveVideoRequest =>
                 SaveVideoEntity(saveVideoRequest, cancellationToken),
             _ => throw new NotImplementedException(request.GetType().Name)
@@ -42,9 +44,7 @@ public class TelegramSaveMessageService(
         SaveVideoMessageTelegramRequest request,
         CancellationToken cancellationToken)
     {
-        var getOrCreateResult = await SaveMessageEntity(request, cancellationToken);
-        
-        long? previewFileId = null;
+        Guid? previewFileId = null;
         if (request.Thumbnail is not null)
         {
             await coreFilesService.DownloadToLocalStorage(request.Thumbnail.FileId, request.Thumbnail.MimeType, cancellationToken);
@@ -54,19 +54,21 @@ public class TelegramSaveMessageService(
         var fileId = await CreateTelegramFileIfNotExists(
             request.Video,
             cancellationToken);
+
+        var mediaInfo = new MediaInfo
+        {
+            PreviewFileId = previewFileId,
+            OriginalFileId = fileId,
+            Type = AttachmentType.Video,
+        };
         
-        await context.TelegramMessages
-            .Where(x => x.Id == getOrCreateResult.TelegramMessageId)
-            .ExecuteUpdateAsync(u => u
-                .SetProperty(p => p.TelegramPreviewFileId, previewFileId)
-                .SetProperty(p => p.TelegramFileId, fileId)
-                .SetProperty(p => p.AttachmentType, AttachmentType.Video),
-                cancellationToken);
+        var getOrCreateResult = await SaveMessageEntity(request, mediaInfo, cancellationToken);
+
         
         return getOrCreateResult;
     }
 
-    private async Task<long> CreateTelegramFileIfNotExists(File file, CancellationToken cancellationToken)
+    private async Task<Guid> CreateTelegramFileIfNotExists(File file, CancellationToken cancellationToken)
     {
         var oldFileData = await context.TelegramFiles
             .Where(x => x.ExternalFileUniqueId == file.FileUniqueId)
@@ -74,7 +76,7 @@ public class TelegramSaveMessageService(
             .FirstOrDefaultAsync(cancellationToken);
 
         if (oldFileData is not null)
-            return oldFileData.Id;
+            return oldFileData.FileId;
         
         var telegramFile = new TelegramFile
         {
@@ -91,19 +93,13 @@ public class TelegramSaveMessageService(
         context.Add(telegramFile);
         await context.SaveChangesAsync(cancellationToken);
 
-        return telegramFile.Id;
+        return telegramFile.FileId;
     }
     
     private async Task<GetOrCreateMessageResult> SaveImageEntity(
         SaveImageMessageTelegramRequest request,
         CancellationToken cancellationToken)
     {
-        var getOrCreateResult = await SaveMessageEntity(request, cancellationToken);
-        if (request.Photos.Length == 0)
-            return getOrCreateResult;
-        
-        // If this unique file id already stored for file then skip
-        // If not stored, then remove previous and store
         var thumbnailPhoto = request.Photos[0];
         var originalPhoto = request.Photos.Last();
         
@@ -111,15 +107,14 @@ public class TelegramSaveMessageService(
         var thumbnailPhotoFileId = await CreateTelegramFileIfNotExists(thumbnailPhoto, cancellationToken);
         var originalPhotoFileId = await CreateTelegramFileIfNotExists(originalPhoto, cancellationToken);
 
-        await context.TelegramMessages
-            .Where(x => x.Id == getOrCreateResult.TelegramMessageId)
-            .ExecuteUpdateAsync(u => u
-                .SetProperty(p => p.TelegramPreviewFileId, thumbnailPhotoFileId)
-                .SetProperty(p => p.TelegramFileId, originalPhotoFileId)
-                .SetProperty(p => p.AttachmentType, AttachmentType.Image),
-                cancellationToken);
+        var mediaInfo = new MediaInfo
+        {
+            PreviewFileId = thumbnailPhotoFileId,
+            OriginalFileId = originalPhotoFileId,
+            Type = AttachmentType.Image,
+        };
         
-        return getOrCreateResult;
+        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
     }
         
     // New msg, old group
@@ -127,11 +122,12 @@ public class TelegramSaveMessageService(
     // if first msg in group then update content
     private Task<GetOrCreateMessageResult> SaveMessageEntity(
         SaveMessageTelegramRequest request,
+        MediaInfo? mediaInfo,
         CancellationToken cancellationToken)
     {
         return request.MediaGroupId == null
-            ? SaveSingleMessageEntity(request, cancellationToken)
-            : SaveGroupMessageEntity(request, cancellationToken);
+            ? SaveSingleMessageEntity(request, mediaInfo, cancellationToken)
+            : SaveGroupMessageEntity(request, mediaInfo, cancellationToken);
     }
 
     /// <summary>
@@ -139,6 +135,7 @@ public class TelegramSaveMessageService(
     /// </summary>
     private async Task<GetOrCreateMessageResult> SaveGroupMessageEntity(
         SaveMessageTelegramRequest request,
+        MediaInfo? mediaInfo,
         CancellationToken cancellationToken)
     {
         // Try to find the message
@@ -234,6 +231,7 @@ public class TelegramSaveMessageService(
     /// </summary>
     private async Task<GetOrCreateMessageResult> SaveSingleMessageEntity(
         SaveMessageTelegramRequest request,
+        MediaInfo? mediaInfo,
         CancellationToken cancellationToken)
     {
         // Try to find the message
@@ -269,7 +267,7 @@ public class TelegramSaveMessageService(
             }
 
             var messageId = savedMessage?.Id ?? telegramMessage?.Id ?? throw new InvalidOperationException();
-            await coreIssuesService.Create(
+            var issueId = await coreIssuesService.Create(
                 new CreateIssueRequest
                 {
                     CreatedAt = request.SentAt,
@@ -278,6 +276,25 @@ public class TelegramSaveMessageService(
                     StatusId = statusId,
                     UserId = request.UserId,
                 }, cancellationToken);
+            
+            if (mediaInfo is not null)
+            {
+                var attachment = new Attachment
+                {
+                    FileId = mediaInfo.OriginalFileId,
+                    PreviewFileId = mediaInfo.PreviewFileId,
+                    Type = mediaInfo.Type,
+                    CreatedAt = dateTimeProvider.UtcNow,
+                    OwnerId = request.UserId,
+                    IssueAttachment = new IssueAttachment
+                    {
+                        IssueId = issueId,
+                    }
+                };
+                
+                context.Add(attachment);
+                await context.SaveChangesAsync(cancellationToken);
+            }
 
             await transaction.CommitAsync(cancellationToken);
 

@@ -1,32 +1,39 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.TelegramHost;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Telegram.NET.Core.Extensions;
 using Microsoft.EntityFrameworkCore;
 
-var builder = WebApplication.CreateBuilder(args);
+namespace Laraue.Apps.Boards.TelegramHost;
 
-const string dbConnectionStringName = "Postgre";
-
-builder
-    .AddTelegramOptions("Telegram")
-    .AddApplicationServices()
-    .AddDatabaseServices(dbConnectionStringName);
-
-builder.Services.AddHealthChecks();
-
-var app = builder.Build();
-
-app.Services.UseLinq2Db();
-
-using (var scope = app.Services.CreateScope())
+public sealed class Program
 {
-    await using var db = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
-    await db.Database.MigrateAsync();
-    
-    app.MapTelegramRequests();
-}
+    public static async Task Main(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
 
-app.MapHealthChecks("/_health");
-app.Run();
+        const string dbConnectionStringName = "Postgre";
+
+        builder
+            .AddTelegramOptions("Telegram")
+            .AddApplicationServices()
+            .AddDatabaseServices(dbConnectionStringName);
+
+        builder.Services.AddHealthChecks();
+
+        var app = builder.Build();
+
+        app.Services.UseLinq2Db();
+
+        using (var scope = app.Services.CreateScope())
+        {
+            await using var db = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
+            await db.Database.MigrateAsync();
+
+            app.MapTelegramRequests();
+        }
+
+        app.MapHealthChecks("/_health");
+        await app.RunAsync();
+    }
+}

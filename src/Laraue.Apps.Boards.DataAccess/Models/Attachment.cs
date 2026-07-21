@@ -40,6 +40,8 @@ public class Attachment
     /// Attachment type. Photo / Video / File should be handled differently on frontend. 
     /// </summary>
     public AttachmentType Type { get; set; }
+    
+    public IssueAttachment? IssueAttachment { get; set; }
 }
 
 public enum AttachmentType

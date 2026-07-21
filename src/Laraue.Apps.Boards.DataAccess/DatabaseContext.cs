@@ -94,13 +94,6 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity.HasKey(x => x.SpaceId);
         });
         
-        modelBuilder.Entity<TelegramFile>(entity =>
-        {
-            entity
-                .HasIndex(x => x.ExternalFileUniqueId)
-                .IsUnique();
-        });
-        
         modelBuilder.Entity<TelegramMediaGroup>(entity =>
         {
             entity

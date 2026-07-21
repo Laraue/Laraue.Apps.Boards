@@ -357,6 +357,7 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasName("pk_issue_attachments");
 
                     b.HasIndex("AttachmentId")
+                        .IsUnique()
                         .HasDatabaseName("ix_issue_attachments_attachment_id");
 
                     b.ToTable("issue_attachments", (string)null);
@@ -738,10 +739,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.HasKey("Id")
                         .HasName("pk_telegram_files");
 
-                    b.HasIndex("ExternalFileUniqueId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_telegram_files_external_file_unique_id");
-
                     b.HasIndex("FileId")
                         .IsUnique()
                         .HasDatabaseName("ix_telegram_files_file_id");
@@ -782,6 +779,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<Guid?>("AttachmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attachment_id");
+
                     b.Property<long>("ExternalChatId")
                         .HasColumnType("bigint")
                         .HasColumnName("external_chat_id");
@@ -797,6 +798,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.HasKey("Id")
                         .HasName("pk_telegram_messages");
 
+                    b.HasIndex("AttachmentId")
+                        .HasDatabaseName("ix_telegram_messages_attachment_id");
+
                     b.HasIndex("TelegramMediaGroupId")
                         .HasDatabaseName("ix_telegram_messages_telegram_media_group_id");
 
@@ -805,103 +809,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasDatabaseName("ix_telegram_messages_external_message_id_external_chat_id");
 
                     b.ToTable("telegram_messages", (string)null);
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessagePhoto", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<Guid>("GroupId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("group_id");
-
-                    b.Property<int>("Height")
-                        .HasColumnType("integer")
-                        .HasColumnName("height");
-
-                    b.Property<int>("PhotoType")
-                        .HasColumnType("integer")
-                        .HasColumnName("photo_type");
-
-                    b.Property<long>("TelegramFileId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("telegram_file_id");
-
-                    b.Property<long>("TelegramMessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("telegram_message_id");
-
-                    b.Property<int>("Width")
-                        .HasColumnType("integer")
-                        .HasColumnName("width");
-
-                    b.HasKey("Id")
-                        .HasName("pk_telegram_message_photos");
-
-                    b.HasIndex("TelegramFileId")
-                        .HasDatabaseName("ix_telegram_message_photos_telegram_file_id");
-
-                    b.HasIndex("TelegramMessageId")
-                        .HasDatabaseName("ix_telegram_message_photos_telegram_message_id");
-
-                    b.ToTable("telegram_message_photos", (string)null);
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessageVideo", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<long>("FileId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("file_id");
-
-                    b.Property<int>("Height")
-                        .HasColumnType("integer")
-                        .HasColumnName("height");
-
-                    b.Property<long>("TelegramMessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("telegram_message_id");
-
-                    b.Property<long?>("ThumbnailFileId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("thumbnail_file_id");
-
-                    b.Property<int?>("ThumbnailHeight")
-                        .HasColumnType("integer")
-                        .HasColumnName("thumbnail_height");
-
-                    b.Property<int?>("ThumbnailWidth")
-                        .HasColumnType("integer")
-                        .HasColumnName("thumbnail_width");
-
-                    b.Property<int>("Width")
-                        .HasColumnType("integer")
-                        .HasColumnName("width");
-
-                    b.HasKey("Id")
-                        .HasName("pk_telegram_message_videos");
-
-                    b.HasIndex("FileId")
-                        .HasDatabaseName("ix_telegram_message_videos_file_id");
-
-                    b.HasIndex("TelegramMessageId")
-                        .HasDatabaseName("ix_telegram_message_videos_telegram_message_id");
-
-                    b.HasIndex("ThumbnailFileId")
-                        .HasDatabaseName("ix_telegram_message_videos_thumbnail_file_id");
-
-                    b.ToTable("telegram_message_videos", (string)null);
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.User", b =>
@@ -1192,8 +1099,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueAttachment", b =>
                 {
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Attachment", "Attachment")
-                        .WithMany()
-                        .HasForeignKey("AttachmentId")
+                        .WithOne("IssueAttachment")
+                        .HasForeignKey("Laraue.Apps.Boards.DataAccess.Models.IssueAttachment", "AttachmentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_issue_attachments_attachments_attachment_id");
@@ -1362,61 +1269,24 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessage", b =>
                 {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Attachment", "Attachment")
+                        .WithMany()
+                        .HasForeignKey("AttachmentId")
+                        .HasConstraintName("fk_telegram_messages_attachments_attachment_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramMediaGroup", "TelegramMediaGroup")
                         .WithMany()
                         .HasForeignKey("TelegramMediaGroupId")
                         .HasConstraintName("fk_telegram_messages_telegram_media_groups_telegram_media_grou");
 
+                    b.Navigation("Attachment");
+
                     b.Navigation("TelegramMediaGroup");
                 });
 
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessagePhoto", b =>
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Attachment", b =>
                 {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramFile", "File")
-                        .WithMany()
-                        .HasForeignKey("TelegramFileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_telegram_message_photos_telegram_files_telegram_file_id");
-
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramMessage", "TelegramMessage")
-                        .WithMany()
-                        .HasForeignKey("TelegramMessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_telegram_message_photos_telegram_messages_telegram_message_");
-
-                    b.Navigation("File");
-
-                    b.Navigation("TelegramMessage");
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessageVideo", b =>
-                {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramFile", "File")
-                        .WithMany()
-                        .HasForeignKey("FileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_telegram_message_videos_telegram_files_file_id");
-
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramMessage", "TelegramMessage")
-                        .WithMany()
-                        .HasForeignKey("TelegramMessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_telegram_message_videos_telegram_messages_telegram_message_");
-
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramFile", "ThumbnailFile")
-                        .WithMany()
-                        .HasForeignKey("ThumbnailFileId")
-                        .HasConstraintName("fk_telegram_message_videos_telegram_files_thumbnail_file_id");
-
-                    b.Navigation("File");
-
-                    b.Navigation("TelegramMessage");
-
-                    b.Navigation("ThumbnailFile");
+                    b.Navigation("IssueAttachment");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Attribute", b =>

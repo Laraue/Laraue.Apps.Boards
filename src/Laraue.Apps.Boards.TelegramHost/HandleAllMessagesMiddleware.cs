@@ -46,8 +46,6 @@ public class HandleAllMessagesMiddleware(
             if (request is not null)
             {
                 await telegramMessageService.HandleSaveMessage(request, ct);
-                context.SetExecutedRoute(
-                    new ExecutedRouteInfo("HandleAllMessagesMiddleware", text));
             }
             else
             {
@@ -56,6 +54,9 @@ public class HandleAllMessagesMiddleware(
                     string.Format(Phrases.MessageTypeIsNotAvailable, message.Type),
                     cancellationToken: ct);
             }
+            
+            context.SetExecutedRoute(
+                new ExecutedRouteInfo("HandleAllMessagesMiddleware", text));
         }
     }
     

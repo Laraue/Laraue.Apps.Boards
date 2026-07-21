@@ -241,7 +241,7 @@ public class CoreIssuesService(
                 CreatedAt = dateTimeProvider.UtcNow,
                 OwnerId = ownerId,
                 PreviewFileId = fileData.PreviewFileId,
-                FileId = fileData.OriginalFileId!.Value,
+                FileId = fileData.OriginalFileId,
                 Type = fileData.Type,
             }
         };

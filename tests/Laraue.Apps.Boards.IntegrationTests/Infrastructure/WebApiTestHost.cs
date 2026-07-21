@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.WebApiHost;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -46,6 +47,8 @@ public class WebApiTestHostScope : IDisposable
     private readonly IServiceScope _scope;
     public DatabaseContext Database => _scope.ServiceProvider.GetRequiredService<DatabaseContext>();
     private long _lastTelegramId;
+    
+    public IServiceProvider Services => _scope.ServiceProvider;
 
     public WebApiTestHostScope(IServiceScope scope)
     {

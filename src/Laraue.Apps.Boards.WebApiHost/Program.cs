@@ -1,67 +1,74 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
-var builder = WebApplication.CreateBuilder(args);
+namespace Laraue.Apps.Boards.WebApiHost;
 
-builder.Services.AddOptions<TelegramOptions>();
-builder.Services.Configure<TelegramOptions>(
-    builder.Configuration.GetSection("Telegram"));
-
-const string dbConnectionStringName = "Postgre";
-
-builder.Services.AddAuthorization();
-
-builder
-    .AddAuthentication()
-    .AddApplicationServices()
-    .AddDatabaseServices(dbConnectionStringName);
-
-builder.Services.AddHealthChecks();
-
-var app = builder.Build();
-
-var origins = builder
-    .Configuration
-    .GetSection("Cors:Hosts")
-    .Get<string[]>();
-
-if (origins is not null)
+public sealed class Program
 {
-    app.UseCors(corsPolicyBuilder =>
-        corsPolicyBuilder.WithOrigins(origins)
-            .AllowCredentials()
-            .AllowAnyMethod()
-            .AllowAnyHeader());
-}
-
-app.UseAuthentication();
-app.UseAuthorization();
-app.MapControllers();
-app.Services.UseLinq2Db();
-app.UseMiddleware<ExceptionHandleMiddleware>();
-
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-    app.MapScalarApiReference(options =>
+    public static async Task Main(string[] args)
     {
-        options
-            .WithTitle("Laraue Boards API")
-            .WithTheme(ScalarTheme.Purple)
-            .WithDefaultHttpClient(ScalarTarget.JavaScript, ScalarClient.Axios);
-    });
-}
+        var builder = WebApplication.CreateBuilder(args);
 
-using (var scope = app.Services.CreateScope())
-{
-    await using var db = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
-    await db.Database.MigrateAsync();
-}
+        builder.Services.AddOptions<TelegramOptions>();
+        builder.Services.Configure<TelegramOptions>(
+            builder.Configuration.GetSection("Telegram"));
 
-app.MapHealthChecks("/_health");
-app.Run();
+        const string dbConnectionStringName = "Postgre";
+
+        builder.Services.AddAuthorization();
+
+        builder
+            .AddAuthentication()
+            .AddApplicationServices()
+            .AddDatabaseServices(dbConnectionStringName);
+
+        builder.Services.AddHealthChecks();
+
+        var app = builder.Build();
+
+        var origins = builder
+            .Configuration
+            .GetSection("Cors:Hosts")
+            .Get<string[]>();
+
+        if (origins is not null)
+        {
+            app.UseCors(corsPolicyBuilder =>
+                corsPolicyBuilder.WithOrigins(origins)
+                    .AllowCredentials()
+                    .AllowAnyMethod()
+                    .AllowAnyHeader());
+        }
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapControllers();
+        app.Services.UseLinq2Db();
+        app.UseMiddleware<ExceptionHandleMiddleware>();
+
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapOpenApi();
+            app.MapScalarApiReference(options =>
+            {
+                options
+                    .WithTitle("Laraue Boards API")
+                    .WithTheme(ScalarTheme.Purple)
+                    .WithDefaultHttpClient(ScalarTarget.JavaScript, ScalarClient.Axios);
+            });
+        }
+
+        using (var scope = app.Services.CreateScope())
+        {
+            await using var db = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        app.MapHealthChecks("/_health");
+        await app.RunAsync();
+    }
+}

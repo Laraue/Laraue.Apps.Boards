@@ -16,12 +16,12 @@
   </PropertyGroup>
   
   <PropertyGroup>
-    <LaraueTelegramNetVersion>4.5.0</LaraueTelegramNetVersion>
+    <LaraueTelegramNetVersion>4.5.2</LaraueTelegramNetVersion>
     <LaraueCoreDataAccessVersion>10.7.1</LaraueCoreDataAccessVersion>
     <LaraueCoreDateTimeVersion>10.0.0</LaraueCoreDateTimeVersion>
     <EfCoreVersion>10.0.0</EfCoreVersion>
     <NpgsqlEfCoreVersion>10.0.0</NpgsqlEfCoreVersion>
-    <EfCoreNamingConventionsVersion>10.0.0</EfCoreNamingConventionsVersion>
+    <EfCoreNamingConventionsVersion>10.0.1</EfCoreNamingConventionsVersion>
     <TelegramBotVersion>22.7.0</TelegramBotVersion>
     <MicrosoftJwtAuthenticationVersion>10.0.0</MicrosoftJwtAuthenticationVersion>
   </PropertyGroup>
