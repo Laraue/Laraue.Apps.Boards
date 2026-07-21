@@ -233,42 +233,23 @@ public class CoreIssuesService(
         CancellationToken cancellationToken)
     {
         var fileData = await coreFilesService.UploadFile(fileName, contentType, stream, cancellationToken);
-
-        var uploadTask = fileData.Type switch
+        var attachment = new IssueAttachment
         {
-            MediaType.Photo => UploadImageAttachment(ownerId, issueId, fileName, contentType, fileData, cancellationToken),
-            _ => throw new InvalidOperationException($"Media type {fileData.Type} attachments are not supported yet.")
-        };
-
-        await uploadTask;
-
-        return fileData;
-    }
-
-    private async Task UploadImageAttachment(
-        Guid ownerId,
-        long issueId,
-        string fileName,
-        string contentType,
-        MediaInfo mediaInfo,
-        CancellationToken cancellationToken)
-    {
-        var imageAttachment = new ImageAttachment
-        {
+            IssueId = issueId,
             Attachment = new Attachment
             {
                 CreatedAt = dateTimeProvider.UtcNow,
-                IssueId = issueId,
-                FileName = fileName,
-                ContentType = contentType,
                 OwnerId = ownerId,
-            },
-            OriginalTelegramFileId = mediaInfo.PreviewFileId!.Value,
-            ThumbnailTelegramFileId = mediaInfo.PreviewFileId!.Value,
+                PreviewFileId = fileData.PreviewFileId,
+                FileId = fileData.OriginalFileId!.Value,
+                Type = fileData.Type,
+            }
         };
-
-        context.Add(imageAttachment);
+        
+        context.Add(attachment);
         await context.SaveChangesAsync(cancellationToken);
+
+        return fileData;
     }
 
     private Task<int> TouchMessageBoard(long issueId, DateTime touchedAt, CancellationToken ct)

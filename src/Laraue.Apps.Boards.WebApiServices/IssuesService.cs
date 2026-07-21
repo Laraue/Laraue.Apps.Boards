@@ -710,135 +710,18 @@ public class IssuesService(
         };
     }
 
-    private async Task<List<MediaInfo>> GetMedia(long issueId, CancellationToken ct)
+    private Task<List<MediaInfo>> GetMedia(long issueId, CancellationToken ct)
     {
-        var result = new List<MediaInfo>();
-        
-        await AppendTelegramMedia(issueId, result, ct);
-        await AppendWebMedia(issueId, result, ct);
-        
-        return result;
-    }
-
-    private async Task AppendWebMedia(long issueId, List<MediaInfo> result, CancellationToken ct)
-    {
-        var attachments = await context
-            .ImageAttachments
-            .Where(x => issueId == x.Attachment!.IssueId)
+        return context
+            .IssueAttachments
+            .Where(x => issueId == x.IssueId)
             .Select(x => new MediaInfo
             {
-                Type = MediaType.Photo,
-                OriginalFileId = x.OriginalTelegramFileId,
-                PreviewFileId = x.ThumbnailTelegramFileId,
+                Type = x.Attachment!.Type,
+                OriginalFileId = x.Attachment.FileId,
+                PreviewFileId = x.Attachment.PreviewFileId,
             })
             .ToListAsyncEF(ct);
-        
-        result.AddRange(attachments);
-    }
-    
-    private async Task AppendTelegramMedia(long issueId, List<MediaInfo> result, CancellationToken ct)
-    {
-        var directLinkedMessages = await context
-            .TelegramMessages
-            .Where(x => issueId == x.Issue!.Id)
-            .Select(x => new { x.Id, x.TelegramMediaGroupId, CardId = x.Issue!.Id })
-            .ToListAsyncEF(ct);
-
-        var groupIds = directLinkedMessages
-            .Where(x => x.TelegramMediaGroupId.HasValue)
-            .Select(x => x.TelegramMediaGroupId!.Value)
-            .Distinct();
-
-        var nonDirectLinkedMessages = await context
-            .TelegramMessages
-            .Where(x => groupIds.Contains(x.TelegramMediaGroupId!.Value))
-            .Where(x => !directLinkedMessages.Select(y => y.Id).Contains(x.Id))
-            .Select(x => new { x.Id, x.TelegramMediaGroupId })
-            .ToArrayAsyncEF(ct);
-
-        var allTelegramMessageIds = directLinkedMessages
-            .Select(x => x.Id)
-            .Union(nonDirectLinkedMessages.Select(y => y.Id))
-            .ToArray();
-        
-        var photosData = await context.TelegramMessagePhotos
-            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
-            .Select(x => new
-            {
-                MessageId = x.TelegramMessageId,
-                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
-                x.TelegramFileId,
-                x.PhotoType,
-                x.GroupId,
-            })
-            .ToArrayAsyncEF(ct);
-
-        var cardIdByTelegramMessageId = directLinkedMessages
-            .ToDictionary(x => x.Id, x => x.CardId);
-        var cardIdByMediaGroupId = directLinkedMessages
-            .Where(x => x.TelegramMediaGroupId.HasValue)
-            .ToDictionary(x => x.TelegramMediaGroupId!.Value, x => x.CardId);
-        var photosByCardId = photosData
-            .GroupBy(x =>
-            {
-                if (x.MessageGroupId is not null)
-                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
-                return cardIdByTelegramMessageId[x.MessageId];
-            })
-            .ToDictionary(
-                x => x.Key,
-                x => x
-                    .GroupBy(y => y.GroupId)
-                    .ToDictionary(
-                        y => y.Key,
-                        y => y
-                            .Select(z => new { z.PhotoType, z.TelegramFileId })));
-        
-        var videosData = await context.TelegramMessageVideos
-            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
-            .Select(x => new
-            {
-                MessageId = x.TelegramMessageId,
-                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
-                x.ThumbnailFileId,
-                x.FileId
-            })
-            .ToArrayAsyncEF(ct);
-
-        var videosByCardId = videosData
-            .GroupBy(x =>
-            {
-                if (x.MessageGroupId is not null)
-                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
-                return cardIdByTelegramMessageId[x.MessageId];
-            })
-            .ToDictionary(x => x.Key);
-
-        if (photosByCardId.TryGetValue(issueId, out var photos))
-            foreach (var photoGroup in photos)
-                result.Add(new MediaInfo
-                {
-                    Type = MediaType.Photo,
-                    PreviewFileId = photoGroup.Value
-                        .FirstOrDefault(x => x.PhotoType == PhotoType.Thumbnail)
-                        ?.TelegramFileId,
-                    OriginalFileId = photoGroup.Value
-                        .FirstOrDefault(x => x.PhotoType == PhotoType.Original)
-                        ?.TelegramFileId,
-                });
-            
-        if (videosByCardId.TryGetValue(issueId, out var videos))
-        {
-            foreach (var video in videos)
-            {
-                result.Add(new MediaInfo
-                {
-                    Type = MediaType.Video,
-                    PreviewFileId = video.ThumbnailFileId,
-                    OriginalFileId = video.FileId,
-                });
-            }
-        }
     }
 
     public Task<long> GetIssueIdByIssueKey(

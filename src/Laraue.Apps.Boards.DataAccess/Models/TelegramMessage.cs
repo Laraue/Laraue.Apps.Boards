@@ -14,7 +14,24 @@ public class TelegramMessage
     public TelegramMediaGroup? TelegramMediaGroup { get; set; }
     
     /// <summary>
-    /// The card related to this message
+    /// File id (exists for images / videos / files).
+    /// </summary>
+    public long? TelegramFileId { get; set; }
+    public TelegramFile? TelegramFile { get; set; }
+    
+    /// <summary>
+    /// Preview file id (exists for images and videos).
+    /// </summary>
+    public long? TelegramPreviewFileId { get; set; }
+    public TelegramFile? TelegramPreviewFile { get; set; }
+    
+    /// <summary>
+    /// The card related to this message.
     /// </summary>
     public Issue? Issue { get; set; }
+    
+    /// <summary>
+    /// Attachment type when message contain attachment.
+    /// </summary>
+    public AttachmentType? AttachmentType { get; set; }
 }

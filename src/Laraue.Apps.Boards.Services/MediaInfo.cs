@@ -1,14 +1,10 @@
-﻿namespace Laraue.Apps.Boards.Services;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
+
+namespace Laraue.Apps.Boards.Services;
 
 public class MediaInfo
 {
     public Guid? PreviewFileId { get; set; }
     public Guid? OriginalFileId { get; set; }
-    public MediaType Type { get; set; }
-}
-
-public enum MediaType
-{
-    Photo,
-    Video,
+    public AttachmentType Type { get; set; }
 }

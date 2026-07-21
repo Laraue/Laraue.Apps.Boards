@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using File = Laraue.Apps.Boards.Services.File;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
@@ -42,31 +43,55 @@ public class TelegramSaveMessageService(
         CancellationToken cancellationToken)
     {
         var getOrCreateResult = await SaveMessageEntity(request, cancellationToken);
-
-        var videoFile = new TelegramMessageVideo
-        {
-            Height = request.Height,
-            Width = request.Width,
-            TelegramMessageId = getOrCreateResult.TelegramMessageId,
-        };
         
-        await DeleteOldAttachments(getOrCreateResult.TelegramMessageId, cancellationToken);
-        
+        long? previewFileId = null;
         if (request.Thumbnail is not null)
         {
             await coreFilesService.DownloadToLocalStorage(request.Thumbnail.FileId, request.Thumbnail.MimeType, cancellationToken);
-            videoFile.ThumbnailFileId = await coreFilesService.CreateDbFileIfNotExists(request.Thumbnail, cancellationToken);
-            videoFile.ThumbnailHeight = request.Thumbnail.Height;
-            videoFile.ThumbnailWidth = request.Thumbnail.Width;
+            previewFileId = await CreateTelegramFileIfNotExists(request.Thumbnail, cancellationToken);
         }
         
-        videoFile.FileId = await coreFilesService.CreateDbFileIfNotExists(
+        var fileId = await CreateTelegramFileIfNotExists(
             request.Video,
             cancellationToken);
         
-        context.Add(videoFile);
-        await context.SaveChangesAsync(cancellationToken);
+        await context.TelegramMessages
+            .Where(x => x.Id == getOrCreateResult.TelegramMessageId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.TelegramPreviewFileId, previewFileId)
+                .SetProperty(p => p.TelegramFileId, fileId)
+                .SetProperty(p => p.AttachmentType, AttachmentType.Video),
+                cancellationToken);
+        
         return getOrCreateResult;
+    }
+
+    private async Task<long> CreateTelegramFileIfNotExists(File file, CancellationToken cancellationToken)
+    {
+        var oldFileData = await context.TelegramFiles
+            .Where(x => x.ExternalFileUniqueId == file.FileUniqueId)
+            .Select(x => new { x.FileId, x.Id })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (oldFileData is not null)
+            return oldFileData.Id;
+        
+        var telegramFile = new TelegramFile
+        {
+            ExternalFileId = file.FileId,
+            ExternalFileUniqueId = file.FileUniqueId,
+            File = new DataAccess.Models.File
+            {
+                Name = file.FileName,
+                Size = file.FileSize,
+                MimeType = file.MimeType,
+            }
+        };
+            
+        context.Add(telegramFile);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return telegramFile.Id;
     }
     
     private async Task<GetOrCreateMessageResult> SaveImageEntity(
@@ -81,49 +106,20 @@ public class TelegramSaveMessageService(
         // If not stored, then remove previous and store
         var thumbnailPhoto = request.Photos[0];
         var originalPhoto = request.Photos.Last();
-        var photos = new List<(PhotoFile, PhotoType)>
-        {
-            (thumbnailPhoto!, PhotoType.Thumbnail)
-        };
         
-        if (originalPhoto != thumbnailPhoto)
-            photos.Add((originalPhoto!, PhotoType.Original));
+        await coreFilesService.DownloadToLocalStorage(thumbnailPhoto.FileId, thumbnailPhoto.MimeType, cancellationToken);
+        var thumbnailPhotoFileId = await CreateTelegramFileIfNotExists(thumbnailPhoto, cancellationToken);
+        var originalPhotoFileId = await CreateTelegramFileIfNotExists(originalPhoto, cancellationToken);
 
-        await DeleteOldAttachments(getOrCreateResult.TelegramMessageId, cancellationToken);
+        await context.TelegramMessages
+            .Where(x => x.Id == getOrCreateResult.TelegramMessageId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.TelegramPreviewFileId, thumbnailPhotoFileId)
+                .SetProperty(p => p.TelegramFileId, originalPhotoFileId)
+                .SetProperty(p => p.AttachmentType, AttachmentType.Image),
+                cancellationToken);
         
-        var groupId = Guid.NewGuid();
-        foreach (var (photo, type) in photos)
-        {
-            if (type == PhotoType.Thumbnail)
-                await coreFilesService.DownloadToLocalStorage(photo.FileId, photo.MimeType, cancellationToken);
-            
-            var fileId = await coreFilesService.CreateDbFileIfNotExists(photo, cancellationToken);
-            var messageFile = new TelegramMessagePhoto
-            {
-                TelegramMessageId = getOrCreateResult.TelegramMessageId,
-                TelegramFileId = fileId,
-                Height = photo.Height,
-                Width = photo.Width,
-                PhotoType = type,
-                GroupId = groupId,
-            };
-        
-            context.Add(messageFile);
-        }
-        
-        await context.SaveChangesAsync(cancellationToken);
         return getOrCreateResult;
-    }
-
-    private async Task DeleteOldAttachments(long telegramMessageId, CancellationToken cancellationToken)
-    {
-        await context.TelegramMessagePhotos
-            .Where(x => x.TelegramMessageId == telegramMessageId)
-            .ExecuteDeleteAsync(cancellationToken);
-
-        await context.TelegramMessageVideos
-            .Where(x => x.TelegramMessageId == telegramMessageId)
-            .ExecuteDeleteAsync(cancellationToken);
     }
         
     // New msg, old group

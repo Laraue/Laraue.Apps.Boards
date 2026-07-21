@@ -1,6 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
-using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -11,13 +10,6 @@ namespace Laraue.Apps.Boards.Services;
 
 public interface ICoreFilesService
 {
-    /// <summary>
-    /// Upload the file if it was not exists yet and return it system identifier.
-    /// </summary>
-    Task<Guid> CreateDbFileIfNotExists(
-        File file,
-        CancellationToken cancellationToken);
-    
     /// <summary>
     /// Download file from telegram to local storage.
     /// </summary>
@@ -37,36 +29,9 @@ public class CoreFilesService(
     IFileStorage fileStorage,
     ITelegramBotClient botClient,
     IOptions<TelegramOptions> options,
-    DatabaseContext context,
-    IDateTimeProvider dateTimeProvider)
+    DatabaseContext context)
     : ICoreFilesService
 {
-    public async Task<Guid> CreateDbFileIfNotExists(
-        File file,
-        CancellationToken cancellationToken)
-    {
-        var oldFileData = await context.TelegramFiles
-            .Where(x => x.FileUniqueId == file.FileUniqueId)
-            .Select(x => new { x.Id })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (oldFileData is not null)
-            return oldFileData.Id;
-        
-        var telegramFile = new TelegramFile
-        {
-            FileId = file.FileId,
-            FileUniqueId = file.FileUniqueId,
-            Name = file.FileName,
-            Size = file.FileSize,
-            MimeType = file.MimeType,
-        };
-            
-        context.Add(telegramFile);
-        await context.SaveChangesAsync(cancellationToken);
-
-        return telegramFile.Id;
-    }
 
     public async Task DownloadToLocalStorage(string fileId, string? mimeType, CancellationToken cancellationToken)
     {
@@ -127,15 +92,45 @@ public class CoreFilesService(
         await DownloadToLocalStorage(thumbnail.FileId, contentType, cancellationToken);
         
         // store file identifiers to DB
-        var thumbnailFileId = await CreateDbFileIfNotExists(thumbnail, cancellationToken);
-        var originalFileId = await CreateDbFileIfNotExists(original, cancellationToken);
+        var thumbnailFileId = await UpsertDbFile(thumbnail, cancellationToken);
+        var originalFileId = await UpsertDbFile(original, cancellationToken);
 
         return new MediaInfo
         {
             OriginalFileId = originalFileId,
             PreviewFileId = thumbnailFileId,
-            Type = MediaType.Photo,
+            Type = AttachmentType.Image,
         };
+    }
+
+    private async Task<Guid> UpsertDbFile(
+        File file,
+        CancellationToken cancellationToken)
+    {
+        var oldFileData = await context.TelegramFiles
+            .Where(x => x.ExternalFileUniqueId == file.FileUniqueId)
+            .Select(x => new { x.FileId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (oldFileData is not null)
+            return oldFileData.FileId;
+        
+        var telegramFile = new TelegramFile
+        {
+            ExternalFileId = file.FileId,
+            ExternalFileUniqueId = file.FileUniqueId,
+            File = new DataAccess.Models.File
+            {
+                Name = file.FileName,
+                Size = file.FileSize,
+                MimeType = file.MimeType,
+            }
+        };
+            
+        context.Add(telegramFile);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return telegramFile.FileId; // TODO - check is that work actually
     }
 
     private static File ToFile(PhotoSize photoSize, string fileName, string contentType)
