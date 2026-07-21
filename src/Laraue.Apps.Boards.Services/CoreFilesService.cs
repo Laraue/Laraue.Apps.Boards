@@ -85,7 +85,7 @@ public class CoreFilesService(
 
         var thumbnailPhoto = message.Photo![0];
         var thumbnail = ToFile(thumbnailPhoto, fileName, contentType);
-        var originalPhoto = message.Photo![3];
+        var originalPhoto = message.Photo![^1];
         var original = ToFile(originalPhoto, fileName, contentType);
         
         // store preview to the local storage
