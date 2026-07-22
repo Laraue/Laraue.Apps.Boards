@@ -62,10 +62,7 @@ public class TelegramSaveMessageService(
             Type = AttachmentType.Video,
         };
         
-        var getOrCreateResult = await SaveMessageEntity(request, mediaInfo, cancellationToken);
-
-        
-        return getOrCreateResult;
+        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
     }
 
     private async Task<Guid> CreateTelegramFileIfNotExists(File file, CancellationToken cancellationToken)
@@ -183,7 +180,7 @@ public class TelegramSaveMessageService(
 
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             
-            await coreIssuesService.Create(
+            var issueId = await coreIssuesService.Create(
                 new CreateIssueRequest
                 {
                     CreatedAt = request.SentAt,
@@ -192,7 +189,8 @@ public class TelegramSaveMessageService(
                     TelegramMessageId = savedMessage.Id,
                     UserId = request.UserId,
                 }, cancellationToken);
-            
+
+            await UpsertMediaInfo(savedMessage.Id, issueId, request.UserId, mediaInfo, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             
             return new GetOrCreateMessageResult
@@ -218,6 +216,13 @@ public class TelegramSaveMessageService(
                 TelegramMessageId = savedMessage.Id,
             };
         }
+        
+        await UpsertMediaInfo(
+            savedMessage.Id,
+            firstGroupMessageData!.CardId!.Value,
+            request.UserId,
+            mediaInfo,
+            cancellationToken);
         
         return new GetOrCreateMessageResult
         {
@@ -267,7 +272,7 @@ public class TelegramSaveMessageService(
             }
 
             var messageId = savedMessage?.Id ?? telegramMessage?.Id ?? throw new InvalidOperationException();
-            await coreIssuesService.Create(
+            var issueId = await coreIssuesService.Create(
                 new CreateIssueRequest
                 {
                     CreatedAt = request.SentAt,
@@ -277,7 +282,7 @@ public class TelegramSaveMessageService(
                     UserId = request.UserId,
                 }, cancellationToken);
             
-            await UpsertMediaInfo(messageId, mediaInfo, cancellationToken);
+            await UpsertMediaInfo(messageId, issueId, request.UserId, mediaInfo, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
             return new GetOrCreateMessageResult
@@ -293,7 +298,7 @@ public class TelegramSaveMessageService(
                 .SetProperty(x => x.Content, request.Text),
                 cancellationToken);
         
-        await UpsertMediaInfo(savedMessage.Id, mediaInfo, cancellationToken);
+        await UpsertMediaInfo(savedMessage.Id, savedMessage.IssueId.Value, request.UserId, mediaInfo, cancellationToken);
         
         return new GetOrCreateMessageResult
         {
@@ -304,30 +309,35 @@ public class TelegramSaveMessageService(
 
     private async Task UpsertMediaInfo(
         long telegramMessageId,
+        long issueId,
+        Guid ownerId,
         MediaInfo? mediaInfo,
         CancellationToken cancellationToken)
     {
         // Media info is deleted from the message
         if (mediaInfo is null)
         {
-            await context.IssueAttachments
-                .Where(x => x.Issue!.TelegramMessageId == telegramMessageId)
+            await context.TelegramMessages
+                .Where(x => x.Id == telegramMessageId)
                 .Select(x => x.Attachment)
                 .ExecuteDeleteAsync(cancellationToken);
             
             return;
         }
         
-        var issueAttachment = await context.IssueAttachments
-            .Where(x => x.Issue!.TelegramMessageId == telegramMessageId)
-            .Select(x => new { x.AttachmentId })
-            .FirstOrDefaultAsync(cancellationToken);
+        var attachmentData = await context.TelegramMessages
+            .Where(x => x.Id == telegramMessageId)
+            .Select(x => new
+            {
+                x.Issue!.IssueAttachments
+            })
+            .FirstAsyncEF(cancellationToken);
 
         // Media info is updated in the message
-        if (issueAttachment is not null)
+        if (attachmentData.AttachmentId is not null)
         {
             await context.Attachments
-                .Where(x => x.Id == issueAttachment.AttachmentId)
+                .Where(x => x.Id == attachmentData.AttachmentId)
                 .ExecuteUpdateAsync(upd => upd
                     .SetProperty(x => x.PreviewFileId, mediaInfo.PreviewFileId)
                     .SetProperty(x => x.FileId, mediaInfo.OriginalFileId)
@@ -339,11 +349,6 @@ public class TelegramSaveMessageService(
         }
         
         // Media info is created in the message
-        var data = await context.Issues
-            .Where(x => x.TelegramMessageId == telegramMessageId)
-            .Select(x => new { x.OwnerId, x.Id })
-            .FirstAsync(cancellationToken);
-            
         var newEntity = new IssueAttachment
         {
             Attachment = new Attachment
@@ -352,9 +357,9 @@ public class TelegramSaveMessageService(
                 Type = mediaInfo.Type,
                 PreviewFileId = mediaInfo.PreviewFileId,
                 CreatedAt = dateTimeProvider.UtcNow,
-                OwnerId = data.OwnerId,
+                OwnerId = ownerId,
             },
-            IssueId = data.Id,
+            IssueId = issueId,
         };
         
         context.Add(newEntity);
