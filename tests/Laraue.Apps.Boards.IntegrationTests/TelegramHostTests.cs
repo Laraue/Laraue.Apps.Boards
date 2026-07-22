@@ -262,7 +262,8 @@ public class TelegramHostTests : TelegramIntegrationTest
                         FileUniqueId = "filePreviewUniqueId1",
                     }
                 },
-                MediaGroupId = "777"
+                MediaGroupId = "777",
+                Caption = "Caption1",
             },
         });
         
@@ -294,7 +295,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         
         // One group should be merged into one issue
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Null(issue.Content);
+        Assert.Equal("Caption1", issue.Content);
         
         var telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(4, telegramFiles.Length);
@@ -326,6 +327,54 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal(AttachmentType.Image, photoAttachment.Type);
         Assert.Equal(previewImageFile.FileId, photoAttachment.PreviewFileId);
         Assert.Equal(originalImageFile.FileId, photoAttachment.FileId);
+        
+        Assert.Equal(issue.Id, photoAttachment.IssueAttachment!.IssueId);
+        Assert.Equal(issue.Id, videoAttachment.IssueAttachment!.IssueId);
+        
+        // Change video with photo
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 2,
+                Video = new Video
+                {
+                    FileId = "fileId3",
+                    FileUniqueId = "fileUniqueId3",
+                    Thumbnail = new PhotoSize
+                    {
+                        FileId = "filePreviewUniqueId3",
+                        FileUniqueId = "filePreviewUniqueId3",
+                    }
+                },
+                Caption = "UpdatedCaption",
+            },
+        });
+        
+        attachments = await db.Attachments
+            .Include(x => x.IssueAttachment)
+            .OrderBy(x => x.Id)
+            .AsNoTracking()
+            .ToListAsyncLinqToDB();
+        
+        Assert.Equal(2, attachments.Count);
+        photoAttachment = attachments[0];
+        var photoAttachment2 = attachments[1];
+        
+        telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
+        Assert.Equal(6, telegramFiles.Length);
+        
+        var previewPhoto2File = telegramFiles[4];
+        var originalPhoto2File = telegramFiles[5];
+        
+        Assert.Equal(AttachmentType.Video, photoAttachment2.Type);
+        Assert.Equal(previewPhoto2File.FileId, photoAttachment2.PreviewFileId);
+        Assert.Equal(originalPhoto2File.FileId, photoAttachment2.FileId);
+        
+        Assert.Equal(AttachmentType.Video, photoAttachment.Type);
+        Assert.Equal(previewVideoFile.FileId, photoAttachment.PreviewFileId);
+        Assert.Equal(originalVideoFile.FileId, photoAttachment.FileId);
         
         Assert.Equal(issue.Id, photoAttachment.IssueAttachment!.IssueId);
         Assert.Equal(issue.Id, videoAttachment.IssueAttachment!.IssueId);

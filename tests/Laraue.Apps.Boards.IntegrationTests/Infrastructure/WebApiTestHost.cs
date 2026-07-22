@@ -54,11 +54,7 @@ public class WebApiTestHostScope : IDisposable
     {
         _scope = scope;
         Database.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
-        
-        // Cleanup before test run
-        Database.DirectSpacePermissions.ExecuteDelete();
-        Database.SpaceCounters.ExecuteDelete();
-        Database.Users.ExecuteDelete();
+        Database.CleanDatabase();
     }
 
     public void Dispose()
