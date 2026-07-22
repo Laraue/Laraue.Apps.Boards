@@ -267,7 +267,7 @@ public class TelegramSaveMessageService(
             }
 
             var messageId = savedMessage?.Id ?? telegramMessage?.Id ?? throw new InvalidOperationException();
-            var issueId = await coreIssuesService.Create(
+            await coreIssuesService.Create(
                 new CreateIssueRequest
                 {
                     CreatedAt = request.SentAt,
@@ -277,25 +277,7 @@ public class TelegramSaveMessageService(
                     UserId = request.UserId,
                 }, cancellationToken);
             
-            if (mediaInfo is not null)
-            {
-                var attachment = new Attachment
-                {
-                    FileId = mediaInfo.OriginalFileId,
-                    PreviewFileId = mediaInfo.PreviewFileId,
-                    Type = mediaInfo.Type,
-                    CreatedAt = dateTimeProvider.UtcNow,
-                    OwnerId = request.UserId,
-                    IssueAttachment = new IssueAttachment
-                    {
-                        IssueId = issueId,
-                    }
-                };
-                
-                context.Add(attachment);
-                await context.SaveChangesAsync(cancellationToken);
-            }
-
+            await UpsertMediaInfo(messageId, mediaInfo, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
             return new GetOrCreateMessageResult
@@ -311,11 +293,72 @@ public class TelegramSaveMessageService(
                 .SetProperty(x => x.Content, request.Text),
                 cancellationToken);
         
+        await UpsertMediaInfo(savedMessage.Id, mediaInfo, cancellationToken);
+        
         return new GetOrCreateMessageResult
         {
             Result = Result.MainMessageUpdated,
             TelegramMessageId = savedMessage.Id,
         };
+    }
+
+    private async Task UpsertMediaInfo(
+        long telegramMessageId,
+        MediaInfo? mediaInfo,
+        CancellationToken cancellationToken)
+    {
+        // Media info is deleted from the message
+        if (mediaInfo is null)
+        {
+            await context.IssueAttachments
+                .Where(x => x.Issue!.TelegramMessageId == telegramMessageId)
+                .Select(x => x.Attachment)
+                .ExecuteDeleteAsync(cancellationToken);
+            
+            return;
+        }
+        
+        var issueAttachment = await context.IssueAttachments
+            .Where(x => x.Issue!.TelegramMessageId == telegramMessageId)
+            .Select(x => new { x.AttachmentId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Media info is updated in the message
+        if (issueAttachment is not null)
+        {
+            await context.Attachments
+                .Where(x => x.Id == issueAttachment.AttachmentId)
+                .ExecuteUpdateAsync(upd => upd
+                    .SetProperty(x => x.PreviewFileId, mediaInfo.PreviewFileId)
+                    .SetProperty(x => x.FileId, mediaInfo.OriginalFileId)
+                    .SetProperty(x => x.Type, mediaInfo.Type)
+                    .SetProperty(x => x.CreatedAt, dateTimeProvider.UtcNow),
+                    cancellationToken);
+            
+            return;
+        }
+        
+        // Media info is created in the message
+        var data = await context.Issues
+            .Where(x => x.TelegramMessageId == telegramMessageId)
+            .Select(x => new { x.OwnerId, x.Id })
+            .FirstAsync(cancellationToken);
+            
+        var newEntity = new IssueAttachment
+        {
+            Attachment = new Attachment
+            {
+                FileId = mediaInfo.OriginalFileId,
+                Type = mediaInfo.Type,
+                PreviewFileId = mediaInfo.PreviewFileId,
+                CreatedAt = dateTimeProvider.UtcNow,
+                OwnerId = data.OwnerId,
+            },
+            IssueId = data.Id,
+        };
+        
+        context.Add(newEntity);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<long> GetStatusIdToSaveMessage(Guid userId, CancellationToken cancellationToken)

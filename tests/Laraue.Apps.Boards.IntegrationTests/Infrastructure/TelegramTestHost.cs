@@ -37,6 +37,7 @@ public class AppTelegramTestHost(IServiceCollection serviceCollection)
         
         dbContext.SpaceCounters.ExecuteDelete();
         dbContext.Users.ExecuteDelete();
+        dbContext.TelegramFiles.ExecuteDelete();
     }
 
     protected override void Dispose(bool disposing)

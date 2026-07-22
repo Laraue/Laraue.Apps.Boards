@@ -99,8 +99,8 @@ public class TelegramHostTests : TelegramIntegrationTest
                         FileId = "fileId1",
                         FileUniqueId = "fileUniqueId1",
                     }
-                ]
-            }
+                ],
+            },
         });
 
         var scope = host.CreateScope();
@@ -111,17 +111,57 @@ public class TelegramHostTests : TelegramIntegrationTest
         
         var telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(2, telegramFiles.Length);
-        Assert.Equal("filePreviewUniqueId1", telegramFiles[0].ExternalFileUniqueId);
-        Assert.Equal("fileUniqueId1", telegramFiles[1].ExternalFileUniqueId);
+        
+        var previewFile = telegramFiles[0];
+        var originalFile = telegramFiles[1];
+        Assert.Equal("filePreviewUniqueId1", previewFile.ExternalFileUniqueId);
+        Assert.Equal("fileUniqueId1", originalFile.ExternalFileUniqueId);
         
         var attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal(AttachmentType.Image, attachment.Type);
+        Assert.Equal(previewFile.FileId, attachment.PreviewFileId);
+        Assert.Equal(originalFile.FileId, attachment.FileId);
+        
+        // Make the image update. Add text and change file.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Photo =
+                [
+                    new PhotoSize
+                    {
+                        FileId = "filePreviewId2",
+                        FileUniqueId = "filePreviewUniqueId2",
+                    },
+                    new PhotoSize
+                    {
+                        FileId = "fileId2",
+                        FileUniqueId = "fileUniqueId2",
+                    }
+                ]
+            }
+        });
+        
+        telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
+        Assert.Equal(4, telegramFiles.Length);
+        
+        previewFile = telegramFiles[2];
+        originalFile = telegramFiles[3];
+        Assert.Equal("filePreviewUniqueId2", previewFile.ExternalFileUniqueId);
+        Assert.Equal("fileUniqueId2", originalFile.ExternalFileUniqueId);
+        
+        attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal(AttachmentType.Image, attachment.Type);
+        Assert.Equal(previewFile.FileId, attachment.PreviewFileId);
+        Assert.Equal(originalFile.FileId, attachment.FileId);
     }
     
     
     
     // TODO
-    // AddAttachmentToMessage_ShouldEditCard_Always (text -> photo with text)
     // NewImageMessage_ShouldCreateCard_Always
     // EditImageMessage_ShouldEditCard_Always
     // NewVideoMessage_ShouldCreateCard_Always
