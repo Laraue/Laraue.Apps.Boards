@@ -253,11 +253,11 @@ public class CoreIssuesService(
         return context.SaveChangesAsync(cancellationToken);
     }
 
-    public Task DetachAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
+    public Task DetachAttachments(long issueId, IEnumerable<Guid> fileIds, CancellationToken cancellationToken)
     {
         return context.IssueAttachments
             .Where(x => x.IssueId == issueId)
-            .Where(x => attachmentIds.Contains(x.AttachmentId))
+            .Where(x => fileIds.Contains(x.Attachment!.FileId))
             .ExecuteDeleteAsync(cancellationToken);
     }
 
