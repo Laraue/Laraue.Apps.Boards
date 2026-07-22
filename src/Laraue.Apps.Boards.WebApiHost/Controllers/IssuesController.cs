@@ -84,6 +84,7 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     [HttpPost]
+    [Consumes("multipart/form-data")]
     public Task<string> Create(
         [FromForm] CreateIssueRequest request,
         CancellationToken cancellationToken = default)
@@ -97,9 +98,10 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     [HttpPut("{key}")]
+    [Consumes("multipart/form-data")]
     public Task Update(
         [FromRoute] string key,
-        [FromBody] UpdateIssueRequest request,
+        [FromForm] UpdateIssueRequest request,
         CancellationToken cancellationToken = default)
     {
         return issuesService.Update(
