@@ -142,8 +142,12 @@ public class TelegramHostTests : TelegramIntegrationTest
                         FileUniqueId = "fileUniqueId2",
                     }
                 ],
+                Caption = "Caption",
             }
         });
+        
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Caption", issue.Content);
         
         telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(4, telegramFiles.Length);
@@ -281,7 +285,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                         FileUniqueId = "fileUniqueId2",
                     }
                 ],
-                MediaGroupId = "777"
+                MediaGroupId = "777",
             },
         });
 

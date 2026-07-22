@@ -329,7 +329,7 @@ public class TelegramSaveMessageService(
             .Where(x => x.Id == telegramMessageId)
             .Select(x => new
             {
-                x.Issue!.IssueAttachments
+                AttachmentId = x.Attachment != null ? x.Attachment.Id : (Guid?)null
             })
             .FirstAsyncEF(cancellationToken);
 
@@ -364,6 +364,12 @@ public class TelegramSaveMessageService(
         
         context.Add(newEntity);
         await context.SaveChangesAsync(cancellationToken);
+
+        await context.TelegramMessages
+            .Where(x => x.Id == telegramMessageId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.AttachmentId, newEntity.AttachmentId),
+                cancellationToken);
     }
 
     private async Task<long> GetStatusIdToSaveMessage(Guid userId, CancellationToken cancellationToken)

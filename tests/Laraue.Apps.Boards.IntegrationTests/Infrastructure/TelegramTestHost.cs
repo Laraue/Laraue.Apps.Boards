@@ -36,16 +36,15 @@ public class AppTelegramTestHost(IServiceCollection serviceCollection)
         dbContext.Database.Migrate();
         
         dbContext.SpaceCounters.ExecuteDelete();
-        dbContext.Users.ExecuteDelete();
         dbContext.TelegramFiles.ExecuteDelete();
+        dbContext.Issues.ExecuteDelete();
         dbContext.TelegramMessages.ExecuteDelete();
+        dbContext.Attachments.ExecuteDelete();
+        dbContext.Users.ExecuteDelete();
         dbContext.TelegramMediaGroups.ExecuteDelete();
     }
 
     protected override void Dispose(bool disposing)
     {
-        using var scope = CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
-        dbContext.Users.ExecuteDelete();
     }
 }
