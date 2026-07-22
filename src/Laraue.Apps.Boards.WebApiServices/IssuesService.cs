@@ -14,6 +14,7 @@ using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -56,10 +57,6 @@ public interface IIssuesService
         long organizationId,
         IssueKey issueKey,
         CancellationToken cancellationToken);
-    
-    Task<MediaInfo> UploadAttachment(
-        UploadAttachmentRequest request,
-        CancellationToken cancellationToken);
 }
 
 public class IssuesService(
@@ -67,7 +64,8 @@ public class IssuesService(
     ICoreIssuesService issuesService,
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
-    IOrganizationAccessService organizationAccessService)
+    IOrganizationAccessService organizationAccessService,
+    ICoreFilesService coreFilesService)
     : IIssuesService
 {
     public async Task<BatchResult<IssueListDto>> GetIssues(
@@ -313,7 +311,19 @@ public class IssuesService(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
-
+        
+        var files = new List<MediaInfo>();
+        foreach (var file in request.Files)
+        {
+            var fileData = await coreFilesService.UploadFile(
+                file.FileName, 
+                file.ContentType,
+                file.OpenReadStream(),
+                ct);
+            
+            files.Add(fileData);
+        }
+        
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         var id = await issuesService.Create(
@@ -327,6 +337,7 @@ public class IssuesService(
             },
             ct);
         
+        await issuesService.AttachFiles(request.AuthData.UserId, id, files, ct);
         await issuesService.UpdateAttributes(id, attributeUpdateRequests, ct);
         
         await transaction.CommitAsync(ct);
@@ -341,7 +352,10 @@ public class IssuesService(
 
     public async Task Update(UpdateIssueRequest request, CancellationToken ct)
     {
-        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey.GetValueOrDefault(), ct);
+        var issueId = await GetIssueIdByIssueKey(
+            request.AuthData.OrganizationId,
+            request.IssueKey.GetValueOrDefault(),
+            ct);
         
         var accessLevels = await accessService.GetAccessLevelsByIssueId(
             request.AuthData,
@@ -361,6 +375,18 @@ public class IssuesService(
             request.AttributeValues,
             ct);
         
+        var newFiles = new List<MediaInfo>();
+        foreach (var file in request.AddFiles)
+        {
+            var fileData = await coreFilesService.UploadFile(
+                file.FileName, 
+                file.ContentType,
+                file.OpenReadStream(),
+                ct);
+            
+            newFiles.Add(fileData);
+        }
+        
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         await issuesService.Update(
@@ -370,6 +396,10 @@ public class IssuesService(
                 .SetProperty(x => x.AssigneeId, request.AssigneeId),
             ct);
         await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
+        await issuesService.AttachFiles(request.AuthData.UserId, issueId, newFiles, ct);
+        
+        // TODO - check that attachments were created by this user before delete
+        await issuesService.DetachAttachments(issueId, request.RemoveAttachmentIds, ct);
             
         await transaction.CommitAsync(ct);
     }
@@ -735,27 +765,6 @@ public class IssuesService(
             .Where(x => x.Space!.OrganizationId == organizationId)
             .Select(x => x.IssueId)
             .FirstOrThrowNotFoundEFAsync($"Issue: {issueKey} is not found in organization", cancellationToken);
-    }
-
-    public async Task<MediaInfo> UploadAttachment(UploadAttachmentRequest request, CancellationToken cancellationToken)
-    {
-        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, cancellationToken);
-        
-        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
-            request.AuthData,
-            issueId,
-            cancellationToken);
-        
-        if (issueAccessLevels?.CanUpdateIssue != true)
-            throw new ForbiddenException($"Issue: {request.IssueKey} update is forbidden");
-
-        return await issuesService.UploadAttachment(
-            request.AuthData.UserId,
-            issueId,
-            request.FileName,
-            request.ContentType,
-            request.Stream,
-            cancellationToken);
     }
 
     private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
@@ -1128,6 +1137,7 @@ public record CreateIssueRequest
     public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
     public AttributeValue[] AttributeValues { get; set; } = [];
+    public IFormFile[] Files { get; set; } = [];
 }
 
 [JsonDerivedType(typeof(EnumAttributeValue), "enum")]
@@ -1154,6 +1164,8 @@ public record UpdateIssueRequest
     public required string Content { get; set; }
     public required Guid AssigneeId { get; set; }
     public required AttributeValue[] AttributeValues { get; set; }
+    public Guid[] RemoveAttachmentIds { get; set; } = [];
+    public IFormFile[] AddFiles { get; set; } = [];
 }
 
 public interface IHasAttributeFilters

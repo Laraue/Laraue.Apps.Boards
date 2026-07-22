@@ -31,20 +31,22 @@ public interface ICoreIssuesService
     /// <summary>
     /// Upload the file and link it to the issue.
     /// </summary>
-    Task<MediaInfo> UploadAttachment(
+    Task AttachFiles(
         Guid ownerId,
         long issueId,
-        string fileName,
-        string contentType,
-        Stream stream,
+        IEnumerable<MediaInfo> mediaInfos,
+        CancellationToken cancellationToken);
+    
+    Task DetachAttachments(
+        long issueId,
+        IEnumerable<Guid> attachmentIds,
         CancellationToken cancellationToken);
 }
 
 public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
-    ISpaceCounterService spaceCounterService,
-    ICoreFilesService coreFilesService)
+    ISpaceCounterService spaceCounterService)
     : ICoreIssuesService
 {
     public async Task<long> Create(
@@ -224,32 +226,39 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
-    public async Task<MediaInfo> UploadAttachment(
+    public Task AttachFiles(
         Guid ownerId,
         long issueId,
-        string fileName,
-        string contentType,
-        Stream stream,
+        IEnumerable<MediaInfo> mediaInfos,
         CancellationToken cancellationToken)
     {
-        var fileData = await coreFilesService.UploadFile(fileName, contentType, stream, cancellationToken);
-        var attachment = new IssueAttachment
+        foreach (var mediaInfo in mediaInfos)
         {
-            IssueId = issueId,
-            Attachment = new Attachment
+            var attachment = new IssueAttachment
             {
-                CreatedAt = dateTimeProvider.UtcNow,
-                OwnerId = ownerId,
-                PreviewFileId = fileData.PreviewFileId,
-                FileId = fileData.OriginalFileId,
-                Type = fileData.Type,
-            }
-        };
+                IssueId = issueId,
+                Attachment = new Attachment
+                {
+                    CreatedAt = dateTimeProvider.UtcNow,
+                    OwnerId = ownerId,
+                    PreviewFileId = mediaInfo.PreviewFileId,
+                    FileId = mediaInfo.OriginalFileId,
+                    Type = mediaInfo.Type,
+                }
+            };
         
-        context.Add(attachment);
-        await context.SaveChangesAsync(cancellationToken);
+            context.Add(attachment);
+        }
+        
+        return context.SaveChangesAsync(cancellationToken);
+    }
 
-        return fileData;
+    public Task DetachAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
+    {
+        return context.IssueAttachments
+            .Where(x => x.IssueId == issueId)
+            .Where(x => attachmentIds.Contains(x.AttachmentId))
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     private Task<int> TouchMessageBoard(long issueId, DateTime touchedAt, CancellationToken ct)

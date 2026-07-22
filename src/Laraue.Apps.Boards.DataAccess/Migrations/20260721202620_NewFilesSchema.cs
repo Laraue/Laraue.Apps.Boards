@@ -39,6 +39,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 table: "telegram_files",
                 newName: "external_file_unique_id");
 
+            migrationBuilder.Sql("delete from telegram_files;"); // Only admins data in prod now
+
             migrationBuilder.AddColumn<Guid>(
                 name: "attachment_id",
                 table: "telegram_messages",

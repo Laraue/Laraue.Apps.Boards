@@ -85,7 +85,7 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     
     [HttpPost]
     public Task<string> Create(
-        [FromBody] CreateIssueRequest request,
+        [FromForm] CreateIssueRequest request,
         CancellationToken cancellationToken = default)
     {
         return issuesService.Create(
@@ -133,26 +133,6 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
-            },
-            cancellationToken);
-    }
-
-    [HttpPost("{key}/add-attachment")]
-    public async Task<MediaInfo> UploadFile(
-        string key,
-        [FromForm] IFormFile file,
-        CancellationToken cancellationToken)
-    {
-        await using var stream = file.OpenReadStream();
-
-        return await issuesService.UploadAttachment(
-            new UploadAttachmentRequest
-            {
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-                ContentType = file.ContentType,
-                FileName = file.FileName,
-                Stream = stream,
-                IssueKey = new IssueKey(key),
             },
             cancellationToken);
     }
