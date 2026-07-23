@@ -400,7 +400,7 @@ public class IssuesService(
         
         // TODO - check that attachments were created by this user before delete
         await issuesService.DetachAttachments(issueId, request.RemoveAttachmentIds, ct);
-            
+        
         await transaction.CommitAsync(ct);
     }
 
@@ -709,7 +709,7 @@ public class IssuesService(
                 attributeValue.Value = value;
         }
 
-        var media = await GetMedia(result.Id, cancellationToken);
+        var media = await GetAttachments(result.Id, cancellationToken);
 
         return new IssueDetailDto
         {
@@ -736,17 +736,18 @@ public class IssuesService(
             SpaceId = result.SpaceId,
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
-            Media = media,
+            Attachments = media,
         };
     }
 
-    private Task<List<MediaInfo>> GetMedia(long issueId, CancellationToken ct)
+    private Task<List<AttachmentData>> GetAttachments(long issueId, CancellationToken ct)
     {
         return context
             .IssueAttachments
             .Where(x => issueId == x.IssueId)
-            .Select(x => new MediaInfo
+            .Select(x => new AttachmentData
             {
+                Id = x.AttachmentId,
                 Type = x.Attachment!.Type,
                 OriginalFileId = x.Attachment.FileId,
                 PreviewFileId = x.Attachment.PreviewFileId,
@@ -1239,7 +1240,7 @@ public class IssueDetailDto
     public required bool CanEdit { get; set; }
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
-    public required List<MediaInfo> Media { get; set; }
+    public required List<AttachmentData> Attachments { get; set; }
 }
 
 public record DetailIssueAttributeDto
@@ -1324,11 +1325,7 @@ public record EpicSummary
     public required bool IsDefault { get; set; }
 }
 
-public record UploadAttachmentRequest
+public record AttachmentData : MediaInfo
 {
-    public required OrganizationAuthData AuthData { get; init; }
-    public IssueKey IssueKey { get; init; }
-    public required string FileName { get; init; }
-    public required string ContentType { get; init; }
-    public required Stream Stream { get; init; }
+    public required Guid Id { get; init; }
 }
