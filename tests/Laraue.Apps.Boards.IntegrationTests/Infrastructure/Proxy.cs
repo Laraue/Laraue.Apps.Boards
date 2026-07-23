@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.Exceptions;
@@ -249,11 +250,20 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
                     foreach (var item in items)
                         bound.Form.GetOrAdd(key).Add(item?.ToString() ?? string.Empty);
                 }
+                else if (HasAbstractOrPolymorphicElementType(value))
+                {
+                    // Default form binding can only construct concrete types with a parameterless
+                    // constructor, so it can't materialize e.g. an abstract AttributeValue element
+                    // as its correct derived type. Send the whole array as one JSON field instead;
+                    // pair this with a [JsonModelBinder] (or similar) on the target property so the
+                    // server deserializes it with System.Text.Json, which does understand
+                    // [JsonDerivedType]/[JsonPolymorphic].
+                    bound.Form.GetOrAdd(key).Add(JsonSerializer.Serialize(value, JsonOptions));
+                }
                 else
                 {
-                    // Complex array elements: use ASP.NET Core's default indexed form-binding
-                    // convention (Key[0].Prop=..., Key[1].Prop=...) rather than a single JSON blob,
-                    // which the default form model binder does not parse.
+                    // Plain concrete complex elements: use ASP.NET Core's default indexed
+                    // form-binding convention (Key[0].Prop=..., Key[1].Prop=...).
                     for (var i = 0; i < items.Count; i++)
                         FlattenIndexedElement(bound, $"{key}[{i}]", items[i]);
                 }
@@ -270,6 +280,31 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
         value is null or string or Guid or DateTime or DateTimeOffset or decimal
         || value.GetType().IsPrimitive
         || value.GetType().IsEnum;
+
+    /// <summary>
+    /// Determines whether a collection's declared element type is abstract, an interface, or
+    /// marked with System.Text.Json polymorphism attributes ([JsonPolymorphic]/[JsonDerivedType]).
+    /// Such elements cannot be constructed by the default indexed form binder and should instead
+    /// be sent as a single JSON field for a JSON-aware model binder to handle.
+    /// </summary>
+    private static bool HasAbstractOrPolymorphicElementType(object collection)
+    {
+        var collectionType = collection.GetType();
+        var elementType = collectionType.IsArray
+            ? collectionType.GetElementType()
+            : collectionType.GetInterfaces()
+                .Append(collectionType)
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                .Select(i => i.GetGenericArguments()[0])
+                .FirstOrDefault();
+
+        if (elementType is null)
+            return false;
+
+        return elementType.IsAbstract
+            || elementType.IsInterface
+            || elementType.GetCustomAttribute<JsonPolymorphicAttribute>() != null;
+    }
 
     /// <summary>
     /// Flattens a single complex element of an array/collection property under an indexed key
@@ -493,7 +528,6 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
         FromForm,
     }
 }
-
 
 public static class DictionaryExtensions
 {

@@ -1,4 +1,6 @@
-﻿namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+﻿using Xunit.Sdk;
+
+namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
 public static class HttpRequestExceptionExtensions
 {
@@ -6,9 +8,16 @@ public static class HttpRequestExceptionExtensions
     {
         if (exception.InnerException is null)
             throw new InvalidOperationException("No inner exception thrown.", exception);
-        
-        var innerException = Assert.IsType<T>(exception.InnerException);
 
-        return innerException;
+        try
+        {
+            return Assert.IsType<T>(exception.InnerException);
+        }
+        catch (XunitException)
+        {
+            throw new Exception(
+                $"Exception of type {typeof(T)} excepted, but {exception.InnerException.GetType()} was thrown",
+                exception.InnerException);
+        }
     }
 }

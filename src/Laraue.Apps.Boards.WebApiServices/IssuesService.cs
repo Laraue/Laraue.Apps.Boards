@@ -1137,6 +1137,7 @@ public record CreateIssueRequest
     public long StatusId { get; set; }
     public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
+    [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
     public IFormFile[] Files { get; set; } = [];
 }
@@ -1164,7 +1165,8 @@ public record UpdateIssueRequest
     public IssueKey? IssueKey { get; set; }
     public required string Content { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required AttributeValue[] AttributeValues { get; set; }
+    [JsonModelBinder] 
+    public AttributeValue[] AttributeValues { get; set; } = [];
     public Guid[] RemoveAttachmentIds { get; set; } = [];
     public IFormFile[] AddFiles { get; set; } = [];
 }
