@@ -58,6 +58,18 @@ public interface IIssuesService
         long organizationId,
         IssueKey issueKey,
         CancellationToken cancellationToken);
+    
+    Task<long> AddIssueComment(
+        AddCommentRequest request,
+        CancellationToken cancellationToken);
+    
+    Task UpdateIssueComment(
+        UpdateCommentRequest request,
+        CancellationToken cancellationToken);
+    
+    Task DeleteIssueComment(
+        DeleteCommentRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class IssuesService(
@@ -796,6 +808,21 @@ public class IssuesService(
             .FirstOrThrowNotFoundEFAsync($"Issue: {issueKey} is not found in organization", cancellationToken);
     }
 
+    public Task<long> AddIssueComment(AddCommentRequest request, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task UpdateIssueComment(UpdateCommentRequest request, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task DeleteIssueComment(DeleteCommentRequest request, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
     private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
         long organizationId,
         AttributeValue[] attributeValues,
@@ -1358,4 +1385,27 @@ public record EpicSummary
 public record AttachmentData : MediaInfo
 {
     public required Guid Id { get; init; }
+}
+
+public record AddCommentRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+    public IssueKey IssueKey { get; set; }
+    public required string Text { get; set; }
+    public IFormFile[] Files { get; set; } = [];
+}
+
+public record UpdateCommentRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+    public long CommentId { get; set; }
+    public required string Text { get; set; }
+    public Guid[] RemoveAttachmentIds { get; set; } = [];
+    public IFormFile[] AddFiles { get; set; } = [];
+}
+
+public record DeleteCommentRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+    public long CommentId { get; set; }
 }

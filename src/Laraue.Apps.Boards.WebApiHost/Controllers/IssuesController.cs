@@ -138,4 +138,49 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             },
             cancellationToken);
     }
+    
+    [HttpPost("{key}/comment")]
+    [Consumes("multipart/form-data")]
+    public Task<long> AddComment(
+        string key,
+        [FromForm] AddCommentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.AddIssueComment(
+            request with
+            {
+                IssueKey = new IssueKey(key),
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+    
+    [HttpPut("comments/{id:long}")]
+    [Consumes("multipart/form-data")]
+    public Task UpdateComment(
+        long id,
+        [FromForm] UpdateCommentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.UpdateIssueComment(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+    
+    [HttpDelete("comments/{id:long}")]
+    public Task DeleteComment(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.DeleteIssueComment(
+            new DeleteCommentRequest
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                CommentId = id,
+            },
+            cancellationToken);
+    }
 }
