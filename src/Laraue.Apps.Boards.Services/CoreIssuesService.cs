@@ -258,6 +258,7 @@ public class CoreIssuesService(
         return context.IssueAttachments
             .Where(x => x.IssueId == issueId)
             .Where(x => attachmentIds.Contains(x.AttachmentId))
+            .Select(x => x.Attachment)
             .ExecuteDeleteAsync(cancellationToken);
     }
 

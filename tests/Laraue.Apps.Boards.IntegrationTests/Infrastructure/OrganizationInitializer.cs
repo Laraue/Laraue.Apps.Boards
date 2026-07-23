@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
+using File = Laraue.Apps.Boards.DataAccess.Models.File;
 using Models_Status = Laraue.Apps.Boards.DataAccess.Models.Status;
 using Status = Laraue.Apps.Boards.DataAccess.Models.Status;
 
@@ -86,7 +87,6 @@ public class OrganizationInitializer(
 
         organization.Spaces = new List<Space>(); // Add all children manually
         
-
         organization.Attributes = new List<Attribute>();
         foreach (var attribute in _attributes)
         {
@@ -199,6 +199,31 @@ public class OrganizationInitializer(
                             },
                             TextAttributes = textAttributes,
                             ListAttributes = listAttributes,
+                            IssueAttachments = issue.Attachments
+                                .Select(x => new IssueAttachment
+                                {
+                                    Attachment = new Attachment
+                                    {
+                                        File = new File
+                                        {
+                                            MimeType = x.AttachmentType switch
+                                            {
+                                                AttachmentType.Image => "image/jpg",
+                                                AttachmentType.Video => "video/mp4",
+                                                _ => throw new InvalidOperationException()
+                                            },
+                                            Name = x.Name,
+                                            Size = 100,
+                                            TelegramFile = new TelegramFile
+                                            {
+                                                ExternalFileUniqueId = Guid.NewGuid().ToString(),
+                                                ExternalFileId = Guid.NewGuid().ToString(),
+                                            }
+                                        },
+                                        OwnerId = ownerId, 
+                                    }
+                                })
+                                .ToList()
                         });
                     }
                 }
@@ -504,6 +529,7 @@ public class OrganizationInitializer(
         public Guid CreatorId { get; } = creatorId;
         public DateTime Timestamp { get; private set; } = DateTime.UtcNow;
         public string Content { get; private set; } = "IssueContent";
+        public List<IssueAttachmentData> Attachments { get; } = new ();
 
         public Dictionary<int, object> AttributeValues { get; set; } = new();
         
@@ -527,5 +553,14 @@ public class OrganizationInitializer(
 
             return this;
         }
+        
+        public IssueBuilder AddAttachment(string name, AttachmentType attachmentType)
+        {
+            Attachments.Add(new IssueAttachmentData(name, attachmentType));
+
+            return this;
+        }
     }
+
+    public record IssueAttachmentData(string Name, AttachmentType AttachmentType);
 }

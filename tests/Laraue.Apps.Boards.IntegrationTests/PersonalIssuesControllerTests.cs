@@ -153,6 +153,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 .AddSpace(userId, s => s
                     .AddEpic(userId, e => e
                         .AddIssue(userId, 0, i => i
+                            .AddAttachment("hey.jpg", AttachmentType.Image)
                             .WithContent("Hi")))));
 
         var issueData = organization.GetIssueData(1, 1, 0, 0);
@@ -176,6 +177,22 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 }
             ],
             AssigneeId = userId,
+            AddFiles =
+            [
+                new FormFile(
+                    new MemoryStream([]),
+                    0,
+                    0,
+                    "file",
+                    "image.jpg")
+                {
+                    Headers = new HeaderDictionary
+                    {
+                        ["content-type"] = "image/jpeg"
+                    },
+                }
+            ],
+            RemoveAttachmentIds = [issueData.Issue.IssueAttachments![0].AttachmentId]
         };
         
         await _issuesController
@@ -197,6 +214,18 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(issue.Id, listAttribute.IssueId);
         Assert.Equal(typeAttribute.Id, listAttribute.AttributeId);
         Assert.Equal(typeAttribute.GetListValue(1).Id, listAttribute.AttributeListValueId); // ID of 'Feature' value
+        
+        var attachment = await testScope.Database.Attachments
+            .Include(x => x.IssueAttachment)
+            .Include(x => x.File)
+            .Include(attachment => attachment.PreviewFile)
+            .SingleAsyncEF();
+        
+        Assert.Equal(AttachmentType.Image, attachment.Type);
+        Assert.NotNull(attachment.PreviewFile);
+        Assert.NotNull(attachment.File);
+        Assert.Equal(userId, attachment.OwnerId);
+        Assert.Equal(issue.Id, attachment.IssueAttachment!.IssueId);
     }
     
     [Fact]
