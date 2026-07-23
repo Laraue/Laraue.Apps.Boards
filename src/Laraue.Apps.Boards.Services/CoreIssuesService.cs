@@ -27,6 +27,20 @@ public interface ICoreIssuesService
     Task Delete(
         long id,
         CancellationToken cancellationToken);
+    
+    /// <summary>
+    /// Upload the file and link it to the issue.
+    /// </summary>
+    Task AttachFiles(
+        Guid ownerId,
+        long issueId,
+        IEnumerable<MediaInfo> mediaInfos,
+        CancellationToken cancellationToken);
+    
+    Task DetachAttachments(
+        long issueId,
+        IEnumerable<Guid> attachmentIds,
+        CancellationToken cancellationToken);
 }
 
 public class CoreIssuesService(
@@ -209,6 +223,42 @@ public class CoreIssuesService(
     {
         return context.Issues
             .Where(x => x.Id == id)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public Task AttachFiles(
+        Guid ownerId,
+        long issueId,
+        IEnumerable<MediaInfo> mediaInfos,
+        CancellationToken cancellationToken)
+    {
+        foreach (var mediaInfo in mediaInfos)
+        {
+            var attachment = new IssueAttachment
+            {
+                IssueId = issueId,
+                Attachment = new Attachment
+                {
+                    CreatedAt = dateTimeProvider.UtcNow,
+                    OwnerId = ownerId,
+                    PreviewFileId = mediaInfo.PreviewFileId,
+                    FileId = mediaInfo.OriginalFileId,
+                    Type = mediaInfo.Type,
+                }
+            };
+        
+            context.Add(attachment);
+        }
+        
+        return context.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task DetachAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
+    {
+        return context.IssueAttachments
+            .Where(x => x.IssueId == issueId)
+            .Where(x => attachmentIds.Contains(x.AttachmentId))
+            .Select(x => x.Attachment)
             .ExecuteDeleteAsync(cancellationToken);
     }
 

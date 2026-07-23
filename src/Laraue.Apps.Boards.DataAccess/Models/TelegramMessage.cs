@@ -14,7 +14,13 @@ public class TelegramMessage
     public TelegramMediaGroup? TelegramMediaGroup { get; set; }
     
     /// <summary>
-    /// The card related to this message
+    /// Attachment id (exists for images / videos / files).
+    /// </summary>
+    public Guid? AttachmentId { get; set; }
+    public Attachment? Attachment { get; set; }
+    
+    /// <summary>
+    /// The card related to this message.
     /// </summary>
     public Issue? Issue { get; set; }
 }

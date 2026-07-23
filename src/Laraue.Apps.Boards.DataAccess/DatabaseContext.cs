@@ -4,6 +4,7 @@ using Laraue.Telegram.NET.UpdatesQueue.EFCore;
 using Laraue.Telegram.NET.UpdatesQueue.EFCore.DataAccess;
 using Microsoft.EntityFrameworkCore;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
+using File = Laraue.Apps.Boards.DataAccess.Models.File;
 
 namespace Laraue.Apps.Boards.DataAccess;
 
@@ -14,21 +15,22 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     {
     }
     
+    public DbSet<Attachment> Attachments { get; set; }
     public DbSet<User> Users { get; init; }
     public DbSet<UserPreferences> UserPreferences { get; init; }
     public DbSet<UserOrganizationPreferences> UserOrganizationPreferences { get; init; }
     public DbSet<Issue> Issues { get; init; }
+    public DbSet<IssueAttachment> IssueAttachments { get; init; }
     public DbSet<IssueNumber> IssueNumbers { get; init; }
     public DbSet<Epic> Epics { get; init; }
     public DbSet<Space> Spaces { get; init; }
+    public DbSet<File> Files { get; init; }
     public DbSet<SpaceCounter> SpaceCounters { get; init; }
     public DbSet<DirectSpacePermission> DirectSpacePermissions { get; init; }
     public DbSet<Organization> Organizations { get; init; }
     public DbSet<OrganizationUser> OrganizationUsers { get; init; }
     public DbSet<Status> Statuses { get; init; }
     public DbSet<TelegramFile> TelegramFiles { get; init; }
-    public DbSet<TelegramMessagePhoto> TelegramPhotos { get; init; }
-    public DbSet<TelegramMessageVideo> TelegramVideos { get; init; }
     public DbSet<TelegramMessage> TelegramMessages { get; init; }
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
     
@@ -92,13 +94,6 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity.HasKey(x => x.SpaceId);
         });
         
-        modelBuilder.Entity<TelegramFile>(entity =>
-        {
-            entity
-                .HasIndex(x => x.FileUniqueId)
-                .IsUnique();
-        });
-        
         modelBuilder.Entity<TelegramMediaGroup>(entity =>
         {
             entity
@@ -142,6 +137,11 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         modelBuilder.Entity<User>(builder =>
         {
             builder.HasIndex(x => x.TelegramId).IsUnique();
+        });
+        
+        modelBuilder.Entity<IssueAttachment>(builder =>
+        {
+            builder.HasKey(x => new { x.IssueId, x.AttachmentId });
         });
     }
 }

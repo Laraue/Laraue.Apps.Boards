@@ -43,6 +43,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreOrganizationsService, CoreOrganizationsService>()
                 .AddScoped<IOrganizationAccessService, OrganizationAccessService>()
                 .AddScoped<ICoreMovementService, CoreMovementService>()
+                .AddScoped<ICoreFilesService, CoreFilesService>()
                 .AddSingleton<IFileStorage, FileStorage>();
 
             builder.Services.AddMemoryCache();

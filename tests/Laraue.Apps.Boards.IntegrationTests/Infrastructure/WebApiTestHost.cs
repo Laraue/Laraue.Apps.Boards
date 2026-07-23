@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.WebApiHost;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,11 @@ public class WebApiTestHost
         builder.ConfigureHostConfiguration(config =>
         {
             config.AddJsonFile("appsettings.json", optional: true);
+        });
+
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton(TelegramBotClientMockFactory.GetInstance());
         });
 
         return base.CreateHost(builder);
@@ -46,16 +52,14 @@ public class WebApiTestHostScope : IDisposable
     private readonly IServiceScope _scope;
     public DatabaseContext Database => _scope.ServiceProvider.GetRequiredService<DatabaseContext>();
     private long _lastTelegramId;
+    
+    public IServiceProvider Services => _scope.ServiceProvider;
 
     public WebApiTestHostScope(IServiceScope scope)
     {
         _scope = scope;
         Database.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
-        
-        // Cleanup before test run
-        Database.DirectSpacePermissions.ExecuteDelete();
-        Database.SpaceCounters.ExecuteDelete();
-        Database.Users.ExecuteDelete();
+        Database.CleanDatabase();
     }
 
     public void Dispose()

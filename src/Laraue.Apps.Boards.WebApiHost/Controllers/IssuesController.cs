@@ -42,7 +42,6 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             cancellationToken);
     }
     
-    
     [HttpGet("{key}")]
     public Task<IssueDetailDto> GetIssue(
         string key,
@@ -85,8 +84,9 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     [HttpPost]
+    [Consumes("multipart/form-data")]
     public Task<string> Create(
-        [FromBody] CreateIssueRequest request,
+        [FromForm] CreateIssueRequest request,
         CancellationToken cancellationToken = default)
     {
         return issuesService.Create(
@@ -98,9 +98,10 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     [HttpPut("{key}")]
+    [Consumes("multipart/form-data")]
     public Task Update(
         [FromRoute] string key,
-        [FromBody] UpdateIssueRequest request,
+        [FromForm] UpdateIssueRequest request,
         CancellationToken cancellationToken = default)
     {
         return issuesService.Update(

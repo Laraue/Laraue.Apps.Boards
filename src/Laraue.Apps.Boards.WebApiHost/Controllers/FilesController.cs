@@ -9,8 +9,8 @@ using Telegram.Bot;
 namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 
 [ApiController]
-[Route("/api/telegram-files")]
-public class TelegramFilesController(
+[Route("/api/files")]
+public class FilesController(
     DatabaseContext db,
     IFileStorage fileStorage,
     ITelegramBotClient botClient,
@@ -24,13 +24,18 @@ public class TelegramFilesController(
         Guid id,
         CancellationToken cancellationToken)
     {
-        var fileData = await db.TelegramFiles
+        var fileData = await db.Files
             .Where(x => x.Id == id)
-            .Select(x => new { x.FileUniqueId, x.MimeType, x.FileId })
+            .Select(x => new
+            {
+                x.TelegramFile!.ExternalFileUniqueId,
+                x.MimeType,
+                x.TelegramFile.ExternalFileId,
+            })
             .FirstOrThrowNotFoundEFAsync("File is not found", cancellationToken);
 
         var fileExtension = ExtensionUtility.GetExtension(fileData.MimeType);
-        var physicalPath = ShardedPathStrategy.GetPath(fileData.FileUniqueId, fileExtension);
+        var physicalPath = ShardedPathStrategy.GetPath(fileData.ExternalFileUniqueId, fileExtension);
         var mimeType = fileData.MimeType ?? "application/octet-stream";
 
         // Serve from local cache — seekable stream, ASP.NET Core handles ranges
@@ -42,10 +47,10 @@ public class TelegramFilesController(
 
         // Resolve and cache the Telegram download URL (valid 60 min)
         var botToken = options.Value.Token;
-        var cacheKey = $"tg_file_url_{fileData.FileId}";
+        var cacheKey = $"tg_file_url_{fileData.ExternalFileId}";
         if (!memoryCache.TryGetValue(cacheKey, out string? downloadUrl))
         {
-            var tgFile = await botClient.GetFile(fileData.FileId, cancellationToken);
+            var tgFile = await botClient.GetFile(fileData.ExternalFileId, cancellationToken);
             if (string.IsNullOrEmpty(tgFile.FilePath))
                 return NotFound("Telegram file path is unavailable.");
 

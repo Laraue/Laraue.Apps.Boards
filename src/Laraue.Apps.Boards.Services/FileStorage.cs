@@ -27,7 +27,7 @@ public class FileStorage(IOptions<FileStorageOptions> options) : IFileStorage
     {
         var physicalPath = Path.Combine(options.Value.FilesDirectory, path);
 
-        return Task.FromResult(File.Exists(physicalPath));
+        return Task.FromResult(System.IO.File.Exists(physicalPath));
     }
 
     public Task<FileStream> ReadFile(
@@ -36,7 +36,7 @@ public class FileStorage(IOptions<FileStorageOptions> options) : IFileStorage
     {
         var physicalPath = Path.Combine(options.Value.FilesDirectory, path);
 
-        return Task.FromResult(File.OpenRead(physicalPath));
+        return Task.FromResult(System.IO.File.OpenRead(physicalPath));
     }
 
     public async Task WriteFile(

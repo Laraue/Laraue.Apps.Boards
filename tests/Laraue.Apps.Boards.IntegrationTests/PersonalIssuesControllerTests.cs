@@ -1,9 +1,12 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -48,6 +51,21 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 }
             ],
             AssigneeId = userId,
+            Files =
+            [
+                new FormFile(
+                    new MemoryStream([]),
+                    0,
+                    0,
+                    "file",
+                    "image.jpg")
+                {
+                    Headers = new HeaderDictionary
+                    {
+                        ["content-type"] = "image/jpeg"
+                    },
+                }
+            ]
         };
         
         var issueKey = await _issuesController
@@ -72,6 +90,16 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(issue.Id, listAttribute.IssueId);
         Assert.Equal(typeAttribute.Id, listAttribute.AttributeId);
         Assert.Equal(typeAttribute.GetListValue(1).Id, listAttribute.AttributeListValueId); // ID of 'Feature' value
+        
+        var attachment = await testScope.Database.Attachments
+            .Include(x => x.File)
+            .Include(attachment => attachment.PreviewFile)
+            .SingleAsyncEF();
+        
+        Assert.Equal(AttachmentType.Image, attachment.Type);
+        Assert.NotNull(attachment.PreviewFile);
+        Assert.NotNull(attachment.File);
+        Assert.Equal(userId, attachment.OwnerId);
     }
     
     [Fact]
@@ -125,6 +153,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 .AddSpace(userId, s => s
                     .AddEpic(userId, e => e
                         .AddIssue(userId, 0, i => i
+                            .AddAttachment("hey.jpg", AttachmentType.Image)
                             .WithContent("Hi")))));
 
         var issueData = organization.GetIssueData(1, 1, 0, 0);
@@ -148,6 +177,22 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 }
             ],
             AssigneeId = userId,
+            AddFiles =
+            [
+                new FormFile(
+                    new MemoryStream([]),
+                    0,
+                    0,
+                    "file",
+                    "image.jpg")
+                {
+                    Headers = new HeaderDictionary
+                    {
+                        ["content-type"] = "image/jpeg"
+                    },
+                }
+            ],
+            RemoveAttachmentIds = [issueData.Issue.IssueAttachments![0].AttachmentId]
         };
         
         await _issuesController
@@ -169,6 +214,18 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(issue.Id, listAttribute.IssueId);
         Assert.Equal(typeAttribute.Id, listAttribute.AttributeId);
         Assert.Equal(typeAttribute.GetListValue(1).Id, listAttribute.AttributeListValueId); // ID of 'Feature' value
+        
+        var attachment = await testScope.Database.Attachments
+            .Include(x => x.IssueAttachment)
+            .Include(x => x.File)
+            .Include(attachment => attachment.PreviewFile)
+            .SingleAsyncEF();
+        
+        Assert.Equal(AttachmentType.Image, attachment.Type);
+        Assert.NotNull(attachment.PreviewFile);
+        Assert.NotNull(attachment.File);
+        Assert.Equal(userId, attachment.OwnerId);
+        Assert.Equal(issue.Id, attachment.IssueAttachment!.IssueId);
     }
     
     [Fact]
@@ -273,7 +330,6 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(status.Id, issueDto.StatusId);
         Assert.Equal(timestamp, issueDto.Time);
         Assert.Equal(epic.Id, issueDto.EpicId);
-        Assert.Empty(issueDto.Media);
     }
     
     [Fact]
@@ -409,7 +465,6 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("snake1977", backlogIssue.Assignee);
         Assert.Equal(backlogStatus.Id, backlogIssue.StatusId);
         Assert.Equal(epic.Id, backlogIssue.EpicId);
-        Assert.Empty(backlogIssue.Media);
         
         var doneColumn = boardColumns[1];
         Assert.Equal(doneStatus.Id, doneColumn.StatusId);
@@ -456,7 +511,6 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("snake1977", item.Assignee);
         Assert.Equal(backlogStatus.Id, item.StatusId);
         Assert.Equal(epic.Id, item.EpicId);
-        Assert.Empty(item.Media);
     }
     
     [Fact]

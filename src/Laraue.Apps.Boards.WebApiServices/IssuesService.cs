@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
@@ -14,6 +15,7 @@ using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -63,7 +65,8 @@ public class IssuesService(
     ICoreIssuesService issuesService,
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
-    IOrganizationAccessService organizationAccessService)
+    IOrganizationAccessService organizationAccessService,
+    ICoreFilesService coreFilesService)
     : IIssuesService
 {
     public async Task<BatchResult<IssueListDto>> GetIssues(
@@ -102,7 +105,6 @@ public class IssuesService(
             .Select(Map)
             .ToArray();
         
-        await EnrichMedia(projected, cancellationToken);
         await EnrichAttributes(projected, cancellationToken);
 
         return new BatchResult<IssueListDto>
@@ -193,7 +195,6 @@ public class IssuesService(
             .SelectMany(x => x.Items.Data)
             .ToList();
         
-        await EnrichMedia(allData, cancellationToken);
         await EnrichAttributes(allData, cancellationToken);
 
         return result.ToArray();
@@ -304,6 +305,9 @@ public class IssuesService(
         
         if (!issuesAccessLevel.CanCreateIssue)
             throw new NotFoundException($"Status: {request.StatusId} issue creation is forbidden");
+
+        if (FilesHasError(request.Files, out var error))
+            throw new BadRequestException(nameof(request.Files), error);
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
@@ -311,7 +315,19 @@ public class IssuesService(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
-
+        
+        var files = new List<MediaInfo>();
+        foreach (var file in request.Files)
+        {
+            var fileData = await coreFilesService.UploadFile(
+                file.FileName, 
+                file.ContentType,
+                file.OpenReadStream(),
+                ct);
+            
+            files.Add(fileData);
+        }
+        
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         var id = await issuesService.Create(
@@ -325,6 +341,7 @@ public class IssuesService(
             },
             ct);
         
+        await issuesService.AttachFiles(request.AuthData.UserId, id, files, ct);
         await issuesService.UpdateAttributes(id, attributeUpdateRequests, ct);
         
         await transaction.CommitAsync(ct);
@@ -339,7 +356,10 @@ public class IssuesService(
 
     public async Task Update(UpdateIssueRequest request, CancellationToken ct)
     {
-        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey.GetValueOrDefault(), ct);
+        var issueId = await GetIssueIdByIssueKey(
+            request.AuthData.OrganizationId,
+            request.IssueKey.GetValueOrDefault(),
+            ct);
         
         var accessLevels = await accessService.GetAccessLevelsByIssueId(
             request.AuthData,
@@ -351,6 +371,9 @@ public class IssuesService(
         
         if (!accessLevels.CanUpdateIssue)
             throw new ForbiddenException($"Issue: {request.IssueKey} update is forbidden");
+
+        if (FilesHasError(request.AddFiles, out var error))
+            throw new BadRequestException(nameof(request.AddFiles), error);
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
@@ -358,6 +381,20 @@ public class IssuesService(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
+        
+        var newFiles = new List<MediaInfo>();
+        foreach (var file in request.AddFiles)
+        {
+            await using var stream = file.OpenReadStream();
+            
+            var fileData = await coreFilesService.UploadFile(
+                file.FileName, 
+                file.ContentType,
+                stream,
+                ct);
+            
+            newFiles.Add(fileData);
+        }
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
@@ -368,8 +405,31 @@ public class IssuesService(
                 .SetProperty(x => x.AssigneeId, request.AssigneeId),
             ct);
         await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
-            
+        await issuesService.AttachFiles(request.AuthData.UserId, issueId, newFiles, ct);
+        await issuesService.DetachAttachments(issueId, request.RemoveAttachmentIds, ct);
+        
         await transaction.CommitAsync(ct);
+    }
+
+    private static bool FilesHasError(IEnumerable<IFormFile> files, [NotNullWhen(true)] out string? error)
+    {
+        foreach (var file in files)
+        {
+            if (file.Length > 3_000_000)
+            {
+                error = "File size is limited to 3MB";
+                return true;
+            }
+
+            if (!SystemMimeTypes.Supported.Contains(file.ContentType))
+            {
+                error = $"Supported mime types are: {string.Join(", ", SystemMimeTypes.Supported)}";
+                return true;
+            }
+        }
+
+        error = null;
+        return false;
     }
 
     private async Task EnsureUserBelongsToOrganization(
@@ -416,7 +476,6 @@ public class IssuesService(
             }, ct);
         
         var mapped = temporaryResult.MapTo(Map);
-        await EnrichMedia(mapped.Data, ct);
         await EnrichAttributes(mapped.Data, ct);
         
         var result = await MapToSearchDtos(request.AuthData, mapped.Data, ct);
@@ -678,6 +737,8 @@ public class IssuesService(
                 attributeValue.Value = value;
         }
 
+        var media = await GetAttachments(result.Id, cancellationToken);
+
         return new IssueDetailDto
         {
             Id = result.Id,
@@ -703,7 +764,23 @@ public class IssuesService(
             SpaceId = result.SpaceId,
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
+            Attachments = media,
         };
+    }
+
+    private Task<List<AttachmentData>> GetAttachments(long issueId, CancellationToken ct)
+    {
+        return context
+            .IssueAttachments
+            .Where(x => issueId == x.IssueId)
+            .Select(x => new AttachmentData
+            {
+                Id = x.AttachmentId,
+                Type = x.Attachment!.Type,
+                OriginalFileId = x.Attachment.FileId,
+                PreviewFileId = x.Attachment.PreviewFileId,
+            })
+            .ToListAsyncEF(ct);
     }
 
     public Task<long> GetIssueIdByIssueKey(
@@ -863,7 +940,6 @@ public class IssuesService(
                 Assignee = element.Assignee,
                 AssigneeColor = element.AssigneeColor,
                 Time = element.Time,
-                Media = element.Media,
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
                 CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceId),
@@ -936,117 +1012,6 @@ public class IssuesService(
                     {
                         Value = attribute.Value,
                         Color = attribute.Color,
-                    });
-                }
-            }
-        }
-    }
-
-    private async Task EnrichMedia<T>(IList<T> elements, CancellationToken ct)
-        where T : class, ICanContainMedia
-    {
-        var cardIds = elements.Select(x => x.Id).ToList();
-        
-        var directLinkedMessages = await context
-            .TelegramMessages
-            .Where(x => cardIds.Contains(x.Issue!.Id))
-            .Select(x => new { x.Id, x.TelegramMediaGroupId, CardId = x.Issue!.Id })
-            .ToListAsyncEF(ct);
-
-        var groupIds = directLinkedMessages
-            .Where(x => x.TelegramMediaGroupId.HasValue)
-            .Select(x => x.TelegramMediaGroupId!.Value)
-            .Distinct();
-
-        var nonDirectLinkedMessages = await context
-            .TelegramMessages
-            .Where(x => groupIds.Contains(x.TelegramMediaGroupId!.Value))
-            .Where(x => !directLinkedMessages.Select(y => y.Id).Contains(x.Id))
-            .Select(x => new { x.Id, x.TelegramMediaGroupId })
-            .ToArrayAsyncEF(ct);
-
-        var allTelegramMessageIds = directLinkedMessages
-            .Select(x => x.Id)
-            .Union(nonDirectLinkedMessages.Select(y => y.Id))
-            .ToArray();
-        
-        var photosData = await context.TelegramPhotos
-            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
-            .Select(x => new
-            {
-                MessageId = x.TelegramMessageId,
-                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
-                x.TelegramFileId,
-                x.PhotoType,
-                x.GroupId,
-            })
-            .ToArrayAsyncEF(ct);
-
-        var cardIdByTelegramMessageId = directLinkedMessages
-            .ToDictionary(x => x.Id, x => x.CardId);
-        var cardIdByMediaGroupId = directLinkedMessages
-            .Where(x => x.TelegramMediaGroupId.HasValue)
-            .ToDictionary(x => x.TelegramMediaGroupId!.Value, x => x.CardId);
-        var photosByCardId = photosData
-            .GroupBy(x =>
-            {
-                if (x.MessageGroupId is not null)
-                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
-                return cardIdByTelegramMessageId[x.MessageId];
-            })
-            .ToDictionary(
-                x => x.Key,
-                x => x
-                    .GroupBy(y => y.GroupId)
-                    .ToDictionary(
-                        y => y.Key,
-                        y => y
-                            .Select(z => new { z.PhotoType, z.TelegramFileId })));
-        
-        var videosData = await context.TelegramVideos
-            .Where(x => allTelegramMessageIds.Contains(x.TelegramMessageId))
-            .Select(x => new
-            {
-                MessageId = x.TelegramMessageId,
-                MessageGroupId = x.TelegramMessage!.TelegramMediaGroupId,
-                x.ThumbnailFileId,
-                x.FileId
-            })
-            .ToArrayAsyncEF(ct);
-
-        var videosByCardId = videosData
-            .GroupBy(x =>
-            {
-                if (x.MessageGroupId is not null)
-                    return cardIdByMediaGroupId[x.MessageGroupId.Value];
-                return cardIdByTelegramMessageId[x.MessageId];
-            })
-            .ToDictionary(x => x.Key);
-        
-        foreach (var element in elements)
-        {
-            if (photosByCardId.TryGetValue(element.Id, out var photos))
-                foreach (var photoGroup in photos)
-                    element.Media.Add(new MediaInfo
-                    {
-                        Type = MediaType.Photo,
-                        PreviewFileId = photoGroup.Value
-                            .FirstOrDefault(x => x.PhotoType == PhotoType.Thumbnail)
-                            ?.TelegramFileId,
-                        OriginalFileId = photoGroup.Value
-                            .FirstOrDefault(x => x.PhotoType == PhotoType.Original)
-                            ?.TelegramFileId,
-                    });
-            
-            if (videosByCardId.TryGetValue(element.Id, out var videos))
-            {
-                foreach (var video in videos)
-                {
-                    element.Media.Add(new MediaInfo
-                    {
-                        Type = MediaType.Video,
-                        PreviewFileId = video.ThumbnailFileId,
-                        OriginalFileId = video.FileId,
                     });
                 }
             }
@@ -1153,13 +1118,7 @@ public class IssueListDtoData
     public required long SpaceId { get; set; }
 }
 
-public interface ICanContainMedia
-{
-    public long Id { get; set; }
-    public List<MediaInfo> Media { get; set; }
-}
-
-public record IssueListDto : ICanContainMedia
+public record IssueListDto
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
@@ -1171,7 +1130,6 @@ public record IssueListDto : ICanContainMedia
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
     public required long SpaceId { get; set; }
-    public List<MediaInfo> Media { get; set; } = [];
     public List<IssueListAttributeDto> Attributes { get; set; } = [];
 }
 
@@ -1195,19 +1153,6 @@ public record NameAndColor
     public required string Color { get; set; }
 }
 
-public class MediaInfo
-{
-    public Guid? PreviewFileId { get; set; }
-    public Guid? OriginalFileId { get; set; }
-    public MediaType Type { get; set; }
-}
-
-public enum MediaType
-{
-    Photo,
-    Video,
-}
-
 public record DeleteIssueRequest
 {
     public required OrganizationAuthData AuthData { get; set; } = new();
@@ -1220,7 +1165,9 @@ public record CreateIssueRequest
     public long StatusId { get; set; }
     public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
+    [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
+    public IFormFile[] Files { get; set; } = [];
 }
 
 [JsonDerivedType(typeof(EnumAttributeValue), "enum")]
@@ -1246,7 +1193,10 @@ public record UpdateIssueRequest
     public IssueKey? IssueKey { get; set; }
     public required string Content { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required AttributeValue[] AttributeValues { get; set; }
+    [JsonModelBinder]
+    public AttributeValue[] AttributeValues { get; set; } = [];
+    public Guid[] RemoveAttachmentIds { get; set; } = [];
+    public IFormFile[] AddFiles { get; set; } = [];
 }
 
 public interface IHasAttributeFilters
@@ -1320,6 +1270,7 @@ public class IssueDetailDto
     public required bool CanEdit { get; set; }
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
+    public required List<AttachmentData> Attachments { get; set; }
 }
 
 public record DetailIssueAttributeDto
@@ -1402,4 +1353,9 @@ public record EpicSummary
     public required ColumnSummary[] Columns { get; set; }
     public required DateTime TouchedAt { get; set; }
     public required bool IsDefault { get; set; }
+}
+
+public record AttachmentData : MediaInfo
+{
+    public required Guid Id { get; init; }
 }
