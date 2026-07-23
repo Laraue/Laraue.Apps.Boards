@@ -62,13 +62,10 @@ public class CoreFilesService(
         Stream stream,
         CancellationToken cancellationToken)
     {
-        var uploadTask = contentType switch
-        {
-            "image/jpeg" or "image/png" => UploadPhotoFile(fileName, contentType, stream, cancellationToken),
-            _ => throw new BadRequestException("file", $"Content type uploading {contentType} is not supported yet.")
-        };
+        if (SystemMimeTypes.Images.Contains(contentType))
+            return UploadPhotoFile(fileName, contentType, stream, cancellationToken);
         
-        return uploadTask;
+        throw new InvalidOperationException( $"Content type uploading {contentType} is not supported");
     }
 
     private async Task<MediaInfo> UploadPhotoFile(

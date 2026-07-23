@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
@@ -304,6 +305,9 @@ public class IssuesService(
         
         if (!issuesAccessLevel.CanCreateIssue)
             throw new NotFoundException($"Status: {request.StatusId} issue creation is forbidden");
+
+        if (FilesHasError(request.Files, out var error))
+            throw new BadRequestException(nameof(request.Files), error);
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
@@ -367,6 +371,9 @@ public class IssuesService(
         
         if (!accessLevels.CanUpdateIssue)
             throw new ForbiddenException($"Issue: {request.IssueKey} update is forbidden");
+
+        if (FilesHasError(request.AddFiles, out var error))
+            throw new BadRequestException(nameof(request.AddFiles), error);
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
@@ -378,10 +385,12 @@ public class IssuesService(
         var newFiles = new List<MediaInfo>();
         foreach (var file in request.AddFiles)
         {
+            await using var stream = file.OpenReadStream();
+            
             var fileData = await coreFilesService.UploadFile(
                 file.FileName, 
                 file.ContentType,
-                file.OpenReadStream(),
+                stream,
                 ct);
             
             newFiles.Add(fileData);
@@ -397,11 +406,30 @@ public class IssuesService(
             ct);
         await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
         await issuesService.AttachFiles(request.AuthData.UserId, issueId, newFiles, ct);
-        
-        // TODO - check that attachments were created by this user before delete
         await issuesService.DetachAttachments(issueId, request.RemoveAttachmentIds, ct);
         
         await transaction.CommitAsync(ct);
+    }
+
+    private static bool FilesHasError(IEnumerable<IFormFile> files, [NotNullWhen(true)] out string? error)
+    {
+        foreach (var file in files)
+        {
+            if (file.Length > 3_000_000)
+            {
+                error = "File size is limited to 3MB";
+                return true;
+            }
+
+            if (!SystemMimeTypes.Supported.Contains(file.ContentType))
+            {
+                error = $"Supported mime types are: {string.Join(", ", SystemMimeTypes.Supported)}";
+                return true;
+            }
+        }
+
+        error = null;
+        return false;
     }
 
     private async Task EnsureUserBelongsToOrganization(
@@ -1165,7 +1193,7 @@ public record UpdateIssueRequest
     public IssueKey? IssueKey { get; set; }
     public required string Content { get; set; }
     public required Guid AssigneeId { get; set; }
-    [JsonModelBinder] 
+    [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
     public Guid[] RemoveAttachmentIds { get; set; } = [];
     public IFormFile[] AddFiles { get; set; } = [];
