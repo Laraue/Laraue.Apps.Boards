@@ -21,6 +21,11 @@ public class WebApiTestHost
             config.AddJsonFile("appsettings.json", optional: true);
         });
 
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton(TelegramBotClientMockFactory.GetInstance());
+        });
+
         return base.CreateHost(builder);
     }
 

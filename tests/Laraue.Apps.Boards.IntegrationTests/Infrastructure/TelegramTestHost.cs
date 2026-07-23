@@ -3,29 +3,12 @@ using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Telegram.NET.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Moq;
-using Telegram.Bot;
-using Telegram.Bot.Requests;
-using Telegram.Bot.Types;
 
 namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
 public class AppTelegramTestHost(IServiceCollection serviceCollection)
-    : TelegramTestHost<Guid>(serviceCollection, CreateBotClientMock())
+    : TelegramTestHost<Guid>(serviceCollection, TelegramBotClientMockFactory.GetInstance())
 {
-    private static ITelegramBotClient CreateBotClientMock()
-    {
-        var botClientMock = new Mock<ITelegramBotClient>();
-        
-        botClientMock.Setup(x => x.SendRequest(It.IsAny<GetFileRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((GetFileRequest request, CancellationToken _) => new TGFile
-            {
-                FileId = request.FileId,
-                FileUniqueId = request.FileId + "unique",
-            });
-        
-        return botClientMock.Object;
-    }
     
     protected override void BeforeFirstRequest()
     {

@@ -1,9 +1,12 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -48,6 +51,21 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 }
             ],
             AssigneeId = userId,
+            Files =
+            [
+                new FormFile(
+                    new MemoryStream([]),
+                    0,
+                    0,
+                    "file",
+                    "image.jpg")
+                {
+                    Headers = new HeaderDictionary
+                    {
+                        ["content-type"] = "image/jpeg"
+                    },
+                }
+            ]
         };
         
         var issueKey = await _issuesController
@@ -72,6 +90,16 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(issue.Id, listAttribute.IssueId);
         Assert.Equal(typeAttribute.Id, listAttribute.AttributeId);
         Assert.Equal(typeAttribute.GetListValue(1).Id, listAttribute.AttributeListValueId); // ID of 'Feature' value
+        
+        var attachment = await testScope.Database.Attachments
+            .Include(x => x.File)
+            .Include(attachment => attachment.PreviewFile)
+            .SingleAsyncEF();
+        
+        Assert.Equal(AttachmentType.Image, attachment.Type);
+        Assert.NotNull(attachment.PreviewFile);
+        Assert.NotNull(attachment.File);
+        Assert.Equal(userId, attachment.OwnerId);
     }
     
     [Fact]
