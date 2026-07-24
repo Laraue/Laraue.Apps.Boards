@@ -202,26 +202,7 @@ public class OrganizationInitializer(
                             IssueAttachments = issue.Attachments
                                 .Select(x => new IssueAttachment
                                 {
-                                    Attachment = new Attachment
-                                    {
-                                        File = new File
-                                        {
-                                            MimeType = x.AttachmentType switch
-                                            {
-                                                AttachmentType.Image => "image/jpg",
-                                                AttachmentType.Video => "video/mp4",
-                                                _ => throw new InvalidOperationException()
-                                            },
-                                            Name = x.Name,
-                                            Size = 100,
-                                            TelegramFile = new TelegramFile
-                                            {
-                                                ExternalFileUniqueId = Guid.NewGuid().ToString(),
-                                                ExternalFileId = Guid.NewGuid().ToString(),
-                                            }
-                                        },
-                                        OwnerId = ownerId, 
-                                    }
+                                    Attachment = ToAttachment(x, ownerId)
                                 })
                                 .ToList(),
                             IssueComments = issue.Comments
@@ -234,26 +215,7 @@ public class OrganizationInitializer(
                                     Attachments = ic.Attachments
                                         .Select(x => new IssueCommentAttachment
                                         {
-                                            Attachment = new Attachment // TODO - to map function
-                                            {
-                                                File = new File
-                                                {
-                                                    MimeType = x.AttachmentType switch
-                                                    {
-                                                        AttachmentType.Image => "image/jpg",
-                                                        AttachmentType.Video => "video/mp4",
-                                                        _ => throw new InvalidOperationException()
-                                                    },
-                                                    Name = x.Name,
-                                                    Size = 100,
-                                                    TelegramFile = new TelegramFile
-                                                    {
-                                                        ExternalFileUniqueId = Guid.NewGuid().ToString(),
-                                                        ExternalFileId = Guid.NewGuid().ToString(),
-                                                    }
-                                                },
-                                                OwnerId = ownerId, 
-                                            }
+                                            Attachment = ToAttachment(x, ownerId)
                                         })
                                         .ToList(),
                                 })
@@ -306,6 +268,30 @@ public class OrganizationInitializer(
         }
         
         return organization;
+    }
+
+    private static Attachment ToAttachment(AttachmentData data, Guid ownerId)
+    {
+        return new Attachment
+        {
+            File = new File
+            {
+                MimeType = data.AttachmentType switch
+                {
+                    AttachmentType.Image => "image/jpg",
+                    AttachmentType.Video => "video/mp4",
+                    _ => throw new InvalidOperationException()
+                },
+                Name = data.Name,
+                Size = 100,
+                TelegramFile = new TelegramFile
+                {
+                    ExternalFileUniqueId = Guid.NewGuid().ToString(),
+                    ExternalFileId = Guid.NewGuid().ToString(),
+                }
+            },
+            OwnerId = ownerId,
+        };
     }
 
     public OrganizationInitializer AddUser(Guid userId)
