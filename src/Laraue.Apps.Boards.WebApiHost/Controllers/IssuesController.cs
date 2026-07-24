@@ -163,6 +163,7 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
         return issuesService.UpdateIssueComment(
             request with
             {
+                CommentId = id,
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);

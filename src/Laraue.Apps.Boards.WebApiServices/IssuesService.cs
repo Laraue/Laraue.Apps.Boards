@@ -893,6 +893,7 @@ public class IssuesService(
         
         var uploadedFiles = await UploadFiles(request.AddFiles, cancellationToken);
 
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await issuesService.UpdateComment(
             comment.Id,
             comment.OwnerId,
@@ -900,6 +901,8 @@ public class IssuesService(
             uploadedFiles,
             request.RemoveAttachmentIds,
             cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task DeleteIssueComment(DeleteCommentRequest request, CancellationToken cancellationToken)

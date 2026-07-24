@@ -145,5 +145,10 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             builder.HasKey(x => new { x.IssueId, x.AttachmentId });
         });
+        
+        modelBuilder.Entity<IssueCommentAttachment>(builder =>
+        {
+            builder.HasKey(x => new { x.CommentId, x.AttachmentId });
+        });
     }
 }

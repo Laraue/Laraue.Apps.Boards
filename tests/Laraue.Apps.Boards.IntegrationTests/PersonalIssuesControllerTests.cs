@@ -53,18 +53,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             AssigneeId = userId,
             Files =
             [
-                new FormFile(
-                    new MemoryStream([]),
-                    0,
-                    0,
-                    "file",
-                    "image.jpg")
-                {
-                    Headers = new HeaderDictionary
-                    {
-                        ["content-type"] = "image/jpeg"
-                    },
-                }
+                GetFormFile("image.jpg"),
             ]
         };
         
@@ -179,18 +168,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             AssigneeId = userId,
             AddFiles =
             [
-                new FormFile(
-                    new MemoryStream([]),
-                    0,
-                    0,
-                    "file",
-                    "image.jpg")
-                {
-                    Headers = new HeaderDictionary
-                    {
-                        ["content-type"] = "image/jpeg"
-                    },
-                }
+                GetFormFile("image.jpg"),
             ],
             RemoveAttachmentIds = [issueData.Issue.IssueAttachments![0].AttachmentId]
         };
@@ -768,5 +746,108 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         Assert.NotNull(searchResult);
         Assert.Equal(["Deliver app", "Build app"], searchResult.Data.Select(x => x.Content));
+    }
+    
+    [Fact]
+    public async Task User_ShouldCreateComment_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "SP2", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Build app")))));
+
+        var issue = organization.GetIssueData(1, 1, 0, 0);
+        var request = new AddCommentRequest
+        {
+            Text = "New comment",
+            IssueKey = issue.Key,
+            Files =
+            [
+                GetFormFile("image.jpg")
+            ]
+        };
+
+        var commentId = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.AddComment(request));
+
+        var comments = await testScope.Database.IssueComments
+            .Include(x => x.Attachments)
+            .ThenInclude(x => x.Attachment)
+            .ToListAsyncEF();
+        
+        var comment = Assert.Single(comments);
+        
+        Assert.Equal(commentId, comment.Id);
+        Assert.Equal("New comment", comment.Text);
+        
+        var attachment = Assert.Single(comment.Attachments);
+        Assert.Equal(AttachmentType.Image, attachment.Attachment!.Type);
+    }
+
+    [Fact]
+    public async Task User_ShouldUpdateComment_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i
+                            .AddComment(userId, "New comment", comment => comment
+                                .AddAttachment("image.jpg", AttachmentType.Image))
+                            .WithContent("Hi")))));
+        
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        var comment = Assert.Single(issueData.Issue.IssueComments!);
+        var commentAttachment = Assert.Single(comment.Attachments);
+
+        var request = new UpdateCommentRequest
+        {
+            Text = "Updated comment",
+            RemoveAttachmentIds = [commentAttachment.AttachmentId],
+            AddFiles =
+            [
+                GetFormFile("image2.jpg")
+            ],
+        };
+        
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateComment(comment.Id, request));
+        
+        var comments = await testScope.Database.IssueComments
+            .Include(x => x.Attachments)
+            .ThenInclude(a => a.Attachment!.File)
+            .ToListAsyncEF();
+
+        comment = Assert.Single(comments);
+        Assert.Equal("Updated comment", comment.Text);
+        
+        var attachment = Assert.Single(comment.Attachments);
+        Assert.Equal("image2.jpg", attachment.Attachment!.File!.Name);
+    }
+
+    private IFormFile GetFormFile(string imageName)
+    {
+        return new FormFile(
+            new MemoryStream([]),
+            0,
+            0,
+            "file",
+            imageName)
+        {
+            Headers = new HeaderDictionary
+            {
+                ["content-type"] = "image/jpeg"
+            },
+        };
     }
 }

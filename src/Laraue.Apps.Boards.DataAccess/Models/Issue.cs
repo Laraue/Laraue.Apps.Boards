@@ -47,4 +47,5 @@ public class Issue
     public List<IssueAttributeTextValue>? TextAttributes { get; set; }
     public List<IssueAttributeListValue>? ListAttributes { get; set; }
     public List<IssueAttachment>? IssueAttachments { get; set; }
+    public List<IssueComment>? IssueComments { get; set; }
 }
