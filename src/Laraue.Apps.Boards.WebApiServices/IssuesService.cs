@@ -16,6 +16,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -728,20 +729,43 @@ public class IssuesService(
                 x.Id,
                 x.CreatedAt,
                 x.UpdatedAt,
+                x.Owner!.Color,
+                x.Owner.TelegramFirstName,
+                x.Owner.TelegramLastName,
+                x.Owner.TelegramUserName,
+                Attachments = x.Attachments
+                    .Select(a => new AttachmentData
+                    {
+                        Id = a.AttachmentId,
+                        OriginalFileId = a.Attachment!.FileId,
+                        PreviewFileId = a.Attachment.PreviewFileId,
+                        Type = a.Attachment.Type,
+                    })
+                    .ToList(),
             })
             .ToListAsyncEF(cancellationToken);
 
         var comments = new List<CommentDto>();
         foreach (var commentData in commentsData)
         {
+            var userInitials = UserInitialsUtility.GetInitials(
+                commentData.TelegramUserName,
+                commentData.TelegramFirstName,
+                commentData.TelegramLastName);
+            
             comments.Add(new CommentDto
             {
                 Id = commentData.Id,
                 Text = commentData.Text,
                 CreatedAt = commentData.CreatedAt,
                 UpdatedAt = commentData.UpdatedAt,
-                Attachments = [], // TODO
-                Owner = null, // TODO 
+                Owner = new UserDetails
+                {
+                    Color = commentData.Color,
+                    DisplayName = userInitials.DisplayName,
+                    Initials = userInitials.Initials,
+                },
+                Attachments = commentData.Attachments,
             });
         }
 
@@ -847,14 +871,52 @@ public class IssuesService(
             cancellationToken);
     }
 
-    public Task UpdateIssueComment(UpdateCommentRequest request, CancellationToken cancellationToken)
+    public async Task UpdateIssueComment(
+        UpdateCommentRequest request,
+        CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var comment = await context.IssueComments
+            .Where(x => x.Id == request.CommentId)
+            .Select(x => new
+            {
+                x.Id,
+                x.OwnerId,
+                x.IssueId,
+            })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (comment?.OwnerId != request.AuthData.UserId)
+            throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to edit");
+        
+        if (FilesHasError(request.AddFiles, out var error))
+            throw new BadRequestException(nameof(request.AddFiles), error);
+        
+        var uploadedFiles = await UploadFiles(request.AddFiles, cancellationToken);
+
+        await issuesService.UpdateComment(
+            comment.Id,
+            comment.OwnerId,
+            request.Text,
+            uploadedFiles,
+            request.RemoveAttachmentIds,
+            cancellationToken);
     }
 
-    public Task DeleteIssueComment(DeleteCommentRequest request, CancellationToken cancellationToken)
+    public async Task DeleteIssueComment(DeleteCommentRequest request, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var entity = await context.IssueComments
+            .Where(x => x.Id == request.CommentId)
+            .Select(x => new
+            {
+                x.Id,
+                x.OwnerId,
+            })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+        
+        if (entity?.OwnerId != request.AuthData.UserId)
+            throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to delete");
+
+        await issuesService.DeleteComment(request.CommentId, cancellationToken);
     }
 
     private async Task<MediaInfo[]> UploadFiles(IFormFile[] formFiles, CancellationToken cancellationToken)

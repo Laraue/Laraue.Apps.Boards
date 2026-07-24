@@ -17,4 +17,6 @@ public class IssueComment
     
     public long IssueId { get; set; }
     public Issue? Issue { get; set; }
+
+    public List<IssueCommentAttachment> Attachments { get; set; } = [];
 }

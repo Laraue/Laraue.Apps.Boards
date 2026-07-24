@@ -46,6 +46,18 @@ public interface ICoreIssuesService
         string comment,
         IEnumerable<MediaInfo> mediaInfos,
         CancellationToken cancellationToken);
+    
+    Task UpdateComment(
+        long commentId,
+        Guid ownerId,
+        string comment,
+        IEnumerable<MediaInfo> newFiles,
+        IEnumerable<Guid> deleteAttachmentIds,
+        CancellationToken cancellationToken);
+    
+    Task DeleteComment(
+        long id,
+        CancellationToken cancellationToken);
 }
 
 public class CoreIssuesService(
@@ -273,6 +285,48 @@ public class CoreIssuesService(
         
         await context.SaveChangesAsync(cancellationToken);
         return issueComment.Id;
+    }
+
+    public async Task UpdateComment(
+        long commentId,
+        Guid ownerId,
+        string comment,
+        IEnumerable<MediaInfo> newFiles,
+        IEnumerable<Guid> deleteAttachmentIds,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+        
+        await context.IssueComments
+            .Where(x => x.Id == commentId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.Text, _ => comment),
+                cancellationToken);
+        
+        foreach (var mediaInfo in newFiles)
+        {
+            var attachment = new IssueCommentAttachment
+            {
+                CommentId = commentId,
+                Attachment = GetAttachmentEntity(ownerId, mediaInfo),
+            };
+        
+            context.Add(attachment);
+        }
+        
+        await context.SaveChangesAsync(cancellationToken);
+        await context.IssueCommentsAttachments
+            .Where(x => x.CommentId == commentId)
+            .Where(x => deleteAttachmentIds.Contains(x.AttachmentId))
+            .Select(x => x.Attachment)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public Task DeleteComment(long id, CancellationToken cancellationToken)
+    {
+        return context.IssueComments
+            .Where(x => x.Id == id)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     private Task AttachIssueFiles(
