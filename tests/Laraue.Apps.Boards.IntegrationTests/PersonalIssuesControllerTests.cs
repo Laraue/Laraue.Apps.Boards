@@ -835,7 +835,36 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("image2.jpg", attachment.Attachment!.File!.Name);
     }
 
-    private IFormFile GetFormFile(string imageName)
+    [Fact]
+    public async Task User_ShouldDeleteComment_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i
+                            .AddComment(userId, "New comment", comment => comment
+                                .AddAttachment("image.jpg", AttachmentType.Image))
+                            .WithContent("Hi")))));
+        
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        var comment = Assert.Single(issueData.Issue.IssueComments!);
+        
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.DeleteComment(comment.Id));
+        
+        var comments = await testScope.Database.IssueComments.ToListAsyncEF();
+        Assert.Empty(comments);
+        
+        var attachments = await testScope.Database.Attachments.ToListAsyncEF();
+        Assert.Empty(attachments);
+    }
+
+    private static IFormFile GetFormFile(string imageName)
     {
         return new FormFile(
             new MemoryStream([]),

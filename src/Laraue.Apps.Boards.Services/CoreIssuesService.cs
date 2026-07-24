@@ -322,9 +322,16 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
-    public Task DeleteComment(long id, CancellationToken cancellationToken)
+    public async Task DeleteComment(long id, CancellationToken cancellationToken)
     {
-        return context.IssueComments
+        context.Database.EnsureTransactionStarted();
+
+        await context.IssueCommentsAttachments
+            .Where(x => x.CommentId == id)
+            .Select(x => x.Attachment)
+            .ExecuteDeleteAsync(cancellationToken);
+        
+        await context.IssueComments
             .Where(x => x.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
     }

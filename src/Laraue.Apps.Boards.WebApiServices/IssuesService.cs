@@ -919,7 +919,9 @@ public class IssuesService(
         if (entity?.OwnerId != request.AuthData.UserId)
             throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to delete");
 
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await issuesService.DeleteComment(request.CommentId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private async Task<MediaInfo[]> UploadFiles(IFormFile[] formFiles, CancellationToken cancellationToken)
