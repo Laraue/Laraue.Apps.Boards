@@ -286,10 +286,10 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("#121212", issueDto.EpicColor);
         Assert.Equal("Beautiful status", issueDto.StatusName);
         Assert.Equal("#212121", issueDto.StatusColor);
-        Assert.Equal("sn", issueDto.OwnerInitials);
-        Assert.Equal("snake1977", issueDto.OwnerDisplayName);
-        Assert.Equal("#123456", issueDto.AssigneeColor);
-        Assert.Equal("#123456", issueDto.OwnerColor);
+        Assert.Equal("sn", issueDto.Owner.Initials);
+        Assert.Equal("snake1977", issueDto.Owner.DisplayName);
+        Assert.Equal("#123456", issueDto.Assignee.Color);
+        Assert.Equal("#123456", issueDto.Owner.Color);
         Assert.Equal(timestamp, issueDto.Time);
         Assert.Equal(timestamp, issueDto.UpdatedAt);
     }

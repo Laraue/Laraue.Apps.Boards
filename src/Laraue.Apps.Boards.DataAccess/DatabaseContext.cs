@@ -22,6 +22,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<Issue> Issues { get; init; }
     public DbSet<IssueAttachment> IssueAttachments { get; init; }
     public DbSet<IssueNumber> IssueNumbers { get; init; }
+    public DbSet<IssueComment> IssueComments { get; init; }
+    public DbSet<IssueCommentAttachment> IssueCommentsAttachments { get; init; }
     public DbSet<Epic> Epics { get; init; }
     public DbSet<Space> Spaces { get; init; }
     public DbSet<File> Files { get; init; }

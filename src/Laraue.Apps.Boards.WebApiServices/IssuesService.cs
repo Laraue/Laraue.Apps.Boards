@@ -719,6 +719,32 @@ public class IssuesService(
             })
             .ToArrayAsyncEF(cancellationToken);
 
+        var commentsData = await context
+            .IssueComments
+            .Where(x => x.IssueId == issueId)
+            .Select(x => new
+            {
+                x.Text,
+                x.Id,
+                x.CreatedAt,
+                x.UpdatedAt,
+            })
+            .ToListAsyncEF(cancellationToken);
+
+        var comments = new List<CommentDto>();
+        foreach (var commentData in commentsData)
+        {
+            comments.Add(new CommentDto
+            {
+                Id = commentData.Id,
+                Text = commentData.Text,
+                CreatedAt = commentData.CreatedAt,
+                UpdatedAt = commentData.UpdatedAt,
+                Attachments = [], // TODO
+                Owner = null, // TODO 
+            });
+        }
+
         var attributeValuesResult = await GetIssueAttributeValues(issueId, cancellationToken);
         foreach (var attributeValue in attributeValues)
         {
@@ -732,13 +758,19 @@ public class IssuesService(
         {
             Id = result.Id,
             AssigneeId = result.AssigneeId,
-            Assignee = assignee.DisplayName,
-            AssigneeInitial = assignee.Initials,
-            AssigneeColor = result.AssigneeColor,
+            Assignee = new UserDetails
+            {
+                Color = result.AssigneeColor,
+                DisplayName = assignee.DisplayName,
+                Initials = assignee.Initials,
+            },
             Content = result.Content,
-            OwnerDisplayName = owner.DisplayName,
-            OwnerInitials = owner.Initials,
-            OwnerColor = result.OwnerColor,
+            Owner = new UserDetails
+            {
+                Color = result.OwnerColor,
+                DisplayName = owner.DisplayName,
+                Initials = owner.Initials,
+            },
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
@@ -754,6 +786,7 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
+            Comments = comments,
         };
     }
 
@@ -1294,14 +1327,10 @@ public class IssueDetailDto
 {
     public required long Id { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required string Assignee { get; set; }
-    public required string AssigneeInitial { get; set; }
-    public required string AssigneeColor { get; set; }
+    public required UserDetails Assignee { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
-    public required string? OwnerDisplayName { get; set; }
-    public string? OwnerInitials { get; set; }
-    public required string OwnerColor { get; set; }
+    public required UserDetails Owner { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
@@ -1316,6 +1345,24 @@ public class IssueDetailDto
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
+    public required List<CommentDto> Comments { get; set; }
+}
+
+public record CommentDto
+{
+    public long Id { get; set; }
+    public required string Text { get; set; }
+    public required List<AttachmentData> Attachments { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public required UserDetails Owner { get; set; }
+}
+
+public record UserDetails
+{
+    public required string Color { get; set; }
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
 }
 
 public record DetailIssueAttributeDto
