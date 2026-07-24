@@ -38,6 +38,7 @@ public interface ICoreMovementService
     /// Move issue to new status.
     /// </summary>
     Task MoveIssue(
+        Guid userId,
         long issueId,
         long statusId,
         CancellationToken ct);
@@ -124,6 +125,7 @@ public class CoreMovementService(
     }
     
     public async Task MoveIssue(
+        Guid userId,
         long issueId,
         long statusId,
         CancellationToken ct)
@@ -142,7 +144,10 @@ public class CoreMovementService(
         
         await issuesService.Update(
             issueId,
+            userId,
             update => update.SetProperty(x => x.StatusId, statusId),
+            newFiles: [],
+            deleteAttachmentIds: [],
             ct);
 
         if (oldSpaceId == newSpaceId)

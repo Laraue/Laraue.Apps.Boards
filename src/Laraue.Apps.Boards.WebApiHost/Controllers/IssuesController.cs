@@ -139,17 +139,15 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             cancellationToken);
     }
     
-    [HttpPost("{key}/comment")]
+    [HttpPost("comments")]
     [Consumes("multipart/form-data")]
     public Task<long> AddComment(
-        string key,
         [FromForm] AddCommentRequest request,
         CancellationToken cancellationToken = default)
     {
         return issuesService.AddIssueComment(
             request with
             {
-                IssueKey = new IssueKey(key),
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);

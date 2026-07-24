@@ -327,33 +327,21 @@ public class IssuesService(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
-        
-        var files = new List<MediaInfo>();
-        foreach (var file in request.Files)
-        {
-            var fileData = await coreFilesService.UploadFile(
-                file.FileName, 
-                file.ContentType,
-                file.OpenReadStream(),
-                ct);
-            
-            files.Add(fileData);
-        }
+
+        var uploadedFiles = await UploadFiles(request.Files, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         var id = await issuesService.Create(
-            new Boards.Services.CreateIssueRequest
-            {
-                CreatedAt = dateTimeProvider.UtcNow,
-                Text = request.Content,
-                UserId = request.AuthData.UserId,
-                StatusId = request.StatusId,
-                AssigneeId = request.AssigneeId,
-            },
+            request.AuthData.UserId,
+            request.AssigneeId,
+            request.Content,
+            dateTimeProvider.UtcNow,
+            request.StatusId,
+            telegramMessageId: null,
+            uploadedFiles,
             ct);
         
-        await issuesService.AttachFiles(request.AuthData.UserId, id, files, ct);
         await issuesService.UpdateAttributes(id, attributeUpdateRequests, ct);
         
         await transaction.CommitAsync(ct);
@@ -394,32 +382,21 @@ public class IssuesService(
             request.AttributeValues,
             ct);
         
-        var newFiles = new List<MediaInfo>();
-        foreach (var file in request.AddFiles)
-        {
-            await using var stream = file.OpenReadStream();
-            
-            var fileData = await coreFilesService.UploadFile(
-                file.FileName, 
-                file.ContentType,
-                stream,
-                ct);
-            
-            newFiles.Add(fileData);
-        }
+        var uploadedFiles = await UploadFiles(request.AddFiles, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         await issuesService.Update(
             issueId,
+            request.AuthData.UserId,
             upd => upd
                 .SetProperty(x => x.Content, request.Content)
                 .SetProperty(x => x.AssigneeId, request.AssigneeId),
+            uploadedFiles,
+            request.RemoveAttachmentIds,
             ct);
-        await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
-        await issuesService.AttachFiles(request.AuthData.UserId, issueId, newFiles, ct);
-        await issuesService.DetachAttachments(issueId, request.RemoveAttachmentIds, ct);
         
+        await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
         await transaction.CommitAsync(ct);
     }
 
@@ -808,9 +785,33 @@ public class IssuesService(
             .FirstOrThrowNotFoundEFAsync($"Issue: {issueKey} is not found in organization", cancellationToken);
     }
 
-    public Task<long> AddIssueComment(AddCommentRequest request, CancellationToken cancellationToken)
+    public async Task<long> AddIssueComment(AddCommentRequest request, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var issueKey = new IssueKey(request.IssueKey);
+        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, issueKey, cancellationToken);
+        
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+            request.AuthData,
+            issueId,
+            cancellationToken);
+
+        if (issueAccessLevels is null)
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+        
+        if (!issueAccessLevels.CanUpdateIssue)
+            throw new ForbiddenException($"Issue: {request.IssueKey} is not available for update");
+        
+        if (FilesHasError(request.Files, out var error))
+            throw new BadRequestException(nameof(request.Files), error);
+        
+        var uploadedFiles = await UploadFiles(request.Files, cancellationToken);
+
+        return await issuesService.AddComment(
+            issueId,
+            request.AuthData.UserId,
+            request.Text,
+            uploadedFiles,
+            cancellationToken);
     }
 
     public Task UpdateIssueComment(UpdateCommentRequest request, CancellationToken cancellationToken)
@@ -821,6 +822,23 @@ public class IssuesService(
     public Task DeleteIssueComment(DeleteCommentRequest request, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
+    }
+
+    private async Task<MediaInfo[]> UploadFiles(IFormFile[] formFiles, CancellationToken cancellationToken)
+    {
+        var files = new List<MediaInfo>();
+        foreach (var formFile in formFiles)
+        {
+            var fileData = await coreFilesService.UploadFile(
+                formFile.FileName, 
+                formFile.ContentType,
+                formFile.OpenReadStream(),
+                cancellationToken);
+            
+            files.Add(fileData);
+        }
+        
+        return files.ToArray();
     }
 
     private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
@@ -1390,8 +1408,10 @@ public record AttachmentData : MediaInfo
 public record AddCommentRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
-    public IssueKey IssueKey { get; set; }
+    
+    [MaxLength(Constraints.MaxCommentLength)]
     public required string Text { get; set; }
+    public required string IssueKey { get; set; }
     public IFormFile[] Files { get; set; } = [];
 }
 
