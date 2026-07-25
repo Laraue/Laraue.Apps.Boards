@@ -479,174 +479,6 @@ public class IssuesService(
             result);
     }
 
-    private async Task<IQueryable<Issue>> ApplyFilters(
-        IQueryable<Issue> query,
-        IHasAttributeFilters request,
-        CancellationToken cancellationToken = default)
-    {
-        if (request.Filters.Count == 0)
-            return query;
-
-        var filterTypes = await GetAllowedOrganizationAttributesQuery(request.AuthData)
-            .Where(x => request.Filters.Keys.Any(y => y == x.Id))
-            .ToDictionaryAsyncEF(x => x.Id, x => x.AttributeType, cancellationToken);
-
-        var errors = new Dictionary<long, string>();
-        
-        foreach (var filter in request.Filters)
-        {
-            if (!filterTypes.TryGetValue(filter.Key, out var filterType))
-            {
-                errors.Add(filter.Key, $"Filter with id: '{filter.Key}' is not found");
-                continue;
-            }
-
-            query = filterType switch
-            {
-                AttributeType.Text => ApplyTextFilter(query, filter, errors),
-                AttributeType.List => ApplyEnumFilter(query, filter, errors),
-                _ => throw new InvalidOperationException($"Unsupported filter type '{filterType}'")
-            };
-        }
-
-        if (errors.Count != 0)
-            throw new BadRequestException(new Dictionary<string, string?[]>
-            {
-                [nameof(request.Filters)] = errors.Select(x => $"{x.Key}: {x.Value}").ToArray()
-            });
-
-        return query;
-    }
-
-    private IQueryable<Attribute> GetAllowedOrganizationAttributesQuery(OrganizationAuthData authData)
-    {
-        return context.Attributes
-            .Where(x => x.OrganizationId == authData.OrganizationId);
-    }
-
-    private IQueryable<Issue> ApplyTextFilter(
-        IQueryable<Issue> query,
-        KeyValuePair<long, AttributeFilterValue> filter,
-        Dictionary<long, string> errors)
-    {
-        if (filter.Value is not StringAttributeFilterValue stringValue)
-        {
-            errors.Add(filter.Key, $"String filter object excepted for filter: '{filter.Key}'");
-            return query;
-        }
-
-        if (string.IsNullOrEmpty(stringValue.SearchString))
-            return query;
-                
-        return query.InnerJoin(
-            context.IssueAttributeTextValues,
-            (i, a) => i.Id == a.IssueId
-                      && a.AttributeId == filter.Key
-                      && a.Text.ILike(stringValue.SearchString.AsSearchable()),
-            (i, a) => i);
-    }
-    
-    private IQueryable<Issue> ApplyEnumFilter(
-        IQueryable<Issue> query,
-        KeyValuePair<long, AttributeFilterValue> filter,
-        Dictionary<long, string> errors)
-    {
-        if (filter.Value is not EnumAttributeFilterValue enumValue)
-        {
-            errors.Add(filter.Key, $"Enum filter object excepted for filter: '{filter.Key}'");
-            return query;
-        }
-
-        if (enumValue.Ids.Length == 0)
-            return query;
-                
-        return query.InnerJoin(
-            context.IssueAttributeListValues,
-            (i, a) => i.Id == a.IssueId && a.AttributeId == filter.Key && ((IEnumerable<long>)enumValue.Ids).Contains(a.AttributeListValueId),
-            (i, a) => i);
-    }
-    
-    private Task<IQueryable<Issue>> ApplySorting(
-        IQueryable<Issue> query,
-        IHasSorting request,
-        CancellationToken cancellationToken = default)
-    {
-        return request.Sorting switch
-        {
-            null =>
-                Task.FromResult<IQueryable<Issue>>(query.OrderByDescending(x => x.CreatedAt)),
-            ByAttributeIssueSorting byAttributeIssueSorting =>
-                ApplyByAttributeSorting(query, byAttributeIssueSorting, request.AuthData, cancellationToken),
-            ByPropertyIssueSorting byPropertyIssueSorting =>
-                Task.FromResult(ApplyByPropertySorting(query, byPropertyIssueSorting)),
-            _ =>
-                throw new InvalidOperationException($"Unsupported sorting type '{request.Sorting}'")
-        };
-    }
-
-    private async Task<IQueryable<Issue>> ApplyByAttributeSorting(
-        IQueryable<Issue> query,
-        ByAttributeIssueSorting sorting,
-        OrganizationAuthData authData,
-        CancellationToken cancellationToken = default)
-    {
-        var attribute = await GetAllowedOrganizationAttributesQuery(authData)
-            .Where(x => x.Id == sorting.AttributeId)
-            .Select(x => new { x.AttributeType })
-            .FirstOrDefaultAsyncEF(cancellationToken);
-
-        if (attribute is null)
-            throw new BadRequestException(
-                nameof(IHasSorting.Sorting),
-                $"Attribute: {sorting.AttributeId} is not found");
-
-        return attribute.AttributeType switch
-        {
-            AttributeType.Text => ApplyTextSorting(query, sorting),
-            AttributeType.List => ApplyEnumSorting(query, sorting),
-            _ => throw new InvalidOperationException($"Sorting by '{attribute.AttributeType}' is not supported")
-        };
-    }
-    
-    private IQueryable<Issue> ApplyTextSorting(
-        IQueryable<Issue> query,
-        ByAttributeIssueSorting sorting)
-    {
-        return query
-            .InnerJoin(
-                context.IssueAttributeTextValues,
-                (issue, textValue) => issue.Id == textValue.IssueId && textValue.AttributeId == sorting.AttributeId,
-                (issue, textValue) => new { Issue = issue, TextValue = textValue })
-            .ApplySorting(a => a.TextValue.Text, sorting.Direction)
-            .Select(a => a.Issue);
-    }
-    
-    private IQueryable<Issue> ApplyEnumSorting(
-        IQueryable<Issue> query,
-        ByAttributeIssueSorting sorting)
-    {
-        return query
-            .InnerJoin(
-                context.IssueAttributeListValues,
-                (issue, listValue) => issue.Id == listValue.IssueId && listValue.AttributeId == sorting.AttributeId,
-                (issue, listValue) => new { Issue = issue, ListValue = listValue })
-            .ApplySorting(a => a.ListValue.AttributeListValueId, sorting.Direction)
-            .Select(a => a.Issue);
-    }
-
-    private IQueryable<Issue> ApplyByPropertySorting(
-        IQueryable<Issue> query,
-        ByPropertyIssueSorting sorting)
-    {
-        return sorting.Property switch
-        {
-            IssueProperty.CreatedAt => query.ApplySorting(x => x.CreatedAt, sorting.Direction),
-            IssueProperty.UpdatedAt => query.ApplySorting(x => x.UpdatedAt, sorting.Direction),
-            IssueProperty.Content => query.ApplySorting(x => x.Content, sorting.Direction),
-            _ => throw new InvalidOperationException($"Sorting by '{sorting.Property}' is not supported")
-        };
-    }
-
     public async Task<IssueDetailDto> GetIssue(
         GetIssueRequest request,
         CancellationToken cancellationToken)
@@ -848,18 +680,11 @@ public class IssuesService(
     public async Task<long> AddIssueComment(AddCommentRequest request, CancellationToken cancellationToken)
     {
         var issueKey = new IssueKey(request.IssueKey);
-        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, issueKey, cancellationToken);
-        
-        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+        var issueId = await GetIssueIdIfAccessible(
             request.AuthData,
-            issueId,
+            issueKey,
+            x => x.CanUpdateIssue,
             cancellationToken);
-
-        if (issueAccessLevels is null)
-            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
-        
-        if (!issueAccessLevels.CanUpdateIssue)
-            throw new ForbiddenException($"Issue: {request.IssueKey} is not available for update");
         
         if (FilesHasError(request.Files, out var error))
             throw new BadRequestException(nameof(request.Files), error);
@@ -1260,6 +1085,175 @@ public class IssuesService(
             AssigneeColor = source.AssigneeUserColor,
             Key = new IssueKey(source.SpaceKey, source.Number).ToString(),
             SpaceId = source.SpaceId,
+        };
+    }
+    
+
+    private async Task<IQueryable<Issue>> ApplyFilters(
+        IQueryable<Issue> query,
+        IHasAttributeFilters request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Filters.Count == 0)
+            return query;
+
+        var filterTypes = await GetAllowedOrganizationAttributesQuery(request.AuthData)
+            .Where(x => request.Filters.Keys.Any(y => y == x.Id))
+            .ToDictionaryAsyncEF(x => x.Id, x => x.AttributeType, cancellationToken);
+
+        var errors = new Dictionary<long, string>();
+        
+        foreach (var filter in request.Filters)
+        {
+            if (!filterTypes.TryGetValue(filter.Key, out var filterType))
+            {
+                errors.Add(filter.Key, $"Filter with id: '{filter.Key}' is not found");
+                continue;
+            }
+
+            query = filterType switch
+            {
+                AttributeType.Text => ApplyTextFilter(query, filter, errors),
+                AttributeType.List => ApplyEnumFilter(query, filter, errors),
+                _ => throw new InvalidOperationException($"Unsupported filter type '{filterType}'")
+            };
+        }
+
+        if (errors.Count != 0)
+            throw new BadRequestException(new Dictionary<string, string?[]>
+            {
+                [nameof(request.Filters)] = errors.Select(x => $"{x.Key}: {x.Value}").ToArray()
+            });
+
+        return query;
+    }
+
+    private IQueryable<Attribute> GetAllowedOrganizationAttributesQuery(OrganizationAuthData authData)
+    {
+        return context.Attributes
+            .Where(x => x.OrganizationId == authData.OrganizationId);
+    }
+
+    private IQueryable<Issue> ApplyTextFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not StringAttributeFilterValue stringValue)
+        {
+            errors.Add(filter.Key, $"String filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (string.IsNullOrEmpty(stringValue.SearchString))
+            return query;
+                
+        return query.InnerJoin(
+            context.IssueAttributeTextValues,
+            (i, a) => i.Id == a.IssueId
+                      && a.AttributeId == filter.Key
+                      && a.Text.ILike(stringValue.SearchString.AsSearchable()),
+            (i, a) => i);
+    }
+    
+    private IQueryable<Issue> ApplyEnumFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not EnumAttributeFilterValue enumValue)
+        {
+            errors.Add(filter.Key, $"Enum filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (enumValue.Ids.Length == 0)
+            return query;
+                
+        return query.InnerJoin(
+            context.IssueAttributeListValues,
+            (i, a) => i.Id == a.IssueId && a.AttributeId == filter.Key && ((IEnumerable<long>)enumValue.Ids).Contains(a.AttributeListValueId),
+            (i, a) => i);
+    }
+    
+    private Task<IQueryable<Issue>> ApplySorting(
+        IQueryable<Issue> query,
+        IHasSorting request,
+        CancellationToken cancellationToken = default)
+    {
+        return request.Sorting switch
+        {
+            null =>
+                Task.FromResult<IQueryable<Issue>>(query.OrderByDescending(x => x.CreatedAt)),
+            ByAttributeIssueSorting byAttributeIssueSorting =>
+                ApplyByAttributeSorting(query, byAttributeIssueSorting, request.AuthData, cancellationToken),
+            ByPropertyIssueSorting byPropertyIssueSorting =>
+                Task.FromResult(ApplyByPropertySorting(query, byPropertyIssueSorting)),
+            _ =>
+                throw new InvalidOperationException($"Unsupported sorting type '{request.Sorting}'")
+        };
+    }
+
+    private async Task<IQueryable<Issue>> ApplyByAttributeSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken = default)
+    {
+        var attribute = await GetAllowedOrganizationAttributesQuery(authData)
+            .Where(x => x.Id == sorting.AttributeId)
+            .Select(x => new { x.AttributeType })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (attribute is null)
+            throw new BadRequestException(
+                nameof(IHasSorting.Sorting),
+                $"Attribute: {sorting.AttributeId} is not found");
+
+        return attribute.AttributeType switch
+        {
+            AttributeType.Text => ApplyTextSorting(query, sorting),
+            AttributeType.List => ApplyEnumSorting(query, sorting),
+            _ => throw new InvalidOperationException($"Sorting by '{attribute.AttributeType}' is not supported")
+        };
+    }
+    
+    private IQueryable<Issue> ApplyTextSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeTextValues,
+                (issue, textValue) => issue.Id == textValue.IssueId && textValue.AttributeId == sorting.AttributeId,
+                (issue, textValue) => new { Issue = issue, TextValue = textValue })
+            .ApplySorting(a => a.TextValue.Text, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+    
+    private IQueryable<Issue> ApplyEnumSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeListValues,
+                (issue, listValue) => issue.Id == listValue.IssueId && listValue.AttributeId == sorting.AttributeId,
+                (issue, listValue) => new { Issue = issue, ListValue = listValue })
+            .ApplySorting(a => a.ListValue.AttributeListValueId, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+
+    private IQueryable<Issue> ApplyByPropertySorting(
+        IQueryable<Issue> query,
+        ByPropertyIssueSorting sorting)
+    {
+        return sorting.Property switch
+        {
+            IssueProperty.CreatedAt => query.ApplySorting(x => x.CreatedAt, sorting.Direction),
+            IssueProperty.UpdatedAt => query.ApplySorting(x => x.UpdatedAt, sorting.Direction),
+            IssueProperty.Content => query.ApplySorting(x => x.Content, sorting.Direction),
+            _ => throw new InvalidOperationException($"Sorting by '{sorting.Property}' is not supported")
         };
     }
 }
