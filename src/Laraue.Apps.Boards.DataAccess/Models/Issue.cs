@@ -42,6 +42,11 @@ public class Issue
     
     public TelegramMessage? TelegramMessage { get; set; }
     public long? TelegramMessageId { get; set; }
+
+    /// <summary>
+    /// Sort order in the current column.
+    /// </summary>
+    public int SortOrder { get; set; }
     
     public IssueNumber? IssueNumber { get; set; }
     public List<IssueAttributeTextValue>? TextAttributes { get; set; }

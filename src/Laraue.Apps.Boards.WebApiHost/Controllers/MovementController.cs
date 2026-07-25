@@ -87,4 +87,21 @@ public class MovementController(IMovementService service) : ControllerBase
             },
             cancellationToken);
     }
+    
+    [HttpPost("issue/{issueKey}/set-after/{previousIssueKey}")]
+    public Task SetIssueOrder(
+        string issueKey,
+        string previousIssueKey,
+        [FromBody] SetIssueOrderRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return service.SetIssueOrder(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                IssueKey = new IssueKey(issueKey),
+                PreviousIssueKey = new IssueKey(previousIssueKey),
+            },
+            cancellationToken);
+    }
 }
