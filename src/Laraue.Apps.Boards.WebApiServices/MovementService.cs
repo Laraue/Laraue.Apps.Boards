@@ -28,10 +28,6 @@ public interface IMovementService
     Task MoveIssue(
         MoveIssueRequest request,
         CancellationToken ct);
-
-    Task SetIssueOrder(
-        SetIssueOrderRequest request,
-        CancellationToken ct);
 }
 
 public class MovementService(
@@ -39,9 +35,15 @@ public class MovementService(
     IOrganizationAccessService organizationAccessService,
     DatabaseContext context,
     IAccessService accessService,
-    IIssuesService issuesService)
+    IIssuesService issuesService,
+    IOrganizationIssueSortOrderCounter sortOrderCounter)
     : IMovementService
 {
+    /// <summary>
+    /// The default sort order step between two issues.  
+    /// </summary>
+    public const int IssuesSortOrderGap = 1000;
+    
     public async Task MoveSpace(MoveSpaceRequest request, CancellationToken cancellationToken)
     {
         await HasMassMovePermissionOrThrow(request.AuthData, cancellationToken);
@@ -145,11 +147,6 @@ public class MovementService(
         await transaction.CommitAsync(ct);
     }
 
-    public Task SetIssueOrder(SetIssueOrderRequest request, CancellationToken ct)
-    {
-        throw new NotImplementedException();
-    }
-
     private async Task CanCreateEpicsOrThrow(
         Guid userId,
         long spaceId,
@@ -224,24 +221,4 @@ public record MoveIssueRequest
     public required OrganizationAuthData AuthData { get; set; }
     public required IssueKey IssueKey { get; set; }
     public required long StatusId { get; set; }
-}
-
-public record SetIssueOrderRequest
-{
-    public OrganizationAuthData AuthData { get; set; }
-    
-    /// <summary>
-    /// Issue to update order key.
-    /// </summary>
-    public IssueKey IssueKey { get; set; }
-    
-    /// <summary>
-    /// Status identifier. Should be the same as the status of issue with <see cref="PreviousIssueKey"/>.
-    /// </summary>
-    public required long StatusId { get; set; }
-    
-    /// <summary>
-    /// The boards card key after which the issue should appear.
-    /// </summary>
-    public IssueKey? PreviousIssueKey { get; set; }
 }

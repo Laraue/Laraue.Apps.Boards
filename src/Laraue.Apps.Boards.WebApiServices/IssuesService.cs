@@ -16,7 +16,6 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -71,6 +70,10 @@ public interface IIssuesService
     Task DeleteIssueComment(
         DeleteCommentRequest request,
         CancellationToken cancellationToken);
+    
+    Task SetIssueOrder(
+        SetIssueOrderRequest request,
+        CancellationToken ct);
 }
 
 public class IssuesService(
@@ -924,6 +927,60 @@ public class IssuesService(
         await transaction.CommitAsync(cancellationToken);
     }
 
+    public async Task SetIssueOrder(SetIssueOrderRequest request, CancellationToken ct)
+    {
+        long? previousIssueId = null;
+        if (request.PreviousIssueKey is not null)
+            previousIssueId = await GetIssueIdIfAccessible(
+                request.AuthData,
+                new IssueKey(request.PreviousIssueKey),
+                x => x.CanRead,
+                ct);
+        
+        var issueToMoveId = await GetIssueIdIfAccessible(
+            request.AuthData,
+            new IssueKey(request.IssueKey),
+            x => x.CanUpdateIssue,
+            ct);
+
+        var ids = new[] { previousIssueId, issueToMoveId };
+        var issuesData = await context.Issues
+            .Where(x => ids.Contains(x.Id))
+            .ToDictionaryAsyncEF(x => x.Id, x => new { x.SortOrder }, ct);
+        
+        var issueToMoveData = issuesData[issueToMoveId];
+        var previousIssueData = previousIssueId.HasValue ? issuesData[previousIssueId.Value] : null;
+        
+        throw new NotImplementedException();
+    }
+
+    private record MovableIssueData(long Id, int SortOrder);
+
+    private async Task<long> GetIssueIdIfAccessible(
+        OrganizationAuthData authData,
+        IssueKey issueKey,
+        Func<AccessLevels, bool> isAccessible,
+        CancellationToken cancellationToken)
+    {
+        var issueId = await GetIssueIdByIssueKey(
+            authData.OrganizationId,
+            issueKey,
+            cancellationToken);
+
+        var accessLevels = await accessService.GetAccessLevelsByIssueId(
+            authData,
+            issueId,
+            cancellationToken);
+        
+        if (accessLevels is null)
+            throw new NotFoundException($"Issue: {issueKey} is not found or not accessible");
+        
+        if (!isAccessible(accessLevels))
+            throw new ForbiddenException($"Issue: {issueKey} is not available for this action");
+
+        return issueId;
+    }
+
     private async Task<MediaInfo[]> UploadFiles(IFormFile[] formFiles, CancellationToken cancellationToken)
     {
         var files = new List<MediaInfo>();
@@ -1540,6 +1597,26 @@ public record UpdateCommentRequest
 
 public record DeleteCommentRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long CommentId { get; set; }
+}
+
+public record SetIssueOrderRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+
+    /// <summary>
+    /// Issue to update order key.
+    /// </summary>
+    public string IssueKey { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Status identifier. Should be the same as the status of issue with <see cref="PreviousIssueKey"/>.
+    /// </summary>
+    public required long StatusId { get; set; }
+    
+    /// <summary>
+    /// The boards card key after which the issue should appear.
+    /// </summary>
+    public string? PreviousIssueKey { get; set; }
 }
