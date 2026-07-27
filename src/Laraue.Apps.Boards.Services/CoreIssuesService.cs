@@ -85,21 +85,29 @@ public class CoreIssuesService(
         IEnumerable<MediaInfo> newFiles,
         CancellationToken cancellationToken)
     {
-        context.Database.EnsureTransactionStarted();
-        
-        var spaceId = await context.Statuses
+        var issueData = await context.Statuses
             .Where(x => x.Id == statusId)
-            .Select(x => x.Epic!.SpaceId)
+            .Select(x => new { x.Epic!.SpaceId, x.Epic.Space!.OrganizationId })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
-        var lastLexoRankString = await context.Issues
-            .Where(x => x.StatusId == statusId)
-            .OrderByDescending(x => x.LexoRank)
-            .Select(x => x.LexoRank)
-            .FirstOrDefaultAsync(cancellationToken);
-        
-        LexoRank.TryParse(lastLexoRankString, out var lastLexoRank);
-        var issueLexoRank = lastLexoRank is null ? LexoRank.Middle() : lastLexoRank.GenNext();
+        LexoRank? issueLexoRank = null;
+        await ExecuteIssueRankRelatedOperation(
+            issueData.OrganizationId,
+            async () =>
+            {
+                var lastLexoRankString = await context.Issues
+                    .Where(x => x.Status!.Epic!.Space!.OrganizationId == issueData.OrganizationId)
+                    .OrderByDescending(x => x.LexoRank)
+                    .Select(x => x.LexoRank)
+                    .FirstOrDefaultAsync(cancellationToken);
+                
+                LexoRank.TryParse(lastLexoRankString, out var lastLexoRank);
+                issueLexoRank = lastLexoRank is null ? LexoRank.Middle() : lastLexoRank.GenNext();
+            },
+            cancellationToken);
+
+        if (issueLexoRank == null)
+            throw new InvalidOperationException("Lexo rank should be set here");
         
         var issue = new Issue
         {
@@ -115,9 +123,9 @@ public class CoreIssuesService(
         
         var issueNumber = new IssueNumber
         {
-            Number = await spaceCounterService.GetNextNumber(spaceId, cancellationToken),
+            Number = await spaceCounterService.GetNextNumber(issueData.SpaceId, cancellationToken),
             Issue = issue,
-            SpaceId = spaceId,
+            SpaceId = issueData.SpaceId,
         };
         
         context.Add(issue);
@@ -367,13 +375,21 @@ public class CoreIssuesService(
             .FirstAsyncEF(ct);
 
         var organizationId = organizationData.OrganizationId;
-        
+        await ExecuteIssueRankRelatedOperation(
+            organizationId,
+            () => ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct),
+            ct);
+    }
+
+    private async Task ExecuteIssueRankRelatedOperation(long organizationId, Func<Task> operation, CancellationToken ct)
+    {
+        // Pessimistic organization lock
         var lockKey = $"change-issues-order-{organizationId}";
         await context.Database.PgAdvisoryXactLock(lockKey, ct);
-
+        
         try
         {
-            await ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct);
+            await operation();
         }
         catch (RankSpaceExhaustedException e)
         {
@@ -385,7 +401,7 @@ public class CoreIssuesService(
             await RebalanceOrganizationLexoRank(organizationId, ct);
             
             // Attempt #2 after the rebalance
-            await ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct);
+            await operation();
         }
     }
 
