@@ -181,14 +181,14 @@ public class TelegramSaveMessageService(
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             
             var issueId = await coreIssuesService.Create(
-                new CreateIssueRequest
-                {
-                    CreatedAt = request.SentAt,
-                    Text = request.Text,
-                    StatusId = statusId,
-                    TelegramMessageId = savedMessage.Id,
-                    UserId = request.UserId,
-                }, cancellationToken);
+                request.UserId,
+                assigneeId: null,
+                request.Text,
+                request.SentAt,
+                statusId,
+                savedMessage.Id,
+                newFiles: [],
+                cancellationToken);
 
             await UpsertMediaInfo(savedMessage.Id, issueId, request.UserId, mediaInfo, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -273,14 +273,14 @@ public class TelegramSaveMessageService(
 
             var messageId = savedMessage?.Id ?? telegramMessage?.Id ?? throw new InvalidOperationException();
             var issueId = await coreIssuesService.Create(
-                new CreateIssueRequest
-                {
-                    CreatedAt = request.SentAt,
-                    Text = request.Text,
-                    TelegramMessageId = messageId,
-                    StatusId = statusId,
-                    UserId = request.UserId,
-                }, cancellationToken);
+                request.UserId,
+                assigneeId: null,
+                request.Text,
+                request.SentAt,
+                statusId,
+                messageId,
+                newFiles: [],
+                cancellationToken);
             
             await UpsertMediaInfo(messageId, issueId, request.UserId, mediaInfo, cancellationToken);
             await transaction.CommitAsync(cancellationToken);

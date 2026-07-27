@@ -381,8 +381,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var space = organization.GetSpace(0);
         Assert.NotNull(issueDto);
         Assert.Equal(userId, issueDto.AssigneeId);
-        Assert.Equal("assignee", issueDto.Assignee);
-        Assert.Equal("as", issueDto.AssigneeInitial);
+        Assert.Equal("assignee", issueDto.Assignee.DisplayName);
+        Assert.Equal("as", issueDto.Assignee.Initials);
         Assert.Equal(space.Id, issueDto.SpaceId);
         Assert.Equal(space.Name, issueDto.SpaceName);
     }

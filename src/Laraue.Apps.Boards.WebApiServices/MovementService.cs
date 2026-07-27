@@ -134,6 +134,7 @@ public class MovementService(
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         await movementService.MoveIssue(
+            request.AuthData.UserId,
             issueId,
             request.StatusId,
             ct);

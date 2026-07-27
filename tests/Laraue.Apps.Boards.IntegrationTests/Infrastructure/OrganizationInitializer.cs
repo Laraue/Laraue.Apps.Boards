@@ -202,28 +202,24 @@ public class OrganizationInitializer(
                             IssueAttachments = issue.Attachments
                                 .Select(x => new IssueAttachment
                                 {
-                                    Attachment = new Attachment
-                                    {
-                                        File = new File
-                                        {
-                                            MimeType = x.AttachmentType switch
-                                            {
-                                                AttachmentType.Image => "image/jpg",
-                                                AttachmentType.Video => "video/mp4",
-                                                _ => throw new InvalidOperationException()
-                                            },
-                                            Name = x.Name,
-                                            Size = 100,
-                                            TelegramFile = new TelegramFile
-                                            {
-                                                ExternalFileUniqueId = Guid.NewGuid().ToString(),
-                                                ExternalFileId = Guid.NewGuid().ToString(),
-                                            }
-                                        },
-                                        OwnerId = ownerId, 
-                                    }
+                                    Attachment = ToAttachment(x, ownerId)
                                 })
-                                .ToList()
+                                .ToList(),
+                            IssueComments = issue.Comments
+                                .Select(ic => new IssueComment
+                                {
+                                    Text = ic.Comment,
+                                    CreatedAt = DateTime.UtcNow,
+                                    UpdatedAt = DateTime.UtcNow,
+                                    OwnerId = ic.CreatorId,
+                                    Attachments = ic.Attachments
+                                        .Select(x => new IssueCommentAttachment
+                                        {
+                                            Attachment = ToAttachment(x, ownerId)
+                                        })
+                                        .ToList(),
+                                })
+                                .ToList(),
                         });
                     }
                 }
@@ -272,6 +268,30 @@ public class OrganizationInitializer(
         }
         
         return organization;
+    }
+
+    private static Attachment ToAttachment(AttachmentData data, Guid ownerId)
+    {
+        return new Attachment
+        {
+            File = new File
+            {
+                MimeType = data.AttachmentType switch
+                {
+                    AttachmentType.Image => "image/jpg",
+                    AttachmentType.Video => "video/mp4",
+                    _ => throw new InvalidOperationException()
+                },
+                Name = data.Name,
+                Size = 100,
+                TelegramFile = new TelegramFile
+                {
+                    ExternalFileUniqueId = Guid.NewGuid().ToString(),
+                    ExternalFileId = Guid.NewGuid().ToString(),
+                }
+            },
+            OwnerId = ownerId,
+        };
     }
 
     public OrganizationInitializer AddUser(Guid userId)
@@ -529,7 +549,8 @@ public class OrganizationInitializer(
         public Guid CreatorId { get; } = creatorId;
         public DateTime Timestamp { get; private set; } = DateTime.UtcNow;
         public string Content { get; private set; } = "IssueContent";
-        public List<IssueAttachmentData> Attachments { get; } = new ();
+        public List<AttachmentData> Attachments { get; } = new ();
+        public List<IssueCommentBuilder> Comments { get; } = new ();
 
         public Dictionary<int, object> AttributeValues { get; set; } = new();
         
@@ -556,11 +577,37 @@ public class OrganizationInitializer(
         
         public IssueBuilder AddAttachment(string name, AttachmentType attachmentType)
         {
-            Attachments.Add(new IssueAttachmentData(name, attachmentType));
+            Attachments.Add(new AttachmentData(name, attachmentType));
+
+            return this;
+        }
+        
+        public IssueBuilder AddComment(Guid ownerId, string comment, Action<IssueCommentBuilder>? setupComment)
+        {
+            var entity = new IssueCommentBuilder(ownerId, comment);
+            
+            setupComment?.Invoke(entity);
+            
+            Comments.Add(entity);
 
             return this;
         }
     }
 
-    public record IssueAttachmentData(string Name, AttachmentType AttachmentType);
+    public class IssueCommentBuilder(Guid creatorId, string comment)
+    {
+        public Guid CreatorId { get; } = creatorId;
+        public string Comment { get; } = comment;
+
+        public List<AttachmentData> Attachments { get; } = new ();
+        
+        public IssueCommentBuilder AddAttachment(string name, AttachmentType attachmentType)
+        {
+            Attachments.Add(new AttachmentData(name, attachmentType));
+
+            return this;
+        }
+    }
+
+    public record AttachmentData(string Name, AttachmentType AttachmentType);
 }

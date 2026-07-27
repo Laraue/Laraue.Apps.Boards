@@ -16,6 +16,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -57,6 +58,18 @@ public interface IIssuesService
     Task<long> GetIssueIdByIssueKey(
         long organizationId,
         IssueKey issueKey,
+        CancellationToken cancellationToken);
+    
+    Task<long> AddIssueComment(
+        AddCommentRequest request,
+        CancellationToken cancellationToken);
+    
+    Task UpdateIssueComment(
+        UpdateCommentRequest request,
+        CancellationToken cancellationToken);
+    
+    Task DeleteIssueComment(
+        DeleteCommentRequest request,
         CancellationToken cancellationToken);
 }
 
@@ -315,33 +328,21 @@ public class IssuesService(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
-        
-        var files = new List<MediaInfo>();
-        foreach (var file in request.Files)
-        {
-            var fileData = await coreFilesService.UploadFile(
-                file.FileName, 
-                file.ContentType,
-                file.OpenReadStream(),
-                ct);
-            
-            files.Add(fileData);
-        }
+
+        var uploadedFiles = await UploadFiles(request.Files, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         var id = await issuesService.Create(
-            new Boards.Services.CreateIssueRequest
-            {
-                CreatedAt = dateTimeProvider.UtcNow,
-                Text = request.Content,
-                UserId = request.AuthData.UserId,
-                StatusId = request.StatusId,
-                AssigneeId = request.AssigneeId,
-            },
+            request.AuthData.UserId,
+            request.AssigneeId,
+            request.Content,
+            dateTimeProvider.UtcNow,
+            request.StatusId,
+            telegramMessageId: null,
+            uploadedFiles,
             ct);
         
-        await issuesService.AttachFiles(request.AuthData.UserId, id, files, ct);
         await issuesService.UpdateAttributes(id, attributeUpdateRequests, ct);
         
         await transaction.CommitAsync(ct);
@@ -382,32 +383,21 @@ public class IssuesService(
             request.AttributeValues,
             ct);
         
-        var newFiles = new List<MediaInfo>();
-        foreach (var file in request.AddFiles)
-        {
-            await using var stream = file.OpenReadStream();
-            
-            var fileData = await coreFilesService.UploadFile(
-                file.FileName, 
-                file.ContentType,
-                stream,
-                ct);
-            
-            newFiles.Add(fileData);
-        }
+        var uploadedFiles = await UploadFiles(request.AddFiles, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         await issuesService.Update(
             issueId,
+            request.AuthData.UserId,
             upd => upd
                 .SetProperty(x => x.Content, request.Content)
                 .SetProperty(x => x.AssigneeId, request.AssigneeId),
+            uploadedFiles,
+            request.RemoveAttachmentIds,
             ct);
-        await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
-        await issuesService.AttachFiles(request.AuthData.UserId, issueId, newFiles, ct);
-        await issuesService.DetachAttachments(issueId, request.RemoveAttachmentIds, ct);
         
+        await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
         await transaction.CommitAsync(ct);
     }
 
@@ -730,6 +720,55 @@ public class IssuesService(
             })
             .ToArrayAsyncEF(cancellationToken);
 
+        var commentsData = await context
+            .IssueComments
+            .Where(x => x.IssueId == issueId)
+            .Select(x => new
+            {
+                x.Text,
+                x.Id,
+                x.CreatedAt,
+                x.UpdatedAt,
+                x.Owner!.Color,
+                x.Owner.TelegramFirstName,
+                x.Owner.TelegramLastName,
+                x.Owner.TelegramUserName,
+                Attachments = x.Attachments
+                    .Select(a => new AttachmentData
+                    {
+                        Id = a.AttachmentId,
+                        OriginalFileId = a.Attachment!.FileId,
+                        PreviewFileId = a.Attachment.PreviewFileId,
+                        Type = a.Attachment.Type,
+                    })
+                    .ToList(),
+            })
+            .ToListAsyncEF(cancellationToken);
+
+        var comments = new List<CommentDto>();
+        foreach (var commentData in commentsData)
+        {
+            var userInitials = UserInitialsUtility.GetInitials(
+                commentData.TelegramUserName,
+                commentData.TelegramFirstName,
+                commentData.TelegramLastName);
+            
+            comments.Add(new CommentDto
+            {
+                Id = commentData.Id,
+                Text = commentData.Text,
+                CreatedAt = commentData.CreatedAt,
+                UpdatedAt = commentData.UpdatedAt,
+                Owner = new UserDetails
+                {
+                    Color = commentData.Color,
+                    DisplayName = userInitials.DisplayName,
+                    Initials = userInitials.Initials,
+                },
+                Attachments = commentData.Attachments,
+            });
+        }
+
         var attributeValuesResult = await GetIssueAttributeValues(issueId, cancellationToken);
         foreach (var attributeValue in attributeValues)
         {
@@ -743,13 +782,19 @@ public class IssuesService(
         {
             Id = result.Id,
             AssigneeId = result.AssigneeId,
-            Assignee = assignee.DisplayName,
-            AssigneeInitial = assignee.Initials,
-            AssigneeColor = result.AssigneeColor,
+            Assignee = new UserDetails
+            {
+                Color = result.AssigneeColor,
+                DisplayName = assignee.DisplayName,
+                Initials = assignee.Initials,
+            },
             Content = result.Content,
-            OwnerDisplayName = owner.DisplayName,
-            OwnerInitials = owner.Initials,
-            OwnerColor = result.OwnerColor,
+            Owner = new UserDetails
+            {
+                Color = result.OwnerColor,
+                DisplayName = owner.DisplayName,
+                Initials = owner.Initials,
+            },
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
@@ -765,6 +810,7 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
+            Comments = comments,
         };
     }
 
@@ -794,6 +840,105 @@ public class IssuesService(
             .Where(x => x.Space!.OrganizationId == organizationId)
             .Select(x => x.IssueId)
             .FirstOrThrowNotFoundEFAsync($"Issue: {issueKey} is not found in organization", cancellationToken);
+    }
+
+    public async Task<long> AddIssueComment(AddCommentRequest request, CancellationToken cancellationToken)
+    {
+        var issueKey = new IssueKey(request.IssueKey);
+        var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, issueKey, cancellationToken);
+        
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+            request.AuthData,
+            issueId,
+            cancellationToken);
+
+        if (issueAccessLevels is null)
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+        
+        if (!issueAccessLevels.CanUpdateIssue)
+            throw new ForbiddenException($"Issue: {request.IssueKey} is not available for update");
+        
+        if (FilesHasError(request.Files, out var error))
+            throw new BadRequestException(nameof(request.Files), error);
+        
+        var uploadedFiles = await UploadFiles(request.Files, cancellationToken);
+
+        return await issuesService.AddComment(
+            issueId,
+            request.AuthData.UserId,
+            request.Text,
+            uploadedFiles,
+            cancellationToken);
+    }
+
+    public async Task UpdateIssueComment(
+        UpdateCommentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var comment = await context.IssueComments
+            .Where(x => x.Id == request.CommentId)
+            .Select(x => new
+            {
+                x.Id,
+                x.OwnerId,
+                x.IssueId,
+            })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (comment?.OwnerId != request.AuthData.UserId)
+            throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to edit");
+        
+        if (FilesHasError(request.AddFiles, out var error))
+            throw new BadRequestException(nameof(request.AddFiles), error);
+        
+        var uploadedFiles = await UploadFiles(request.AddFiles, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await issuesService.UpdateComment(
+            comment.Id,
+            comment.OwnerId,
+            request.Text,
+            uploadedFiles,
+            request.RemoveAttachmentIds,
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task DeleteIssueComment(DeleteCommentRequest request, CancellationToken cancellationToken)
+    {
+        var entity = await context.IssueComments
+            .Where(x => x.Id == request.CommentId)
+            .Select(x => new
+            {
+                x.Id,
+                x.OwnerId,
+            })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+        
+        if (entity?.OwnerId != request.AuthData.UserId)
+            throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to delete");
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await issuesService.DeleteComment(request.CommentId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private async Task<MediaInfo[]> UploadFiles(IFormFile[] formFiles, CancellationToken cancellationToken)
+    {
+        var files = new List<MediaInfo>();
+        foreach (var formFile in formFiles)
+        {
+            var fileData = await coreFilesService.UploadFile(
+                formFile.FileName, 
+                formFile.ContentType,
+                formFile.OpenReadStream(),
+                cancellationToken);
+            
+            files.Add(fileData);
+        }
+        
+        return files.ToArray();
     }
 
     private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
@@ -1249,14 +1394,10 @@ public class IssueDetailDto
 {
     public required long Id { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required string Assignee { get; set; }
-    public required string AssigneeInitial { get; set; }
-    public required string AssigneeColor { get; set; }
+    public required UserDetails Assignee { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
-    public required string? OwnerDisplayName { get; set; }
-    public string? OwnerInitials { get; set; }
-    public required string OwnerColor { get; set; }
+    public required UserDetails Owner { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
@@ -1271,6 +1412,24 @@ public class IssueDetailDto
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
+    public required List<CommentDto> Comments { get; set; }
+}
+
+public record CommentDto
+{
+    public long Id { get; set; }
+    public required string Text { get; set; }
+    public required List<AttachmentData> Attachments { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public required UserDetails Owner { get; set; }
+}
+
+public record UserDetails
+{
+    public required string Color { get; set; }
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
 }
 
 public record DetailIssueAttributeDto
@@ -1358,4 +1517,29 @@ public record EpicSummary
 public record AttachmentData : MediaInfo
 {
     public required Guid Id { get; init; }
+}
+
+public record AddCommentRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+    
+    [MaxLength(Constraints.MaxCommentLength)]
+    public required string Text { get; set; }
+    public required string IssueKey { get; set; }
+    public IFormFile[] Files { get; set; } = [];
+}
+
+public record UpdateCommentRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+    public long CommentId { get; set; }
+    public required string Text { get; set; }
+    public Guid[] RemoveAttachmentIds { get; set; } = [];
+    public IFormFile[] AddFiles { get; set; } = [];
+}
+
+public record DeleteCommentRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+    public long CommentId { get; set; }
 }

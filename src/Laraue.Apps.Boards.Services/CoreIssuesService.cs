@@ -11,12 +11,21 @@ namespace Laraue.Apps.Boards.Services;
 public interface ICoreIssuesService
 {
     Task<long> Create(
-        CreateIssueRequest request,
+        Guid ownerId,
+        Guid? assigneeId,
+        string? text,
+        DateTime createdAt,
+        long statusId,
+        long? telegramMessageId,
+        IEnumerable<MediaInfo> newFiles,
         CancellationToken cancellationToken);
     
     Task Update(
         long issueId,
+        Guid updaterId,
         Action<UpdateSettersBuilder<Issue>> setters,
+        IEnumerable<MediaInfo> newFiles,
+        IEnumerable<Guid> deleteAttachmentIds,
         CancellationToken cancellationToken);
     
     Task UpdateAttributes(
@@ -27,19 +36,27 @@ public interface ICoreIssuesService
     Task Delete(
         long id,
         CancellationToken cancellationToken);
-    
+
     /// <summary>
-    /// Upload the file and link it to the issue.
+    /// Add issue comment.
     /// </summary>
-    Task AttachFiles(
-        Guid ownerId,
+    Task<long> AddComment(
         long issueId,
+        Guid ownerId,
+        string comment,
         IEnumerable<MediaInfo> mediaInfos,
         CancellationToken cancellationToken);
     
-    Task DetachAttachments(
-        long issueId,
-        IEnumerable<Guid> attachmentIds,
+    Task UpdateComment(
+        long commentId,
+        Guid ownerId,
+        string comment,
+        IEnumerable<MediaInfo> newFiles,
+        IEnumerable<Guid> deleteAttachmentIds,
+        CancellationToken cancellationToken);
+    
+    Task DeleteComment(
+        long id,
         CancellationToken cancellationToken);
 }
 
@@ -50,25 +67,31 @@ public class CoreIssuesService(
     : ICoreIssuesService
 {
     public async Task<long> Create(
-        CreateIssueRequest request,
+        Guid ownerId,
+        Guid? assigneeId,
+        string? text,
+        DateTime createdAt,
+        long statusId,
+        long? telegramMessageId,
+        IEnumerable<MediaInfo> newFiles,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
         
         var spaceId = await context.Statuses
-            .Where(x => x.Id == request.StatusId)
+            .Where(x => x.Id == statusId)
             .Select(x => x.Epic!.SpaceId)
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
         var issue = new Issue
         {
-            Content = request.Text,
-            OwnerId = request.UserId,
-            CreatedAt = request.CreatedAt,
-            UpdatedAt = request.CreatedAt,
-            TelegramMessageId = request.TelegramMessageId,
-            StatusId = request.StatusId,
-            AssigneeId = request.AssigneeId ?? request.UserId,
+            Content = text,
+            OwnerId = ownerId,
+            CreatedAt = createdAt,
+            UpdatedAt = createdAt,
+            TelegramMessageId = telegramMessageId,
+            StatusId = statusId,
+            AssigneeId = assigneeId ?? ownerId,
         };
         
         var issueNumber = new IssueNumber
@@ -82,14 +105,19 @@ public class CoreIssuesService(
         context.Add(issueNumber);
         
         await context.SaveChangesAsync(cancellationToken);
-        await TouchMessageBoard(issue.Id, request.CreatedAt, cancellationToken);
+
+        await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken);
+        await TouchMessageBoard(issue.Id, createdAt, cancellationToken);
         
         return issue.Id;
     }
 
     public async Task Update(
         long issueId,
+        Guid updaterId,
         Action<UpdateSettersBuilder<Issue>> setters,
+        IEnumerable<MediaInfo> newFiles,
+        IEnumerable<Guid> deleteAttachmentIds,
         CancellationToken cancellationToken)
     {
         var date = dateTimeProvider.UtcNow;
@@ -105,6 +133,8 @@ public class CoreIssuesService(
                 cancellationToken);
         
         await TouchMessageBoard(issueId, date, cancellationToken);
+        await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken);
+        await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken);
     }
 
     public async Task UpdateAttributes(
@@ -226,9 +256,89 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
-    public Task AttachFiles(
-        Guid ownerId,
+    public async Task<long> AddComment(
         long issueId,
+        Guid ownerId,
+        string comment,
+        IEnumerable<MediaInfo> mediaInfos,
+        CancellationToken cancellationToken)
+    {
+        var issueComment = new IssueComment
+        {
+            Text = comment,
+            IssueId = issueId,
+            OwnerId = ownerId,
+            CreatedAt = dateTimeProvider.UtcNow,
+            UpdatedAt = dateTimeProvider.UtcNow,
+        };
+        
+        foreach (var mediaInfo in mediaInfos)
+        {
+            var attachment = new IssueCommentAttachment
+            {
+                Comment = issueComment,
+                Attachment = GetAttachmentEntity(ownerId, mediaInfo),
+            };
+        
+            context.Add(attachment);
+        }
+        
+        await context.SaveChangesAsync(cancellationToken);
+        return issueComment.Id;
+    }
+
+    public async Task UpdateComment(
+        long commentId,
+        Guid ownerId,
+        string comment,
+        IEnumerable<MediaInfo> newFiles,
+        IEnumerable<Guid> deleteAttachmentIds,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+        
+        await context.IssueComments
+            .Where(x => x.Id == commentId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.Text, _ => comment),
+                cancellationToken);
+        
+        foreach (var mediaInfo in newFiles)
+        {
+            var attachment = new IssueCommentAttachment
+            {
+                CommentId = commentId,
+                Attachment = GetAttachmentEntity(ownerId, mediaInfo),
+            };
+        
+            context.Add(attachment);
+        }
+        
+        await context.SaveChangesAsync(cancellationToken);
+        await context.IssueCommentsAttachments
+            .Where(x => x.CommentId == commentId)
+            .Where(x => deleteAttachmentIds.Contains(x.AttachmentId))
+            .Select(x => x.Attachment)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public async Task DeleteComment(long id, CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        await context.IssueCommentsAttachments
+            .Where(x => x.CommentId == id)
+            .Select(x => x.Attachment)
+            .ExecuteDeleteAsync(cancellationToken);
+        
+        await context.IssueComments
+            .Where(x => x.Id == id)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private Task AttachIssueFiles(
+        long issueId,
+        Guid ownerId,
         IEnumerable<MediaInfo> mediaInfos,
         CancellationToken cancellationToken)
     {
@@ -237,14 +347,7 @@ public class CoreIssuesService(
             var attachment = new IssueAttachment
             {
                 IssueId = issueId,
-                Attachment = new Attachment
-                {
-                    CreatedAt = dateTimeProvider.UtcNow,
-                    OwnerId = ownerId,
-                    PreviewFileId = mediaInfo.PreviewFileId,
-                    FileId = mediaInfo.OriginalFileId,
-                    Type = mediaInfo.Type,
-                }
+                Attachment = GetAttachmentEntity(ownerId, mediaInfo),
             };
         
             context.Add(attachment);
@@ -253,13 +356,25 @@ public class CoreIssuesService(
         return context.SaveChangesAsync(cancellationToken);
     }
 
-    public Task DetachAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
+    private Task DetachIssueAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
     {
         return context.IssueAttachments
             .Where(x => x.IssueId == issueId)
             .Where(x => attachmentIds.Contains(x.AttachmentId))
             .Select(x => x.Attachment)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private Attachment GetAttachmentEntity(Guid ownerId, MediaInfo mediaInfo)
+    {
+        return new Attachment
+        {
+            CreatedAt = dateTimeProvider.UtcNow,
+            OwnerId = ownerId,
+            PreviewFileId = mediaInfo.PreviewFileId,
+            FileId = mediaInfo.OriginalFileId,
+            Type = mediaInfo.Type,
+        };
     }
 
     private Task<int> TouchMessageBoard(long issueId, DateTime touchedAt, CancellationToken ct)
@@ -272,21 +387,6 @@ public class CoreIssuesService(
                     old => old!.TouchedAt > touchedAt ? old.TouchedAt : touchedAt),
                 ct);
     }
-}
-
-public class CreateIssueRequest
-{
-    public Guid UserId { get; set; }
-    
-    /// <summary>
-    /// Set the issue assignee. When the field is not set the creator id will be used.
-    /// </summary>
-    public Guid? AssigneeId { get; set; }
-    
-    public required string? Text { get; set; }
-    public required DateTime CreatedAt { get; set; }
-    public long? TelegramMessageId { get; set; }
-    public long StatusId { get; set; }
 }
 
 public abstract record UpdateIssueAttributeRequest
