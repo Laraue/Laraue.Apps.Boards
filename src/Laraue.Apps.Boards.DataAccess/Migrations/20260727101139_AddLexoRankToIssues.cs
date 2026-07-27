@@ -20,6 +20,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 defaultValue: "",
                 collation: "C");
 
+            // Set middle lexo rank for all issues. We use ordering by lexo_rank -> id. So, it will
+            // be ordered alphabetically and will be changed with every issue nmovement,
+            migrationBuilder.Sql("update issues set lexo_rank = '0|hzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'");
+
             migrationBuilder.CreateIndex(
                 name: "ix_issues_lexo_rank",
                 table: "issues",
