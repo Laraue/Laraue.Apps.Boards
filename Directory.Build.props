@@ -17,7 +17,7 @@
   
   <PropertyGroup>
     <LaraueTelegramNetVersion>4.5.2</LaraueTelegramNetVersion>
-    <LaraueCoreDataAccessVersion>10.7.1</LaraueCoreDataAccessVersion>
+    <LaraueCoreDataAccessVersion>10.8.0</LaraueCoreDataAccessVersion>
     <LaraueCoreDateTimeVersion>10.0.0</LaraueCoreDateTimeVersion>
     <EfCoreVersion>10.0.0</EfCoreVersion>
     <NpgsqlEfCoreVersion>10.0.0</NpgsqlEfCoreVersion>

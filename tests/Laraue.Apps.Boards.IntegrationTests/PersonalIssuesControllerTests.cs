@@ -70,6 +70,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.NotEqual(default, issue.CreatedAt);
         Assert.NotEqual(default, issue.UpdatedAt);
         Assert.Equal(userId, issue.OwnerId);
+        Assert.Equal("0|hzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", issue.LexoRank);
         
         var textAttribute = await testScope.Database.IssueAttributeTextValues.SingleAsyncEF();
         Assert.Equal(issue.Id, textAttribute.IssueId);
@@ -746,7 +747,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                 }));
         
         Assert.NotNull(searchResult);
-        Assert.Equal(["Deliver app", "Build app"], searchResult.Data.Select(x => x.Content));
+        Assert.Equal(["Build app", "Deliver app"], searchResult.Data.Select(x => x.Content));
     }
     
     [Fact]
@@ -870,13 +871,16 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
+        
+        // Initial: issue 1 -> issue 2 -> issue 3 -> issue 4
         var organization = await testScope.InitializePersonalOrganization(
             userId,
             o => o
                 .AddUser(userId)
                 .AddIssueToDefaultStatus(userId, issue => issue.WithContent("1"))
                 .AddIssueToDefaultStatus(userId, issue => issue.WithContent("2"))
-                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("3")));
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("3"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("4")));
         
         var issue1 = organization.GetIssueData(0, 0, 0, 0);
         var issue2 = organization.GetIssueData(0, 0, 0, 1);
@@ -884,7 +888,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
 
         var epic = organization.GetEpic(0, 0);
 
-        // Change the order: issue 2 -> issue 3 -> issue 1
+        // Change the order: issue 2 -> issue 3 -> issue 1 -> issue 4
         var request = new ChangesIssuesOrderRequest
         {
             TargetKey = issue2.Key,
@@ -908,8 +912,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         var column = Assert.Single(result!);
         var issues = column.Items.Data;
-        Assert.Equal(3, issues.Count);
-        Assert.Equal(["2", "3", "1"], issues.Select(i => i.Content));
+        Assert.Equal(4, issues.Count);
+        Assert.Equal(["2", "4", "3", "1"], issues.Select(i => i.Content));
     }
 
     private static IFormFile GetFormFile(string imageName)
