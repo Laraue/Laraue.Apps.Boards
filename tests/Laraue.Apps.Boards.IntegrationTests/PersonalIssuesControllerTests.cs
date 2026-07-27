@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -862,6 +863,53 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         var attachments = await testScope.Database.Attachments.ToListAsyncEF();
         Assert.Empty(attachments);
+    }
+    
+    [Fact]
+    public async Task User_ShouldReorderIssues_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddUser(userId)
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("1"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("2"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("3")));
+        
+        var issue1 = organization.GetIssueData(0, 0, 0, 0);
+        var issue2 = organization.GetIssueData(0, 0, 0, 1);
+        var issue3 = organization.GetIssueData(0, 0, 0, 2);
+
+        var epic = organization.GetEpic(0, 0);
+
+        // Change the order: issue 2 -> issue 3 -> issue 1
+        var request = new ChangesIssuesOrderRequest
+        {
+            TargetKey = issue2.Key,
+            IssueKeys = [issue3.Key, issue1.Key],
+            TargetType = OrderTargetType.After,
+        };
+        
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.ChangesIssuesOrder(request));
+
+        var getBoardRequest = new GetBoardRequest
+        {
+            EpicId = epic.Id,
+            Take = 20,
+        };
+        
+        var result = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetBoard(getBoardRequest));
+        
+        var column = Assert.Single(result!);
+        var issues = column.Items.Data;
+        Assert.Equal(3, issues.Count);
+        Assert.Equal(["2", "3", "1"], issues.Select(i => i.Content));
     }
 
     private static IFormFile GetFormFile(string imageName)

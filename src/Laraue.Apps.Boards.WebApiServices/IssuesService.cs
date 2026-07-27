@@ -71,8 +71,8 @@ public interface IIssuesService
         DeleteCommentRequest request,
         CancellationToken cancellationToken);
     
-    Task SetIssueOrder(
-        SetIssueOrderRequest request,
+    Task ChangesIssuesOrder(
+        ChangesIssuesOrderRequest request,
         CancellationToken ct);
 }
 
@@ -752,34 +752,34 @@ public class IssuesService(
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public async Task SetIssueOrder(SetIssueOrderRequest request, CancellationToken ct)
+    public async Task ChangesIssuesOrder(ChangesIssuesOrderRequest request, CancellationToken ct)
     {
-        long? previousIssueId = null;
-        if (request.PreviousIssueKey is not null)
-            previousIssueId = await GetIssueIdIfAccessible(
-                request.AuthData,
-                new IssueKey(request.PreviousIssueKey),
-                x => x.CanRead,
-                ct);
-        
-        var issueToMoveId = await GetIssueIdIfAccessible(
+        var targetIssueId = await GetIssueIdIfAccessible(
             request.AuthData,
-            new IssueKey(request.IssueKey),
-            x => x.CanUpdateIssue,
+            new IssueKey(request.TargetKey),
+            x => x.CanRead,
             ct);
 
-        var ids = new[] { previousIssueId, issueToMoveId };
-        var issuesData = await context.Issues
-            .Where(x => ids.Contains(x.Id))
-            .ToDictionaryAsyncEF(x => x.Id, x => new { x.SortOrder }, ct);
+        var issueIds = new List<long>();
+        foreach (var issueKey in request.IssueKeys) // TODO - BRD-146 get rid of O(n)
+        {
+            var issueToMoveId = await GetIssueIdIfAccessible(
+                request.AuthData,
+                new IssueKey(issueKey),
+                x => x.CanUpdateIssue,
+                ct);
+            
+            issueIds.Add(issueToMoveId);
+        }
         
-        var issueToMoveData = issuesData[issueToMoveId];
-        var previousIssueData = previousIssueId.HasValue ? issuesData[previousIssueId.Value] : null;
-        
-        throw new NotImplementedException();
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await issuesService.ChangesIssuesOrder(
+            issueIds.ToArray(),
+            targetIssueId,
+            request.TargetType,
+            ct);
+        await transaction.CommitAsync(ct);
     }
-
-    private record MovableIssueData(long Id, int SortOrder);
 
     private async Task<long> GetIssueIdIfAccessible(
         OrganizationAuthData authData,
@@ -1184,7 +1184,7 @@ public class IssuesService(
         return request.Sorting switch
         {
             null =>
-                Task.FromResult<IQueryable<Issue>>(query.OrderByDescending(x => x.CreatedAt)),
+                Task.FromResult<IQueryable<Issue>>(query.OrderBy(x => x.LexoRank).ThenByDescending(x => x.Id)),
             ByAttributeIssueSorting byAttributeIssueSorting =>
                 ApplyByAttributeSorting(query, byAttributeIssueSorting, request.AuthData, cancellationToken),
             ByPropertyIssueSorting byPropertyIssueSorting =>
@@ -1595,22 +1595,22 @@ public record DeleteCommentRequest
     public long CommentId { get; set; }
 }
 
-public record SetIssueOrderRequest
+public record ChangesIssuesOrderRequest
 {
     public OrganizationAuthData AuthData { get; set; }
 
     /// <summary>
     /// Issue to update order key.
     /// </summary>
-    public string IssueKey { get; set; } = string.Empty;
+    public string[] IssueKeys { get; set; } = [];
     
     /// <summary>
-    /// Status identifier. Should be the same as the status of issue with <see cref="PreviousIssueKey"/>.
+    /// The boards card key before or after which the issue should appear.
     /// </summary>
-    public required long StatusId { get; set; }
+    public required string TargetKey { get; set; }
     
     /// <summary>
-    /// The boards card key after which the issue should appear.
+    /// Target type.
     /// </summary>
-    public string? PreviousIssueKey { get; set; }
+    public OrderTargetType TargetType { get; set; }
 }

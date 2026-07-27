@@ -183,17 +183,15 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             cancellationToken);
     }
     
-    [HttpPost("{issueKey}/set-order")]
-    public Task SetIssueOrder(
-        string issueKey,
-        [FromBody] SetIssueOrderRequest request,
+    [HttpPost("change-order")]
+    public Task ChangesIssuesOrder(
+        [FromBody] ChangesIssuesOrderRequest request,
         CancellationToken cancellationToken = default)
     {
-        return issuesService.SetIssueOrder(
+        return issuesService.ChangesIssuesOrder(
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
-                IssueKey = issueKey,
             },
             cancellationToken);
     }

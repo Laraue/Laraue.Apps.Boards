@@ -1,10 +1,12 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.Extensions.Logging;
 
 namespace Laraue.Apps.Boards.Services;
 
@@ -58,12 +60,19 @@ public interface ICoreIssuesService
     Task DeleteComment(
         long id,
         CancellationToken cancellationToken);
+
+    Task ChangesIssuesOrder(
+        long[] issueIds,
+        long targetIssueId,
+        OrderTargetType targetType,
+        CancellationToken ct);
 }
 
 public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
-    ISpaceCounterService spaceCounterService)
+    ISpaceCounterService spaceCounterService,
+    ILogger<CoreIssuesService> logger)
     : ICoreIssuesService
 {
     public async Task<long> Create(
@@ -83,6 +92,15 @@ public class CoreIssuesService(
             .Select(x => x.Epic!.SpaceId)
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
+        var lastLexoRankString = await context.Issues
+            .Where(x => x.StatusId == statusId)
+            .OrderByDescending(x => x.LexoRank)
+            .Select(x => x.LexoRank)
+            .FirstOrDefaultAsync(cancellationToken);
+        
+        LexoRank.TryParse(lastLexoRankString, out var lastLexoRank);
+        var issueLexoRank = lastLexoRank is null ? LexoRank.Middle() : lastLexoRank.GenNext();
+        
         var issue = new Issue
         {
             Content = text,
@@ -92,6 +110,7 @@ public class CoreIssuesService(
             TelegramMessageId = telegramMessageId,
             StatusId = statusId,
             AssigneeId = assigneeId ?? ownerId,
+            LexoRank = issueLexoRank.ToString(),
         };
         
         var issueNumber = new IssueNumber
@@ -336,6 +355,109 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    public async Task ChangesIssuesOrder(
+        long[] issueIds,
+        long targetIssueId,
+        OrderTargetType targetType,
+        CancellationToken ct)
+    {
+        var organizationData = await context.Issues
+            .Where(x => x.Id == targetIssueId)
+            .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
+            .FirstAsyncEF(ct);
+
+        var organizationId = organizationData.OrganizationId;
+        
+        var lockKey = $"change-issues-order-{organizationId}";
+        await context.Database.PgAdvisoryXactLock(lockKey, ct);
+
+        try
+        {
+            await ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct);
+        }
+        catch (RankSpaceExhaustedException e)
+        {
+            logger.LogWarning(
+                e,
+                "Rebalance LexoRank for organization: '{organizationId}' triggered",
+                organizationId);
+            
+            await RebalanceOrganizationLexoRank(organizationId, ct);
+            
+            // Attempt #2 after the rebalance
+            await ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct);
+        }
+    }
+
+    private async Task RebalanceOrganizationLexoRank(long organizationId, CancellationToken ct)
+    {
+        var issues = await context.Issues
+            .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
+            .OrderBy(x => x.LexoRank)
+            .Select(x => new Issue { Id = x.Id, LexoRank = x.LexoRank })
+            .ToListAsync(ct);
+
+        var freshRanks = LexoRank.CreateEvenlySpaced(issues.Count);
+
+        for (var i = 0; i < issues.Count; i++)
+            issues[i].LexoRank = freshRanks[i].ToString();
+
+        await context.SaveChangesAsync(ct);
+    }
+
+    private async Task ChangesIssuesOrderInternal(
+        long organizationId,
+        long[] issueIds,
+        long targetIssueId,
+        OrderTargetType targetType,
+        CancellationToken ct)
+    {
+        var allIds = issueIds
+            .Concat([targetIssueId])
+            .ToArray();
+        
+        var targetRank = await context.Issues
+            .Where(x => x.Id == targetIssueId)
+            .Select(x => x.LexoRank)
+            .FirstOrDefaultAsyncEF(ct);
+        
+        var closestRank = await context.Issues
+            .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
+            .Where(x => !allIds.Contains(x.Id))
+            .Where(x => targetType == OrderTargetType.After
+                ? x.LexoRank.CompareTo(targetRank) > 0
+                : x.LexoRank.CompareTo(targetRank) < 0)
+            .ApplySorting(
+                x => x.LexoRank,
+                targetType == OrderTargetType.After ? SortingDirection.Ascending : SortingDirection.Descending)
+            .Select(x => x.LexoRank)
+            .FirstOrDefaultAsync(ct);
+        
+        var targetLexoRank = targetRank is not null ? LexoRank.Parse(targetRank) : null;
+        var closestLexoRank = closestRank is not null ? LexoRank.Parse(closestRank) : null;
+
+        var (previous, next) = targetType == OrderTargetType.After
+            ? (targetLexoRank, closestLexoRank)
+            : (closestLexoRank, targetLexoRank);
+        
+        foreach (var issueId in issueIds)
+        {
+            var newRank = LexoRank.Between(previous, next);
+            previous = newRank;
+
+            var entity = new Issue
+            {
+                Id = issueId,
+                LexoRank = newRank.ToString(),
+            };
+            
+            context.Attach(entity);
+            context.Entry(entity).Property(x => x.LexoRank).IsModified = true;
+        }
+        
+        await context.SaveChangesAsync(ct);
+    }
+
     private Task AttachIssueFiles(
         long issueId,
         Guid ownerId,
@@ -402,4 +524,10 @@ public record UpdateIssueTextAttributeRequest : UpdateIssueAttributeRequest
 public record UpdateIssueListAttributeRequest : UpdateIssueAttributeRequest
 {
     public required long Value { get; set; }
+}
+
+public enum OrderTargetType
+{
+    After,
+    Before,
 }

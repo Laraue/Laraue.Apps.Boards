@@ -35,15 +35,9 @@ public class MovementService(
     IOrganizationAccessService organizationAccessService,
     DatabaseContext context,
     IAccessService accessService,
-    IIssuesService issuesService,
-    IOrganizationIssueSortOrderCounter sortOrderCounter)
+    IIssuesService issuesService)
     : IMovementService
 {
-    /// <summary>
-    /// The default sort order step between two issues.  
-    /// </summary>
-    public const int IssuesSortOrderGap = 1000;
-    
     public async Task MoveSpace(MoveSpaceRequest request, CancellationToken cancellationToken)
     {
         await HasMassMovePermissionOrThrow(request.AuthData, cancellationToken);

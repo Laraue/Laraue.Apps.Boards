@@ -199,6 +199,7 @@ public class OrganizationInitializer(
                             },
                             TextAttributes = textAttributes,
                             ListAttributes = listAttributes,
+                            LexoRank = issue.LexoRank.ToString(),
                             IssueAttachments = issue.Attachments
                                 .Select(x => new IssueAttachment
                                 {
@@ -551,12 +552,20 @@ public class OrganizationInitializer(
         public string Content { get; private set; } = "IssueContent";
         public List<AttachmentData> Attachments { get; } = new ();
         public List<IssueCommentBuilder> Comments { get; } = new ();
+        public LexoRank LexoRank { get; private set; } = LexoRank.Middle();
 
         public Dictionary<int, object> AttributeValues { get; set; } = new();
         
         public IssueBuilder WithContent(string name)
         {
             Content = name;
+
+            return this;
+        }
+        
+        public IssueBuilder WithLexoRank(LexoRank lexoRank)
+        {
+            LexoRank = lexoRank;
 
             return this;
         }
