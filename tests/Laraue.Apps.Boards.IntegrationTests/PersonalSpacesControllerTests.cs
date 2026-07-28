@@ -17,7 +17,7 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializePersonalOrganization(userId);
         
-        var spaceId = await _spacesController
+        var spaceKey = await _spacesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateSpaceRequest
@@ -29,7 +29,7 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
 
         var spaces = await testScope.Database.Spaces.ToListAsyncEF();
         
-        var space = spaces.First(x => x.Id == spaceId);
+        var space = spaces.First(x => x.Key == spaceKey);
         Assert.Equal("Space 1", space.Name);
         Assert.Equal("#ffffff", space.Color);
         Assert.Equal("SPA", space.Key);
@@ -102,26 +102,26 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
         var user1Id = await testScope.CreateUser();
         var organization1 = await testScope.InitializePersonalOrganization(user1Id, org => org
             .AddSpace(user1Id));
-        var organization1SpaceIds = organization1.Spaces!.Select(x => x.Id);
+        var organization1SpaceKeys = organization1.Spaces!.Select(x => x.Key);
         
         // User 2 has organization with default space
         var user2Id = await testScope.CreateUser();
         var organization2 = await testScope.InitializePersonalOrganization(user2Id);
-        var organization2SpaceIds = organization2.Spaces!.Select(x => x.Id);
+        var organization2SpaceKeys = organization2.Spaces!.Select(x => x.Key);
         
         // User 1 see two spaces
         var spaces = await _spacesController
             .WithOrganizationAuthorization(organization1.Id, user1Id)
             .Execute(x => x.GetAll());
         Assert.Equal(2, spaces!.Length);
-        Assert.Equivalent(organization1SpaceIds, spaces.Select(x => x.Id));
+        Assert.Equivalent(organization1SpaceKeys, spaces.Select(x => x.Key));
         
         // User 2 see one space
         spaces = await _spacesController
             .WithOrganizationAuthorization(organization2.Id, user2Id)
             .Execute(x => x.GetAll());
         Assert.Single(spaces!);
-        Assert.Equivalent(organization2SpaceIds, spaces!.Select(x => x.Id));
+        Assert.Equivalent(organization2SpaceKeys, spaces!.Select(x => x.Key));
     }
     
     [Fact]
@@ -133,13 +133,13 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
             .AddSpace(userId,  space => space
                 .WithColor("#ff11ff")
                 .WithName("My Space")));
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var spaces = await _spacesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.GetAll());
         
-        var space = spaces!.First(x => x.Id == spaceId);
+        var space = spaces!.First(x => x.Key == spaceKey);
         Assert.Equal("#ff11ff", space.Color);
         Assert.Equal("My Space", space.Name);
     }

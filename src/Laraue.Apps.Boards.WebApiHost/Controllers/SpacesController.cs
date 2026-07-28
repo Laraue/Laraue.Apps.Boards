@@ -10,7 +10,7 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 public class SpacesController(ISpacesService spacesService, IEpicsService epicsService) : ControllerBase
 {
     [HttpPost]
-    public Task<long> Create(
+    public Task<string> Create(
         [FromBody] CreateSpaceRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -63,15 +63,15 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
             cancellationToken);
     }
     
-    [HttpGet("{id:long}")]
+    [HttpGet("{key}")]
     public Task<SpaceDetailsDto> Get(
-        long id,
+        string key,
         CancellationToken cancellationToken = default)
     {
         return spacesService.GetSpace(
             new GetSpaceRequest
             {
-                Id = id,
+                Key = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);
@@ -90,15 +90,15 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
             cancellationToken);
     
     [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
-    [HttpGet("{id:long}/members")]
+    [HttpGet("{key}/members")]
     public Task<SpaceMember[]> GetSpaceMembers(
-        long id,
+        string key,
         CancellationToken cancellationToken = default)
     {
         return spacesService.GetMembers(
             new GetSpaceMembersRequest
             {
-                SpaceId = id,
+                Key = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);
