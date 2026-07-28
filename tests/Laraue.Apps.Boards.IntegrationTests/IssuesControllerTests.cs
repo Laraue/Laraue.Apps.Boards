@@ -570,4 +570,159 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var notFound = ex.HasInnerException<NotFoundException>();
         Assert.Equal($"Epic: {epic.Id} is not found", notFound.Message);
     }
+
+    [Fact]
+    public async Task User_ShouldMoveIssue_WhenIsOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e.AddStatus()))
+                .AddIssueToDefaultStatus(userId));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var newStatus = organization.GetStatus(1, 1, 1);
+
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateStatus(request));
+
+        var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(newStatus.Id, issue.StatusId);
+    }
+
+    [Fact]
+    public async Task User_ShouldMoveIssue_WhenHasCreateIssuesAccessInEpicAndIssueUpdateAccess()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddUser(participatorId, u => u
+                    .SetGlobalAccessLevel(x => { x.CanCreateIssues = true; x.CanUpdateIssues = true; }))
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e.AddStatus()))
+                .AddIssueToDefaultStatus(userId));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var newStatus = organization.GetStatus(1, 1, 1);
+        
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateStatus(request));
+
+        var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(newStatus.Id, issue.StatusId);
+    }
+
+    [Fact]
+    public async Task User_ShouldNotMoveIssue_WhenHasCreateIssuesAccessInEpicButIssueUpdateAccessMissing()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddUser(participatorId, u => u
+                    .SetGlobalAccessLevel(x => x.CanCreateIssues = true))
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e.AddStatus()))
+                .AddIssueToDefaultStatus(userId));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var newStatus = organization.GetStatus(1, 1, 1);
+        
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.UpdateStatus(request)));
+        
+        var notFound = ex.HasInnerException<ForbiddenException>();
+        Assert.Equal($"Issue: {issueData.Key} is not available for this action", notFound.Message);
+    }
+
+    [Fact]
+    public async Task User_ShouldNotMoveIssue_WhenHasIssueUpdateAccessButCreateIssueAccessIsMissing()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddUser(participatorId, u => u
+                    .SetGlobalAccessLevel(x => x.CanUpdateIssues = true))
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e.AddStatus()))
+                .AddIssueToDefaultStatus(userId));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var newStatus = organization.GetStatus(1, 1, 1);
+        
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.UpdateStatus(request)));
+        
+        var notFound = ex.HasInnerException<NotFoundException>();
+        Assert.Equal($"Status: {newStatus.Id} is not found", notFound.Message);
+    }
+    
+    
+    [Fact]
+    public async Task User_ShouldMovePersonalIssue_WhenStatusExists()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .AddStatus(st => st.WithName("Beautiful status"))
+                        .AddIssue(userId, 0))));
+
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        var newStatus = organization.GetStatus(1, 1, 1);
+        
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateStatus(request));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.NotNull(issue);
+        Assert.Equal(newStatus.Id, issue.StatusId);
+    }
+    
+    [Fact]
+    public async Task User_ShouldNotMovePersonalIssue_WhenStatusNotExists()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0))));
+
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = 0 };
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateStatus(request)));
+        
+        var notFoundException = ex.HasInnerException<NotFoundException>();
+        Assert.Equal("Status: 0 is not found", notFoundException.Message);
+    }
 }

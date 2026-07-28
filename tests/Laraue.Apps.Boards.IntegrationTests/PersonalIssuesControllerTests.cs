@@ -898,7 +898,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.ChangesIssuesOrder(request));
+            .Execute(x => x.UpdateOrder(request));
 
         var getBoardRequest = new GetBoardRequest
         {

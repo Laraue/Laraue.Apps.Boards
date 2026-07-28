@@ -61,10 +61,18 @@ public interface ICoreIssuesService
         long id,
         CancellationToken cancellationToken);
 
-    Task ChangesIssuesOrder(
+    Task UpdateIssuesOrder(
         long[] issueIds,
         long targetIssueId,
         OrderTargetType targetType,
+        CancellationToken ct);
+    
+    /// <summary>
+    /// Move issue to new status.
+    /// </summary>
+    Task UpdateIssuesStatus(
+        long[] issueIds,
+        long statusId,
         CancellationToken ct);
 }
 
@@ -72,7 +80,8 @@ public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
     ISpaceCounterService spaceCounterService,
-    ILogger<CoreIssuesService> logger)
+    ILogger<CoreIssuesService> logger,
+    IIssueNumbersService issueNumbersService)
     : ICoreIssuesService
 {
     public async Task<long> Create(
@@ -87,7 +96,7 @@ public class CoreIssuesService(
     {
         var issueData = await context.Statuses
             .Where(x => x.Id == statusId)
-            .Select(x => new { x.Epic!.SpaceId, x.Epic.Space!.OrganizationId })
+            .Select(x => new { x.Epic!.SpaceId, x.Epic.Space!.OrganizationId, x.EpicId })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
         LexoRank? issueLexoRank = null;
@@ -134,7 +143,7 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(cancellationToken);
 
         await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken);
-        await TouchMessageBoard(issue.Id, createdAt, cancellationToken);
+        await TouchEpics([issueData.EpicId], createdAt, cancellationToken);
         
         return issue.Id;
     }
@@ -149,6 +158,11 @@ public class CoreIssuesService(
     {
         var date = dateTimeProvider.UtcNow;
 
+        var epicData = await context.Issues
+            .Where(x => x.Id == issueId)
+            .Select(x => new { x.Status!.EpicId })
+            .FirstAsyncEF(cancellationToken);
+
         await context.Issues
             .Where(x => x.Id == issueId)
             .ExecuteUpdateAsync(
@@ -159,7 +173,7 @@ public class CoreIssuesService(
                 },
                 cancellationToken);
         
-        await TouchMessageBoard(issueId, date, cancellationToken);
+        await TouchEpics([epicData.EpicId], date, cancellationToken);
         await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken);
         await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken);
     }
@@ -363,7 +377,7 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
-    public async Task ChangesIssuesOrder(
+    public async Task UpdateIssuesOrder(
         long[] issueIds,
         long targetIssueId,
         OrderTargetType targetType,
@@ -379,6 +393,60 @@ public class CoreIssuesService(
             organizationId,
             () => ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct),
             ct);
+    }
+    
+    public async Task UpdateIssuesStatus(
+        long[] issueIds,
+        long statusId,
+        CancellationToken ct)
+    {
+        context.Database.EnsureTransactionStarted();
+        
+        var oldIssuesData = await context.Issues
+            .Where(i => ((IEnumerable<long>)issueIds).Contains(i.Id))
+            .Select(i => new
+            {
+                i.Id,
+                i.Status!.Epic!.SpaceId,
+                i.Status!.Epic!.Space!.OrganizationId,
+            })
+            .ToListAsyncEF(ct);
+        
+        var newSpaceData = await context.Statuses
+            .Where(i => i.Id == statusId)
+            .Select(i => new { i.Epic!.SpaceId, i.Epic!.Space!.OrganizationId })
+            .FirstOrThrowNotFoundEFAsync($"Status: {statusId} is not found", ct);
+
+        // TODO - If organization can be changed, is it possible to pass issues from different orgs? Or we will leave that limit?
+        if (oldIssuesData.Any(x => x.OrganizationId != newSpaceData.OrganizationId))
+            throw new InvalidOperationException("Change issue status works only inside the organization");
+        
+        await context.Issues
+            .Where(i => ((IEnumerable<long>)issueIds).Contains(i.Id))
+            .ExecuteUpdateAsync(
+                upd =>
+                {
+                    upd
+                        .SetProperty(x => x.StatusId, statusId)
+                        .SetProperty(x => x.UpdatedAt, dateTimeProvider.UtcNow);
+                },
+                ct);
+
+        var issuesWithUpdatedSpace = oldIssuesData
+            .Where(i => i.SpaceId != newSpaceData.SpaceId)
+            .GroupBy(i => i.SpaceId)
+            .ToArray();
+
+        if (issuesWithUpdatedSpace.Length == 0)
+            return;
+
+        foreach (var issues in issuesWithUpdatedSpace)
+        {
+            var affectedIssueNumbers = context.IssueNumbers
+                .Where(i => issues.Select(x => x.Id).Contains(i.IssueId));
+            
+            await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, issues.Key, ct);
+        }
     }
 
     private async Task ExecuteIssueRankRelatedOperation(long organizationId, Func<Task> operation, CancellationToken ct)
@@ -515,13 +583,13 @@ public class CoreIssuesService(
         };
     }
 
-    private Task<int> TouchMessageBoard(long issueId, DateTime touchedAt, CancellationToken ct)
+    private Task<int> TouchEpics(long[] epicIds, DateTime touchedAt, CancellationToken ct)
     {
-        return context.Issues.Where(x => x.Id == issueId)
-            .Select(x => x.Status!.Epic)
+        return context.Epics
+            .Where(x => ((IEnumerable<long>)epicIds).Contains(x.Id))
             .ExecuteUpdateAsync(x => x
                 .SetProperty(
-                    p => p!.TouchedAt,
+                    p => p.TouchedAt,
                     old => old!.TouchedAt > touchedAt ? old.TouchedAt : touchedAt),
                 ct);
     }

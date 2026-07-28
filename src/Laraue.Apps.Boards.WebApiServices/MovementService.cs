@@ -24,18 +24,13 @@ public interface IMovementService
     Task<DestinationSpace[]> GetDestinationSpaces(
         GetDestinationSpacesRequest request,
         CancellationToken cancellationToken);
-
-    Task MoveIssue(
-        MoveIssueRequest request,
-        CancellationToken ct);
 }
 
 public class MovementService(
     ICoreMovementService movementService,
     IOrganizationAccessService organizationAccessService,
     DatabaseContext context,
-    IAccessService accessService,
-    IIssuesService issuesService)
+    IAccessService accessService)
     : IMovementService
 {
     public async Task MoveSpace(MoveSpaceRequest request, CancellationToken cancellationToken)
@@ -47,7 +42,9 @@ public class MovementService(
             request.AuthData.UserId,
             cancellationToken);
             
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await movementService.MoveSpace(request.Id, request.NewOrganizationId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task MoveSpaceEpics(MoveSpaceEpicsRequest request, CancellationToken cancellationToken)
@@ -107,40 +104,6 @@ public class MovementService(
             cancellationToken);
     }
 
-    public async Task MoveIssue(MoveIssueRequest request, CancellationToken ct)
-    {
-        var issueId = await issuesService.GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, ct);
-        
-        // Check that can move Issue
-        var accessLevels = await accessService.GetAccessLevelsByIssueId(
-            request.AuthData,
-            issueId,
-            ct);
-
-        if (accessLevels is null)
-            throw new NotFoundException($"Issue: {request.IssueKey} is not found");
-
-        if (!accessLevels.CanUpdateIssue)
-            throw new ForbiddenException($"Issue: {request.IssueKey} is not accessible");
-        
-        // Check that can move to specified status
-        var canMove = await accessService.CanMoveToStatus(
-            request.AuthData,
-            request.StatusId,
-            ct);
-        
-        if (!canMove)
-            throw new NotFoundException($"Status: {request.StatusId} is not found");
-        
-        await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        await movementService.MoveIssue(
-            request.AuthData.UserId,
-            issueId,
-            request.StatusId,
-            ct);
-        await transaction.CommitAsync(ct);
-    }
-
     private async Task CanCreateEpicsOrThrow(
         Guid userId,
         long spaceId,
@@ -178,21 +141,21 @@ public class MovementService(
 
 public record MoveSpaceRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long Id { get; set; }
     public long NewOrganizationId { get; set; }
 }
 
 public record MoveSpaceEpicsRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long SpaceId { get; set; }
     public long NewSpaceId { get; set; }
 }
 
 public record MoveEpicRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long Id { get; set; }
     public long NewSpaceId { get; set; }
 }
@@ -208,11 +171,4 @@ public record DestinationSpace
     public required long Id { get; set; }
     public required string Name { get; set; }
     public required string Color { get; set; }
-}
-
-public record MoveIssueRequest
-{
-    public required OrganizationAuthData AuthData { get; set; }
-    public required IssueKey IssueKey { get; set; }
-    public required long StatusId { get; set; }
 }

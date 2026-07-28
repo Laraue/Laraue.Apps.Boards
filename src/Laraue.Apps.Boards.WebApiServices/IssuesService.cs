@@ -74,6 +74,10 @@ public interface IIssuesService
     Task ChangesIssuesOrder(
         ChangesIssuesOrderRequest request,
         CancellationToken ct);
+
+    Task UpdateIssuesStatus(
+        UpdateIssuesStatusRequest request,
+        CancellationToken ct);
 }
 
 public class IssuesService(
@@ -773,10 +777,42 @@ public class IssuesService(
         }
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        await issuesService.ChangesIssuesOrder(
+        await issuesService.UpdateIssuesOrder(
             issueIds.ToArray(),
             targetIssueId,
             request.TargetType,
+            ct);
+        await transaction.CommitAsync(ct);
+    }
+
+    public async Task UpdateIssuesStatus(UpdateIssuesStatusRequest request, CancellationToken ct)
+    {
+        // Check that can move Issues
+        var issueIds = new List<long>();
+        foreach (var issueKey in request.IssueKeys) // TODO - BRD-146 get rid of O(n)
+        {
+            var issueToMoveId = await GetIssueIdIfAccessible(
+                request.AuthData,
+                new IssueKey(issueKey),
+                x => x.CanUpdateIssue,
+                ct);
+            
+            issueIds.Add(issueToMoveId);
+        }
+        
+        // Check that can move to specified status
+        var canMove = await accessService.CanMoveToStatus(
+            request.AuthData,
+            request.StatusId,
+            ct);
+        
+        if (!canMove)
+            throw new NotFoundException($"Status: {request.StatusId} is not found");
+        
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await issuesService.UpdateIssuesStatus(
+            issueIds.ToArray(),
+            request.StatusId,
             ct);
         await transaction.CommitAsync(ct);
     }
@@ -1088,7 +1124,6 @@ public class IssuesService(
         };
     }
     
-
     private async Task<IQueryable<Issue>> ApplyFilters(
         IQueryable<Issue> query,
         IHasAttributeFilters request,
@@ -1613,4 +1648,11 @@ public record ChangesIssuesOrderRequest
     /// Target type.
     /// </summary>
     public OrderTargetType TargetType { get; set; }
+}
+
+public record UpdateIssuesStatusRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+    public required string[] IssueKeys { get; set; } = [];
+    public required long StatusId { get; set; }
 }
