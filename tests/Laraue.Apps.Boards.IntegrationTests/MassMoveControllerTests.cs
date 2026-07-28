@@ -25,7 +25,7 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         
         await _controller
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.MoveSpace(spaceToMove.Id, organization.Id));
+            .Execute(x => x.MoveSpace(spaceToMove.Key, organization.Id));
 
         var resultSpace = await testScope.Database.Spaces.FirstAsyncEF(e => e.Id == spaceToMove.Id);
         Assert.Equal(organization.Id, resultSpace.OrganizationId);
@@ -45,7 +45,7 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.MoveSpace(spaceToMove.Id, organization.Id)));
+            .Execute(x => x.MoveSpace(spaceToMove.Key, organization.Id)));
 
         var forbidden = ex.HasInnerException<ForbiddenException>();
         Assert.Equal("Default space cannot be moved.", forbidden.Message);
@@ -94,7 +94,7 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         
         await _controller
             .WithOrganizationAuthorization(personalOrganization.Id, userId)
-            .Execute(x => x.MoveSpaceEpics(sourceSpace.Id, spaceToReceive.Id));
+            .Execute(x => x.MoveSpaceEpics(sourceSpace.Key, spaceToReceive.Key));
         
         var movedEpic = await testScope.Database.Epics.FirstAsyncEF(e => e.Id == epicToMove.Id);
         Assert.Equal(spaceToReceive.Id, movedEpic.SpaceId);
@@ -141,7 +141,7 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         
         await _controller
             .WithOrganizationAuthorization(personalOrganization.Id, userId)
-            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Id));
+            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Key));
         
         var movedEpic = await testScope.Database.Epics.FirstAsyncEF(e => e.Id == epicToMove.Id);
         Assert.Equal(spaceToReceive.Id, movedEpic.SpaceId);
@@ -163,7 +163,7 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(personalOrganization.Id, userId)
-            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Id)));
+            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Key)));
         
         var forbidden = ex.HasInnerException<ForbiddenException>();
         Assert.Equal("Default epic cannot be moved.", forbidden.Message);
@@ -202,21 +202,21 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(sourceOrganization.Id, userCanNotMoveDueToMassMoveInSourceMissing)
-            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Id)));
+            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Key)));
         
         var notFound = ex.HasInnerException<NotFoundException>();
         Assert.Equal($"Organization: {sourceOrganization.Id} is unavailable or permission: MassMove is missing", notFound.Message);
         
         ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(sourceOrganization.Id, userCanNotMoveDueToEpicCreationInTargetMissing)
-            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Id)));
+            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Key)));
         
         var forbidden = ex.HasInnerException<ForbiddenException>();
         Assert.Equal($"Space is not exists: {spaceToReceive.Id} or epic creation is forbidden", forbidden.Message);
         
         await _controller
             .WithOrganizationAuthorization(sourceOrganization.Id, userCanMove)
-            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Id));
+            .Execute(x => x.MoveEpic(epicToMove.Id, spaceToReceive.Key));
         
         var movedEpic = await testScope.Database.Epics.FirstAsyncEF(e => e.Id == epicToMove.Id);
         Assert.Equal(spaceToReceive.Id, movedEpic.SpaceId);

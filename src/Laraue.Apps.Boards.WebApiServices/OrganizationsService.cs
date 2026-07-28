@@ -287,7 +287,7 @@ public class OrganizationsService(
                 request.AuthData.OrganizationId,
                 cancellationToken))
                 .ToDictionary(
-                    x => x.Id,
+                    x => x.Key,
                     x => new { Self = x });
 
             var errors = new List<string>();

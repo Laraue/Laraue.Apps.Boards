@@ -257,7 +257,7 @@ public class OrganizationInitializer(
                 Admin = builder.Permissions.Administrative,
                 Direct = builder.Permissions.DirectAccessLevels
                     .ToDictionary(
-                        x => organization.Spaces![x.Key].Id,
+                        x => organization.Spaces![x.Key].Key,
                         x => x.Value)
             };
             
