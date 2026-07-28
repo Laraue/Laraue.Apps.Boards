@@ -1,6 +1,6 @@
 ﻿namespace Laraue.Apps.Boards.Services;
 
-public record OrganizationAuthData
+public struct OrganizationAuthData
 {
     public long OrganizationId { get; init; }
     public Guid UserId { get; init; }

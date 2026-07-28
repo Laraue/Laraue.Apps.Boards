@@ -182,4 +182,30 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             },
             cancellationToken);
     }
+    
+    [HttpPost("order")]
+    public Task UpdateOrder(
+        [FromBody] ChangesIssuesOrderRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.ChangesIssuesOrder(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+    
+    [HttpPost("status")]
+    public Task UpdateStatus(
+        [FromBody] UpdateIssuesStatusRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.UpdateIssuesStatus(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
 }

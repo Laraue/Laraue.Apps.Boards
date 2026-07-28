@@ -71,20 +71,4 @@ public class MovementController(IMovementService service) : ControllerBase
             },
             cancellationToken);
     }
-    
-    [HttpPost("issue/{key}/move-to-status/{statusId:long}")]
-    public Task MoveIssue(
-        string key,
-        long statusId,
-        CancellationToken cancellationToken = default)
-    {
-        return service.MoveIssue(
-            new MoveIssueRequest
-            {
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-                IssueKey = new IssueKey(key),
-                StatusId = statusId
-            },
-            cancellationToken);
-    }
 }

@@ -24,8 +24,6 @@ public struct IssueKey
         Number = number;
     }
 
-    public static IssueKey Empty { get; set; } = new("XXX-00000");
-
     public int Number { get; }
     public string SpaceKey { get; }
 

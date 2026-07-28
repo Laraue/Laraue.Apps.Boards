@@ -1,10 +1,12 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.Extensions.Logging;
 
 namespace Laraue.Apps.Boards.Services;
 
@@ -58,12 +60,28 @@ public interface ICoreIssuesService
     Task DeleteComment(
         long id,
         CancellationToken cancellationToken);
+
+    Task UpdateIssuesOrder(
+        long[] issueIds,
+        long targetIssueId,
+        OrderTargetType targetType,
+        CancellationToken ct);
+    
+    /// <summary>
+    /// Move issue to new status.
+    /// </summary>
+    Task UpdateIssuesStatus(
+        long[] issueIds,
+        long statusId,
+        CancellationToken ct);
 }
 
 public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
-    ISpaceCounterService spaceCounterService)
+    ISpaceCounterService spaceCounterService,
+    ILogger<CoreIssuesService> logger,
+    IIssueNumbersService issueNumbersService)
     : ICoreIssuesService
 {
     public async Task<long> Create(
@@ -76,12 +94,29 @@ public class CoreIssuesService(
         IEnumerable<MediaInfo> newFiles,
         CancellationToken cancellationToken)
     {
-        context.Database.EnsureTransactionStarted();
-        
-        var spaceId = await context.Statuses
+        var issueData = await context.Statuses
             .Where(x => x.Id == statusId)
-            .Select(x => x.Epic!.SpaceId)
+            .Select(x => new { x.Epic!.SpaceId, x.Epic.Space!.OrganizationId, x.EpicId })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
+        
+        LexoRank? issueLexoRank = null;
+        await ExecuteIssueRankRelatedOperation(
+            issueData.OrganizationId,
+            async () =>
+            {
+                var lastLexoRankString = await context.Issues
+                    .Where(x => x.Status!.Epic!.Space!.OrganizationId == issueData.OrganizationId)
+                    .OrderByDescending(x => x.LexoRank)
+                    .Select(x => x.LexoRank)
+                    .FirstOrDefaultAsync(cancellationToken);
+                
+                LexoRank.TryParse(lastLexoRankString, out var lastLexoRank);
+                issueLexoRank = lastLexoRank is null ? LexoRank.Middle() : lastLexoRank.GenNext();
+            },
+            cancellationToken);
+
+        if (issueLexoRank == null)
+            throw new InvalidOperationException("Lexo rank should be set here");
         
         var issue = new Issue
         {
@@ -92,13 +127,14 @@ public class CoreIssuesService(
             TelegramMessageId = telegramMessageId,
             StatusId = statusId,
             AssigneeId = assigneeId ?? ownerId,
+            LexoRank = issueLexoRank.ToString(),
         };
         
         var issueNumber = new IssueNumber
         {
-            Number = await spaceCounterService.GetNextNumber(spaceId, cancellationToken),
+            Number = await spaceCounterService.GetNextNumber(issueData.SpaceId, cancellationToken),
             Issue = issue,
-            SpaceId = spaceId,
+            SpaceId = issueData.SpaceId,
         };
         
         context.Add(issue);
@@ -107,7 +143,7 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(cancellationToken);
 
         await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken);
-        await TouchMessageBoard(issue.Id, createdAt, cancellationToken);
+        await TouchEpics([issueData.EpicId], createdAt, cancellationToken);
         
         return issue.Id;
     }
@@ -122,6 +158,11 @@ public class CoreIssuesService(
     {
         var date = dateTimeProvider.UtcNow;
 
+        var epicData = await context.Issues
+            .Where(x => x.Id == issueId)
+            .Select(x => new { x.Status!.EpicId })
+            .FirstAsyncEF(cancellationToken);
+
         await context.Issues
             .Where(x => x.Id == issueId)
             .ExecuteUpdateAsync(
@@ -132,7 +173,7 @@ public class CoreIssuesService(
                 },
                 cancellationToken);
         
-        await TouchMessageBoard(issueId, date, cancellationToken);
+        await TouchEpics([epicData.EpicId], date, cancellationToken);
         await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken);
         await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken);
     }
@@ -336,6 +377,171 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    public async Task UpdateIssuesOrder(
+        long[] issueIds,
+        long targetIssueId,
+        OrderTargetType targetType,
+        CancellationToken ct)
+    {
+        var organizationData = await context.Issues
+            .Where(x => x.Id == targetIssueId)
+            .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
+            .FirstAsyncEF(ct);
+
+        var organizationId = organizationData.OrganizationId;
+        await ExecuteIssueRankRelatedOperation(
+            organizationId,
+            () => ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct),
+            ct);
+    }
+    
+    public async Task UpdateIssuesStatus(
+        long[] issueIds,
+        long statusId,
+        CancellationToken ct)
+    {
+        context.Database.EnsureTransactionStarted();
+        
+        var oldIssuesData = await context.Issues
+            .Where(i => ((IEnumerable<long>)issueIds).Contains(i.Id))
+            .Select(i => new
+            {
+                i.Id,
+                i.Status!.Epic!.SpaceId,
+                i.Status!.Epic!.Space!.OrganizationId,
+            })
+            .ToListAsyncEF(ct);
+        
+        var newSpaceData = await context.Statuses
+            .Where(i => i.Id == statusId)
+            .Select(i => new { i.Epic!.SpaceId, i.Epic!.Space!.OrganizationId })
+            .FirstOrThrowNotFoundEFAsync($"Status: {statusId} is not found", ct);
+
+        // TODO - If organization can be changed, is it possible to pass issues from different orgs? Or we will leave that limit?
+        if (oldIssuesData.Any(x => x.OrganizationId != newSpaceData.OrganizationId))
+            throw new InvalidOperationException("Change issue status works only inside the organization");
+        
+        await context.Issues
+            .Where(i => ((IEnumerable<long>)issueIds).Contains(i.Id))
+            .ExecuteUpdateAsync(
+                upd =>
+                {
+                    upd
+                        .SetProperty(x => x.StatusId, statusId)
+                        .SetProperty(x => x.UpdatedAt, dateTimeProvider.UtcNow);
+                },
+                ct);
+
+        var issuesWithUpdatedSpace = oldIssuesData
+            .Where(i => i.SpaceId != newSpaceData.SpaceId)
+            .GroupBy(i => i.SpaceId)
+            .ToArray();
+
+        if (issuesWithUpdatedSpace.Length == 0)
+            return;
+
+        foreach (var issues in issuesWithUpdatedSpace)
+        {
+            var affectedIssueNumbers = context.IssueNumbers
+                .Where(i => issues.Select(x => x.Id).Contains(i.IssueId));
+            
+            await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, issues.Key, ct);
+        }
+    }
+
+    private async Task ExecuteIssueRankRelatedOperation(long organizationId, Func<Task> operation, CancellationToken ct)
+    {
+        // Pessimistic organization lock
+        var lockKey = $"change-issues-order-{organizationId}";
+        await context.Database.PgAdvisoryXactLock(lockKey, ct);
+        
+        try
+        {
+            await operation();
+        }
+        catch (RankSpaceExhaustedException e)
+        {
+            logger.LogWarning(
+                e,
+                "Rebalance LexoRank for organization: '{organizationId}' triggered",
+                organizationId);
+            
+            await RebalanceOrganizationLexoRank(organizationId, ct);
+            
+            // Attempt #2 after the rebalance
+            await operation();
+        }
+    }
+
+    private async Task RebalanceOrganizationLexoRank(long organizationId, CancellationToken ct)
+    {
+        var issues = await context.Issues
+            .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
+            .OrderBy(x => x.LexoRank)
+            .Select(x => new Issue { Id = x.Id, LexoRank = x.LexoRank })
+            .ToListAsync(ct);
+
+        var freshRanks = LexoRank.CreateEvenlySpaced(issues.Count);
+
+        for (var i = 0; i < issues.Count; i++)
+            issues[i].LexoRank = freshRanks[i].ToString();
+
+        await context.SaveChangesAsync(ct);
+    }
+
+    private async Task ChangesIssuesOrderInternal(
+        long organizationId,
+        long[] issueIds,
+        long targetIssueId,
+        OrderTargetType targetType,
+        CancellationToken ct)
+    {
+        var allIds = issueIds
+            .Concat([targetIssueId])
+            .ToArray();
+        
+        var targetRank = await context.Issues
+            .Where(x => x.Id == targetIssueId)
+            .Select(x => x.LexoRank)
+            .FirstOrDefaultAsyncEF(ct);
+        
+        var closestRank = await context.Issues
+            .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
+            .Where(x => !allIds.Contains(x.Id))
+            .Where(x => targetType == OrderTargetType.After
+                ? x.LexoRank.CompareTo(targetRank) > 0
+                : x.LexoRank.CompareTo(targetRank) < 0)
+            .ApplySorting(
+                x => x.LexoRank,
+                targetType == OrderTargetType.After ? SortingDirection.Ascending : SortingDirection.Descending)
+            .Select(x => x.LexoRank)
+            .FirstOrDefaultAsync(ct);
+        
+        var targetLexoRank = targetRank is not null ? LexoRank.Parse(targetRank) : null;
+        var closestLexoRank = closestRank is not null ? LexoRank.Parse(closestRank) : null;
+
+        var (previous, next) = targetType == OrderTargetType.After
+            ? (targetLexoRank, closestLexoRank)
+            : (closestLexoRank, targetLexoRank);
+        
+        foreach (var issueId in issueIds)
+        {
+            var newRank = LexoRank.Between(previous, next);
+            previous = newRank;
+
+            var entity = new Issue
+            {
+                Id = issueId,
+                LexoRank = newRank.ToString(),
+            };
+            
+            context.Attach(entity);
+            context.Entry(entity).Property(x => x.LexoRank).IsModified = true;
+        }
+        
+        await context.SaveChangesAsync(ct);
+    }
+
     private Task AttachIssueFiles(
         long issueId,
         Guid ownerId,
@@ -377,13 +583,13 @@ public class CoreIssuesService(
         };
     }
 
-    private Task<int> TouchMessageBoard(long issueId, DateTime touchedAt, CancellationToken ct)
+    private Task<int> TouchEpics(long[] epicIds, DateTime touchedAt, CancellationToken ct)
     {
-        return context.Issues.Where(x => x.Id == issueId)
-            .Select(x => x.Status!.Epic)
+        return context.Epics
+            .Where(x => ((IEnumerable<long>)epicIds).Contains(x.Id))
             .ExecuteUpdateAsync(x => x
                 .SetProperty(
-                    p => p!.TouchedAt,
+                    p => p.TouchedAt,
                     old => old!.TouchedAt > touchedAt ? old.TouchedAt : touchedAt),
                 ct);
     }
@@ -402,4 +608,10 @@ public record UpdateIssueTextAttributeRequest : UpdateIssueAttributeRequest
 public record UpdateIssueListAttributeRequest : UpdateIssueAttributeRequest
 {
     public required long Value { get; set; }
+}
+
+public enum OrderTargetType
+{
+    After,
+    Before,
 }

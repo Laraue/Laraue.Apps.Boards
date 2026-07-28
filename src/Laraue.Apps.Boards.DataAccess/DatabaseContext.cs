@@ -58,6 +58,14 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasOperators("gin_trgm_ops");
 
             entity.HasIndex(x => x.AssigneeId);
+            
+            entity.Property(x => x.LexoRank)
+                .HasMaxLength(34)
+                .IsFixedLength()
+                .UseCollation("C")
+                .IsRequired();
+
+            entity.HasIndex(x => x.LexoRank);
         });
         
         modelBuilder.Entity<IssueNumber>(entity =>

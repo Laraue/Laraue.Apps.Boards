@@ -10,7 +10,7 @@ public class Issue
     /// Message content.
     /// </summary>
     [MaxLength(4096)]
-    public required string? Content { get; set; }
+    public string? Content { get; set; }
     
     /// <summary>
     /// Issue creation date.
@@ -42,6 +42,11 @@ public class Issue
     
     public TelegramMessage? TelegramMessage { get; set; }
     public long? TelegramMessageId { get; set; }
+
+    /// <summary>
+    /// The field used for sorting
+    /// </summary>
+    public required string LexoRank { get; set; }
     
     public IssueNumber? IssueNumber { get; set; }
     public List<IssueAttributeTextValue>? TextAttributes { get; set; }
