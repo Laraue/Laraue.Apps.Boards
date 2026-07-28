@@ -572,6 +572,7 @@ public class IssuesService(
                 x.Owner.TelegramFirstName,
                 x.Owner.TelegramLastName,
                 x.Owner.TelegramUserName,
+                CanModify = x.OwnerId == request.AuthData.UserId,
                 Attachments = x.Attachments
                     .Select(a => new AttachmentData
                     {
@@ -598,6 +599,7 @@ public class IssuesService(
                 Text = commentData.Text,
                 CreatedAt = commentData.CreatedAt,
                 UpdatedAt = commentData.UpdatedAt,
+                CanModify = commentData.CanModify,
                 Owner = new UserDetails
                 {
                     Color = commentData.Color,
@@ -1508,6 +1510,7 @@ public record CommentDto
     public required List<AttachmentData> Attachments { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public bool CanModify { get; set; }
     public required UserDetails Owner { get; set; }
 }
 
