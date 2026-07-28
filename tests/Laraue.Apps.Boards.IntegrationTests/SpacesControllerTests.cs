@@ -19,7 +19,7 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
         
-        var spaceId = await _spacesController
+        var spaceKey = await _spacesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateSpaceRequest
@@ -31,7 +31,7 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
 
         var spaces = await testScope.Database.Spaces.Include(x => x.Epics).ToListAsyncEF();
         
-        var space = spaces.First(x => x.Id == spaceId);
+        var space = spaces.First(x => x.Key == spaceKey);
         Assert.Equal("Space 1", space.Name);
         Assert.Equal("#ffffff", space.Color);
         Assert.Equal(userId, space.CreatorId);
@@ -53,7 +53,7 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddUser(participatorId, builder => builder
                 .SetGlobalAccessLevel(x => x.CanCreateSpaces = true)));
         
-        var spaceId = await _spacesController
+        var spaceKey = await _spacesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateSpaceRequest
@@ -64,7 +64,7 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
                 }));
 
         var spaces = await testScope.Database.Spaces.Include(s => s.Users).ToListAsyncEF();
-        var space = spaces.First(x => x.Id == spaceId);
+        var space = spaces.First(x => x.Key == spaceKey);
         Assert.Equal(participatorId, space.CreatorId);
     }
     
@@ -101,14 +101,14 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddSpace(participatorId, s => s
                 .WithName("Space created by Participator")));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var spaces = await _spacesController
             .WithOrganizationAuthorization(organization.Id, ownerId)
             .Execute(x => x.GetAll());
         
         Assert.Equal(2, spaces!.Length);
-        var space = spaces.First(x => x.Id == spaceId);
+        var space = spaces.First(x => x.Key == spaceKey);
         Assert.Equal("Space created by Participator", space.Name);
     }
     
@@ -294,11 +294,11 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddUser(otherSpaceMemberId, b => b
                 .SetSpaceAccessLevel(1, x => x.CanRead = true))); // User in different space
 
-        var spaceId = organization.Spaces![0].Id;
+        var spaceKey = organization.Spaces![0].Key;
         
         var members = await _spacesController
             .WithOrganizationAuthorization(organization.Id, otherSpaceMemberId)
-            .Execute(x => x.GetSpaceMembers(spaceId));
+            .Execute(x => x.GetSpaceMembers(spaceKey));
         
         Assert.Equal(2, members!.Length);
         Assert.Equal(["aa", "bb"], members.Select(x => x.Initials).OrderBy(x => x));

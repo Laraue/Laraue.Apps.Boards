@@ -8,7 +8,7 @@ namespace Laraue.Apps.Boards.Services;
 
 public interface ICoreSpacesService
 {
-    Task<long> Create(
+    Task<string> Create(
         long organizationId,
         Guid creatorId,
         string key,
@@ -31,7 +31,7 @@ public class CoreSpacesService(
     IDateTimeProvider dateTimeProvider)
     : ICoreSpacesService
 {
-    public async Task<long> Create(
+    public async Task<string> Create(
         long organizationId,
         Guid creatorId,
         string key,
@@ -59,7 +59,7 @@ public class CoreSpacesService(
         context.Spaces.Add(entity);
         await context.SaveChangesAsync(cancellationToken);
         
-        return entity.Id;
+        return entity.Key;
     }
 
     public Task Update(long id, Action<UpdateSettersBuilder<Space>> setters, CancellationToken cancellationToken)

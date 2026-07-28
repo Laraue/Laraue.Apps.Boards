@@ -1,5 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
+using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 
@@ -15,7 +17,7 @@ public interface ISpacesService
         GetSpaceRequest request,
         CancellationToken cancellationToken);
     
-    Task<long> Create(
+    Task<string> Create(
         CreateSpaceRequest request,
         CancellationToken cancellationToken);
     
@@ -35,7 +37,8 @@ public interface ISpacesService
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
     IAccessService accessService,
-    IOrganizationAccessService organizationAccessService)
+    IOrganizationAccessService organizationAccessService,
+    DatabaseContext context)
     : ISpacesService
 {
     public async Task<SpaceListDto[]> GetSpaces(
@@ -47,7 +50,6 @@ public class SpacesService(
             items => items
                 .Select(x => new SpaceListDto
                 {
-                    Id = x.Id,
                     Name = x.Name,
                     Color = x.Color,
                     Key = x.Key,
@@ -61,11 +63,13 @@ public class SpacesService(
 
     public async Task<SpaceDetailsDto> GetSpace(GetSpaceRequest request, CancellationToken cancellationToken)
     {
+        var spaceId = await GetSpaceIdBySpaceKey(request.AuthData, request.Key);
+        
         var spaceAccessLevel = await accessService
-            .GetAccessLevelsBySpaceId(request.AuthData, request.Id, cancellationToken);
+            .GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken);
         
         if (spaceAccessLevel is null)
-            throw new NotFoundException($"Space: {request.Id} is not found");
+            throw new NotFoundException($"Space: {request.Key} is not found");
         
         return new SpaceDetailsDto
         {
@@ -75,7 +79,7 @@ public class SpacesService(
         };
     }
 
-    public async Task<long> Create(CreateSpaceRequest request, CancellationToken cancellationToken)
+    public async Task<string> Create(CreateSpaceRequest request, CancellationToken cancellationToken)
     {
         await organizationAccessService.CanCreateSpacesOrThrow(
             request.AuthData.OrganizationId,
@@ -131,9 +135,11 @@ public class SpacesService(
 
     public async Task<SpaceMember[]> GetMembers(GetSpaceMembersRequest request, CancellationToken cancellationToken)
     {
+        var spaceId = await GetSpaceIdBySpaceKey(request.AuthData, request.Key);
+        
         var members = await accessService.GetSpaceMembers(
             request.AuthData,
-            request.SpaceId,
+            spaceId,
             query => query
                 .Select(x => new
                 {
@@ -164,6 +170,15 @@ public class SpacesService(
         }
         
         return result.ToArray();
+    }
+
+    private Task<long> GetSpaceIdBySpaceKey(OrganizationAuthData authData, string spaceKey)
+    {
+        return context.Spaces
+            .Where(x => x.OrganizationId == authData.OrganizationId)
+            .Where(x => x.Key == spaceKey)
+            .Select(x => x.Id)
+            .FirstOrThrowNotFoundEFAsync($"Space: {spaceKey} is not found");
     }
 }
 
@@ -216,7 +231,6 @@ public record GetSpacesRequest
 
 public record SpaceListDto
 {
-    public required long Id { get; set; }
     public required string Name { get; set; }
     public required string Color { get; set; }
     public required string Key { get; set; }
@@ -226,7 +240,7 @@ public record SpaceListDto
 public record GetSpaceRequest
 {
     public required OrganizationAuthData AuthData { get; set; }
-    public long Id { get; set; }
+    public required string Key { get; set; }
 }
 
 public record SpaceDetailsDto
@@ -239,7 +253,7 @@ public record SpaceDetailsDto
 public record GetSpaceMembersRequest
 {
     public required OrganizationAuthData AuthData { get; set; }
-    public long SpaceId { get; set; }
+    public required string Key { get; set; }
 }
 
 public record SpaceMember
