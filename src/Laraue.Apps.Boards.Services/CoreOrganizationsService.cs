@@ -287,18 +287,23 @@ public class CoreOrganizationsService(
 
         var spaceAccessLevels = await context.DirectSpacePermissions
             .Where(x => x.OrganizationUserId == organizationUserId)
-            .ToDictionaryAsyncEF(x => x.Space!.Key, x => new DirectSpaceAccessLevel
+            .Select(x => new
             {
-                CanCreateEpics = x.CanCreateEpics,
-                CanUpdateEpics = x.CanUpdateEpics,
-                CanDeleteEpics = x.CanDeleteEpics,
-                CanCreateIssues = x.CanCreateIssues,
-                CanUpdateIssues = x.CanUpdateIssues,
-                CanDeleteIssues = x.CanDeleteIssues,
-                CanRead = x.CanRead,
-                CanDelete = x.CanDelete,
-                CanUpdate = x.CanUpdate,
-            }, cancellationToken);
+                SpaceKey = x.Space!.Key,
+                AccessLevel = new DirectSpaceAccessLevel
+                {
+                    CanCreateEpics = x.CanCreateEpics,
+                    CanUpdateEpics = x.CanUpdateEpics,
+                    CanDeleteEpics = x.CanDeleteEpics,
+                    CanCreateIssues = x.CanCreateIssues,
+                    CanUpdateIssues = x.CanUpdateIssues,
+                    CanDeleteIssues = x.CanDeleteIssues,
+                    CanRead = x.CanRead,
+                    CanDelete = x.CanDelete,
+                    CanUpdate = x.CanUpdate,
+                },
+            })
+            .ToDictionaryAsyncEF(x => x.SpaceKey, x => x.AccessLevel, cancellationToken);
 
         var permissions = new UserPermissions
         {

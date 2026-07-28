@@ -20,7 +20,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
         var organization = await testScope.InitializeOrganization(userId, org => org
             .AddSpace(userId));
         
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         var epicId = await _epicsController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
@@ -28,7 +28,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
                 {
                     Name = "Epic 1",
                     Color = "#fffff1",
-                    SpaceId = spaceId,
+                    SpaceKey = spaceKey,
                 }));
 
         var epics = await testScope.Database.Epics
@@ -58,7 +58,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
             .AddUser(participatorId, builder => builder
                 .SetGlobalAccessLevel(x => x.CanCreateEpics = true)));
         
-        var spaceId = organization.Spaces![0].Id;
+        var spaceKey = organization.Spaces![0].Key;
         
         var epicId = await _epicsController
             .WithOrganizationAuthorization(organization.Id, participatorId)
@@ -67,7 +67,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
                 {
                     Name = "Epic 1",
                     Color = "#fffff1",
-                    SpaceId = spaceId,
+                    SpaceKey = spaceKey,
                 }));
         
         Assert.NotEqual(0, epicId);
@@ -83,7 +83,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
             .AddUser(participatorId, builder => builder
                 .SetSpaceAccessLevel(0, x => x.CanCreateEpics = true)));
         
-        var spaceId = organization.Spaces![0].Id;
+        var spaceKey = organization.Spaces![0].Key;
         
         var epicId = await _epicsController
             .WithOrganizationAuthorization(organization.Id, participatorId)
@@ -92,7 +92,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
                 {
                     Name = "Epic 1",
                     Color = "#fffff1",
-                    SpaceId = spaceId,
+                    SpaceKey = spaceKey,
                 }));
         
         Assert.NotEqual(0, epicId);

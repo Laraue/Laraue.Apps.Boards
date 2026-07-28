@@ -312,6 +312,8 @@ public class CoreIssuesService(
             CreatedAt = dateTimeProvider.UtcNow,
             UpdatedAt = dateTimeProvider.UtcNow,
         };
+
+        context.Add(issueComment);
         
         foreach (var mediaInfo in mediaInfos)
         {

@@ -117,7 +117,7 @@ public class MovementService(
             query => query
                 .Select(x => new DestinationSpace
                 {
-                    Id = x.Id,
+                    Key = x.Key,
                     Color = x.Color,
                     Name = x.Name,
                 })
@@ -189,7 +189,7 @@ public record GetDestinationSpacesRequest
 
 public record DestinationSpace
 {
-    public required long Id { get; set; }
+    public required string Key { get; set; }
     public required string Name { get; set; }
     public required string Color { get; set; }
 }

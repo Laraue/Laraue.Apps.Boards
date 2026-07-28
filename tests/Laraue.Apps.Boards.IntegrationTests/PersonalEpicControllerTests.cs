@@ -20,7 +20,7 @@ public class PersonalEpicControllerTests(WebApiTestHost host) : IClassFixture<We
             userId,
             setup => setup.AddSpace(userId));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var epicId = await _epicsController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -29,7 +29,7 @@ public class PersonalEpicControllerTests(WebApiTestHost host) : IClassFixture<We
                 {
                     Name = "Epic 1",
                     Color = "#ffffff",
-                    SpaceId = spaceId,
+                    SpaceKey = spaceKey,
                 }));
 
         var epic = await testScope.Database.Epics.FirstAsyncEF(e => e.Id == epicId);

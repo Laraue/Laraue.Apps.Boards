@@ -120,16 +120,21 @@ public class EpicsService(
         CreateEpicRequest request,
         CancellationToken cancellationToken)
     {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.SpaceKey,
+            cancellationToken);
+
         if (!await accessService
             .CanCreateEpics(
                 request.AuthData,
-                request.SpaceId,
+                spaceId,
                 cancellationToken))
             throw new NotFoundException(
-                $"Space: {request.SpaceId} is not exists");
+                $"Space: {request.SpaceKey} is not exists");
         
         return await coreEpicsService.Create(
-            request.SpaceId,
+            spaceId,
             request.AuthData.UserId,
             request.Name,
             request.Color,
@@ -243,7 +248,7 @@ public record CreateEpicRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     
-    public long SpaceId { get; set; }
+    public required string SpaceKey { get; set; }
     
     [MaxLength(128)]
     public required string Name { get; set; }

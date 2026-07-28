@@ -5,6 +5,7 @@ using Laraue.Core.DateTime.Services.Impl;
 using Laraue.Core.Exceptions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using System.Text.Json.Serialization;
 using Telegram.Bot;
 
 namespace Laraue.Apps.Boards.WebApiHost;
@@ -36,7 +37,12 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()
                 .AddScoped<ExceptionHandleMiddleware>();
             
-            builder.Services.AddControllers();
+            builder.Services
+                .AddControllers()
+                .AddJsonOptions(options =>
+                    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+            builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
+                options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
             
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddOpenApi();
