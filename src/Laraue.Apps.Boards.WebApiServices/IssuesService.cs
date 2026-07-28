@@ -457,9 +457,17 @@ public class IssuesService(
             {
                 if (request.EpicIds.Length > 0)
                     issues = issues.Where(x => ((IEnumerable<long>)request.EpicIds).Contains(x.Status!.EpicId));
-        
-                if (request.SpaceIds.Length > 0)
-                    issues = issues.Where(x => ((IEnumerable<long>)request.SpaceIds).Contains(x.Status!.Epic!.SpaceId));
+
+                if (request.SpaceKeys.Length > 0)
+                {
+                    var spaceIds = await context.Spaces
+                        .Where(x => ((IEnumerable<string>)request.SpaceKeys).Contains(x.Key))
+                        .Select(x => x.Id)
+                        .ToArrayAsyncEF(ct);
+                    
+                    if (spaceIds.Length > 0)
+                        issues = issues.Where(x => ((IEnumerable<long>)spaceIds).Contains(x.Status!.Epic!.SpaceId));
+                }
                 
                 issues = await ApplyFilters(issues, request, ct);
                 issues = await ApplySorting(issues, request, ct);
@@ -1297,7 +1305,7 @@ public class IssuesService(
 
 public record GetIssuesRequest : BatchRequest, IHasAttributeFilters, IHasSorting
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long StatusId { get; set; }
     public string? SearchString { get; set; }
     public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
@@ -1306,13 +1314,13 @@ public record GetIssuesRequest : BatchRequest, IHasAttributeFilters, IHasSorting
 
 public record GetIssueRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public required IssueKey IssueKey { get; set; }
 }
 
 public record GetBoardRequest : IHasAttributeFilters, IHasSorting
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long EpicId { get; set; }
     
     [Range(1, 100)]
@@ -1324,7 +1332,7 @@ public record GetBoardRequest : IHasAttributeFilters, IHasSorting
 
 public record GetBoardSummaryRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long SpaceId { get; set; }
 }
 
@@ -1470,7 +1478,7 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public long[] EpicIds { get; set; } = [];
-    public long[] SpaceIds { get; set; } = [];
+    public string[] SpaceKeys { get; set; } = [];
     public string? SearchString { get; set; }
     public int Page { get; init; }
     public int PerPage { get; init; }

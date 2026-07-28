@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
@@ -23,6 +24,11 @@ public interface ICoreSpacesService
     
     Task Delete(
         long id,
+        CancellationToken cancellationToken);
+
+    Task<long> GetSpaceIdBySpaceKey(
+        long organizationId,
+        string spaceKey,
         CancellationToken cancellationToken);
 }
 
@@ -91,5 +97,14 @@ public class CoreSpacesService(
             .ExecuteDeleteAsync(cancellationToken);
         
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    public Task<long> GetSpaceIdBySpaceKey(long organizationId, string spaceKey, CancellationToken cancellationToken)
+    {
+        return context.Spaces
+            .Where(x => x.OrganizationId == organizationId)
+            .Where(x => x.Key == spaceKey)
+            .Select(x => x.Id)
+            .FirstOrThrowNotFoundEFAsync($"Space: {spaceKey} is not found", cancellationToken);
     }
 }

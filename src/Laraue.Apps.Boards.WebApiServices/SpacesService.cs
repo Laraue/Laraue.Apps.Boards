@@ -37,8 +37,7 @@ public interface ISpacesService
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
     IAccessService accessService,
-    IOrganizationAccessService organizationAccessService,
-    DatabaseContext context)
+    IOrganizationAccessService organizationAccessService)
     : ISpacesService
 {
     public async Task<SpaceListDto[]> GetSpaces(
@@ -63,7 +62,10 @@ public class SpacesService(
 
     public async Task<SpaceDetailsDto> GetSpace(GetSpaceRequest request, CancellationToken cancellationToken)
     {
-        var spaceId = await GetSpaceIdBySpaceKey(request.AuthData, request.Key);
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.Key,
+            cancellationToken);
         
         var spaceAccessLevel = await accessService
             .GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken);
@@ -97,45 +99,58 @@ public class SpacesService(
 
     public async Task Update(UpdateSpaceRequest request, CancellationToken cancellationToken)
     {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.OldKey,
+            cancellationToken);
+        
         var accessLevel = await accessService.GetAccessLevelsBySpaceId(
             request.AuthData,
-            request.Id,
+            spaceId,
             cancellationToken);
 
         if (accessLevel is null)
-            throw new NotFoundException($"Space: {request.Id} is not found");
+            throw new NotFoundException($"Space: {request.OldKey} is not found");
         
         if (!accessLevel.CanUpdateSpace)
-            throw new ForbiddenException($"Space: {request.Id} is not accessible");
+            throw new ForbiddenException($"Space: {request.OldKey} is not accessible");
 
         await coreSpacesService.Update(
-            request.Id,
+            spaceId,
             setters => setters
                 .SetProperty(x => x.Color, request.Color)
                 .SetProperty(x => x.Name, request.Name)
-                .SetProperty(x => x.Key, request.Key.ToUpper()),
+                .SetProperty(x => x.Key, request.NewKey.ToUpper()),
             cancellationToken);
     }
 
     public async Task Delete(DeleteSpaceRequest request, CancellationToken cancellationToken)
     {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.Key,
+            cancellationToken);
+        
         var accessLevel = await accessService.GetAccessLevelsBySpaceId(
             request.AuthData,
-            request.Id,
+            spaceId,
             cancellationToken);
 
         if (accessLevel is null)
-            throw new NotFoundException($"Space: {request.Id} is not found");
+            throw new NotFoundException($"Space: {request.Key} is not found");
         
         if (!accessLevel.CanDeleteSpace)
-            throw new ForbiddenException($"Space: {request.Id} is not accessible");
+            throw new ForbiddenException($"Space: {request.Key} is not accessible");
         
-        await coreSpacesService.Delete(request.Id, cancellationToken);
+        await coreSpacesService.Delete(spaceId, cancellationToken);
     }
 
     public async Task<SpaceMember[]> GetMembers(GetSpaceMembersRequest request, CancellationToken cancellationToken)
     {
-        var spaceId = await GetSpaceIdBySpaceKey(request.AuthData, request.Key);
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.Key,
+            cancellationToken);
         
         var members = await accessService.GetSpaceMembers(
             request.AuthData,
@@ -171,15 +186,6 @@ public class SpacesService(
         
         return result.ToArray();
     }
-
-    private Task<long> GetSpaceIdBySpaceKey(OrganizationAuthData authData, string spaceKey)
-    {
-        return context.Spaces
-            .Where(x => x.OrganizationId == authData.OrganizationId)
-            .Where(x => x.Key == spaceKey)
-            .Select(x => x.Id)
-            .FirstOrThrowNotFoundEFAsync($"Space: {spaceKey} is not found");
-    }
 }
 
 public record CreateSpaceRequest
@@ -201,9 +207,9 @@ public record CreateSpaceRequest
 
 public record UpdateSpaceRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
-    
-    public long Id { get; set; }
+    public OrganizationAuthData AuthData { get; set; }
+
+    public string OldKey { get; set; } = string.Empty;
     
     [MaxLength(128)]
     [MinLength(3)]
@@ -215,13 +221,13 @@ public record UpdateSpaceRequest
     
     [MaxLength(3)]
     [MinLength(3)]
-    public required string Key { get; set; }
+    public required string NewKey { get; set; }
 }
 
 public record DeleteSpaceRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
-    public long Id { get; set; }
+    public OrganizationAuthData AuthData { get; set; }
+    public required string Key { get; set; }
 }
 
 public record GetSpacesRequest

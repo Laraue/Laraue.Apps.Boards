@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -35,17 +36,23 @@ public interface IEpicsService
 
 public class EpicsService(
     ICoreEpicsService coreEpicsService,
-    IAccessService accessService)
+    IAccessService accessService,
+    ICoreSpacesService coreSpacesService)
     : IEpicsService
 {
-    public Task<EpicListDto[]> GetSpaceEpics(
+    public async Task<EpicListDto[]> GetSpaceEpics(
         GetEpicsRequest request,
         CancellationToken cancellationToken)
     {
-        return accessService.GetAvailableEpics(
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.Key,
+            cancellationToken);
+        
+        return await accessService.GetAvailableEpics(
             request.AuthData,
             epics => epics
-                .Where(x => x.SpaceId == request.SpaceId)
+                .Where(x => x.SpaceId == spaceId)
                 .OrderBy(x => x.IsDefault ? 0 : 1)
                 .ThenBy(x => x.Name)
                 .Select(x => new EpicListDto
@@ -275,5 +282,5 @@ public record DeleteEpicRequest
 public record GetEpicsRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
-    public long SpaceId { get; set; }
+    public required string Key { get; set; }
 }

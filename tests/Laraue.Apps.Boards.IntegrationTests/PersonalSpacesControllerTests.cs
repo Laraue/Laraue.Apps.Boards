@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
@@ -48,22 +49,22 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
         var organization = await testScope.InitializePersonalOrganization(userId, org => org
             .AddSpace(userId, space => space.WithTimestamp(timestamp)));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         await _spacesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
-                spaceId,
+                spaceKey,
                 new UpdateSpaceRequest
                 {
                     Name = "Space 1",
                     Color = "#ffffff",
-                    Key = "spb"
+                    NewKey = "spb"
                 }));
 
         var spaces = await testScope.Database.Spaces.ToListAsyncEF();
         
-        var space = spaces.First(x => x.Id == spaceId);
+        var space = spaces.First(x => x.Key == "SPB");
         Assert.Equal("Space 1", space.Name);
         Assert.Equal("#ffffff", space.Color);
         Assert.Equal("SPB", space.Key);
@@ -81,15 +82,15 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
         var organization = await testScope.InitializePersonalOrganization(userId, org => org
             .AddSpace(userId));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         await _spacesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.Delete(spaceId));
+            .Execute(x => x.Delete(spaceKey));
 
         var spaces = await testScope.Database.Spaces.ToListAsyncEF();
         
-        var space = spaces.FirstOrDefault(x => x.Id == spaceId);
+        var space = spaces.FirstOrDefault(x => x.Key == spaceKey);
         Assert.Null(space);
     }
     
@@ -163,7 +164,7 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
         
         var epics = await _spacesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetSpaceEpics(space.Id));
+            .Execute(x => x.GetSpaceEpics(space.Key));
         
         Assert.Equal(2, epics!.Length);
         var epic = epics.FirstOrDefault(e => e.Id == epicId);
@@ -189,10 +190,11 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
         
         var space = organization.Spaces![1];
 
-        var epics = await _spacesController
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _spacesController
             .WithOrganizationAuthorization(secondOrganization.Id, nonPermittedUserId)
-            .Execute(x => x.GetSpaceEpics(space.Id));
+            .Execute(x => x.GetSpaceEpics(space.Key)));
         
-        Assert.Empty(epics!);
+        var notFound = ex.HasInnerException<NotFoundException>();
+        Assert.Equal($"Space: {space.Key} is not found", notFound.Message);
     }
 }
