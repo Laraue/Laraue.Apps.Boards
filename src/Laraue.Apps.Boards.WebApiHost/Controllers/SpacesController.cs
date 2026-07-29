@@ -22,30 +22,30 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
             cancellationToken);
     }
     
-    [HttpPut("{id:long}")]
+    [HttpPut("{key}")]
     public Task Update(
-        long id,
+        string key,
         [FromBody] UpdateSpaceRequest request,
         CancellationToken cancellationToken = default)
     {
         return spacesService.Update(
             request with
             {
-                Id = id,
+                OldKey = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);
     }
     
-    [HttpDelete("{id:long}")]
+    [HttpDelete("{key}")]
     public Task Delete(
-        long id,
+        string key,
         CancellationToken cancellationToken = default)
     {
         return spacesService.Delete(
             new DeleteSpaceRequest
             {
-                Id = id,
+                Key = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);
@@ -77,14 +77,14 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
             cancellationToken);
     }
     
-    [HttpGet("{id:long}/epics")]
+    [HttpGet("{key}/epics")]
     public Task<EpicListDto[]> GetSpaceEpics(
-        long id,
+        string key,
         CancellationToken cancellationToken = default) => 
         epicsService.GetSpaceEpics(
             new GetEpicsRequest
             {
-                SpaceId = id,
+                Key = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);

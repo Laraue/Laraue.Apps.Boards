@@ -519,7 +519,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
                     SearchString = "app",
                     Page = 0,
                     PerPage = 10,
-                    SpaceIds = new [] { space.Id },
+                    SpaceKeys = new [] { space.Key },
                 }));
         
         Assert.NotNull(searchResult);

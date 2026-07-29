@@ -177,11 +177,11 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddSpace(participatorId, s => s
                 .WithName("Space created by Participator")));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var epics = await _spacesController
             .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.GetSpaceEpics(spaceId));
+            .Execute(x => x.GetSpaceEpics(spaceKey));
         
         var epic = Assert.Single(epics!);
         Assert.Equal("Backlog", epic.Name);
@@ -199,11 +199,11 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddSpace(ownerId, s => s
                 .AddEpic(ownerId)));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var epics = await _spacesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetSpaceEpics(spaceId));
+            .Execute(x => x.GetSpaceEpics(spaceKey));
         
         Assert.Equal(2, epics!.Length);
     }
@@ -220,11 +220,11 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddSpace(ownerId, s => s
                 .AddEpic(ownerId)));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var epics = await _spacesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetSpaceEpics(spaceId));
+            .Execute(x => x.GetSpaceEpics(spaceKey));
         
         Assert.Empty(epics!);
     }
@@ -241,11 +241,11 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddSpace(ownerId, s => s
                 .AddEpic(ownerId)));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var epics = await _spacesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetSpaceEpics(spaceId));
+            .Execute(x => x.GetSpaceEpics(spaceKey));
         
         Assert.Equal(2, epics!.Length);
     }
@@ -262,11 +262,11 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .AddSpace(ownerId, s => s
                 .AddEpic(ownerId)));
 
-        var spaceId = organization.Spaces![1].Id;
+        var spaceKey = organization.Spaces![1].Key;
         
         var epics = await _spacesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetSpaceEpics(spaceId));
+            .Execute(x => x.GetSpaceEpics(spaceKey));
         
         Assert.Equal(2, epics!.Length);
     }

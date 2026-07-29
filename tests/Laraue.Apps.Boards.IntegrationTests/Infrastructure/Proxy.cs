@@ -20,7 +20,10 @@ namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
 public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TController : ControllerBase
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
     private static readonly Regex TemplateParameterRegex = new("{(\\w+)(?::(\\w+))?}", RegexOptions.Compiled);
 
     public async Task<T?> Execute<T>(Expression<Func<TController, Task<T>>> makeCall)
@@ -29,7 +32,7 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
         var response = await ExecuteInternal(nonGenericCall);
         if (typeof(T) == typeof(string))
             return (dynamic) await response.Content.ReadAsStringAsync();
-        return await response.Content.ReadFromJsonAsync<T>();
+        return await response.Content.ReadFromJsonAsync<T>(JsonOptions);
     }
 
     public Task Execute(Expression<Func<TController, Task>> makeCall)

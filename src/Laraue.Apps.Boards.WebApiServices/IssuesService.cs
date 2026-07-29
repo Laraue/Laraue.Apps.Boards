@@ -86,7 +86,8 @@ public class IssuesService(
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
     IOrganizationAccessService organizationAccessService,
-    ICoreFilesService coreFilesService)
+    ICoreFilesService coreFilesService,
+    ICoreSpacesService coreSpacesService)
     : IIssuesService
 {
     public async Task<BatchResult<IssueListDto>> GetIssues(
@@ -224,10 +225,15 @@ public class IssuesService(
         GetBoardSummaryRequest request,
         CancellationToken cancellationToken)
     {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.SpaceKey,
+            cancellationToken);
+
         var epics = await accessService.GetAvailableEpics(
             request.AuthData,
             epics => epics
-                .Where(x => x.SpaceId == request.SpaceId)
+                .Where(x => x.SpaceId == spaceId)
                 .Select(x => new
                 {
                     x.Id,
@@ -457,9 +463,18 @@ public class IssuesService(
             {
                 if (request.EpicIds.Length > 0)
                     issues = issues.Where(x => ((IEnumerable<long>)request.EpicIds).Contains(x.Status!.EpicId));
-        
-                if (request.SpaceIds.Length > 0)
-                    issues = issues.Where(x => ((IEnumerable<long>)request.SpaceIds).Contains(x.Status!.Epic!.SpaceId));
+
+                if (request.SpaceKeys.Length > 0)
+                {
+                    var spaceIds = await context.Spaces
+                        .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
+                        .Where(x => ((IEnumerable<string>)request.SpaceKeys).Contains(x.Key))
+                        .Select(x => x.Id)
+                        .ToArrayAsyncEF(ct);
+                    
+                    if (spaceIds.Length > 0)
+                        issues = issues.Where(x => ((IEnumerable<long>)spaceIds).Contains(x.Status!.Epic!.SpaceId));
+                }
                 
                 issues = await ApplyFilters(issues, request, ct);
                 issues = await ApplySorting(issues, request, ct);
@@ -647,7 +662,7 @@ public class IssuesService(
             CanEdit = issueAccessLevels.CanUpdateIssue,
             AttributeValues = attributeValues,
             Key = $"{result.SpaceKey}-{result.Number}",
-            SpaceId = result.SpaceId,
+            SpaceKey = result.SpaceKey,
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
@@ -947,10 +962,12 @@ public class IssuesService(
         IList<IssueListDto> elements,
         CancellationToken ct)
     {
+        var spaceKeys = elements.Select(y => y.SpaceKey).Distinct().ToArray();
         var spaces = await context.Spaces
-            .Where(x => elements.Select(y => y.SpaceId).Distinct().Contains(x.Id))
+            .Where(x => x.OrganizationId == authData.OrganizationId)
+            .Where(x => spaceKeys.Contains(x.Key))
             .ToDictionaryAsyncEF(
-                x => x.Id,
+                x => x.Key,
                 x => new NameAndColor
                 {
                     Name = x.Name,
@@ -981,8 +998,8 @@ public class IssuesService(
         var spacesWithAllowedUpdate = (await accessService.GetSpacesWithAllowedIssuesUpdate(
             authData,
             query => query
-                .Where(x => spaces.Select(s => s.Key).Contains(x.Id))
-                .Select(x => x.Id)
+                .Where(x => spaces.Keys.Contains(x.Key))
+                .Select(x => x.Key)
                 .ToArrayAsyncEF(ct),
             ct))
             .ToHashSet();
@@ -997,8 +1014,8 @@ public class IssuesService(
                 Epic = epics[element.EpicId],
                 StatusId = element.StatusId,
                 Status = statuses.GetValueOrDefault(element.StatusId),
-                SpaceId = element.SpaceId,
-                Space = spaces[element.SpaceId],
+                SpaceKey = element.SpaceKey,
+                Space = spaces[element.SpaceKey],
                 Id = element.Id,
                 Content = element.Content,
                 Key = element.Key,
@@ -1007,7 +1024,7 @@ public class IssuesService(
                 Time = element.Time,
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
-                CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceId),
+                CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceKey),
             });
         }
         
@@ -1122,7 +1139,7 @@ public class IssuesService(
             Time = source.Time,
             AssigneeColor = source.AssigneeUserColor,
             Key = new IssueKey(source.SpaceKey, source.Number).ToString(),
-            SpaceId = source.SpaceId,
+            SpaceKey = source.SpaceKey,
         };
     }
     
@@ -1221,7 +1238,7 @@ public class IssuesService(
         return request.Sorting switch
         {
             null =>
-                Task.FromResult<IQueryable<Issue>>(query.OrderBy(x => x.LexoRank).ThenBy(x => x.Id)),
+                Task.FromResult<IQueryable<Issue>>(query.OrderBy(x => x.LexoRank)),
             ByAttributeIssueSorting byAttributeIssueSorting =>
                 ApplyByAttributeSorting(query, byAttributeIssueSorting, request.AuthData, cancellationToken),
             ByPropertyIssueSorting byPropertyIssueSorting =>
@@ -1297,7 +1314,7 @@ public class IssuesService(
 
 public record GetIssuesRequest : BatchRequest, IHasAttributeFilters, IHasSorting
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public long StatusId { get; set; }
     public string? SearchString { get; set; }
     public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
@@ -1306,17 +1323,17 @@ public record GetIssuesRequest : BatchRequest, IHasAttributeFilters, IHasSorting
 
 public record GetIssueRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
+    public OrganizationAuthData AuthData { get; set; }
     public required IssueKey IssueKey { get; set; }
 }
 
 public record GetBoardRequest : IHasAttributeFilters, IHasSorting
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
-    public long EpicId { get; set; }
+    public OrganizationAuthData AuthData { get; set; }
+    public required long EpicId { get; set; }
     
     [Range(1, 100)]
-    public int Take { get; init; }
+    public required int Take { get; init; }
     public string? SearchString { get; init; }
     public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
     public IssueSorting? Sorting { get; set; }
@@ -1324,8 +1341,8 @@ public record GetBoardRequest : IHasAttributeFilters, IHasSorting
 
 public record GetBoardSummaryRequest
 {
-    public OrganizationAuthData AuthData { get; set; } = new();
-    public long SpaceId { get; set; }
+    public OrganizationAuthData AuthData { get; set; }
+    public required string SpaceKey { get; set; }
 }
 
 public record ColumnIssues
@@ -1362,7 +1379,7 @@ public record IssueListDto
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
-    public required long SpaceId { get; set; }
+    public required string SpaceKey { get; set; }
     public List<IssueListAttributeDto> Attributes { get; set; } = [];
 }
 
@@ -1395,7 +1412,7 @@ public record DeleteIssueRequest
 public record CreateIssueRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
-    public long StatusId { get; set; }
+    public required long StatusId { get; set; }
     public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
     [JsonModelBinder]
@@ -1407,7 +1424,7 @@ public record CreateIssueRequest
 [JsonDerivedType(typeof(StringAttributeValue), "string")]
 public abstract record AttributeValue
 {
-    public long AttributeId { get; set; }
+    public required long AttributeId { get; set; }
 }
 
 public record EnumAttributeValue : AttributeValue
@@ -1470,10 +1487,10 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public long[] EpicIds { get; set; } = [];
-    public long[] SpaceIds { get; set; } = [];
+    public string[] SpaceKeys { get; set; } = [];
     public string? SearchString { get; set; }
-    public int Page { get; init; }
-    public int PerPage { get; init; }
+    public required int Page { get; init; }
+    public required int PerPage { get; init; }
     public Dictionary<long, AttributeFilterValue> Filters { get; set; } = new();
     public IssueSorting? Sorting { get; set; }
 }
@@ -1493,7 +1510,7 @@ public class IssueDetailDto
     public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
-    public required long SpaceId { get; set; }
+    public required string SpaceKey { get; set; }
     public required string SpaceName { get; set; }
     public required string SpaceColor { get; set; }
     public required bool CanEdit { get; set; }
@@ -1505,12 +1522,12 @@ public class IssueDetailDto
 
 public record CommentDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Text { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
-    public bool CanModify { get; set; }
+    public required DateTime CreatedAt { get; set; }
+    public required DateTime UpdatedAt { get; set; }
+    public required bool CanModify { get; set; }
     public required UserDetails Owner { get; set; }
 }
 
@@ -1570,19 +1587,19 @@ public class IssueDetailDtoData
 public record BatchRequest
 {
     public int Skip { get; set; }
-    public int Take { get; set; }
+    public required int Take { get; set; }
 }
 
 public class BatchResult<T>
 {
-    public long Offset { get; set; }
-    public bool HasNext { get; set; }
+    public required long Offset { get; set; }
+    public required bool HasNext { get; set; }
     public required IReadOnlyCollection<T> Data { get; set; }
 }
 
 public class InitialBatchResult<T> : BatchResult<T>
 {
-    public long TotalCount { get; set; }
+    public required long TotalCount { get; set; }
 }
 
 public class ColumnSummary
@@ -1640,7 +1657,7 @@ public record ChangesIssuesOrderRequest
     /// <summary>
     /// Issue to update order key.
     /// </summary>
-    public string[] IssueKeys { get; set; } = [];
+    public required string[] IssueKeys { get; set; } = [];
     
     /// <summary>
     /// The boards card key before or after which the issue should appear.
@@ -1650,7 +1667,7 @@ public record ChangesIssuesOrderRequest
     /// <summary>
     /// Target type.
     /// </summary>
-    public OrderTargetType TargetType { get; set; }
+    public required OrderTargetType TargetType { get; set; }
 }
 
 public record UpdateIssuesStatusRequest

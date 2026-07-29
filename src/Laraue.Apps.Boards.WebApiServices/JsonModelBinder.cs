@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 
@@ -14,7 +15,10 @@ namespace Laraue.Apps.Boards.WebApiServices;
 /// </summary>
 public class JsonModelBinder : IModelBinder
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
  
     public Task BindModelAsync(ModelBindingContext bindingContext)
     {
