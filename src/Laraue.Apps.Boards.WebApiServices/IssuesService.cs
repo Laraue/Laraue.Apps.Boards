@@ -1238,7 +1238,7 @@ public class IssuesService(
         return request.Sorting switch
         {
             null =>
-                Task.FromResult<IQueryable<Issue>>(query.OrderBy(x => x.LexoRank).ThenBy(x => x.Id)),
+                Task.FromResult<IQueryable<Issue>>(query.OrderBy(x => x.LexoRank)),
             ByAttributeIssueSorting byAttributeIssueSorting =>
                 ApplyByAttributeSorting(query, byAttributeIssueSorting, request.AuthData, cancellationToken),
             ByPropertyIssueSorting byPropertyIssueSorting =>
