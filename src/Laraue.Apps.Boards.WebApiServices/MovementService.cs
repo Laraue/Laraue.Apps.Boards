@@ -59,13 +59,16 @@ public class MovementService(
         
         var spaceId = await spacesService.GetSpaceIdBySpaceKey(
             request.AuthData.OrganizationId,
-            request.SpaceKey,
+            request.SourceSpaceKey,
             cancellationToken);
         
         var newSpaceId = await spacesService.GetSpaceIdBySpaceKey(
-            request.AuthData.OrganizationId,
+            request.NewOrganizationId,
             request.NewSpaceKey,
             cancellationToken);
+
+        if (spaceId == newSpaceId)
+            throw new BadRequestException(nameof(request.NewSpaceKey), "Source and destination space cannot be the same");
 
         var sourceSpaceBelongsToCurrentOrganization = await context.Spaces
             .Where(x => x.Id == spaceId)
@@ -73,9 +76,9 @@ public class MovementService(
             .AnyAsyncEF(cancellationToken);
         
         if (!sourceSpaceBelongsToCurrentOrganization)
-            throw new ForbiddenException($"Space is not exists: {request.SpaceKey} in organization");
+            throw new ForbiddenException($"Space is not exists: {request.SourceSpaceKey} in organization");
 
-        await CanCreateEpicsOrThrow(request.AuthData.UserId, newSpaceId, cancellationToken);
+        await CanCreateEpicsOrThrow(request.AuthData.UserId, request.NewSpaceKey, newSpaceId, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await movementService.MoveSpaceEpics(spaceId, newSpaceId, cancellationToken);
@@ -86,23 +89,23 @@ public class MovementService(
     {
         await HasMassMovePermissionOrThrow(request.AuthData, cancellationToken);
         
-        var spaceId = await spacesService.GetSpaceIdBySpaceKey(
-            request.AuthData.OrganizationId,
-            request.NewSpaceKey,
-            cancellationToken);
-        
         var sourceEpicBelongsToCurrentOrganization = await context.Epics
-            .Where(x => x.Id == request.Id)
+            .Where(x => x.Id == request.SourceEpicId)
             .Where(x => x.Space!.OrganizationId == request.AuthData.OrganizationId)
             .AnyAsyncEF(cancellationToken);
         
         if (!sourceEpicBelongsToCurrentOrganization)
-            throw new ForbiddenException($"Epic is not exists: {request.Id} in organization");
+            throw new ForbiddenException($"Epic is not exists: {request.SourceEpicId} in organization");
         
-        await CanCreateEpicsOrThrow(request.AuthData.UserId, spaceId, cancellationToken);
+        var newSpaceId = await spacesService.GetSpaceIdBySpaceKey(
+            request.NewOrganizationId,
+            request.NewSpaceKey,
+            cancellationToken);
+        
+        await CanCreateEpicsOrThrow(request.AuthData.UserId, request.NewSpaceKey, newSpaceId, cancellationToken);
         
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await movementService.MoveEpic(request.Id, spaceId, cancellationToken);
+        await movementService.MoveEpic(request.SourceEpicId, newSpaceId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -127,13 +130,14 @@ public class MovementService(
 
     private async Task CanCreateEpicsOrThrow(
         Guid userId,
+        string spaceKey,
         long spaceId,
         CancellationToken cancellationToken)
     {
         var organizationId = await context.Spaces
             .Where(x => x.Id == spaceId)
             .Select(x => x.OrganizationId)
-            .FirstOrThrowNotFoundEFAsync(SpaceIsNotExistsError(spaceId), cancellationToken);
+            .FirstOrThrowNotFoundEFAsync(SpaceIsNotExistsError(spaceKey), cancellationToken);
 
         var canCreateEpicsInNewSpace = await accessService.CanCreateEpics(
             new OrganizationAuthData { OrganizationId = organizationId, UserId = userId },
@@ -141,12 +145,12 @@ public class MovementService(
             cancellationToken);
         
         if (!canCreateEpicsInNewSpace)
-            throw new ForbiddenException(SpaceIsNotExistsError(spaceId));
+            throw new ForbiddenException(SpaceIsNotExistsError(spaceKey));
     }
 
-    private static string SpaceIsNotExistsError(long spaceId)
+    private static string SpaceIsNotExistsError(string spaceKey)
     {
-        return $"Space is not exists: {spaceId} or epic creation is forbidden";
+        return $"Space is not exists: {spaceKey} or epic creation is forbidden";
     }
     
     private Task HasMassMovePermissionOrThrow(
@@ -170,15 +174,17 @@ public record MoveSpaceRequest
 public record MoveSpaceEpicsRequest
 {
     public OrganizationAuthData AuthData { get; set; }
-    public required string SpaceKey { get; set; }
+    public required string SourceSpaceKey { get; set; }
     public required string NewSpaceKey { get; set; }
+    public required long NewOrganizationId { get; set; }
 }
 
 public record MoveEpicRequest
 {
     public OrganizationAuthData AuthData { get; set; }
-    public long Id { get; set; }
+    public long SourceEpicId { get; set; }
     public required string NewSpaceKey { get; set; }
+    public required long NewOrganizationId { get; set; }
 }
 
 public record GetDestinationSpacesRequest

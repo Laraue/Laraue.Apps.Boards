@@ -25,33 +25,27 @@ public class MovementController(IMovementService service) : ControllerBase
             cancellationToken);
     }
     
-    [HttpPost("space/{spaceKey}/epics-to-space/{newSpaceKey}")]
+    [HttpPost("move-space-epics")]
     public Task MoveSpaceEpics(
-        string spaceKey,
-        string newSpaceKey,
+        [FromBody] MoveSpaceEpicsRequest request,
         CancellationToken cancellationToken = default)
     {
         return service.MoveSpaceEpics(
-            new MoveSpaceEpicsRequest
+            request with
             {
-                SpaceKey = spaceKey,
-                NewSpaceKey = newSpaceKey,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);
     }
     
-    [HttpPost("epic/{id:long}/to-space/{newSpaceKey}")]
+    [HttpPost("move-epic")]
     public Task MoveEpic(
-        long id,
-        string newSpaceKey,
+        [FromBody] MoveEpicRequest request,
         CancellationToken cancellationToken = default)
     {
         return service.MoveEpic(
-            new MoveEpicRequest
+            request with
             {
-                Id = id,
-                NewSpaceKey = newSpaceKey,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);
