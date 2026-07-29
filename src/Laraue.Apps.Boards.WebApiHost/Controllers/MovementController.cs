@@ -1,5 +1,4 @@
-﻿using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.WebApiServices;
+﻿using Laraue.Apps.Boards.WebApiServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,49 +9,43 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/movement")]
 public class MovementController(IMovementService service) : ControllerBase
 {
-    [HttpPost("space/{id:long}/to-organization/{organizationId:long}")]
+    [HttpPost("space/{key}/to-organization/{organizationId:long}")]
     public Task MoveSpace(
-        long id,
+        string key,
         long organizationId,
         CancellationToken cancellationToken = default)
     {
         return service.MoveSpace(
             new MoveSpaceRequest
             {
-                Id = id,
+                Key = key,
                 NewOrganizationId = organizationId,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);
     }
     
-    [HttpPost("space/{id:long}/epics-to-space/{newSpaceId:long}")]
+    [HttpPost("move-space-epics")]
     public Task MoveSpaceEpics(
-        long id,
-        long newSpaceId,
+        [FromBody] MoveSpaceEpicsRequest request,
         CancellationToken cancellationToken = default)
     {
         return service.MoveSpaceEpics(
-            new MoveSpaceEpicsRequest
+            request with
             {
-                SpaceId = id,
-                NewSpaceId = newSpaceId,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);
     }
     
-    [HttpPost("epic/{id:long}/to-space/{newSpaceId:long}")]
+    [HttpPost("move-epic")]
     public Task MoveEpic(
-        long id,
-        long newSpaceId,
+        [FromBody] MoveEpicRequest request,
         CancellationToken cancellationToken = default)
     {
         return service.MoveEpic(
-            new MoveEpicRequest
+            request with
             {
-                Id = id,
-                NewSpaceId = newSpaceId,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);

@@ -7,7 +7,7 @@ namespace Laraue.Apps.Boards.Services.Sorting;
 [JsonDerivedType(typeof(ByPropertyIssueSorting), "property")]
 public abstract record IssueSorting
 {
-    public SortingDirection Direction { get; set; }
+    public required SortingDirection Direction { get; set; }
 }
 
 /// <summary>
@@ -15,7 +15,7 @@ public abstract record IssueSorting
 /// </summary>
 public record ByAttributeIssueSorting : IssueSorting
 {
-    public long AttributeId { get; set; }
+    public required long AttributeId { get; set; }
 }
 
 /// <summary>
@@ -23,5 +23,5 @@ public record ByAttributeIssueSorting : IssueSorting
 /// </summary>
 public record ByPropertyIssueSorting : IssueSorting
 {
-    public IssueProperty Property { get; set; }
+    public required IssueProperty Property { get; set; }
 }

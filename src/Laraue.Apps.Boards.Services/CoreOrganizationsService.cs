@@ -229,15 +229,25 @@ public class CoreOrganizationsService(
                 .SetProperty(p => p.CanCreateIssues, userPermissions.Global.CanCreateIssues)
                 .SetProperty(p => p.CanUpdateIssues, userPermissions.Global.CanUpdateIssues)
                 .SetProperty(p => p.CanDeleteIssues, userPermissions.Global.CanDeleteIssues)
-                ,cancellationToken);
+                , cancellationToken);
 
+        var organizationData = await context.OrganizationUsers
+            .Where(x => x.Id == organizationUserId)
+            .Select(x => new { x.OrganizationId })
+            .FirstAsyncEF(cancellationToken);
+
+        var spaceIdsByKeys = await context.Spaces
+            .Where(x => x.OrganizationId == organizationData.OrganizationId)
+            .Where(x => userPermissions.Direct.Select(p => p.Key).Contains(x.Key))
+            .ToDictionaryAsyncEF(x => x.Key, x => x.Id, cancellationToken);
+        
         // Set spaces direct permissions
         foreach (var spaceLevel in userPermissions.Direct)
         {
             var spacePermission = new DirectSpacePermission
             {
                 OrganizationUserId = organizationUserId,
-                SpaceId = spaceLevel.Key,
+                SpaceId = spaceIdsByKeys[spaceLevel.Key],
                 CanRead = spaceLevel.Value.CanRead,
                 CanUpdate = spaceLevel.Value.CanUpdate,
                 CanDelete = spaceLevel.Value.CanDelete,
@@ -277,18 +287,23 @@ public class CoreOrganizationsService(
 
         var spaceAccessLevels = await context.DirectSpacePermissions
             .Where(x => x.OrganizationUserId == organizationUserId)
-            .ToDictionaryAsyncEF(x => x.SpaceId, x => new DirectSpaceAccessLevel
+            .Select(x => new
             {
-                CanCreateEpics = x.CanCreateEpics,
-                CanUpdateEpics = x.CanUpdateEpics,
-                CanDeleteEpics = x.CanDeleteEpics,
-                CanCreateIssues = x.CanCreateIssues,
-                CanUpdateIssues = x.CanUpdateIssues,
-                CanDeleteIssues = x.CanDeleteIssues,
-                CanRead = x.CanRead,
-                CanDelete = x.CanDelete,
-                CanUpdate = x.CanUpdate,
-            }, cancellationToken);
+                SpaceKey = x.Space!.Key,
+                AccessLevel = new DirectSpaceAccessLevel
+                {
+                    CanCreateEpics = x.CanCreateEpics,
+                    CanUpdateEpics = x.CanUpdateEpics,
+                    CanDeleteEpics = x.CanDeleteEpics,
+                    CanCreateIssues = x.CanCreateIssues,
+                    CanUpdateIssues = x.CanUpdateIssues,
+                    CanDeleteIssues = x.CanDeleteIssues,
+                    CanRead = x.CanRead,
+                    CanDelete = x.CanDelete,
+                    CanUpdate = x.CanUpdate,
+                },
+            })
+            .ToDictionaryAsyncEF(x => x.SpaceKey, x => x.AccessLevel, cancellationToken);
 
         var permissions = new UserPermissions
         {
@@ -320,7 +335,7 @@ public class CoreOrganizationsService(
     {
         var spaces = await context.Spaces
             .Where(x => x.OrganizationId == organizationId)
-            .ToDictionaryAsyncEF(x => x.Id, x => new { x.Name, x.Color, x.IsDefault }, cancellationToken);
+            .ToDictionaryAsyncEF(x => x.Key, x => new { x.Name, x.Color, x.IsDefault }, cancellationToken);
 
         return spaces
             .Select(s => new PermittableSpace(
@@ -582,7 +597,7 @@ public class CoreOrganizationsService(
 public record UserPermissions
 {
     public GlobalAccessLevels Global { get; set; } = new();
-    public Dictionary<long, DirectSpaceAccessLevel> Direct { get; set; } = new();
+    public Dictionary<string, DirectSpaceAccessLevel> Direct { get; set; } = new();
     public AdminAccessLevel Admin { get; set; }
 }
 
@@ -613,7 +628,7 @@ public record DirectSpaceAccessLevel
     public bool CanDeleteIssues { get; set; }
 }
 
-public record PermittableSpace(long Id, string Name, string Color, bool IsDefault);
+public record PermittableSpace(string Key, string Name, string Color, bool IsDefault);
 
 public record CreateOrganizationResponse
 {

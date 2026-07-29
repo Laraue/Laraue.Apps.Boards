@@ -287,7 +287,7 @@ public class OrganizationsService(
                 request.AuthData.OrganizationId,
                 cancellationToken))
                 .ToDictionary(
-                    x => x.Id,
+                    x => x.Key,
                     x => new { Self = x });
 
             var errors = new List<string>();
@@ -688,7 +688,7 @@ public record CreateAttributeRequest
     [MaxLength(7)]
     public required string Color { get; set; }
     
-    public AttributeType Type { get; set; }
+    public required AttributeType Type { get; set; }
     
     public NewAttributeListValueDto[]? ListValues { get; set; }
 }
@@ -734,7 +734,7 @@ public record GetAttributesRequest
 
 public record AttributeDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Name { get; set; }
     public required string Color { get; set; }
     public required AttributeType Type { get; set; }
@@ -743,6 +743,6 @@ public record AttributeDto
 
 public record AttributeListValueDto
 {
-    public long Id { get; set; }
+    public required long Id { get; set; }
     public required string Name { get; set; }
 }

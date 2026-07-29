@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -35,17 +36,23 @@ public interface IEpicsService
 
 public class EpicsService(
     ICoreEpicsService coreEpicsService,
-    IAccessService accessService)
+    IAccessService accessService,
+    ICoreSpacesService coreSpacesService)
     : IEpicsService
 {
-    public Task<EpicListDto[]> GetSpaceEpics(
+    public async Task<EpicListDto[]> GetSpaceEpics(
         GetEpicsRequest request,
         CancellationToken cancellationToken)
     {
-        return accessService.GetAvailableEpics(
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.Key,
+            cancellationToken);
+        
+        return await accessService.GetAvailableEpics(
             request.AuthData,
             epics => epics
-                .Where(x => x.SpaceId == request.SpaceId)
+                .Where(x => x.SpaceId == spaceId)
                 .OrderBy(x => x.IsDefault ? 0 : 1)
                 .ThenBy(x => x.Name)
                 .Select(x => new EpicListDto
@@ -113,16 +120,21 @@ public class EpicsService(
         CreateEpicRequest request,
         CancellationToken cancellationToken)
     {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.SpaceKey,
+            cancellationToken);
+
         if (!await accessService
             .CanCreateEpics(
                 request.AuthData,
-                request.SpaceId,
+                spaceId,
                 cancellationToken))
             throw new NotFoundException(
-                $"Space: {request.SpaceId} is not exists");
+                $"Space: {request.SpaceKey} is not exists");
         
         return await coreEpicsService.Create(
-            request.SpaceId,
+            spaceId,
             request.AuthData.UserId,
             request.Name,
             request.Color,
@@ -236,7 +248,7 @@ public record CreateEpicRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     
-    public long SpaceId { get; set; }
+    public required string SpaceKey { get; set; }
     
     [MaxLength(128)]
     public required string Name { get; set; }
@@ -275,5 +287,5 @@ public record DeleteEpicRequest
 public record GetEpicsRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
-    public long SpaceId { get; set; }
+    public required string Key { get; set; }
 }

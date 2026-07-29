@@ -381,9 +381,9 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         {
             UserPermissions = new UserPermissions
             {
-                Direct = new Dictionary<long, DirectSpaceAccessLevel>
+                Direct = new Dictionary<string, DirectSpaceAccessLevel>
                 {
-                    [space.Id] = new()
+                    [space.Key] = new()
                     {
                         CanDeleteIssues = true,
                     }
@@ -442,13 +442,13 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         {
             UserPermissions = new UserPermissions
             {
-                Direct = new Dictionary<long, DirectSpaceAccessLevel>
+                Direct = new Dictionary<string, DirectSpaceAccessLevel>
                 {
-                    [space.Id] = new ()
+                    [space.Key] = new ()
                     {
                         CanDelete = true, // Attempt to set delete permission for default space
                     },
-                    [0] = new () // Unexists space
+                    ["GGG"] = new () // Unexists space
                     {
                         CanCreateEpics = true,
                     }
@@ -463,8 +463,8 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var badRequest = ex.HasInnerException<BadRequestException>();
         var exceptedErrors = new[]
         {
-            $"Space: '{space.Id}'. Attempt to add delete permission to Default space",
-            "Space: '0'. Entity is not found",
+            $"Space: '{space.Key}'. Attempt to add delete permission to Default space",
+            "Space: 'GGG'. Entity is not found",
         };
         Assert.Equal(exceptedErrors, badRequest.Errors["direct"]);
     }

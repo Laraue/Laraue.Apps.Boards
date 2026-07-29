@@ -80,7 +80,7 @@ public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
     ISpaceCounterService spaceCounterService,
-    ILogger<CoreIssuesService> logger,
+    IOrganizationConcurrencyControlService organizationConcurrencyControlService,
     IIssueNumbersService issueNumbersService)
     : ICoreIssuesService
 {
@@ -100,7 +100,7 @@ public class CoreIssuesService(
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
         LexoRank? issueLexoRank = null;
-        await ExecuteIssueRankRelatedOperation(
+        await organizationConcurrencyControlService.ExecuteIssueRankRelatedOperation(
             issueData.OrganizationId,
             async () =>
             {
@@ -312,6 +312,8 @@ public class CoreIssuesService(
             CreatedAt = dateTimeProvider.UtcNow,
             UpdatedAt = dateTimeProvider.UtcNow,
         };
+
+        context.Add(issueComment);
         
         foreach (var mediaInfo in mediaInfos)
         {
@@ -389,7 +391,7 @@ public class CoreIssuesService(
             .FirstAsyncEF(ct);
 
         var organizationId = organizationData.OrganizationId;
-        await ExecuteIssueRankRelatedOperation(
+        await organizationConcurrencyControlService.ExecuteIssueRankRelatedOperation(
             organizationId,
             () => ChangesIssuesOrderInternal(organizationId, issueIds, targetIssueId, targetType, ct),
             ct);
@@ -449,46 +451,6 @@ public class CoreIssuesService(
         }
     }
 
-    private async Task ExecuteIssueRankRelatedOperation(long organizationId, Func<Task> operation, CancellationToken ct)
-    {
-        // Pessimistic organization lock
-        var lockKey = $"change-issues-order-{organizationId}";
-        await context.Database.PgAdvisoryXactLock(lockKey, ct);
-        
-        try
-        {
-            await operation();
-        }
-        catch (RankSpaceExhaustedException e)
-        {
-            logger.LogWarning(
-                e,
-                "Rebalance LexoRank for organization: '{organizationId}' triggered",
-                organizationId);
-            
-            await RebalanceOrganizationLexoRank(organizationId, ct);
-            
-            // Attempt #2 after the rebalance
-            await operation();
-        }
-    }
-
-    private async Task RebalanceOrganizationLexoRank(long organizationId, CancellationToken ct)
-    {
-        var issues = await context.Issues
-            .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
-            .OrderBy(x => x.LexoRank)
-            .Select(x => new Issue { Id = x.Id, LexoRank = x.LexoRank })
-            .ToListAsync(ct);
-
-        var freshRanks = LexoRank.CreateEvenlySpaced(issues.Count);
-
-        for (var i = 0; i < issues.Count; i++)
-            issues[i].LexoRank = freshRanks[i].ToString();
-
-        await context.SaveChangesAsync(ct);
-    }
-
     private async Task ChangesIssuesOrderInternal(
         long organizationId,
         long[] issueIds,
@@ -507,7 +469,7 @@ public class CoreIssuesService(
         
         var closestRank = await context.Issues
             .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
-            .Where(x => !allIds.Contains(x.Id))
+            .Where(x => !((IEnumerable<long>)allIds).Contains(x.Id))
             .Where(x => targetType == OrderTargetType.After
                 ? x.LexoRank.CompareTo(targetRank) > 0
                 : x.LexoRank.CompareTo(targetRank) < 0)
