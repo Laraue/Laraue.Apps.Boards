@@ -353,10 +353,9 @@ public class IssuesService(
             dateTimeProvider.UtcNow,
             request.StatusId,
             telegramMessageId: null,
+            attributeUpdateRequests,
             uploadedFiles,
             ct);
-        
-        await issuesService.UpdateAttributes(id, attributeUpdateRequests, ct);
         
         await transaction.CommitAsync(ct);
 
@@ -406,11 +405,11 @@ public class IssuesService(
             upd => upd
                 .SetProperty(x => x.Content, request.Content)
                 .SetProperty(x => x.AssigneeId, request.AssigneeId),
+            attributeUpdateRequests,
             uploadedFiles,
             request.RemoveAttachmentIds,
             ct);
         
-        await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
         await transaction.CommitAsync(ct);
     }
 
@@ -876,7 +875,7 @@ public class IssuesService(
         return files.ToArray();
     }
 
-    private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
+    private async Task<SetIssueAttributeRequest[]> GetAttributeUpdateRequests(
         long organizationId,
         AttributeValue[] attributeValues,
         CancellationToken ct)
@@ -888,7 +887,7 @@ public class IssuesService(
             .DistinctBy(x => x.AttributeId)
             .ToArray();
         
-        var requests = new List<UpdateIssueAttributeRequest>();
+        var requests = new List<SetIssueAttributeRequest>();
         var attributeValidationErrors = new List<string>();
         
         var attributes = await context.Attributes
@@ -913,7 +912,7 @@ public class IssuesService(
                     }
                     
                     requests.Add(
-                        new UpdateIssueListAttributeRequest
+                        new SetIssueListAttributeRequest
                         {
                             Id = enumAttributeValue.AttributeId,
                             Value = enumAttributeValue.ValueId
@@ -935,7 +934,7 @@ public class IssuesService(
                     }
                     
                     requests.Add(
-                        new UpdateIssueTextAttributeRequest
+                        new SetIssueTextAttributeRequest
                         {
                             Id = stringAttributeValue.AttributeId,
                             Value = stringAttributeValue.Value,

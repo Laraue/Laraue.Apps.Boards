@@ -187,6 +187,7 @@ public class TelegramSaveMessageService(
                 request.SentAt,
                 statusId,
                 savedMessage.Id,
+                attributes: [],
                 newFiles: [],
                 cancellationToken);
 
@@ -279,6 +280,7 @@ public class TelegramSaveMessageService(
                 request.SentAt,
                 statusId,
                 messageId,
+                attributes: [],
                 newFiles: [],
                 cancellationToken);
             

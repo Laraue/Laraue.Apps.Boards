@@ -6,7 +6,6 @@ using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
-using Microsoft.Extensions.Logging;
 
 namespace Laraue.Apps.Boards.Services;
 
@@ -19,6 +18,7 @@ public interface ICoreIssuesService
         DateTime createdAt,
         long statusId,
         long? telegramMessageId,
+        SetIssueAttributeRequest[] attributes,
         IEnumerable<MediaInfo> newFiles,
         CancellationToken cancellationToken);
     
@@ -26,13 +26,9 @@ public interface ICoreIssuesService
         long issueId,
         Guid updaterId,
         Action<UpdateSettersBuilder<Issue>> setters,
+        SetIssueAttributeRequest[] attributes,
         IEnumerable<MediaInfo> newFiles,
         IEnumerable<Guid> deleteAttachmentIds,
-        CancellationToken cancellationToken);
-    
-    Task UpdateAttributes(
-        long issueId,
-        UpdateIssueAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken);
     
     Task Delete(
@@ -91,6 +87,7 @@ public class CoreIssuesService(
         DateTime createdAt,
         long statusId,
         long? telegramMessageId,
+        SetIssueAttributeRequest[] attributes,
         IEnumerable<MediaInfo> newFiles,
         CancellationToken cancellationToken)
     {
@@ -142,6 +139,7 @@ public class CoreIssuesService(
         
         await context.SaveChangesAsync(cancellationToken);
 
+        await UpdateAttributes(issue.Id, attributes, cancellationToken);
         await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken);
         await TouchEpics([issueData.EpicId], createdAt, cancellationToken);
         
@@ -152,6 +150,7 @@ public class CoreIssuesService(
         long issueId,
         Guid updaterId,
         Action<UpdateSettersBuilder<Issue>> setters,
+        SetIssueAttributeRequest[] attributes,
         IEnumerable<MediaInfo> newFiles,
         IEnumerable<Guid> deleteAttachmentIds,
         CancellationToken cancellationToken)
@@ -176,29 +175,30 @@ public class CoreIssuesService(
         await TouchEpics([epicData.EpicId], date, cancellationToken);
         await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken);
         await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken);
+        await UpdateAttributes(issueId, attributes, cancellationToken);
     }
 
     public async Task UpdateAttributes(
         long issueId,
-        UpdateIssueAttributeRequest[] attributeRequests,
+        SetIssueAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
         
         await UpdateTextAttributes(
             issueId,
-            attributeRequests.OfType<UpdateIssueTextAttributeRequest>().ToArray(),
+            attributeRequests.OfType<SetIssueTextAttributeRequest>().ToArray(),
             cancellationToken);
         
         await UpdateListAttributes(
             issueId,
-            attributeRequests.OfType<UpdateIssueListAttributeRequest>().ToArray(),
+            attributeRequests.OfType<SetIssueListAttributeRequest>().ToArray(),
             cancellationToken);
     }
     
     private async Task UpdateListAttributes(
         long issueId,
-        UpdateIssueListAttributeRequest[] attributeRequests,
+        SetIssueListAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
         var oldAttributes = (await context.IssueAttributeListValues
@@ -245,7 +245,7 @@ public class CoreIssuesService(
 
     private async Task UpdateTextAttributes(
         long issueId,
-        UpdateIssueTextAttributeRequest[] attributeRequests,
+        SetIssueTextAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
         var oldAttributes = (await context.IssueAttributeTextValues
@@ -557,17 +557,17 @@ public class CoreIssuesService(
     }
 }
 
-public abstract record UpdateIssueAttributeRequest
+public abstract record SetIssueAttributeRequest
 {
     public long Id { get; set; }
 }
 
-public record UpdateIssueTextAttributeRequest : UpdateIssueAttributeRequest
+public record SetIssueTextAttributeRequest : SetIssueAttributeRequest
 {
     public required string Value { get; set; }
 }
 
-public record UpdateIssueListAttributeRequest : UpdateIssueAttributeRequest
+public record SetIssueListAttributeRequest : SetIssueAttributeRequest
 {
     public required long Value { get; set; }
 }
