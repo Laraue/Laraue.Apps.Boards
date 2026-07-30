@@ -21,6 +21,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<UserOrganizationPreferences> UserOrganizationPreferences { get; init; }
     public DbSet<Issue> Issues { get; init; }
     public DbSet<IssueAttachment> IssueAttachments { get; init; }
+    public DbSet<IssueUpdate> IssueUpdates { get; init; }
+    public DbSet<IssueUpdateItem> IssueUpdateItems { get; init; }
     public DbSet<IssueNumber> IssueNumbers { get; init; }
     public DbSet<IssueComment> IssueComments { get; init; }
     public DbSet<IssueCommentAttachment> IssueCommentsAttachments { get; init; }

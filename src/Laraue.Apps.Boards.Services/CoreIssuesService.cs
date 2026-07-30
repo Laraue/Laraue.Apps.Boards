@@ -179,12 +179,14 @@ public class CoreIssuesService(
             Items = []
         };
         
-        await TouchEpics([epicData.EpicId], date, cancellationToken);
         change.Items.AddRange(await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken));
         change.Items.AddRange(await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken));
         await UpdateAttributes(issueId, attributes, cancellationToken);
+
+        context.Add(change);
+        await context.SaveChangesAsync(cancellationToken);
         
-        // TODO - save change
+        await TouchEpics([epicData.EpicId], date, cancellationToken);
     }
 
     public async Task UpdateAttributes(
@@ -252,7 +254,7 @@ public class CoreIssuesService(
                 .ExecuteDeleteAsync(cancellationToken);
     }
 
-    private async Task UpdateTextAttributes(
+    private async Task<IssueUpdateItem[]> UpdateTextAttributes(
         long issueId,
         SetIssueTextAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
@@ -262,15 +264,22 @@ public class CoreIssuesService(
             .ToArrayAsyncEF(cancellationToken))
             .ToDictionary(x => x.AttributeId);
 
+        var changes = new List<IssueUpdateItem>();
+        
         if (attributeRequests.Any())
         {
             foreach (var request in attributeRequests)
             {
                 // Update old
-                if (oldAttributes.TryGetValue(request.Id, out var oldAttribute))
+                if (oldAttributes.TryGetValue(request.Id, out var oldAttribute) && oldAttribute.Text != request.Value)
                 {
                     oldAttribute.Text = request.Value;
                     context.Entry(oldAttribute).State = EntityState.Modified;
+                    changes.Add(new IssueUpdateItem
+                    {
+                        NewDisplayValue = request.Value,
+                        OldDisplayValue = oldAttribute.Text, // TODO - continue here
+                    });
                 }
                 // Insert new
                 else
@@ -297,6 +306,8 @@ public class CoreIssuesService(
                 .Where(x => x.IssueId == issueId)
                 .Where(x => ((IEnumerable<long>)toDelete).Contains(x.AttributeId))
                 .ExecuteDeleteAsync(cancellationToken);
+        
+        return changes.ToArray();
     }
 
     public Task Delete(long id, CancellationToken cancellationToken)
