@@ -1,4 +1,6 @@
-﻿namespace Laraue.Apps.Boards.DataAccess.Models;
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace Laraue.Apps.Boards.DataAccess.Models;
 
 public class IssueUpdateItem
 {
@@ -10,19 +12,25 @@ public class IssueUpdateItem
     /// <summary>
     /// Value identifier (long / GUID serialized as string).
     /// </summary>
+    [MaxLength(36)]
     public string? OldValueId { get; set; }
     
     /// <summary>
     /// Value identifier (long / GUID serialized as string).
     /// </summary>
+    [MaxLength(36)]
     public string? NewValueId { get; set; }
     
     public ChangeAction Action { get; set; }
     public IssueUpdateEntityType EntityType { get; set; }
     
+    [MaxLength(4096)]
     public string? OldDisplayValue { get; set; }
+    
+    [MaxLength(4096)]
     public string? NewDisplayValue { get; set; }
 
+    [MaxLength(255)]
     public string? PropertyName { get; set; }
 }
 

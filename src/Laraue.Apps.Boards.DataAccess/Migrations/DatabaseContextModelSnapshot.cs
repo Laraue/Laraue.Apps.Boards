@@ -573,23 +573,28 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnName("issue_update_id");
 
                     b.Property<string>("NewDisplayValue")
-                        .HasColumnType("text")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
                         .HasColumnName("new_display_value");
 
                     b.Property<string>("NewValueId")
-                        .HasColumnType("text")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)")
                         .HasColumnName("new_value_id");
 
                     b.Property<string>("OldDisplayValue")
-                        .HasColumnType("text")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
                         .HasColumnName("old_display_value");
 
                     b.Property<string>("OldValueId")
-                        .HasColumnType("text")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)")
                         .HasColumnName("old_value_id");
 
                     b.Property<string>("PropertyName")
-                        .HasColumnType("text")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
                         .HasColumnName("property_name");
 
                     b.HasKey("Id")

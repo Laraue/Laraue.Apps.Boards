@@ -45,13 +45,13 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     issue_update_id = table.Column<long>(type: "bigint", nullable: false),
-                    old_value_id = table.Column<string>(type: "text", nullable: true),
-                    new_value_id = table.Column<string>(type: "text", nullable: true),
+                    old_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
+                    new_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
                     action = table.Column<int>(type: "integer", nullable: false),
                     entity_type = table.Column<int>(type: "integer", nullable: false),
-                    old_display_value = table.Column<string>(type: "text", nullable: true),
-                    new_display_value = table.Column<string>(type: "text", nullable: true),
-                    property_name = table.Column<string>(type: "text", nullable: true)
+                    old_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true),
+                    new_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true),
+                    property_name = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true)
                 },
                 constraints: table =>
                 {
