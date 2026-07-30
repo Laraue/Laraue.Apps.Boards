@@ -594,6 +594,7 @@ public class IssuesService(
                         OriginalFileId = a.Attachment!.FileId,
                         PreviewFileId = a.Attachment.PreviewFileId,
                         Type = a.Attachment.Type,
+                        FileName = a.Attachment.File!.Name,
                     })
                     .ToList(),
             })
@@ -680,6 +681,7 @@ public class IssuesService(
                 Type = x.Attachment!.Type,
                 OriginalFileId = x.Attachment.FileId,
                 PreviewFileId = x.Attachment.PreviewFileId,
+                FileName = x.Attachment.File!.Name,
             })
             .ToListAsyncEF(ct);
     }

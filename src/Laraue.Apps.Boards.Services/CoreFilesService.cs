@@ -97,6 +97,7 @@ public class CoreFilesService(
             OriginalFileId = originalFileId,
             PreviewFileId = thumbnailFileId,
             Type = AttachmentType.Image,
+            FileName = fileName,
         };
     }
 

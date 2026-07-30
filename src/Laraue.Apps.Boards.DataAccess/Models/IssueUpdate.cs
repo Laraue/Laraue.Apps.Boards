@@ -8,4 +8,6 @@ public class IssueUpdate
     public Issue? Issue { get; set; }
     
     public DateTime CreatedAt { get; set; }
+    
+    public List<IssueUpdateItem>? Items { get; set; }
 }

@@ -19,7 +19,7 @@ public interface ICoreIssuesService
         long statusId,
         long? telegramMessageId,
         SetIssueAttributeRequest[] attributes,
-        IEnumerable<MediaInfo> newFiles,
+        MediaInfo[] newFiles,
         CancellationToken cancellationToken);
     
     Task Update(
@@ -27,8 +27,8 @@ public interface ICoreIssuesService
         Guid updaterId,
         Action<UpdateSettersBuilder<Issue>> setters,
         SetIssueAttributeRequest[] attributes,
-        IEnumerable<MediaInfo> newFiles,
-        IEnumerable<Guid> deleteAttachmentIds,
+        MediaInfo[] newFiles,
+        Guid[] deleteAttachmentIds,
         CancellationToken cancellationToken);
     
     Task Delete(
@@ -88,7 +88,7 @@ public class CoreIssuesService(
         long statusId,
         long? telegramMessageId,
         SetIssueAttributeRequest[] attributes,
-        IEnumerable<MediaInfo> newFiles,
+        MediaInfo[] newFiles,
         CancellationToken cancellationToken)
     {
         var issueData = await context.Statuses
@@ -138,7 +138,7 @@ public class CoreIssuesService(
         context.Add(issueNumber);
         
         await context.SaveChangesAsync(cancellationToken);
-
+        
         await UpdateAttributes(issue.Id, attributes, cancellationToken);
         await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken);
         await TouchEpics([issueData.EpicId], createdAt, cancellationToken);
@@ -151,8 +151,8 @@ public class CoreIssuesService(
         Guid updaterId,
         Action<UpdateSettersBuilder<Issue>> setters,
         SetIssueAttributeRequest[] attributes,
-        IEnumerable<MediaInfo> newFiles,
-        IEnumerable<Guid> deleteAttachmentIds,
+        MediaInfo[] newFiles,
+        Guid[] deleteAttachmentIds,
         CancellationToken cancellationToken)
     {
         var date = dateTimeProvider.UtcNow;
@@ -171,11 +171,20 @@ public class CoreIssuesService(
                     upd.SetProperty(x => x.UpdatedAt, date);
                 },
                 cancellationToken);
+
+        var change = new IssueUpdate
+        {
+            CreatedAt = date,
+            IssueId = issueId,
+            Items = []
+        };
         
         await TouchEpics([epicData.EpicId], date, cancellationToken);
-        await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken);
-        await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken);
+        change.Items.AddRange(await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken));
+        change.Items.AddRange(await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken));
         await UpdateAttributes(issueId, attributes, cancellationToken);
+        
+        // TODO - save change
     }
 
     public async Task UpdateAttributes(
@@ -504,10 +513,10 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(ct);
     }
 
-    private Task AttachIssueFiles(
+    private async Task<IssueUpdateItem[]> AttachIssueFiles(
         long issueId,
         Guid ownerId,
-        IEnumerable<MediaInfo> mediaInfos,
+        MediaInfo[] mediaInfos,
         CancellationToken cancellationToken)
     {
         foreach (var mediaInfo in mediaInfos)
@@ -521,16 +530,41 @@ public class CoreIssuesService(
             context.Add(attachment);
         }
         
-        return context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return mediaInfos
+            .Select(x => new IssueUpdateItem
+            {
+                Action = ChangeAction.Create,
+                EntityType = IssueUpdateEntityType.Attachment,
+                NewValueId = x.OriginalFileId.ToString(),
+                NewDisplayValue = x.FileName,
+            })
+            .ToArray();
     }
 
-    private Task DetachIssueAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
+    private async Task<IssueUpdateItem[]> DetachIssueAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
     {
-        return context.IssueAttachments
+        var attachments = await context.IssueAttachments
             .Where(x => x.IssueId == issueId)
             .Where(x => attachmentIds.Contains(x.AttachmentId))
-            .Select(x => x.Attachment)
+            .Select(x => x.Attachment!)
+            .Select(x => new { x.Id, x.File!.Name, FileId = x.File.Id })
+            .ToListAsyncEF(cancellationToken);
+
+        await context.Attachments
+            .Where(x => attachments.Select(a => a.Id).Contains(x.Id))
             .ExecuteDeleteAsync(cancellationToken);
+        
+        return attachments
+            .Select(x => new IssueUpdateItem
+            {
+                OldDisplayValue = x.Name,
+                Action = ChangeAction.Delete,
+                OldValueId = x.FileId.ToString(),
+                EntityType = IssueUpdateEntityType.Attachment,
+            })
+            .ToArray();
     }
 
     private Attachment GetAttachmentEntity(Guid ownerId, MediaInfo mediaInfo)

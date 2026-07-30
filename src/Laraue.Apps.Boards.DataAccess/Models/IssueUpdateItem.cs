@@ -7,8 +7,18 @@ public class IssueUpdateItem
     public long IssueUpdateId { get; set; }
     public IssueUpdate? IssueUpdate { get; set; }
     
-    public long? OldValueId { get; set; }
-    public long? NewValueId { get; set; }
+    /// <summary>
+    /// Value identifier (long / GUID serialized as string).
+    /// </summary>
+    public string? OldValueId { get; set; }
+    
+    /// <summary>
+    /// Value identifier (long / GUID serialized as string).
+    /// </summary>
+    public string? NewValueId { get; set; }
+    
+    public ChangeAction Action { get; set; }
+    public IssueUpdateEntityType EntityType { get; set; }
     
     public string? OldDisplayValue { get; set; }
     public string? NewDisplayValue { get; set; }
@@ -21,7 +31,7 @@ public class IssueUpdateItem
 // Link attached / edited / detached
 // Issue created
 
-public enum IssueUpdateItemPropertyType
+public enum IssueUpdateEntityType
 {
     Attachment,
     Content,
