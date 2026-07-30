@@ -139,7 +139,7 @@ public class CoreIssuesService(
         
         await context.SaveChangesAsync(cancellationToken);
         
-        await UpdateAttributes(issue.Id, attributes, cancellationToken);
+        await UpdateAttributes(issue.Id, issueData.OrganizationId, attributes, cancellationToken);
         await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken);
         await TouchEpics([issueData.EpicId], createdAt, cancellationToken);
         
@@ -159,7 +159,7 @@ public class CoreIssuesService(
 
         var epicData = await context.Issues
             .Where(x => x.Id == issueId)
-            .Select(x => new { x.Status!.EpicId })
+            .Select(x => new { x.Status!.EpicId, x.Status.Epic!.Space!.OrganizationId })
             .FirstAsyncEF(cancellationToken);
 
         await context.Issues
@@ -181,7 +181,7 @@ public class CoreIssuesService(
         
         change.Items.AddRange(await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken));
         change.Items.AddRange(await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken));
-        change.Items.AddRange(await UpdateAttributes(issueId, attributes, cancellationToken));
+        change.Items.AddRange(await UpdateAttributes(issueId, epicData.OrganizationId, attributes, cancellationToken));
 
         context.Add(change);
         await context.SaveChangesAsync(cancellationToken);
@@ -191,22 +191,29 @@ public class CoreIssuesService(
 
     private async Task<IssueUpdateItem[]> UpdateAttributes(
         long issueId,
+        long organizationId,
         SetIssueAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
 
         var changes = new List<IssueUpdateItem>();
+
+        var attributeNameById = await context.Attributes
+            .Where(x => x.OrganizationId == organizationId)
+            .ToDictionaryAsyncEF(x => x.Id, x => x.Name, cancellationToken);
         
         changes.AddRange(
             await UpdateTextAttributes(
                 issueId,
+                attributeNameById,
                 attributeRequests.OfType<SetIssueTextAttributeRequest>().ToArray(),
                 cancellationToken));
         
         changes.AddRange(
             await UpdateListAttributes(
                 issueId,
+                attributeNameById,
                 attributeRequests.OfType<SetIssueListAttributeRequest>().ToArray(),
                 cancellationToken));
 
@@ -215,6 +222,7 @@ public class CoreIssuesService(
     
     private async Task<IssueUpdateItem[]> UpdateListAttributes(
         long issueId,
+        Dictionary<long, string> attributeNameById,
         SetIssueListAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
@@ -269,6 +277,7 @@ public class CoreIssuesService(
                         Action = ChangeAction.Update,
                         OldValueId = oldAttribute.AttributeListValueId.ToString(),
                         NewValueId = request.Value.ToString(),
+                        PropertyName = attributeNameById[request.Id],
                     });
                 }
                 // Insert new
@@ -287,6 +296,7 @@ public class CoreIssuesService(
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Create,
                         NewValueId = request.Value.ToString(),
+                        PropertyName = attributeNameById[request.Id],
                     });
                 }
             }
@@ -307,7 +317,6 @@ public class CoreIssuesService(
                 .Select(x => new
                 {
                     x.Id,
-                    AttributeName = x.Attribute!.Name,
                     AttributeListValueName = x.AttributeListValue!.Value,
                     x.AttributeListValueId,
                 })
@@ -321,7 +330,7 @@ public class CoreIssuesService(
                     EntityType = IssueUpdateEntityType.Property,
                     Action = ChangeAction.Delete,
                     OldValueId = deletableValue.Value.AttributeListValueId.ToString(),
-                    PropertyName = deletableValue.Value.AttributeName,
+                    PropertyName = attributeNameById[deletableValue.Key],
                 });
             }
 
@@ -335,11 +344,13 @@ public class CoreIssuesService(
 
     private async Task<IssueUpdateItem[]> UpdateTextAttributes(
         long issueId,
+        Dictionary<long, string> attributeNameById,
         SetIssueTextAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
         var oldAttributes = (await context.IssueAttributeTextValues
             .Where(x => x.IssueId == issueId)
+            .Select(x => new { x.AttributeId, x.Text })
             .ToArrayAsyncEF(cancellationToken))
             .ToDictionary(x => x.AttributeId);
 
@@ -352,7 +363,14 @@ public class CoreIssuesService(
                 // Update old
                 if (oldAttributes.TryGetValue(request.Id, out var oldAttribute) && oldAttribute.Text != request.Value)
                 {
-                    oldAttribute.Text = request.Value;
+                    var entity = new IssueAttributeTextValue
+                    {
+                        IssueId = issueId,
+                        AttributeId = request.Id,
+                        Text = request.Value,
+                    };
+                    
+                    context.Attach(entity);
                     context.Entry(oldAttribute).State = EntityState.Modified;
                     
                     changes.Add(new IssueUpdateItem
@@ -361,6 +379,7 @@ public class CoreIssuesService(
                         OldDisplayValue = oldAttribute.Text,
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Update,
+                        PropertyName = attributeNameById[oldAttribute.AttributeId],
                     });
                 }
                 // Insert new
@@ -378,6 +397,7 @@ public class CoreIssuesService(
                         NewDisplayValue = request.Value,
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Create,
+                        PropertyName = attributeNameById[request.Id],
                     });
                 }
             }
@@ -403,6 +423,7 @@ public class CoreIssuesService(
                 OldDisplayValue = deletable.Value.Text,
                 EntityType = IssueUpdateEntityType.Property,
                 Action = ChangeAction.Delete,
+                PropertyName = attributeNameById[deletable.Key],
             });
         }
         
