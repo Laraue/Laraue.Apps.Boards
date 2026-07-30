@@ -265,11 +265,13 @@ public class CoreIssuesService(
                     var entity = new IssueAttributeListValue
                     {
                         Id = oldAttribute.Id,
+                        IssueId = issueId,
+                        AttributeId = oldAttribute.AttributeId,
                         AttributeListValueId = request.ListValueId,
                     };
 
                     context.Attach(entity);
-                    context.Entry(oldAttribute).State = EntityState.Modified;
+                    context.Entry(entity).State = EntityState.Modified;
                     
                     changes.Add(new IssueUpdateItem
                     {
@@ -373,7 +375,7 @@ public class CoreIssuesService(
                     };
                     
                     context.Attach(entity);
-                    context.Entry(oldAttribute).State = EntityState.Modified;
+                    context.Entry(entity).State = EntityState.Modified;
                     
                     changes.Add(new IssueUpdateItem
                     {
