@@ -226,7 +226,7 @@ public class CoreIssuesService(
         SetIssueListAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
-        var oldAttributes = (await context.IssueAttributeListValues
+        var oldAttributes = await context.IssueAttributeListValues
             .Where(x => x.IssueId == issueId)
             .Select(x => new
             {
@@ -235,7 +235,9 @@ public class CoreIssuesService(
                 x.AttributeListValueId,
                 AttributeListValue = x.AttributeListValue!.Value,
             })
-            .ToArrayAsyncEF(cancellationToken))
+            .ToArrayAsyncEF(cancellationToken);
+            
+        var oldAttributeById =  oldAttributes
             .ToDictionary(x => x.AttributeId);
 
         var changes = new List<IssueUpdateItem>();
@@ -248,22 +250,22 @@ public class CoreIssuesService(
                 .ToArrayAsyncEF(cancellationToken);
         
             var valueNamesByAttributeId = valueNames
-                .GroupBy(x => x.Id)
+                .GroupBy(x => x.AttributeId)
                 .ToDictionary(
                     x => x.Key,
                     x => x.ToDictionary(
-                        y => y.AttributeId,
+                        y => y.Id,
                         y => y.Value));
             
             foreach (var request in attributeRequests)
             {
                 // Update old
-                if (oldAttributes.TryGetValue(request.Id, out var oldAttribute))
+                if (oldAttributeById.TryGetValue(request.Id, out var oldAttribute))
                 {
                     var entity = new IssueAttributeListValue
                     {
                         Id = oldAttribute.Id,
-                        AttributeListValueId = request.Value,
+                        AttributeListValueId = request.ListValueId,
                     };
 
                     context.Attach(entity);
@@ -271,12 +273,12 @@ public class CoreIssuesService(
                     
                     changes.Add(new IssueUpdateItem
                     {
-                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.Value],
+                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
                         OldDisplayValue = oldAttribute.AttributeListValue,
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Update,
                         OldValueId = oldAttribute.AttributeListValueId.ToString(),
-                        NewValueId = request.Value.ToString(),
+                        NewValueId = request.ListValueId.ToString(),
                         PropertyName = attributeNameById[request.Id],
                     });
                 }
@@ -287,15 +289,15 @@ public class CoreIssuesService(
                     {
                         AttributeId = request.Id,
                         IssueId = issueId,
-                        AttributeListValueId = request.Value,
+                        AttributeListValueId = request.ListValueId,
                     });
                     
                     changes.Add(new IssueUpdateItem
                     {
-                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.Value],
+                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Create,
-                        NewValueId = request.Value.ToString(),
+                        NewValueId = request.ListValueId.ToString(),
                         PropertyName = attributeNameById[request.Id],
                     });
                 }
@@ -305,7 +307,7 @@ public class CoreIssuesService(
         }
         
         // Drop old
-        var toDelete = oldAttributes.Keys
+        var toDelete = oldAttributeById.Keys
             .Except(attributeRequests.Select(x => x.Id))
             .ToArray();
 
@@ -724,6 +726,9 @@ public class CoreIssuesService(
 
 public abstract record SetIssueAttributeRequest
 {
+    /// <summary>
+    /// The attribute identifier <see cref="DataAccess.Models.Attribute.Id"/>.
+    /// </summary>
     public long Id { get; set; }
 }
 
@@ -734,7 +739,7 @@ public record SetIssueTextAttributeRequest : SetIssueAttributeRequest
 
 public record SetIssueListAttributeRequest : SetIssueAttributeRequest
 {
-    public required long Value { get; set; }
+    public required long ListValueId { get; set; }
 }
 
 public enum OrderTargetType

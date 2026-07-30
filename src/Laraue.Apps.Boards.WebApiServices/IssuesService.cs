@@ -917,7 +917,7 @@ public class IssuesService(
                         new SetIssueListAttributeRequest
                         {
                             Id = enumAttributeValue.AttributeId,
-                            Value = enumAttributeValue.ValueId
+                            ListValueId = enumAttributeValue.ValueId
                         });
                     break;
                 }

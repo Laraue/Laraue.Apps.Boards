@@ -206,6 +206,11 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.NotNull(attachment.File);
         Assert.Equal(userId, attachment.OwnerId);
         Assert.Equal(issue.Id, attachment.IssueAttachment!.IssueId);
+
+        var historyChange = await testScope.Database.IssueUpdates.SingleAsyncEF();
+        Assert.Equal(issue.Id, historyChange.IssueId);
+        
+        // TODO - check all changed values
     }
     
     [Fact]
