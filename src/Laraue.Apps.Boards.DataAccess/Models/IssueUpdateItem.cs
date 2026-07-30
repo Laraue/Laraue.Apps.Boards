@@ -22,6 +22,8 @@ public class IssueUpdateItem
     
     public string? OldDisplayValue { get; set; }
     public string? NewDisplayValue { get; set; }
+
+    public string? PropertyName { get; set; }
 }
 
 // Attachment added / removed. Old

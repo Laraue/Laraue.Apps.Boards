@@ -181,7 +181,7 @@ public class CoreIssuesService(
         
         change.Items.AddRange(await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken));
         change.Items.AddRange(await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken));
-        await UpdateAttributes(issueId, attributes, cancellationToken);
+        change.Items.AddRange(await UpdateAttributes(issueId, attributes, cancellationToken));
 
         context.Add(change);
         await context.SaveChangesAsync(cancellationToken);
@@ -189,43 +189,87 @@ public class CoreIssuesService(
         await TouchEpics([epicData.EpicId], date, cancellationToken);
     }
 
-    public async Task UpdateAttributes(
+    private async Task<IssueUpdateItem[]> UpdateAttributes(
         long issueId,
         SetIssueAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+
+        var changes = new List<IssueUpdateItem>();
         
-        await UpdateTextAttributes(
-            issueId,
-            attributeRequests.OfType<SetIssueTextAttributeRequest>().ToArray(),
-            cancellationToken);
+        changes.AddRange(
+            await UpdateTextAttributes(
+                issueId,
+                attributeRequests.OfType<SetIssueTextAttributeRequest>().ToArray(),
+                cancellationToken));
         
-        await UpdateListAttributes(
-            issueId,
-            attributeRequests.OfType<SetIssueListAttributeRequest>().ToArray(),
-            cancellationToken);
+        changes.AddRange(
+            await UpdateListAttributes(
+                issueId,
+                attributeRequests.OfType<SetIssueListAttributeRequest>().ToArray(),
+                cancellationToken));
+
+        return changes.ToArray();
     }
     
-    private async Task UpdateListAttributes(
+    private async Task<IssueUpdateItem[]> UpdateListAttributes(
         long issueId,
         SetIssueListAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken)
     {
         var oldAttributes = (await context.IssueAttributeListValues
             .Where(x => x.IssueId == issueId)
+            .Select(x => new
+            {
+                x.Id,
+                x.AttributeId,
+                x.AttributeListValueId,
+                AttributeListValue = x.AttributeListValue!.Value,
+            })
             .ToArrayAsyncEF(cancellationToken))
             .ToDictionary(x => x.AttributeId);
 
-        if (attributeRequests.Any())
+        var changes = new List<IssueUpdateItem>();
+
+        if (attributeRequests.Length > 0)
         {
+            var valueNames = await context.AttributeListValues
+                .Where(x => attributeRequests.Select(y => y.Id).Contains(x.AttributeId))
+                .Select(x => new { x.Id, x.AttributeId, x.Value })
+                .ToArrayAsyncEF(cancellationToken);
+        
+            var valueNamesByAttributeId = valueNames
+                .GroupBy(x => x.Id)
+                .ToDictionary(
+                    x => x.Key,
+                    x => x.ToDictionary(
+                        y => y.AttributeId,
+                        y => y.Value));
+            
             foreach (var request in attributeRequests)
             {
                 // Update old
                 if (oldAttributes.TryGetValue(request.Id, out var oldAttribute))
                 {
-                    oldAttribute.AttributeListValueId = request.Value;
+                    var entity = new IssueAttributeListValue
+                    {
+                        Id = oldAttribute.Id,
+                        AttributeListValueId = request.Value,
+                    };
+
+                    context.Attach(entity);
                     context.Entry(oldAttribute).State = EntityState.Modified;
+                    
+                    changes.Add(new IssueUpdateItem
+                    {
+                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.Value],
+                        OldDisplayValue = oldAttribute.AttributeListValue,
+                        EntityType = IssueUpdateEntityType.Property,
+                        Action = ChangeAction.Update,
+                        OldValueId = oldAttribute.AttributeListValueId.ToString(),
+                        NewValueId = request.Value.ToString(),
+                    });
                 }
                 // Insert new
                 else
@@ -235,6 +279,14 @@ public class CoreIssuesService(
                         AttributeId = request.Id,
                         IssueId = issueId,
                         AttributeListValueId = request.Value,
+                    });
+                    
+                    changes.Add(new IssueUpdateItem
+                    {
+                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.Value],
+                        EntityType = IssueUpdateEntityType.Property,
+                        Action = ChangeAction.Create,
+                        NewValueId = request.Value.ToString(),
                     });
                 }
             }
@@ -248,10 +300,37 @@ public class CoreIssuesService(
             .ToArray();
 
         if (toDelete.Length != 0)
-            await context.IssueAttributeListValues
+        {
+            var deletableValues = await context.IssueAttributeListValues
                 .Where(x => x.IssueId == issueId)
                 .Where(x => ((IEnumerable<long>)toDelete).Contains(x.AttributeId))
+                .Select(x => new
+                {
+                    x.Id,
+                    AttributeName = x.Attribute!.Name,
+                    AttributeListValueName = x.AttributeListValue!.Value,
+                    x.AttributeListValueId,
+                })
+                .ToDictionaryAsyncEF(x => x.Id, cancellationToken);
+            
+            foreach (var deletableValue in deletableValues)
+            {
+                changes.Add(new IssueUpdateItem
+                {
+                    OldDisplayValue = deletableValue.Value.AttributeListValueName,
+                    EntityType = IssueUpdateEntityType.Property,
+                    Action = ChangeAction.Delete,
+                    OldValueId = deletableValue.Value.AttributeListValueId.ToString(),
+                    PropertyName = deletableValue.Value.AttributeName,
+                });
+            }
+
+            await context.IssueAttributeListValues
+                .Where(x => deletableValues.Select(v => v.Key).Contains(x.Id))
                 .ExecuteDeleteAsync(cancellationToken);
+        }
+
+        return changes.ToArray();
     }
 
     private async Task<IssueUpdateItem[]> UpdateTextAttributes(
@@ -275,10 +354,13 @@ public class CoreIssuesService(
                 {
                     oldAttribute.Text = request.Value;
                     context.Entry(oldAttribute).State = EntityState.Modified;
+                    
                     changes.Add(new IssueUpdateItem
                     {
                         NewDisplayValue = request.Value,
-                        OldDisplayValue = oldAttribute.Text, // TODO - continue here
+                        OldDisplayValue = oldAttribute.Text,
+                        EntityType = IssueUpdateEntityType.Property,
+                        Action = ChangeAction.Update,
                     });
                 }
                 // Insert new
@@ -290,6 +372,13 @@ public class CoreIssuesService(
                         IssueId = issueId,
                         Text = request.Value,
                     });
+                    
+                    changes.Add(new IssueUpdateItem
+                    {
+                        NewDisplayValue = request.Value,
+                        EntityType = IssueUpdateEntityType.Property,
+                        Action = ChangeAction.Create,
+                    });
                 }
             }
             
@@ -297,15 +386,25 @@ public class CoreIssuesService(
         }
         
         // Drop old
-        var toDelete = oldAttributes.Keys
-            .Except(attributeRequests.Select(x => x.Id))
+        var toDelete = oldAttributes
+            .ExceptBy(attributeRequests.Select(x => x.Id), x => x.Key)
             .ToArray();
 
         if (toDelete.Length != 0)
             await context.IssueAttributeTextValues
                 .Where(x => x.IssueId == issueId)
-                .Where(x => ((IEnumerable<long>)toDelete).Contains(x.AttributeId))
+                .Where(x => toDelete.Select(y => y.Key).Contains(x.AttributeId))
                 .ExecuteDeleteAsync(cancellationToken);
+
+        foreach (var deletable in toDelete)
+        {
+            changes.Add(new IssueUpdateItem
+            {
+                OldDisplayValue = deletable.Value.Text,
+                EntityType = IssueUpdateEntityType.Property,
+                Action = ChangeAction.Delete,
+            });
+        }
         
         return changes.ToArray();
     }
