@@ -12,30 +12,19 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<DateTime>(
-                name: "deleted_at",
-                table: "issues",
-                type: "timestamp with time zone",
-                nullable: true);
-
             migrationBuilder.CreateTable(
                 name: "issue_updates",
                 columns: table => new
                 {
                     id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    issue_id = table.Column<long>(type: "bigint", nullable: false),
+                    issue_id = table.Column<long>(type: "bigint", nullable: true),
+                    organization_id = table.Column<long>(type: "bigint", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_issue_updates", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_issue_updates_issues_issue_id",
-                        column: x => x.issue_id,
-                        principalTable: "issues",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -70,9 +59,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 column: "issue_update_id");
 
             migrationBuilder.CreateIndex(
-                name: "ix_issue_updates_issue_id",
+                name: "ix_issue_updates_organization_id_created_at",
                 table: "issue_updates",
-                column: "issue_id");
+                columns: new[] { "organization_id", "created_at" },
+                descending: new[] { false, true });
         }
 
         /// <inheritdoc />
@@ -83,10 +73,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             migrationBuilder.DropTable(
                 name: "issue_updates");
-
-            migrationBuilder.DropColumn(
-                name: "deleted_at",
-                table: "issues");
         }
     }
 }

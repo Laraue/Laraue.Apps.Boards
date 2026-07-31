@@ -4,9 +4,13 @@ public class IssueUpdate
 {
     public long Id { get; set; }
     
-    public long IssueId { get; set; }
-    public Issue? Issue { get; set; }
-    
+    /// <summary>
+    /// The issue link. The issue can be already deleted.
+    /// </summary>
+    public long? IssueId { get; set; }
+
+    public long? OrganizationId { get; set; }
+
     public DateTime CreatedAt { get; set; }
     
     public List<IssueUpdateItem>? Items { get; set; }

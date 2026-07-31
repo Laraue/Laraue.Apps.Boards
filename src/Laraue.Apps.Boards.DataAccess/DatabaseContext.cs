@@ -160,5 +160,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             builder.HasKey(x => new { x.CommentId, x.AttachmentId });
         });
+        
+        modelBuilder.Entity<IssueUpdate>(builder =>
+        {
+            builder
+                .HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .IsDescending(false, true);
+        });
     }
 }

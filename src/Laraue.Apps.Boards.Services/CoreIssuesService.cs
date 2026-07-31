@@ -143,6 +143,9 @@ public class CoreIssuesService(
         
         context.Add(issue);
         context.Add(issueNumber);
+        
+        await context.SaveChangesAsync(cancellationToken);
+        
         context.Add(new IssueUpdate
         {
             CreatedAt = createdAt,
@@ -155,9 +158,8 @@ public class CoreIssuesService(
                     NewDisplayValue = new IssueKey(issueData.Key, issueNumber.Number).ToString(),
                 }
             ],
-            Issue = issue,
+            IssueId = issue.Id,
         });
-        
         await context.SaveChangesAsync(cancellationToken);
         
         await UpdateAttributes(issue.Id, issueData.OrganizationId, attributes, cancellationToken);

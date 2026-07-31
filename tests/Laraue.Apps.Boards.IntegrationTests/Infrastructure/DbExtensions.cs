@@ -22,6 +22,7 @@ public static class DbExtensions
 
     public static void CleanDatabase(this DatabaseContext dbContext)
     {
+        dbContext.IssueUpdates.ExecuteDelete();
         dbContext.SpaceCounters.ExecuteDelete();
         dbContext.TelegramFiles.ExecuteDelete();
         dbContext.Issues.ExecuteDelete();

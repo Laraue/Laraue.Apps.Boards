@@ -302,10 +302,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("deleted_at");
-
                     b.Property<string>("LexoRank")
                         .IsRequired()
                         .HasMaxLength(34)
@@ -538,15 +534,20 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<long>("IssueId")
+                    b.Property<long?>("IssueId")
                         .HasColumnType("bigint")
                         .HasColumnName("issue_id");
+
+                    b.Property<long?>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
 
                     b.HasKey("Id")
                         .HasName("pk_issue_updates");
 
-                    b.HasIndex("IssueId")
-                        .HasDatabaseName("ix_issue_updates_issue_id");
+                    b.HasIndex("OrganizationId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_issue_updates_organization_id_created_at");
 
                     b.ToTable("issue_updates", (string)null);
                 });
@@ -1387,18 +1388,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Issue");
 
                     b.Navigation("Space");
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdate", b =>
-                {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "Issue")
-                        .WithMany()
-                        .HasForeignKey("IssueId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_issue_updates_issues_issue_id");
-
-                    b.Navigation("Issue");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdateItem", b =>
