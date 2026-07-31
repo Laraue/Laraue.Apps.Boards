@@ -42,11 +42,6 @@ public class Issue
     
     public TelegramMessage? TelegramMessage { get; set; }
     public long? TelegramMessageId { get; set; }
-    
-    /// <summary>
-    /// When the issue was deleted.
-    /// </summary>
-    public DateTime? DeletedAt { get; set; }
 
     /// <summary>
     /// The field used for sorting

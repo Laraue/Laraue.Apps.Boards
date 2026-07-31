@@ -94,7 +94,13 @@ public class CoreIssuesService(
     {
         var issueData = await context.Statuses
             .Where(x => x.Id == statusId)
-            .Select(x => new { x.Epic!.SpaceId, x.Epic.Space!.OrganizationId, x.EpicId })
+            .Select(x => new
+            {
+                x.Epic!.SpaceId,
+                x.Epic.Space!.OrganizationId,
+                x.Epic.Space.Key,
+                x.EpicId
+            })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
         LexoRank? issueLexoRank = null;
@@ -137,6 +143,20 @@ public class CoreIssuesService(
         
         context.Add(issue);
         context.Add(issueNumber);
+        context.Add(new IssueUpdate
+        {
+            CreatedAt = createdAt,
+            Items =
+            [
+                new IssueUpdateItem
+                {
+                    Action = ChangeAction.Create,
+                    EntityType = IssueUpdateEntityType.Issue,
+                    NewDisplayValue = new IssueKey(issueData.Key, issueNumber.Number).ToString(),
+                }
+            ],
+            Issue = issue,
+        });
         
         await context.SaveChangesAsync(cancellationToken);
         
@@ -475,9 +495,30 @@ public class CoreIssuesService(
         return changes.ToArray();
     }
 
-    public Task Delete(long id, CancellationToken cancellationToken)
+    public async Task Delete(long id, CancellationToken cancellationToken)
     {
-        return context.Issues
+        var issueKey = await context.Issues
+            .Where(x => x.Id == id)
+            .Select(x => new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number))
+            .FirstAsyncEF(cancellationToken);
+        
+        context.Add(new IssueUpdate
+        {
+            CreatedAt = dateTimeProvider.UtcNow,
+            Items =
+            [
+                new IssueUpdateItem
+                {
+                    Action = ChangeAction.Delete,
+                    EntityType = IssueUpdateEntityType.Issue,
+                    OldDisplayValue = issueKey.ToString(),
+                }
+            ],
+            IssueId = id,
+        });
+
+        await context.SaveChangesAsync(cancellationToken);
+        await context.Issues
             .Where(x => x.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
     }
