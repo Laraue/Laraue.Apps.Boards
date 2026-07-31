@@ -386,7 +386,7 @@ public class OrganizationsService(
         
         foreach (var item in data)
         {
-            var initials = UserInitialsUtility.GetInitials(
+            var initials = new UserInitials(
                 item.Username,
                 item.FirstName,
                 item.LastName);

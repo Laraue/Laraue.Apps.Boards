@@ -1,8 +1,8 @@
 ﻿namespace Laraue.Apps.Boards.Services;
 
-public static class UserInitialsUtility
+public class UserInitials
 {
-    public static UserInitials GetInitials(
+    public UserInitials(
         string? username,
         string? firstName,
         string? lastName)
@@ -33,17 +33,18 @@ public static class UserInitialsUtility
                 initial = "UN";
             }
         }
-
-        return new UserInitials
-        {
-            DisplayName = displayName,
-            Initials = initial
-        };
+        
+        DisplayName = displayName;
+        Initials = initial;
     }
+
+    public string DisplayName { get; }
+    public string Initials { get; }
 }
 
-public class UserInitials
+public class UserInitialsSource
 {
-    public required string DisplayName { get; set; }
-    public required string Initials { get; set; }
+    public required string? Username { get; set; }
+    public required string? FirstName { get; set; }
+    public required string? LastName { get; set; }
 }

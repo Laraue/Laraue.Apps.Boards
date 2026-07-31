@@ -1,8 +1,10 @@
-﻿using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -215,8 +217,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldUpdateIssue_WhenHasGlobalAccessToUpdateIssues()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser();
-        var participatorId = await testScope.CreateUser();
+        var userId = await testScope.CreateUser(u => u.TelegramUserName = "first_user");
+        var participatorId = await testScope.CreateUser(u => u.TelegramUserName = "second_user");
         var organization = await testScope.InitializeOrganization(
             userId,
             o => o
@@ -234,12 +236,37 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
-                    AssigneeId = userId,
+                    AssigneeId = participatorId,
                 }));
 
         var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.NotNull(issue);
         Assert.Equal("New", issue.Content);
+
+        var historyChange = await testScope.Database.IssueUpdates.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(issue.Id, historyChange.IssueId);
+        Assert.Equal(2, historyChange.Items!.Count);
+
+        var contentChange = historyChange.Items[0];
+        var assigneeChange = historyChange.Items[1];
+        
+        Assert.Equal("Hi", contentChange.OldDisplayValue);
+        Assert.Equal("New", contentChange.NewDisplayValue);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Null(contentChange.OldValueId);
+        Assert.Null(contentChange.NewValueId);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Equal(ChangeAction.Update, contentChange.Action);
+        Assert.Equal(IssueUpdateEntityType.Content, contentChange.EntityType);
+        
+        Assert.Equal("first_user", assigneeChange.OldDisplayValue);
+        Assert.Equal("second_user", assigneeChange.NewDisplayValue);
+        Assert.Null(assigneeChange.PropertyName);
+        Assert.Equal(userId.ToString(), assigneeChange.OldValueId);
+        Assert.Equal(participatorId.ToString(), assigneeChange.NewValueId);
+        Assert.Null(assigneeChange.PropertyName);
+        Assert.Equal(ChangeAction.Update, assigneeChange.Action);
+        Assert.Equal(IssueUpdateEntityType.Assignee, assigneeChange.EntityType);
     }
     
     [Fact]

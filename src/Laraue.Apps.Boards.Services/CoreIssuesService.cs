@@ -25,7 +25,8 @@ public interface ICoreIssuesService
     Task Update(
         long issueId,
         Guid updaterId,
-        Action<UpdateSettersBuilder<Issue>> setters,
+        string content,
+        Guid assigneeId,
         SetIssueAttributeRequest[] attributes,
         MediaInfo[] newFiles,
         Guid[] deleteAttachmentIds,
@@ -149,7 +150,8 @@ public class CoreIssuesService(
     public async Task Update(
         long issueId,
         Guid updaterId,
-        Action<UpdateSettersBuilder<Issue>> setters,
+        string content,
+        Guid assigneeId,
         SetIssueAttributeRequest[] attributes,
         MediaInfo[] newFiles,
         Guid[] deleteAttachmentIds,
@@ -157,20 +159,16 @@ public class CoreIssuesService(
     {
         var date = dateTimeProvider.UtcNow;
 
-        var epicData = await context.Issues
+        var issueData = await context.Issues
             .Where(x => x.Id == issueId)
-            .Select(x => new { x.Status!.EpicId, x.Status.Epic!.Space!.OrganizationId })
+            .Select(x => new
+            {
+                x.Status!.EpicId,
+                x.Status.Epic!.Space!.OrganizationId,
+                x.Content,
+                x.AssigneeId,
+            })
             .FirstAsyncEF(cancellationToken);
-
-        await context.Issues
-            .Where(x => x.Id == issueId)
-            .ExecuteUpdateAsync(
-                upd =>
-                {
-                    setters(upd);
-                    upd.SetProperty(x => x.UpdatedAt, date);
-                },
-                cancellationToken);
 
         var change = new IssueUpdate
         {
@@ -178,15 +176,58 @@ public class CoreIssuesService(
             IssueId = issueId,
             Items = []
         };
+
+        Action<UpdateSettersBuilder<Issue>> settersBuilder = builder
+            => builder.SetProperty(x => x.UpdatedAt, date);
+
+        var oldContent = issueData.Content;
+        if (oldContent != content)
+        {
+            settersBuilder += builder => builder.SetProperty(x => x.Content, content);
+            change.Items.Add(new IssueUpdateItem
+            {
+                NewDisplayValue = content,
+                OldDisplayValue = oldContent,
+                Action = ChangeAction.Update,
+                EntityType = IssueUpdateEntityType.Content,
+            });
+        }
+
+        var oldAssigneeId = issueData.AssigneeId;
+        if (oldAssigneeId != assigneeId)
+        {
+            var usersInitials = await context.Users
+                .Where(x => x.Id == assigneeId || x.Id == oldAssigneeId)
+                .ToDictionaryAsyncEF(
+                    x => x.Id,
+                    x => new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName),
+                    cancellationToken);
+            
+            settersBuilder += builder => builder.SetProperty(x => x.AssigneeId, assigneeId);
+            
+            change.Items.Add(new IssueUpdateItem
+            {
+                NewDisplayValue = usersInitials[assigneeId].DisplayName,
+                OldDisplayValue = usersInitials[oldAssigneeId].DisplayName,
+                OldValueId = issueData.AssigneeId.ToString(),
+                NewValueId = assigneeId.ToString(),
+                Action = ChangeAction.Update,
+                EntityType = IssueUpdateEntityType.Assignee,
+            });
+        }
+
+        await context.Issues
+            .Where(x => x.Id == issueId)
+            .ExecuteUpdateAsync(settersBuilder, cancellationToken);
         
         change.Items.AddRange(await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken));
         change.Items.AddRange(await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken));
-        change.Items.AddRange(await UpdateAttributes(issueId, epicData.OrganizationId, attributes, cancellationToken));
+        change.Items.AddRange(await UpdateAttributes(issueId, issueData.OrganizationId, attributes, cancellationToken));
 
         context.Add(change);
         await context.SaveChangesAsync(cancellationToken);
         
-        await TouchEpics([epicData.EpicId], date, cancellationToken);
+        await TouchEpics([issueData.EpicId], date, cancellationToken);
     }
 
     private async Task<IssueUpdateItem[]> UpdateAttributes(

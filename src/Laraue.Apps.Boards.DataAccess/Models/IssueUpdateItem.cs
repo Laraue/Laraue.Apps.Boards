@@ -34,13 +34,6 @@ public class IssueUpdateItem
     public string? PropertyName { get; set; }
 }
 
-// Attachment added / removed. Old
-// Content edited
-// Comment created / edited / deleted
-// Property edited
-// Link attached / edited / detached
-// Issue created
-
 public enum IssueUpdateEntityType
 {
     Attachment,
@@ -48,6 +41,7 @@ public enum IssueUpdateEntityType
     Comment,
     Property,
     Issue,
+    Assignee,
 }
 
 public enum ChangeAction
@@ -56,5 +50,3 @@ public enum ChangeAction
     Update,
     Delete,
 }
-
-// { id: 1, createdAt: '2020-01-01 23:00:00', changes: [ { propertyType: 'attribute', action: 'delete', oldValue: 'Type: Bug' }, { propertyType: 'comment', action: 'edit', oldValue: 'Old comment', newValue: 'NewComment' } ] }

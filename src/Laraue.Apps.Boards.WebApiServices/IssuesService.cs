@@ -402,9 +402,8 @@ public class IssuesService(
         await issuesService.Update(
             issueId,
             request.AuthData.UserId,
-            upd => upd
-                .SetProperty(x => x.Content, request.Content)
-                .SetProperty(x => x.AssigneeId, request.AssigneeId),
+            request.Content,
+            request.AssigneeId,
             attributeUpdateRequests,
             uploadedFiles,
             request.RemoveAttachmentIds,
@@ -544,12 +543,12 @@ public class IssuesService(
             })
             .FirstAsyncEF(cancellationToken);
 
-        var owner = UserInitialsUtility.GetInitials(
+        var owner = new UserInitials(
             result.TelegramUsername,
             result.TelegramFirstName,
             result.TelegramLastName);
         
-        var assignee = UserInitialsUtility.GetInitials(
+        var assignee = new UserInitials(
             result.AssigneeTelegramUsername,
             result.AssigneeTelegramFirstName,
             result.AssigneeTelegramLastName);
@@ -603,7 +602,7 @@ public class IssuesService(
         var comments = new List<CommentDto>();
         foreach (var commentData in commentsData)
         {
-            var userInitials = UserInitialsUtility.GetInitials(
+            var userInitials = new UserInitials(
                 commentData.TelegramUserName,
                 commentData.TelegramFirstName,
                 commentData.TelegramLastName);
@@ -1124,7 +1123,7 @@ public class IssuesService(
     
     private static IssueListDto Map(IssueListDtoData source)
     {
-        var assigneeData = UserInitialsUtility.GetInitials(
+        var assigneeData = new UserInitials(
             source.AssigneeTelegramUsername,
             source.AssigneeTelegramFirstName,
             source.AssigneeTelegramLastName);

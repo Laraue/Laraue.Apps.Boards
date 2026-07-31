@@ -211,12 +211,22 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
 
         var historyChange = await testScope.Database.IssueUpdates.Include(x => x.Items).SingleAsyncEF();
         Assert.Equal(issue.Id, historyChange.IssueId);
-        Assert.Equal(4, historyChange.Items!.Count);
+        Assert.Equal(5, historyChange.Items!.Count);
 
-        var newFileChange = historyChange.Items[0];
-        var deleteFileChange = historyChange.Items[1];
-        var noteChange = historyChange.Items[2];
-        var typeChange = historyChange.Items[3];
+        var contentChange = historyChange.Items[0];
+        var newFileChange = historyChange.Items[1];
+        var deleteFileChange = historyChange.Items[2];
+        var noteChange = historyChange.Items[3];
+        var typeChange = historyChange.Items[4];
+        
+        Assert.Equal("Hi", contentChange.OldDisplayValue);
+        Assert.Equal("New", contentChange.NewDisplayValue);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Null(contentChange.OldValueId);
+        Assert.Null(contentChange.NewValueId);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Equal(ChangeAction.Update, contentChange.Action);
+        Assert.Equal(IssueUpdateEntityType.Content, contentChange.EntityType);
         
         Assert.Null(newFileChange.OldDisplayValue);
         Assert.Equal("image.jpg", newFileChange.NewDisplayValue);
