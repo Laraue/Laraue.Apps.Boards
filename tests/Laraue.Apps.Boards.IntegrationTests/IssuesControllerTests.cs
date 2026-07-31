@@ -17,7 +17,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldCreateIssue_WhenIsOrganizationOwner()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser();
+        var userId = await testScope.CreateUser(x => x.TelegramUserName = "user1");
         var organization = await testScope.InitializeOrganization(userId);
 
         var status = organization.GetStatus(0, 0, 0);
@@ -41,7 +41,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var historyChange = await testScope.Database.IssueUpdates.Include(x => x.Items).SingleAsyncEF();
         Assert.Equal(issue.Id, historyChange.IssueId);
-        var issueChange = Assert.Single(historyChange.Items!);
+        Assert.Equal(3, historyChange.Items!.Count);
+
+        var issueChange = historyChange.Items[0];
+        var contentChange = historyChange.Items[1];
+        var assigneeChange = historyChange.Items[2];
         
         Assert.Null(issueChange.OldDisplayValue);
         Assert.Equal(issueKey, issueChange.NewDisplayValue);
@@ -51,6 +55,24 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(issueChange.PropertyName);
         Assert.Equal(ChangeAction.Create, issueChange.Action);
         Assert.Equal(IssueUpdateEntityType.Issue, issueChange.EntityType);
+        
+        Assert.Null(contentChange.OldDisplayValue);
+        Assert.Equal("New Issue", contentChange.NewDisplayValue);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Null(contentChange.OldValueId);
+        Assert.Null(contentChange.NewValueId);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Equal(ChangeAction.Update, contentChange.Action);
+        Assert.Equal(IssueUpdateEntityType.Content, contentChange.EntityType);
+        
+        Assert.Null(assigneeChange.OldDisplayValue);
+        Assert.Equal("user1", assigneeChange.NewDisplayValue);
+        Assert.Null(assigneeChange.PropertyName);
+        Assert.Null(assigneeChange.OldValueId);
+        Assert.Equal(userId.ToString(), assigneeChange.NewValueId);
+        Assert.Null(assigneeChange.PropertyName);
+        Assert.Equal(ChangeAction.Update, assigneeChange.Action);
+        Assert.Equal(IssueUpdateEntityType.Assignee, assigneeChange.EntityType);
     }
     
     [Fact]

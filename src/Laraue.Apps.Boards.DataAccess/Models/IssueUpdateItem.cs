@@ -10,16 +10,23 @@ public class IssueUpdateItem
     public IssueUpdate? IssueUpdate { get; set; }
     
     /// <summary>
-    /// Value identifier (long / GUID serialized as string).
+    /// Value identifier (long or GUID identifier serialized as string).
     /// </summary>
     [MaxLength(36)]
     public string? OldValueId { get; set; }
     
     /// <summary>
-    /// Value identifier (long / GUID serialized as string).
+    /// Value identifier (long or GUID identifier serialized as string).
     /// </summary>
     [MaxLength(36)]
     public string? NewValueId { get; set; }
+    
+    /// <summary>
+    /// When the change related to the issue entity the field is filled.
+    /// For example, comment attachment update will store comment id here.
+    /// </summary>
+    [MaxLength(36)]
+    public string? ParentValueId { get; set; }
     
     public ChangeAction Action { get; set; }
     public IssueUpdateEntityType EntityType { get; set; }
@@ -38,7 +45,8 @@ public enum IssueUpdateEntityType
 {
     Attachment,
     Content,
-    Comment,
+    CommentContent,
+    CommentAttachment,
     Property,
     Issue,
     Assignee,

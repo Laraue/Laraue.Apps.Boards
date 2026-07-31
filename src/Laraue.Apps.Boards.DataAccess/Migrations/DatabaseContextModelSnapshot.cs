@@ -593,6 +593,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("character varying(36)")
                         .HasColumnName("old_value_id");
 
+                    b.Property<string>("ParentValueId")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)")
+                        .HasColumnName("parent_value_id");
+
                     b.Property<string>("PropertyName")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")

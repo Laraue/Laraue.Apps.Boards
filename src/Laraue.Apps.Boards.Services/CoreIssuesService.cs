@@ -92,6 +92,8 @@ public class CoreIssuesService(
         MediaInfo[] newFiles,
         CancellationToken cancellationToken)
     {
+        assigneeId ??= ownerId;
+        
         var issueData = await context.Statuses
             .Where(x => x.Id == statusId)
             .Select(x => new
@@ -130,7 +132,7 @@ public class CoreIssuesService(
             UpdatedAt = createdAt,
             TelegramMessageId = telegramMessageId,
             StatusId = statusId,
-            AssigneeId = assigneeId ?? ownerId,
+            AssigneeId = assigneeId.Value,
             LexoRank = issueLexoRank.ToString(),
         };
         
@@ -146,9 +148,10 @@ public class CoreIssuesService(
         
         await context.SaveChangesAsync(cancellationToken);
         
-        context.Add(new IssueUpdate
+        var change = new IssueUpdate
         {
             CreatedAt = createdAt,
+            IssueId = issue.Id,
             Items =
             [
                 new IssueUpdateItem
@@ -157,13 +160,37 @@ public class CoreIssuesService(
                     EntityType = IssueUpdateEntityType.Issue,
                     NewDisplayValue = new IssueKey(issueData.Key, issueNumber.Number).ToString(),
                 }
-            ],
-            IssueId = issue.Id,
-        });
-        await context.SaveChangesAsync(cancellationToken);
+            ]
+        };
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            change.Items.Add(new IssueUpdateItem
+            {
+                NewDisplayValue = text,
+                Action = ChangeAction.Update,
+                EntityType = IssueUpdateEntityType.Content,
+            });
+        }
         
-        await UpdateAttributes(issue.Id, issueData.OrganizationId, attributes, cancellationToken);
-        await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken);
+        var usersInitials = await context.Users
+            .Where(x => x.Id == assigneeId)
+            .Select(x => new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName))
+            .FirstAsyncEF(cancellationToken);
+        
+        change.Items.Add(new IssueUpdateItem
+        {
+            NewDisplayValue = usersInitials.DisplayName,
+            NewValueId = assigneeId.ToString(),
+            Action = ChangeAction.Update,
+            EntityType = IssueUpdateEntityType.Assignee,
+        });
+        
+        change.Items.AddRange(await UpdateAttributes(issue.Id, issueData.OrganizationId, attributes, cancellationToken));
+        change.Items.AddRange(await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken));
+        
+        context.Add(change);
+        await context.SaveChangesAsync(cancellationToken);
         await TouchEpics([issueData.EpicId], createdAt, cancellationToken);
         
         return issue.Id;

@@ -36,6 +36,7 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     issue_update_id = table.Column<long>(type: "bigint", nullable: false),
                     old_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
                     new_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
+                    parent_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
                     action = table.Column<int>(type: "integer", nullable: false),
                     entity_type = table.Column<int>(type: "integer", nullable: false),
                     old_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true),

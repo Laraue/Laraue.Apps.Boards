@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260731153124_AddIssueHistory")]
+    [Migration("20260731155933_AddIssueHistory")]
     partial class AddIssueHistory
     {
         /// <inheritdoc />
@@ -595,6 +595,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasMaxLength(36)
                         .HasColumnType("character varying(36)")
                         .HasColumnName("old_value_id");
+
+                    b.Property<string>("ParentValueId")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)")
+                        .HasColumnName("parent_value_id");
 
                     b.Property<string>("PropertyName")
                         .HasMaxLength(255)
