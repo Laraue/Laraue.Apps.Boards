@@ -208,4 +208,19 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             },
             cancellationToken);
     }
+    
+    [HttpPost("{key}/comments")]
+    public Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
+        string key,
+        [FromBody] GetIssueCommentsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.GetIssueComments(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                IssueKey = key,
+            },
+            cancellationToken);
+    }
 }

@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -799,5 +800,50 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var notFoundException = ex.HasInnerException<NotFoundException>();
         Assert.Equal("Status: 0 is not found", notFoundException.Message);
+    }
+    
+    [Fact]
+    public async Task User_ShouldSeeIssueComments_WhenIssueAvailable()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddUser(
+                    participatorId,
+                    permissions => permissions
+                        .SetGlobalAccessLevel(l => l.CanRead = true))
+                .AddIssueToDefaultStatus(userId, builder => builder
+                    .AddComment(userId, "Comment 1")
+                    .AddComment(participatorId, "Comment 2")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        var request = new GetIssueCommentsRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 8,
+            }
+        };
+        
+        var commentsData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.GetIssueComments(issueData.Key, request));
+
+        var data = commentsData!.Data;
+        Assert.Equal(2, data.Count);
+
+        var userComment = data[0];
+        var participatorComment = data[1];
+        
+        Assert.False(userComment.CanModify);
+        Assert.Equal("Comment 1", userComment.Text);
+        
+        Assert.True(participatorComment.CanModify);
+        Assert.Equal("Comment 2", participatorComment.Text);
     }
 }

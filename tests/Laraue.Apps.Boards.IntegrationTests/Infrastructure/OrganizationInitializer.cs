@@ -591,7 +591,7 @@ public class OrganizationInitializer(
             return this;
         }
         
-        public IssueBuilder AddComment(Guid ownerId, string comment, Action<IssueCommentBuilder>? setupComment)
+        public IssueBuilder AddComment(Guid ownerId, string comment, Action<IssueCommentBuilder>? setupComment = null)
         {
             var entity = new IssueCommentBuilder(ownerId, comment);
             

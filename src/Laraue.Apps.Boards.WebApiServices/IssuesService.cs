@@ -53,11 +53,6 @@ public interface IIssuesService
     Task<IssueDetailDto> GetIssue(
         GetIssueRequest request,
         CancellationToken cancellationToken);
-
-    Task<long> GetIssueIdByIssueKey(
-        long organizationId,
-        IssueKey issueKey,
-        CancellationToken cancellationToken);
     
     Task<long> AddIssueComment(
         AddCommentRequest request,
@@ -77,6 +72,10 @@ public interface IIssuesService
 
     Task UpdateIssuesStatus(
         UpdateIssuesStatusRequest request,
+        CancellationToken ct);
+
+    Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
+        GetIssueCommentsRequest request,
         CancellationToken ct);
 }
 
@@ -572,58 +571,6 @@ public class IssuesService(
             })
             .ToArrayAsyncEF(cancellationToken);
 
-        var commentsData = await context
-            .IssueComments
-            .Where(x => x.IssueId == issueId)
-            .Select(x => new
-            {
-                x.Text,
-                x.Id,
-                x.CreatedAt,
-                x.UpdatedAt,
-                x.Owner!.Color,
-                x.Owner.TelegramFirstName,
-                x.Owner.TelegramLastName,
-                x.Owner.TelegramUserName,
-                CanModify = x.OwnerId == request.AuthData.UserId,
-                Attachments = x.Attachments
-                    .Select(a => new AttachmentData
-                    {
-                        Id = a.AttachmentId,
-                        OriginalFileId = a.Attachment!.FileId,
-                        PreviewFileId = a.Attachment.PreviewFileId,
-                        Type = a.Attachment.Type,
-                        FileName = a.Attachment.File!.Name,
-                    })
-                    .ToList(),
-            })
-            .ToListAsyncEF(cancellationToken);
-
-        var comments = new List<CommentDto>();
-        foreach (var commentData in commentsData)
-        {
-            var userInitials = new UserInitials(
-                commentData.TelegramUserName,
-                commentData.TelegramFirstName,
-                commentData.TelegramLastName);
-            
-            comments.Add(new CommentDto
-            {
-                Id = commentData.Id,
-                Text = commentData.Text,
-                CreatedAt = commentData.CreatedAt,
-                UpdatedAt = commentData.UpdatedAt,
-                CanModify = commentData.CanModify,
-                Owner = new UserDetails
-                {
-                    Color = commentData.Color,
-                    DisplayName = userInitials.DisplayName,
-                    Initials = userInitials.Initials,
-                },
-                Attachments = commentData.Attachments,
-            });
-        }
-
         var attributeValuesResult = await GetIssueAttributeValues(issueId, cancellationToken);
         foreach (var attributeValue in attributeValues)
         {
@@ -665,7 +612,6 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
-            Comments = comments,
         };
     }
 
@@ -685,7 +631,7 @@ public class IssuesService(
             .ToListAsyncEF(ct);
     }
 
-    public Task<long> GetIssueIdByIssueKey(
+    private Task<long> GetIssueIdByIssueKey(
         long organizationId,
         IssueKey issueKey,
         CancellationToken cancellationToken)
@@ -832,6 +778,77 @@ public class IssuesService(
             request.StatusId,
             ct);
         await transaction.CommitAsync(ct);
+    }
+
+    public async Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
+        GetIssueCommentsRequest request,
+        CancellationToken ct)
+    {
+        var issueId = await GetIssueIdByIssueKey(
+            request.AuthData.OrganizationId,
+            new IssueKey(request.IssueKey),
+            ct);
+        
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+            request.AuthData,
+            issueId,
+            ct);
+
+        if (issueAccessLevels is null || !issueAccessLevels.CanRead)
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+
+        var commentsData = await context
+            .IssueComments
+            .Where(x => x.IssueId == issueId)
+            .Select(x => new
+            {
+                x.Text,
+                x.Id,
+                x.CreatedAt,
+                x.UpdatedAt,
+                x.Owner!.Color,
+                x.Owner.TelegramFirstName,
+                x.Owner.TelegramLastName,
+                x.Owner.TelegramUserName,
+                CanModify = x.OwnerId == request.AuthData.UserId,
+                Attachments = x.Attachments
+                    .Select(a => new AttachmentData
+                    {
+                        Id = a.AttachmentId,
+                        OriginalFileId = a.Attachment!.FileId,
+                        PreviewFileId = a.Attachment.PreviewFileId,
+                        Type = a.Attachment.Type,
+                        FileName = a.Attachment.File!.Name,
+                    })
+                    .ToList(),
+            })
+            .ShortPaginateEFAsync(request.Pagination, ct);
+
+        var result = commentsData.MapTo(item =>
+        {
+            var userInitials = new UserInitials(
+                item.TelegramUserName,
+                item.TelegramFirstName,
+                item.TelegramLastName);
+
+            return new CommentDto
+            {
+                Id = item.Id,
+                Text = item.Text,
+                CreatedAt = item.CreatedAt,
+                UpdatedAt = item.UpdatedAt,
+                CanModify = item.CanModify,
+                Owner = new UserDetails
+                {
+                    Color = item.Color,
+                    DisplayName = userInitials.DisplayName,
+                    Initials = userInitials.Initials,
+                },
+                Attachments = item.Attachments,
+            };
+        });
+
+        return result;
     }
 
     private async Task<long> GetIssueIdIfAccessible(
@@ -1517,7 +1534,6 @@ public class IssueDetailDto
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
-    public required List<CommentDto> Comments { get; set; }
 }
 
 public record CommentDto
@@ -1675,4 +1691,11 @@ public record UpdateIssuesStatusRequest
     public OrganizationAuthData AuthData { get; set; }
     public required string[] IssueKeys { get; set; } = [];
     public required long StatusId { get; set; }
+}
+
+public record GetIssueCommentsRequest : IPaginatedRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+    public string IssueKey { get; set; } = string.Empty;
+    public required PaginationData Pagination { get; set; }
 }
