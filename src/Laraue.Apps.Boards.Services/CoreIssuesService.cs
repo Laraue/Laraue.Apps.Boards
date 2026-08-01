@@ -368,27 +368,30 @@ public class CoreIssuesService(
                 // Update old
                 if (oldAttributeById.TryGetValue(request.Id, out var oldAttribute))
                 {
-                    var entity = new IssueAttributeListValue
+                    if (oldAttribute.AttributeListValueId != request.ListValueId)
                     {
-                        Id = oldAttribute.Id,
-                        IssueId = issueId,
-                        AttributeId = oldAttribute.AttributeId,
-                        AttributeListValueId = request.ListValueId,
-                    };
+                        var entity = new IssueAttributeListValue
+                        {
+                            Id = oldAttribute.Id,
+                            IssueId = issueId,
+                            AttributeId = oldAttribute.AttributeId,
+                            AttributeListValueId = request.ListValueId,
+                        };
 
-                    context.Attach(entity);
-                    context.Entry(entity).State = EntityState.Modified;
+                        context.Attach(entity);
+                        context.Entry(entity).State = EntityState.Modified;
                     
-                    changes.Add(new OrganizationLogItem
-                    {
-                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
-                        OldDisplayValue = oldAttribute.AttributeListValue,
-                        EntityType = IssueUpdateEntityType.Property,
-                        Action = ChangeAction.Update,
-                        OldValueId = oldAttribute.AttributeListValueId.ToString(),
-                        NewValueId = request.ListValueId.ToString(),
-                        PropertyName = attributeNameById[request.Id],
-                    });
+                        changes.Add(new OrganizationLogItem
+                        {
+                            NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
+                            OldDisplayValue = oldAttribute.AttributeListValue,
+                            EntityType = IssueUpdateEntityType.Property,
+                            Action = ChangeAction.Update,
+                            OldValueId = oldAttribute.AttributeListValueId.ToString(),
+                            NewValueId = request.ListValueId.ToString(),
+                            PropertyName = attributeNameById[request.Id],
+                        });
+                    }
                 }
                 // Insert new
                 else

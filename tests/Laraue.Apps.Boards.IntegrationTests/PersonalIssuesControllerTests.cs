@@ -54,7 +54,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             AssigneeId = userId,
             Files =
             [
-                GetFormFile("image.jpg"),
+                FormFileUtility.GetFormFile("image.jpg"),
             ]
         };
         
@@ -172,7 +172,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             AssigneeId = userId,
             AddFiles =
             [
-                GetFormFile("image.jpg"),
+                FormFileUtility.GetFormFile("image.jpg"),
             ],
             RemoveAttachmentIds = [issueData.Issue.IssueAttachments![0].AttachmentId]
         };
@@ -827,7 +827,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             IssueKey = issue.Key,
             Files =
             [
-                GetFormFile("image.jpg")
+                FormFileUtility.GetFormFile("image.jpg")
             ]
         };
 
@@ -874,7 +874,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             RemoveAttachmentIds = [commentAttachment.AttachmentId],
             AddFiles =
             [
-                GetFormFile("image2.jpg")
+                FormFileUtility.GetFormFile("image2.jpg")
             ],
         };
         
@@ -971,21 +971,5 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var issues = column.Items.Data;
         Assert.Equal(4, issues.Count);
         Assert.Equal(["2", "4", "3", "1"], issues.Select(i => i.Content));
-    }
-
-    private static IFormFile GetFormFile(string imageName)
-    {
-        return new FormFile(
-            new MemoryStream([]),
-            0,
-            0,
-            "file",
-            imageName)
-        {
-            Headers = new HeaderDictionary
-            {
-                ["content-type"] = "image/jpeg"
-            },
-        };
     }
 }

@@ -862,20 +862,49 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser(x => x.TelegramUserName = "user1");
-        var organization = await testScope.InitializeOrganization(userId);
+        var participatorId = await testScope.CreateUser(x => x.TelegramUserName = "user2");
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddListAttribute("Type", ["Bug", "Feature"])
+                .AddListAttribute("Urgency", ["Low", "High"])
+                .AddIssueToDefaultStatus(participatorId, builder => builder
+                    .AddAttachment("old.jpg", AttachmentType.Image)
+                    .WithAttributeValue(0, 0) // Type = Bug
+                    .WithAttributeValue(1, 0) // Urgency - Low
+                    .WithContent("Old")));
 
-        var newIssueRequest = new CreateIssueRequest
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var typeAttribute = organization.Attributes![0];
+        var urgencyAttribute = organization.Attributes![1];
+        
+        var updateIssueRequest = new UpdateIssueRequest
         {
             AssigneeId = userId,
-            Content = "New Issue",
-            StatusId = organization.GetStatus(0, 0, 0).Id,
-            AttributeValues = [],
-            Files = [],
+            Content = "New",
+            AttributeValues =
+            [
+                new EnumAttributeValue // Type = Bug, unchanged
+                {
+                    ValueId = typeAttribute.AttributeListValues![0].Id,
+                    AttributeId = typeAttribute.Id,
+                },
+                new EnumAttributeValue // Urgency = High, changed
+                {
+                    ValueId = urgencyAttribute.AttributeListValues![1].Id,
+                    AttributeId = urgencyAttribute.Id,
+                }
+            ],
+            AddFiles =
+            [
+                FormFileUtility.GetFormFile("image.jpg"),
+            ],
+            RemoveAttachmentIds = [issueData.Issue.IssueAttachments![0].AttachmentId]
         };
         
-        var issueKey = await _issuesController
+        await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.Create(newIssueRequest));
+            .Execute(x => x.Update(issueData.Key, updateIssueRequest));
 
         var request = new GetIssueHistoryRequest
         {
@@ -888,14 +917,15 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var historyData = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetIssueHistory(issueKey!, request));
+            .Execute(x => x.GetIssueHistory(issueData.Key!, request));
 
         var change = Assert.Single(historyData!.Data);
         Assert.Equal("user1", change.Owner.DisplayName);
         
         var itemChanges = change.Changes;
-        Assert.Equal(4, itemChanges.Length);
+        Assert.Equal(5, itemChanges.Length);
         
+        var contentChange = Assert.IsType<IssueHistoryContentChange>(itemChanges[0]);
         // TODO - tests for all items
     }
 }
