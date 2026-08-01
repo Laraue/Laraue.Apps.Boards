@@ -868,15 +868,21 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             initializer => initializer
                 .AddListAttribute("Type", ["Bug", "Feature"])
                 .AddListAttribute("Urgency", ["Low", "High"])
+                .AddTextAttribute("Note")
+                .AddTextAttribute("Description")
                 .AddIssueToDefaultStatus(participatorId, builder => builder
                     .AddAttachment("old.jpg", AttachmentType.Image)
                     .WithAttributeValue(0, 0) // Type = Bug
-                    .WithAttributeValue(1, 0) // Urgency - Low
+                    .WithAttributeValue(1, 0) // Urgency = Low
+                    .WithAttributeValue(2, "Ask mr. John") // Note = Ask mr. John
+                    .WithAttributeValue(3, "50 cents debt") // Description = 50 cents debt
                     .WithContent("Old")));
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var typeAttribute = organization.Attributes![0];
         var urgencyAttribute = organization.Attributes![1];
+        var noteAttribute = organization.Attributes![2];
+        var descriptionAttribute = organization.Attributes![3];
         
         var updateIssueRequest = new UpdateIssueRequest
         {
@@ -893,7 +899,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     ValueId = urgencyAttribute.AttributeListValues![1].Id,
                     AttributeId = urgencyAttribute.Id,
-                }
+                },
+                new StringAttributeValue // Note, unchanged
+                {
+                    AttributeId = noteAttribute.Id,
+                    Value = "Ask mr. John"
+                },
+                // Description deleted
             ],
             AddFiles =
             [
@@ -923,7 +935,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("user1", change.Owner.DisplayName);
         
         var itemChanges = change.Changes;
-        Assert.Equal(5, itemChanges.Length);
+        Assert.Equal(6, itemChanges.Length);
         
         var contentChange = Assert.IsType<IssueHistoryContentChange>(itemChanges[0]);
         // TODO - tests for all items

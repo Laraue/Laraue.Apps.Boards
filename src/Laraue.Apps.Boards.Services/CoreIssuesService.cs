@@ -474,26 +474,29 @@ public class CoreIssuesService(
             foreach (var request in attributeRequests)
             {
                 // Update old
-                if (oldAttributes.TryGetValue(request.Id, out var oldAttribute) && oldAttribute.Text != request.Value)
+                if (oldAttributes.TryGetValue(request.Id, out var oldAttribute))
                 {
-                    var entity = new IssueAttributeTextValue
+                    if (oldAttribute.Text != request.Value)
                     {
-                        IssueId = issueId,
-                        AttributeId = request.Id,
-                        Text = request.Value,
-                    };
+                        var entity = new IssueAttributeTextValue
+                        {
+                            IssueId = issueId,
+                            AttributeId = request.Id,
+                            Text = request.Value,
+                        };
                     
-                    context.Attach(entity);
-                    context.Entry(entity).State = EntityState.Modified;
+                        context.Attach(entity);
+                        context.Entry(entity).State = EntityState.Modified;
                     
-                    changes.Add(new OrganizationLogItem
-                    {
-                        NewDisplayValue = request.Value,
-                        OldDisplayValue = oldAttribute.Text,
-                        EntityType = IssueUpdateEntityType.Property,
-                        Action = ChangeAction.Update,
-                        PropertyName = attributeNameById[oldAttribute.AttributeId],
-                    });
+                        changes.Add(new OrganizationLogItem
+                        {
+                            NewDisplayValue = request.Value,
+                            OldDisplayValue = oldAttribute.Text,
+                            EntityType = IssueUpdateEntityType.Property,
+                            Action = ChangeAction.Update,
+                            PropertyName = attributeNameById[oldAttribute.AttributeId],
+                        });
+                    }
                 }
                 // Insert new
                 else
