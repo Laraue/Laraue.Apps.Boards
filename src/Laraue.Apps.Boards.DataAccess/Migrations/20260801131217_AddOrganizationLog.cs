@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 {
     /// <inheritdoc />
-    public partial class AddIssueHistory : Migration
+    public partial class AddOrganizationLog : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -46,7 +46,7 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 {
                     id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    issue_update_id = table.Column<long>(type: "bigint", nullable: false),
+                    organization_log_id = table.Column<long>(type: "bigint", nullable: false),
                     old_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
                     new_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
                     parent_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
@@ -60,17 +60,17 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 {
                     table.PrimaryKey("pk_issue_update_items", x => x.id);
                     table.ForeignKey(
-                        name: "fk_issue_update_items_issue_updates_issue_update_id",
-                        column: x => x.issue_update_id,
+                        name: "fk_issue_update_items_issue_updates_organization_log_id",
+                        column: x => x.organization_log_id,
                         principalTable: "issue_updates",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "ix_issue_update_items_issue_update_id",
+                name: "ix_issue_update_items_organization_log_id",
                 table: "issue_update_items",
-                column: "issue_update_id");
+                column: "organization_log_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_issue_updates_organization_id_created_at",

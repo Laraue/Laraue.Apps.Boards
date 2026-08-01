@@ -521,104 +521,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("issue_numbers", (string)null);
                 });
 
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdate", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<long?>("IssueId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("issue_id");
-
-                    b.Property<long>("OrganizationId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("organization_id");
-
-                    b.Property<Guid>("OwnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("owner_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_issue_updates");
-
-                    b.HasIndex("OwnerId")
-                        .HasDatabaseName("ix_issue_updates_owner_id");
-
-                    b.HasIndex("OrganizationId", "CreatedAt")
-                        .IsDescending(false, true)
-                        .HasDatabaseName("ix_issue_updates_organization_id_created_at");
-
-                    b.ToTable("issue_updates", (string)null);
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdateItem", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<int>("Action")
-                        .HasColumnType("integer")
-                        .HasColumnName("action");
-
-                    b.Property<int>("EntityType")
-                        .HasColumnType("integer")
-                        .HasColumnName("entity_type");
-
-                    b.Property<long>("IssueUpdateId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("issue_update_id");
-
-                    b.Property<string>("NewDisplayValue")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
-                        .HasColumnName("new_display_value");
-
-                    b.Property<string>("NewValueId")
-                        .HasMaxLength(36)
-                        .HasColumnType("character varying(36)")
-                        .HasColumnName("new_value_id");
-
-                    b.Property<string>("OldDisplayValue")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
-                        .HasColumnName("old_display_value");
-
-                    b.Property<string>("OldValueId")
-                        .HasMaxLength(36)
-                        .HasColumnType("character varying(36)")
-                        .HasColumnName("old_value_id");
-
-                    b.Property<string>("ParentValueId")
-                        .HasMaxLength(36)
-                        .HasColumnType("character varying(36)")
-                        .HasColumnName("parent_value_id");
-
-                    b.Property<string>("PropertyName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("property_name");
-
-                    b.HasKey("Id")
-                        .HasName("pk_issue_update_items");
-
-                    b.HasIndex("IssueUpdateId")
-                        .HasDatabaseName("ix_issue_update_items_issue_update_id");
-
-                    b.ToTable("issue_update_items", (string)null);
-                });
-
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
                 {
                     b.Property<long>("Id")
@@ -690,6 +592,104 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasDatabaseName("ix_organizations_slug_postfix_slug");
 
                     b.ToTable("organizations", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("IssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("issue_id");
+
+                    b.Property<long>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_issue_updates");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_issue_updates_owner_id");
+
+                    b.HasIndex("OrganizationId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_issue_updates_organization_id_created_at");
+
+                    b.ToTable("issue_updates", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationLogItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Action")
+                        .HasColumnType("integer")
+                        .HasColumnName("action");
+
+                    b.Property<int>("EntityType")
+                        .HasColumnType("integer")
+                        .HasColumnName("entity_type");
+
+                    b.Property<string>("NewDisplayValue")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("new_display_value");
+
+                    b.Property<string>("NewValueId")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)")
+                        .HasColumnName("new_value_id");
+
+                    b.Property<string>("OldDisplayValue")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("old_display_value");
+
+                    b.Property<string>("OldValueId")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)")
+                        .HasColumnName("old_value_id");
+
+                    b.Property<long>("OrganizationLogId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_log_id");
+
+                    b.Property<string>("ParentValueId")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)")
+                        .HasColumnName("parent_value_id");
+
+                    b.Property<string>("PropertyName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("property_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_issue_update_items");
+
+                    b.HasIndex("OrganizationLogId")
+                        .HasDatabaseName("ix_issue_update_items_organization_log_id");
+
+                    b.ToTable("issue_update_items", (string)null);
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationUser", b =>
@@ -1402,7 +1402,19 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Space");
                 });
 
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdate", b =>
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
+                        .WithMany("Organizations")
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_organizations_users_owner_id");
+
+                    b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationLog", b =>
                 {
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
                         .WithMany()
@@ -1423,28 +1435,16 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Owner");
                 });
 
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdateItem", b =>
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationLogItem", b =>
                 {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.IssueUpdate", "IssueUpdate")
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.OrganizationLog", "OrganizationLog")
                         .WithMany("Items")
-                        .HasForeignKey("IssueUpdateId")
+                        .HasForeignKey("OrganizationLogId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_issue_update_items_issue_updates_issue_update_id");
+                        .HasConstraintName("fk_issue_update_items_issue_updates_organization_log_id");
 
-                    b.Navigation("IssueUpdate");
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
-                {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
-                        .WithMany("Organizations")
-                        .HasForeignKey("OwnerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_organizations_users_owner_id");
-
-                    b.Navigation("Owner");
+                    b.Navigation("OrganizationLog");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationUser", b =>
@@ -1568,11 +1568,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Attachments");
                 });
 
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdate", b =>
-                {
-                    b.Navigation("Items");
-                });
-
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
                 {
                     b.Navigation("Attributes");
@@ -1580,6 +1575,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Spaces");
 
                     b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationLog", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Space", b =>

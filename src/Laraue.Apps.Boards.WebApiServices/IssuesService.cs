@@ -911,12 +911,12 @@ public class IssuesService(
         return result;
     }
     
-    private static IssueHistoryItemChange[] MapChanges(IEnumerable<IssueUpdateItem> items)
+    private static IssueHistoryItemChange[] MapChanges(IEnumerable<OrganizationLogItem> items)
     {
         return items.Select(MapChange).ToArray();
     }
 
-    private static IssueHistoryItemChange MapChange(IssueUpdateItem item)
+    private static IssueHistoryItemChange MapChange(OrganizationLogItem item)
     {
         return item.EntityType switch
         {

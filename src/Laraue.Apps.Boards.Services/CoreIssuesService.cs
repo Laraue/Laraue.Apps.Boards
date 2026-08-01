@@ -151,19 +151,19 @@ public class CoreIssuesService(
         
         await context.SaveChangesAsync(cancellationToken);
         
-        var change = new IssueUpdate
+        var change = new OrganizationLog
         {
             CreatedAt = createdAt,
             IssueId = issue.Id,
             Items =
             [
-                new IssueUpdateItem
+                new OrganizationLogItem
                 {
                     Action = ChangeAction.Create,
                     EntityType = IssueUpdateEntityType.Issue,
                     NewDisplayValue = new IssueKey(issueData.Key, issueNumber.Number).ToString(),
                 },
-                new IssueUpdateItem
+                new OrganizationLogItem
                 {
                     Action = ChangeAction.Update,
                     EntityType = IssueUpdateEntityType.Status,
@@ -177,7 +177,7 @@ public class CoreIssuesService(
 
         if (!string.IsNullOrEmpty(text))
         {
-            change.Items.Add(new IssueUpdateItem
+            change.Items.Add(new OrganizationLogItem
             {
                 NewDisplayValue = text,
                 Action = ChangeAction.Update,
@@ -190,7 +190,7 @@ public class CoreIssuesService(
             .Select(x => new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName))
             .FirstAsyncEF(cancellationToken);
         
-        change.Items.Add(new IssueUpdateItem
+        change.Items.Add(new OrganizationLogItem
         {
             NewDisplayValue = usersInitials.DisplayName,
             NewValueId = assigneeId.ToString(),
@@ -231,7 +231,7 @@ public class CoreIssuesService(
             })
             .FirstAsyncEF(cancellationToken);
 
-        var change = new IssueUpdate
+        var change = new OrganizationLog
         {
             CreatedAt = date,
             IssueId = issueId,
@@ -247,7 +247,7 @@ public class CoreIssuesService(
         if (oldContent != content)
         {
             settersBuilder += builder => builder.SetProperty(x => x.Content, content);
-            change.Items.Add(new IssueUpdateItem
+            change.Items.Add(new OrganizationLogItem
             {
                 NewDisplayValue = content,
                 OldDisplayValue = oldContent,
@@ -268,7 +268,7 @@ public class CoreIssuesService(
             
             settersBuilder += builder => builder.SetProperty(x => x.AssigneeId, assigneeId);
             
-            change.Items.Add(new IssueUpdateItem
+            change.Items.Add(new OrganizationLogItem
             {
                 NewDisplayValue = usersInitials[assigneeId].DisplayName,
                 OldDisplayValue = usersInitials[oldAssigneeId].DisplayName,
@@ -293,7 +293,7 @@ public class CoreIssuesService(
         await TouchEpics([issueData.EpicId], date, cancellationToken);
     }
 
-    private async Task<IssueUpdateItem[]> UpdateAttributes(
+    private async Task<OrganizationLogItem[]> UpdateAttributes(
         long issueId,
         long organizationId,
         SetIssueAttributeRequest[] attributeRequests,
@@ -301,7 +301,7 @@ public class CoreIssuesService(
     {
         context.Database.EnsureTransactionStarted();
 
-        var changes = new List<IssueUpdateItem>();
+        var changes = new List<OrganizationLogItem>();
 
         var attributeNameById = await context.Attributes
             .Where(x => x.OrganizationId == organizationId)
@@ -324,7 +324,7 @@ public class CoreIssuesService(
         return changes.ToArray();
     }
     
-    private async Task<IssueUpdateItem[]> UpdateListAttributes(
+    private async Task<OrganizationLogItem[]> UpdateListAttributes(
         long issueId,
         Dictionary<long, string> attributeNameById,
         SetIssueListAttributeRequest[] attributeRequests,
@@ -344,7 +344,7 @@ public class CoreIssuesService(
         var oldAttributeById =  oldAttributes
             .ToDictionary(x => x.AttributeId);
 
-        var changes = new List<IssueUpdateItem>();
+        var changes = new List<OrganizationLogItem>();
 
         if (attributeRequests.Length > 0)
         {
@@ -377,7 +377,7 @@ public class CoreIssuesService(
                     context.Attach(entity);
                     context.Entry(entity).State = EntityState.Modified;
                     
-                    changes.Add(new IssueUpdateItem
+                    changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
                         OldDisplayValue = oldAttribute.AttributeListValue,
@@ -398,7 +398,7 @@ public class CoreIssuesService(
                         AttributeListValueId = request.ListValueId,
                     });
                     
-                    changes.Add(new IssueUpdateItem
+                    changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
                         EntityType = IssueUpdateEntityType.Property,
@@ -432,7 +432,7 @@ public class CoreIssuesService(
             
             foreach (var deletableValue in deletableValues)
             {
-                changes.Add(new IssueUpdateItem
+                changes.Add(new OrganizationLogItem
                 {
                     OldDisplayValue = deletableValue.Value.AttributeListValueName,
                     EntityType = IssueUpdateEntityType.Property,
@@ -450,7 +450,7 @@ public class CoreIssuesService(
         return changes.ToArray();
     }
 
-    private async Task<IssueUpdateItem[]> UpdateTextAttributes(
+    private async Task<OrganizationLogItem[]> UpdateTextAttributes(
         long issueId,
         Dictionary<long, string> attributeNameById,
         SetIssueTextAttributeRequest[] attributeRequests,
@@ -462,7 +462,7 @@ public class CoreIssuesService(
             .ToArrayAsyncEF(cancellationToken))
             .ToDictionary(x => x.AttributeId);
 
-        var changes = new List<IssueUpdateItem>();
+        var changes = new List<OrganizationLogItem>();
         
         if (attributeRequests.Any())
         {
@@ -481,7 +481,7 @@ public class CoreIssuesService(
                     context.Attach(entity);
                     context.Entry(entity).State = EntityState.Modified;
                     
-                    changes.Add(new IssueUpdateItem
+                    changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = request.Value,
                         OldDisplayValue = oldAttribute.Text,
@@ -500,7 +500,7 @@ public class CoreIssuesService(
                         Text = request.Value,
                     });
                     
-                    changes.Add(new IssueUpdateItem
+                    changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = request.Value,
                         EntityType = IssueUpdateEntityType.Property,
@@ -526,7 +526,7 @@ public class CoreIssuesService(
 
         foreach (var deletable in toDelete)
         {
-            changes.Add(new IssueUpdateItem
+            changes.Add(new OrganizationLogItem
             {
                 OldDisplayValue = deletable.Value.Text,
                 EntityType = IssueUpdateEntityType.Property,
@@ -552,12 +552,12 @@ public class CoreIssuesService(
             })
             .FirstAsyncEF(cancellationToken);
         
-        context.Add(new IssueUpdate
+        context.Add(new OrganizationLog
         {
             CreatedAt = dateTimeProvider.UtcNow,
             Items =
             [
-                new IssueUpdateItem
+                new OrganizationLogItem
                 {
                     Action = ChangeAction.Delete,
                     EntityType = IssueUpdateEntityType.Issue,
@@ -722,7 +722,7 @@ public class CoreIssuesService(
 
         foreach (var issue in oldIssuesData)
         {
-            context.IssueUpdates.Add(new IssueUpdate
+            context.IssueUpdates.Add(new OrganizationLog
             {
                 CreatedAt = dateTimeProvider.UtcNow,
                 IssueId = issue.Id,
@@ -730,7 +730,7 @@ public class CoreIssuesService(
                 OwnerId = updaterId,
                 Items =
                 [
-                    new IssueUpdateItem
+                    new OrganizationLogItem
                     {
                         Action = ChangeAction.Update,
                         EntityType = IssueUpdateEntityType.Status,
@@ -810,7 +810,7 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(ct);
     }
 
-    private async Task<IssueUpdateItem[]> AttachIssueFiles(
+    private async Task<OrganizationLogItem[]> AttachIssueFiles(
         long issueId,
         Guid ownerId,
         MediaInfo[] mediaInfos,
@@ -830,7 +830,7 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(cancellationToken);
 
         return mediaInfos
-            .Select(x => new IssueUpdateItem
+            .Select(x => new OrganizationLogItem
             {
                 Action = ChangeAction.Create,
                 EntityType = IssueUpdateEntityType.Attachment,
@@ -840,7 +840,7 @@ public class CoreIssuesService(
             .ToArray();
     }
 
-    private async Task<IssueUpdateItem[]> DetachIssueAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
+    private async Task<OrganizationLogItem[]> DetachIssueAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
     {
         var attachments = await context.IssueAttachments
             .Where(x => x.IssueId == issueId)
@@ -854,7 +854,7 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
         
         return attachments
-            .Select(x => new IssueUpdateItem
+            .Select(x => new OrganizationLogItem
             {
                 OldDisplayValue = x.Name,
                 Action = ChangeAction.Delete,

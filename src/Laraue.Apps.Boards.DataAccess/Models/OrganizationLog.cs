@@ -1,6 +1,6 @@
 ﻿namespace Laraue.Apps.Boards.DataAccess.Models;
 
-public class IssueUpdate
+public class OrganizationLog
 {
     public long Id { get; set; }
     
@@ -17,5 +17,5 @@ public class IssueUpdate
 
     public DateTime CreatedAt { get; set; }
     
-    public List<IssueUpdateItem>? Items { get; set; }
+    public List<OrganizationLogItem>? Items { get; set; }
 }

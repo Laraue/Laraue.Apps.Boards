@@ -2,12 +2,12 @@
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
-public class IssueUpdateItem
+public class OrganizationLogItem
 {
     public long Id { get; set; }
     
-    public long IssueUpdateId { get; set; }
-    public IssueUpdate? IssueUpdate { get; set; }
+    public long OrganizationLogId { get; set; }
+    public OrganizationLog? OrganizationLog { get; set; }
     
     /// <summary>
     /// Value identifier (long or GUID identifier serialized as string).
