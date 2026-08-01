@@ -886,7 +886,9 @@ public class IssuesService(
                 x.Owner.TelegramFirstName,
                 x.Owner.TelegramLastName,
                 x.Owner.TelegramUserName,
-                x.Items,
+                Items = x.Items!
+                    .OrderBy(i => i.Id)
+                    .ToList(),
             })
             .ShortPaginateEFAsync(request.Pagination, ct);
 
