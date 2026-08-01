@@ -952,6 +952,7 @@ public class IssuesService(
                 OldValueId = long.TryParse(item.OldValueId, out var oldValueId) ? oldValueId : null,
                 NewValueName = item.NewDisplayValue,
                 OldValueName = item.OldDisplayValue,
+                ChangeAction = item.Action,
             },
             IssueUpdateEntityType.Attachment => new IssueHistoryAttachmentChange
             {
@@ -1874,11 +1875,12 @@ public record IssueHistoryPropertyChange : IssueHistoryItemChange
     public required long? OldValueId { get; set; }
     public required string? NewValueName { get; set; }
     public required long? NewValueId { get; set; }
+    public required ChangeAction ChangeAction { get; set; }
 }
 
 public record IssueHistoryAttachmentChange : IssueHistoryItemChange
 {
     public required string? FileName { get; set; }
     public required Guid FileId { get; set; }
-    public ChangeAction ChangeAction { get; set; }
+    public required ChangeAction ChangeAction { get; set; }
 }

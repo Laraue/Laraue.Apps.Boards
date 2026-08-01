@@ -938,6 +938,38 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(6, itemChanges.Length);
         
         var contentChange = Assert.IsType<IssueHistoryContentChange>(itemChanges[0]);
-        // TODO - tests for all items
+        var assigneeChange = Assert.IsType<IssueHistoryAssigneeChange>(itemChanges[1]);
+        var attachmentAddChange = Assert.IsType<IssueHistoryAttachmentChange>(itemChanges[2]);
+        var attachmentDeleteChange = Assert.IsType<IssueHistoryAttachmentChange>(itemChanges[3]);
+        var descriptionAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(itemChanges[4]);
+        var urgencyAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(itemChanges[5]);
+        
+        Assert.Equal("Old", contentChange.OldContent);
+        Assert.Equal("New", contentChange.NewContent);
+        
+        Assert.Equal("user2", assigneeChange.OldAssigneeDisplayName);
+        Assert.Equal(participatorId, assigneeChange.OldAssigneeId);
+        Assert.Equal("user1", assigneeChange.NewAssigneeDisplayName);
+        Assert.Equal(userId, assigneeChange.NewAssigneeId);
+        
+        Assert.Equal("image.jpg", attachmentAddChange.FileName);
+        Assert.True(attachmentAddChange.FileId != Guid.Empty);
+        Assert.Equal(ChangeAction.Create, attachmentAddChange.ChangeAction);
+        
+        Assert.Equal("old.jpg", attachmentDeleteChange.FileName);
+        Assert.Equal(issueData.Issue.IssueAttachments[0].Attachment!.FileId, attachmentDeleteChange.FileId);
+        Assert.Equal(ChangeAction.Delete, attachmentDeleteChange.ChangeAction);
+        
+        Assert.Equal("Description", descriptionAttributeChange.PropertyName);
+        Assert.Null(descriptionAttributeChange.NewValueName);
+        Assert.Null(descriptionAttributeChange.NewValueId);
+        Assert.Equal("50 cents debt", descriptionAttributeChange.OldValueName);
+        Assert.Null(descriptionAttributeChange.OldValueId);
+        
+        Assert.Equal("Urgency", urgencyAttributeChange.PropertyName);
+        Assert.Equal("High", urgencyAttributeChange.NewValueName);
+        Assert.Equal(urgencyAttribute.AttributeListValues[1].Id,  urgencyAttributeChange.NewValueId);
+        Assert.Equal("Low", urgencyAttributeChange.OldValueName);
+        Assert.Equal(urgencyAttribute.AttributeListValues[0].Id,  urgencyAttributeChange.OldValueId);
     }
 }
