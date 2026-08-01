@@ -780,6 +780,7 @@ public class IssuesService(
         await issuesService.UpdateIssuesStatus(
             issueIds.ToArray(),
             request.StatusId,
+            request.AuthData.UserId,
             ct);
         await transaction.CommitAsync(ct);
     }
@@ -934,6 +935,13 @@ public class IssuesService(
             IssueUpdateEntityType.Issue => new IssueHistoryIssueChange
             {
                 ChangeAction = item.Action,
+            },
+            IssueUpdateEntityType.Status => new IssueHistoryStatusChange
+            {
+                NewStatusId = long.TryParse(item.NewValueId, out var newStatusId) ? newStatusId : null,
+                OldStatusId = long.TryParse(item.NewValueId, out var oldStatusId) ? oldStatusId : null,
+                NewStatusName = item.NewDisplayValue,
+                OldStatusName = item.OldDisplayValue,
             },
             _ => throw new InvalidOperationException($"Change of type {item.EntityType} is not supported yet")
         };
@@ -1805,6 +1813,7 @@ public record IssueHistoryItem
 [JsonDerivedType(typeof(IssueHistoryContentChange), "content")]
 [JsonDerivedType(typeof(IssueHistoryAssigneeChange), "assignee")]
 [JsonDerivedType(typeof(IssueHistoryIssueChange), "issue")]
+[JsonDerivedType(typeof(IssueHistoryStatusChange), "status")]
 public abstract record IssueHistoryItemChange
 {
 }
@@ -1826,4 +1835,12 @@ public record IssueHistoryAssigneeChange : IssueHistoryItemChange
 public record IssueHistoryIssueChange : IssueHistoryItemChange
 {
     public ChangeAction ChangeAction { get; set; }
+}
+
+public record IssueHistoryStatusChange : IssueHistoryItemChange
+{
+    public required string? OldStatusName { get; set; }
+    public required long? OldStatusId { get; set; }
+    public required string? NewStatusName { get; set; }
+    public required long? NewStatusId { get; set; }
 }

@@ -71,6 +71,7 @@ public interface ICoreIssuesService
     Task UpdateIssuesStatus(
         long[] issueIds,
         long statusId,
+        Guid updaterId,
         CancellationToken ct);
 }
 
@@ -102,7 +103,8 @@ public class CoreIssuesService(
                 x.Epic!.SpaceId,
                 x.Epic.Space!.OrganizationId,
                 x.Epic.Space.Key,
-                x.EpicId
+                x.EpicId,
+                StatusName = x.Name,
             })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
@@ -160,6 +162,13 @@ public class CoreIssuesService(
                     Action = ChangeAction.Create,
                     EntityType = IssueUpdateEntityType.Issue,
                     NewDisplayValue = new IssueKey(issueData.Key, issueNumber.Number).ToString(),
+                },
+                new IssueUpdateItem
+                {
+                    Action = ChangeAction.Update,
+                    EntityType = IssueUpdateEntityType.Status,
+                    NewDisplayValue = issueData.StatusName,
+                    NewValueId = statusId.ToString(),
                 }
             ],
             OrganizationId = issueData.OrganizationId,
@@ -669,6 +678,7 @@ public class CoreIssuesService(
     public async Task UpdateIssuesStatus(
         long[] issueIds,
         long statusId,
+        Guid updaterId,
         CancellationToken ct)
     {
         context.Database.EnsureTransactionStarted();
@@ -680,12 +690,14 @@ public class CoreIssuesService(
                 i.Id,
                 i.Status!.Epic!.SpaceId,
                 i.Status!.Epic!.Space!.OrganizationId,
+                StatusName = i.Status.Name,
+                i.StatusId,
             })
             .ToListAsyncEF(ct);
         
         var newSpaceData = await context.Statuses
             .Where(i => i.Id == statusId)
-            .Select(i => new { i.Epic!.SpaceId, i.Epic!.Space!.OrganizationId })
+            .Select(i => new { i.Epic!.SpaceId, i.Epic!.Space!.OrganizationId, StatusName = i.Name })
             .FirstOrThrowNotFoundEFAsync($"Status: {statusId} is not found", ct);
 
         // TODO - If organization can be changed, is it possible to pass issues from different orgs? Or we will leave that limit?
@@ -707,6 +719,31 @@ public class CoreIssuesService(
             .Where(i => i.SpaceId != newSpaceData.SpaceId)
             .GroupBy(i => i.SpaceId)
             .ToArray();
+
+        foreach (var issue in oldIssuesData)
+        {
+            context.IssueUpdates.Add(new IssueUpdate
+            {
+                CreatedAt = dateTimeProvider.UtcNow,
+                IssueId = issue.Id,
+                OrganizationId = issue.OrganizationId,
+                OwnerId = updaterId,
+                Items =
+                [
+                    new IssueUpdateItem
+                    {
+                        Action = ChangeAction.Update,
+                        EntityType = IssueUpdateEntityType.Status,
+                        OldValueId = issue.StatusId.ToString(),
+                        NewValueId = statusId.ToString(),
+                        OldDisplayValue = issue.StatusName,
+                        NewDisplayValue = newSpaceData.StatusName,
+                    }
+                ]
+            });
+        }
+        
+        await context.SaveChangesAsync(ct);
 
         if (issuesWithUpdatedSpace.Length == 0)
             return;

@@ -42,11 +42,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var historyChange = await testScope.Database.IssueUpdates.Include(x => x.Items).SingleAsyncEF();
         Assert.Equal(issue.Id, historyChange.IssueId);
-        Assert.Equal(3, historyChange.Items!.Count);
+        Assert.Equal(4, historyChange.Items!.Count);
 
         var issueChange = historyChange.Items[0];
-        var contentChange = historyChange.Items[1];
-        var assigneeChange = historyChange.Items[2];
+        var statusChange = historyChange.Items[1];
+        var contentChange = historyChange.Items[2];
+        var assigneeChange = historyChange.Items[3];
         
         Assert.Null(issueChange.OldDisplayValue);
         Assert.Equal(issueKey, issueChange.NewDisplayValue);
@@ -56,6 +57,15 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(issueChange.PropertyName);
         Assert.Equal(ChangeAction.Create, issueChange.Action);
         Assert.Equal(IssueUpdateEntityType.Issue, issueChange.EntityType);
+        
+        Assert.Null(statusChange.OldDisplayValue);
+        Assert.Equal(status.Name, statusChange.NewDisplayValue);
+        Assert.Null(statusChange.PropertyName);
+        Assert.Null(statusChange.OldValueId);
+        Assert.Equal(status.Id.ToString(), statusChange.NewValueId);
+        Assert.Null(statusChange.PropertyName);
+        Assert.Equal(ChangeAction.Update, statusChange.Action);
+        Assert.Equal(IssueUpdateEntityType.Status, statusChange.EntityType);
         
         Assert.Null(contentChange.OldDisplayValue);
         Assert.Equal("New Issue", contentChange.NewDisplayValue);
@@ -884,6 +894,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("user1", change.Owner.DisplayName);
         
         var itemChanges = change.Changes;
-        Assert.Equal(3, itemChanges.Length);
+        Assert.Equal(4, itemChanges.Length);
+        
+        // TODO - tests for all items
     }
 }
