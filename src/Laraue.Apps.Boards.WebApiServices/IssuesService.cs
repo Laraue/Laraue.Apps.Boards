@@ -77,6 +77,10 @@ public interface IIssuesService
     Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
         GetIssueCommentsRequest request,
         CancellationToken ct);
+
+    Task<ShortPaginatedResult<IssueHistoryItem>> GetIssueHistory(
+        GetIssueHistoryRequest request,
+        CancellationToken ct);
 }
 
 public class IssuesService(
@@ -310,7 +314,7 @@ public class IssuesService(
         if (!accessLevel.CanDeleteIssue)
             throw new ForbiddenException($"Issue: {request.IssueKey} delete is forbidden");
 
-        await issuesService.Delete(issueId, ct);
+        await issuesService.Delete(issueId, request.AuthData.UserId, ct);
     }
 
     public async Task<string> Create(CreateIssueRequest request, CancellationToken ct)
@@ -800,6 +804,7 @@ public class IssuesService(
         var commentsData = await context
             .IssueComments
             .Where(x => x.IssueId == issueId)
+            .OrderBy(x => x.Id)
             .Select(x => new
             {
                 x.Text,
@@ -849,6 +854,89 @@ public class IssuesService(
         });
 
         return result;
+    }
+
+    public async Task<ShortPaginatedResult<IssueHistoryItem>> GetIssueHistory(
+        GetIssueHistoryRequest request,
+        CancellationToken ct)
+    {
+        var issueId = await GetIssueIdByIssueKey(
+            request.AuthData.OrganizationId,
+            new IssueKey(request.IssueKey),
+            ct);
+        
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+            request.AuthData,
+            issueId,
+            ct);
+
+        if (issueAccessLevels is null || !issueAccessLevels.CanRead)
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+        
+        var updatesData = await context
+            .IssueUpdates
+            .Where(x => x.IssueId == issueId)
+            .OrderByDescending(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                x.CreatedAt,
+                x.Owner!.Color,
+                x.Owner.TelegramFirstName,
+                x.Owner.TelegramLastName,
+                x.Owner.TelegramUserName,
+                x.Items,
+            })
+            .ShortPaginateEFAsync(request.Pagination, ct);
+
+        var result = updatesData.MapTo(x =>
+        {
+            var userInitials = new UserInitials(x.TelegramUserName, x.TelegramFirstName, x.TelegramLastName);
+            var changes = MapChanges(x.Items!);
+
+            return new IssueHistoryItem
+            {
+                CreatedAt = x.CreatedAt,
+                Owner = new UserDetails
+                {
+                    Color = x.Color,
+                    DisplayName = userInitials.DisplayName,
+                    Initials = userInitials.Initials,
+                },
+                Changes = changes
+            };
+        });
+        
+        return result;
+    }
+    
+    private static IssueHistoryItemChange[] MapChanges(IEnumerable<IssueUpdateItem> items)
+    {
+        return items.Select(MapChange).ToArray();
+    }
+
+    private static IssueHistoryItemChange MapChange(IssueUpdateItem item)
+    {
+        return item.EntityType switch
+        {
+            IssueUpdateEntityType.Content => new IssueHistoryContentChange
+            {
+                NewContent = item.NewDisplayValue,
+                OldContent = item.OldDisplayValue,
+            },
+            IssueUpdateEntityType.Assignee => new IssueHistoryAssigneeChange
+            {
+                OldAssigneeDisplayName = item.OldDisplayValue,
+                NewAssigneeDisplayName = item.NewDisplayValue,
+                NewAssigneeId = Guid.TryParse(item.NewValueId, out var newAssigneeId) ? newAssigneeId : null,
+                OldAssigneeId = Guid.TryParse(item.OldValueId, out var oldAssigneeId) ? oldAssigneeId : null,
+            },
+            IssueUpdateEntityType.Issue => new IssueHistoryIssueChange
+            {
+                ChangeAction = item.Action,
+            },
+            _ => throw new InvalidOperationException($"Change of type {item.EntityType} is not supported yet")
+        };
     }
 
     private async Task<long> GetIssueIdIfAccessible(
@@ -1698,4 +1786,44 @@ public record GetIssueCommentsRequest : IPaginatedRequest
     public OrganizationAuthData AuthData { get; set; }
     public string IssueKey { get; set; } = string.Empty;
     public required PaginationData Pagination { get; set; }
+}
+
+public record GetIssueHistoryRequest : IPaginatedRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+    public string IssueKey { get; set; } = string.Empty;
+    public required PaginationData Pagination { get; set; }
+}
+
+public record IssueHistoryItem
+{
+    public required DateTime CreatedAt { get; set; }
+    public required UserDetails Owner { get; set; }
+    public required IssueHistoryItemChange[] Changes { get; set; }
+}
+
+[JsonDerivedType(typeof(IssueHistoryContentChange), "content")]
+[JsonDerivedType(typeof(IssueHistoryAssigneeChange), "assignee")]
+[JsonDerivedType(typeof(IssueHistoryIssueChange), "issue")]
+public abstract record IssueHistoryItemChange
+{
+}
+
+public record IssueHistoryContentChange : IssueHistoryItemChange
+{
+    public required string? OldContent { get; set; }
+    public required string? NewContent { get; set; }
+}
+
+public record IssueHistoryAssigneeChange : IssueHistoryItemChange
+{
+    public required string? OldAssigneeDisplayName { get; set; }
+    public required Guid? OldAssigneeId { get; set; }
+    public required string? NewAssigneeDisplayName { get; set; }
+    public required Guid? NewAssigneeId { get; set; }
+}
+
+public record IssueHistoryIssueChange : IssueHistoryItemChange
+{
+    public ChangeAction ChangeAction { get; set; }
 }

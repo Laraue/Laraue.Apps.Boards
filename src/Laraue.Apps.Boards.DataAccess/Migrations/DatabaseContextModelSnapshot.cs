@@ -538,12 +538,19 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("issue_id");
 
-                    b.Property<long?>("OrganizationId")
+                    b.Property<long>("OrganizationId")
                         .HasColumnType("bigint")
                         .HasColumnName("organization_id");
 
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
                     b.HasKey("Id")
                         .HasName("pk_issue_updates");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_issue_updates_owner_id");
 
                     b.HasIndex("OrganizationId", "CreatedAt")
                         .IsDescending(false, true)
@@ -1393,6 +1400,27 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Issue");
 
                     b.Navigation("Space");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdate", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_updates_organizations_organization_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_updates_users_owner_id");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("Owner");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueUpdateItem", b =>

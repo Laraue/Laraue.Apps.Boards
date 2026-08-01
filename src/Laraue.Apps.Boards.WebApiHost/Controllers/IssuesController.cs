@@ -223,4 +223,19 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             },
             cancellationToken);
     }
+    
+    [HttpPost("{key}/history")]
+    public Task<ShortPaginatedResult<IssueHistoryItem>> GetIssueHistory(
+        string key,
+        [FromBody] GetIssueHistoryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.GetIssueHistory(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                IssueKey = key,
+            },
+            cancellationToken);
+    }
 }

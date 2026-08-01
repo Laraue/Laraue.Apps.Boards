@@ -19,12 +19,25 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     issue_id = table.Column<long>(type: "bigint", nullable: true),
-                    organization_id = table.Column<long>(type: "bigint", nullable: true),
+                    organization_id = table.Column<long>(type: "bigint", nullable: false),
+                    owner_id = table.Column<Guid>(type: "uuid", nullable: false),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_issue_updates", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_issue_updates_organizations_organization_id",
+                        column: x => x.organization_id,
+                        principalTable: "organizations",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "fk_issue_updates_users_owner_id",
+                        column: x => x.owner_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -64,6 +77,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 table: "issue_updates",
                 columns: new[] { "organization_id", "created_at" },
                 descending: new[] { false, true });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_issue_updates_owner_id",
+                table: "issue_updates",
+                column: "owner_id");
         }
 
         /// <inheritdoc />

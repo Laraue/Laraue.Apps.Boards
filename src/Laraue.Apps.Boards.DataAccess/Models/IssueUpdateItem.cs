@@ -50,6 +50,7 @@ public enum IssueUpdateEntityType
     Property,
     Issue,
     Assignee,
+    Status,
 }
 
 public enum ChangeAction

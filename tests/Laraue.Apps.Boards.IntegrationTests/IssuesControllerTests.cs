@@ -846,4 +846,44 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.True(participatorComment.CanModify);
         Assert.Equal("Comment 2", participatorComment.Text);
     }
+    
+    [Fact]
+    public async Task User_ShouldSeeIssueHistory_WhenIssueAvailable()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramUserName = "user1");
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var newIssueRequest = new CreateIssueRequest
+        {
+            AssigneeId = userId,
+            Content = "New Issue",
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            AttributeValues = [],
+            Files = [],
+        };
+        
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(newIssueRequest));
+
+        var request = new GetIssueHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 8,
+            }
+        };
+        
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(issueKey!, request));
+
+        var change = Assert.Single(historyData!.Data);
+        Assert.Equal("user1", change.Owner.DisplayName);
+        
+        var itemChanges = change.Changes;
+        Assert.Equal(3, itemChanges.Length);
+    }
 }

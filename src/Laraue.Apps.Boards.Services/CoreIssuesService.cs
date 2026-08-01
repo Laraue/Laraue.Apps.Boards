@@ -34,6 +34,7 @@ public interface ICoreIssuesService
     
     Task Delete(
         long id,
+        Guid deleterId,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -160,7 +161,9 @@ public class CoreIssuesService(
                     EntityType = IssueUpdateEntityType.Issue,
                     NewDisplayValue = new IssueKey(issueData.Key, issueNumber.Number).ToString(),
                 }
-            ]
+            ],
+            OrganizationId = issueData.OrganizationId,
+            OwnerId = ownerId,
         };
 
         if (!string.IsNullOrEmpty(text))
@@ -223,7 +226,9 @@ public class CoreIssuesService(
         {
             CreatedAt = date,
             IssueId = issueId,
-            Items = []
+            Items = [],
+            OrganizationId = issueData.OrganizationId,
+            OwnerId = updaterId,
         };
 
         Action<UpdateSettersBuilder<Issue>> settersBuilder = builder
@@ -524,11 +529,18 @@ public class CoreIssuesService(
         return changes.ToArray();
     }
 
-    public async Task Delete(long id, CancellationToken cancellationToken)
+    public async Task Delete(
+        long id,
+        Guid deleterId,
+        CancellationToken cancellationToken)
     {
-        var issueKey = await context.Issues
+        var issueData = await context.Issues
             .Where(x => x.Id == id)
-            .Select(x => new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number))
+            .Select(x => new
+            {
+                Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
+                x.Status.Epic.Space.OrganizationId,
+            })
             .FirstAsyncEF(cancellationToken);
         
         context.Add(new IssueUpdate
@@ -540,10 +552,12 @@ public class CoreIssuesService(
                 {
                     Action = ChangeAction.Delete,
                     EntityType = IssueUpdateEntityType.Issue,
-                    OldDisplayValue = issueKey.ToString(),
+                    OldDisplayValue = issueData.Key.ToString(),
                 }
             ],
             IssueId = id,
+            OrganizationId = issueData.OrganizationId,
+            OwnerId = deleterId,
         });
 
         await context.SaveChangesAsync(cancellationToken);
