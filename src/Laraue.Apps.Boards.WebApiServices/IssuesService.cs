@@ -939,9 +939,27 @@ public class IssuesService(
             IssueUpdateEntityType.Status => new IssueHistoryStatusChange
             {
                 NewStatusId = long.TryParse(item.NewValueId, out var newStatusId) ? newStatusId : null,
-                OldStatusId = long.TryParse(item.NewValueId, out var oldStatusId) ? oldStatusId : null,
+                OldStatusId = long.TryParse(item.OldValueId, out var oldStatusId) ? oldStatusId : null,
                 NewStatusName = item.NewDisplayValue,
                 OldStatusName = item.OldDisplayValue,
+            },
+            IssueUpdateEntityType.Property => new IssueHistoryPropertyChange
+            {
+                PropertyName = item.PropertyName ?? string.Empty,
+                NewValueId = long.TryParse(item.NewValueId, out var newValueId) ? newValueId : null,
+                OldValueId = long.TryParse(item.OldValueId, out var oldValueId) ? oldValueId : null,
+                NewValueName = item.NewDisplayValue,
+                OldValueName = item.OldDisplayValue,
+            },
+            IssueUpdateEntityType.Attachment => new IssueHistoryAttachmentChange
+            {
+                FileId = Guid.TryParse(item.NewValueId, out var addedFileId)
+                    ? addedFileId
+                    : Guid.TryParse(item.OldValueId, out var deletedFile)
+                        ? deletedFile
+                        : Guid.Empty,
+                FileName = item.NewDisplayValue ?? item.OldDisplayValue,
+                ChangeAction = item.Action,
             },
             _ => throw new InvalidOperationException($"Change of type {item.EntityType} is not supported yet")
         };
@@ -1814,6 +1832,8 @@ public record IssueHistoryItem
 [JsonDerivedType(typeof(IssueHistoryAssigneeChange), "assignee")]
 [JsonDerivedType(typeof(IssueHistoryIssueChange), "issue")]
 [JsonDerivedType(typeof(IssueHistoryStatusChange), "status")]
+[JsonDerivedType(typeof(IssueHistoryPropertyChange), "property")]
+[JsonDerivedType(typeof(IssueHistoryAttachmentChange), "attachment")]
 public abstract record IssueHistoryItemChange
 {
 }
@@ -1843,4 +1863,20 @@ public record IssueHistoryStatusChange : IssueHistoryItemChange
     public required long? OldStatusId { get; set; }
     public required string? NewStatusName { get; set; }
     public required long? NewStatusId { get; set; }
+}
+
+public record IssueHistoryPropertyChange : IssueHistoryItemChange
+{
+    public required string PropertyName { get; set; }
+    public required string? OldValueName { get; set; }
+    public required long? OldValueId { get; set; }
+    public required string? NewValueName { get; set; }
+    public required long? NewValueId { get; set; }
+}
+
+public record IssueHistoryAttachmentChange : IssueHistoryItemChange
+{
+    public required string? FileName { get; set; }
+    public required Guid FileId { get; set; }
+    public ChangeAction ChangeAction { get; set; }
 }
