@@ -287,10 +287,12 @@ public class CoreIssuesService(
         change.Items.AddRange(await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken));
         change.Items.AddRange(await UpdateAttributes(issueId, issueData.OrganizationId, attributes, cancellationToken));
 
-        context.Add(change);
-        await context.SaveChangesAsync(cancellationToken);
-        
-        await TouchEpics([issueData.EpicId], date, cancellationToken);
+        if (change.Items.Count != 0)
+        {
+            context.Add(change);
+            await context.SaveChangesAsync(cancellationToken);
+            await TouchEpics([issueData.EpicId], date, cancellationToken);
+        }
     }
 
     private async Task<OrganizationLogItem[]> UpdateAttributes(
