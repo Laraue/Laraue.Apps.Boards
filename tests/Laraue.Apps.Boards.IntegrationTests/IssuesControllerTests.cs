@@ -18,7 +18,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldCreateIssue_WhenIsOrganizationOwner()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(x => x.TelegramUserName = "user1");
+        var userId = await testScope.CreateUser(x => 
+        {
+            x.TelegramUserName = "user1";
+            x.Color = "#000000";
+        });
         var organization = await testScope.InitializeOrganization(userId);
 
         var status = organization.GetStatus(0, 0, 0);
@@ -62,6 +66,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(status.Name, statusChange.NewDisplayValue);
         Assert.Null(statusChange.PropertyName);
         Assert.Null(statusChange.OldValueData.ValueId);
+        Assert.NotNull(statusChange.NewValueData.Color);
         Assert.Equal(status.Id.ToString(), statusChange.NewValueData.ValueId);
         Assert.Null(statusChange.PropertyName);
         Assert.Equal(ChangeAction.Update, statusChange.Action);
@@ -78,6 +83,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.Null(assigneeChange.OldDisplayValue);
         Assert.Equal("user1", assigneeChange.NewDisplayValue);
+        Assert.Equal("#000000", assigneeChange.NewValueData.Color);
         Assert.Null(assigneeChange.PropertyName);
         Assert.Null(assigneeChange.OldValueData.ValueId);
         Assert.Equal(userId.ToString(), assigneeChange.NewValueData.ValueId);

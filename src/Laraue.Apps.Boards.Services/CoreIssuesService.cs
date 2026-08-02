@@ -105,6 +105,7 @@ public class CoreIssuesService(
                 x.Epic.Space.Key,
                 x.EpicId,
                 StatusName = x.Name,
+                x.Color,
             })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
@@ -171,6 +172,7 @@ public class CoreIssuesService(
                     NewValueData = new ValueData
                     {
                         ValueId = statusId.ToString(),
+                        Color = issueData.Color,
                     },
                 }
             ],
@@ -188,17 +190,22 @@ public class CoreIssuesService(
             });
         }
         
-        var usersInitials = await context.Users
+        var userData = await context.Users
             .Where(x => x.Id == assigneeId)
-            .Select(x => new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName))
+            .Select(x => new
+            {
+                Initials = new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName),
+                x.Color,
+            })
             .FirstAsyncEF(cancellationToken);
         
         change.Items.Add(new OrganizationLogItem
         {
-            NewDisplayValue = usersInitials.DisplayName,
+            NewDisplayValue = userData.Initials.DisplayName,
             NewValueData = new ValueData
             {
                 ValueId = assigneeId.ToString(),
+                Color = userData.Color,
             },
             Action = ChangeAction.Update,
             EntityType = IssueUpdateEntityType.Assignee,
@@ -265,26 +272,32 @@ public class CoreIssuesService(
         var oldAssigneeId = issueData.AssigneeId;
         if (oldAssigneeId != assigneeId)
         {
-            var usersInitials = await context.Users
+            var usersData = await context.Users
                 .Where(x => x.Id == assigneeId || x.Id == oldAssigneeId)
                 .ToDictionaryAsyncEF(
                     x => x.Id,
-                    x => new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName),
+                    x => new
+                    {
+                        Initials = new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName),
+                        x.Color,
+                    },
                     cancellationToken);
             
             settersBuilder += builder => builder.SetProperty(x => x.AssigneeId, assigneeId);
             
             change.Items.Add(new OrganizationLogItem
             {
-                NewDisplayValue = usersInitials[assigneeId].DisplayName,
-                OldDisplayValue = usersInitials[oldAssigneeId].DisplayName,
+                NewDisplayValue = usersData[assigneeId].Initials.DisplayName,
+                OldDisplayValue = usersData[oldAssigneeId].Initials.DisplayName,
                 NewValueData = new ValueData
                 {
                     ValueId = assigneeId.ToString(),
+                    Color = usersData[assigneeId].Color,
                 },
                 OldValueData = new ValueData
                 {
                     ValueId = issueData.AssigneeId.ToString(),
+                    Color = usersData[oldAssigneeId].Color,
                 },
                 Action = ChangeAction.Update,
                 EntityType = IssueUpdateEntityType.Assignee,
@@ -352,6 +365,7 @@ public class CoreIssuesService(
                 x.AttributeId,
                 x.AttributeListValueId,
                 AttributeListValue = x.AttributeListValue!.Value,
+                x.Attribute!.Color,
             })
             .ToArrayAsyncEF(cancellationToken);
             
@@ -364,19 +378,19 @@ public class CoreIssuesService(
         {
             var valueNames = await context.AttributeListValues
                 .Where(x => attributeRequests.Select(y => y.Id).Contains(x.AttributeId))
-                .Select(x => new { x.Id, x.AttributeId, x.Value })
+                .Select(x => new { x.Id, x.AttributeId, x.Value, x.Attribute!.Color })
                 .ToArrayAsyncEF(cancellationToken);
         
-            var valueNamesByAttributeId = valueNames
+            var valueByAttributeId = valueNames
                 .GroupBy(x => x.AttributeId)
                 .ToDictionary(
                     x => x.Key,
-                    x => x.ToDictionary(
-                        y => y.Id,
-                        y => y.Value));
+                    x => x.ToDictionary(y => y.Id));
             
             foreach (var request in attributeRequests)
             {
+                var listValueData = valueByAttributeId[request.Id][request.ListValueId];
+                
                 // Update old
                 if (oldAttributeById.TryGetValue(request.Id, out var oldAttribute))
                 {
@@ -396,17 +410,19 @@ public class CoreIssuesService(
                     
                     changes.Add(new OrganizationLogItem
                     {
-                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
+                        NewDisplayValue = listValueData.Value,
                         OldDisplayValue = oldAttribute.AttributeListValue,
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Update,
                         OldValueData = new ValueData
                         {
                             ValueId = oldAttribute.AttributeListValueId.ToString(),
+                            Color = oldAttribute.Color,
                         },
-                        NewValueData =  new ValueData
+                        NewValueData = new ValueData
                         {
                             ValueId = request.ListValueId.ToString(),
+                            Color = oldAttribute.Color,
                         },
                         PropertyName = attributeNameById[request.Id],
                     });
@@ -423,12 +439,13 @@ public class CoreIssuesService(
                     
                     changes.Add(new OrganizationLogItem
                     {
-                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
+                        NewDisplayValue = listValueData.Value,
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Create,
                         NewValueData =  new ValueData
                         {
                             ValueId = request.ListValueId.ToString(),
+                            Color = listValueData.Color,
                         },
                         PropertyName = attributeNameById[request.Id],
                     });
@@ -463,7 +480,7 @@ public class CoreIssuesService(
                     OldDisplayValue = deletableValue.Value.AttributeListValueName,
                     EntityType = IssueUpdateEntityType.Property,
                     Action = ChangeAction.Delete,
-                    OldValueData =  new ValueData
+                    OldValueData = new ValueData
                     {
                         ValueId = deletableValue.Value.AttributeListValueId.ToString(),
                     },
@@ -678,7 +695,8 @@ public class CoreIssuesService(
                 {
                     ParentValueId = issueComment.Id.ToString(),
                     ValueId = attachment.Attachment!.FileId.ToString(),
-                }
+                },
+                NewDisplayValue = attachment.Attachment.File!.Name,
             });
         }
 
@@ -772,12 +790,13 @@ public class CoreIssuesService(
                 i.Status!.Epic!.Space!.OrganizationId,
                 StatusName = i.Status.Name,
                 i.StatusId,
+                i.Status.Color,
             })
             .ToListAsyncEF(ct);
         
         var newSpaceData = await context.Statuses
             .Where(i => i.Id == statusId)
-            .Select(i => new { i.Epic!.SpaceId, i.Epic!.Space!.OrganizationId, StatusName = i.Name })
+            .Select(i => new { i.Epic!.SpaceId, i.Epic!.Space!.OrganizationId, StatusName = i.Name, i.Color })
             .FirstOrThrowNotFoundEFAsync($"Status: {statusId} is not found", ct);
 
         // TODO - If organization can be changed, is it possible to pass issues from different orgs? Or we will leave that limit?
@@ -817,12 +836,14 @@ public class CoreIssuesService(
                         OldValueData = new ValueData
                         {
                             ValueId = issue.StatusId.ToString(),
-                        },
-                        NewValueData = new ValueData
-                        {
-                            ValueId = statusId.ToString()
+                            Color = issue.Color,
                         },
                         OldDisplayValue = issue.StatusName,
+                        NewValueData = new ValueData
+                        {
+                            ValueId = statusId.ToString(),
+                            Color = newSpaceData.Color,
+                        },
                         NewDisplayValue = newSpaceData.StatusName,
                     }
                 ]

@@ -16,6 +16,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Razor.Hosting;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -939,6 +940,8 @@ public class IssuesService(
                 NewAssigneeDisplayName = item.NewDisplayValue,
                 NewAssigneeId = Guid.TryParse(item.NewValueData.ValueId, out var newAssigneeId) ? newAssigneeId : null,
                 OldAssigneeId = Guid.TryParse(item.OldValueData.ValueId, out var oldAssigneeId) ? oldAssigneeId : null,
+                OldAssigneeColor = item.OldValueData.Color,
+                NewAssigneeColor = item.NewValueData.Color,
             },
             IssueUpdateEntityType.Issue => new IssueHistoryIssueChange
             {
@@ -949,7 +952,9 @@ public class IssuesService(
                 NewStatusId = long.TryParse(item.NewValueData.ValueId, out var newStatusId) ? newStatusId : null,
                 OldStatusId = long.TryParse(item.OldValueData.ValueId, out var oldStatusId) ? oldStatusId : null,
                 NewStatusName = item.NewDisplayValue,
+                NewStatusColor = item.NewValueData.Color,
                 OldStatusName = item.OldDisplayValue,
+                OldStatusColor = item.OldValueData.Color,
             },
             IssueUpdateEntityType.Property => new IssueHistoryPropertyChange
             {
@@ -969,6 +974,22 @@ public class IssuesService(
                         : Guid.Empty,
                 FileName = item.NewDisplayValue ?? item.OldDisplayValue,
                 ChangeAction = item.Action,
+            },
+            IssueUpdateEntityType.CommentContent => new IssueHistoryCommentContentChange
+            {
+                NewContent = item.NewDisplayValue,
+                OldContent = item.OldDisplayValue,
+            },
+            IssueUpdateEntityType.CommentAttachment => new IssueHistoryCommentAttachmentChange
+            {
+                FileId = Guid.TryParse(item.NewValueData.ValueId, out var addedFileId)
+                    ? addedFileId
+                    : Guid.TryParse(item.OldValueData.ValueId, out var deletedFile)
+                        ? deletedFile
+                        : Guid.Empty,
+                FileName = item.NewDisplayValue ?? item.OldDisplayValue,
+                ChangeAction = item.Action,
+                CommentId = long.TryParse(item.NewValueData.ParentValueId, out var commentId) ? commentId : 0,
             },
             _ => throw new InvalidOperationException($"Change of type {item.EntityType} is not supported yet")
         };
@@ -1843,6 +1864,7 @@ public record IssueHistoryItem
 [JsonDerivedType(typeof(IssueHistoryStatusChange), "status")]
 [JsonDerivedType(typeof(IssueHistoryPropertyChange), "property")]
 [JsonDerivedType(typeof(IssueHistoryAttachmentChange), "attachment")]
+[JsonDerivedType(typeof(IssueHistoryCommentContentChange), "commentContent")]
 public abstract record IssueHistoryItemChange
 {
 }
@@ -1857,8 +1879,10 @@ public record IssueHistoryAssigneeChange : IssueHistoryItemChange
 {
     public required string? OldAssigneeDisplayName { get; set; }
     public required Guid? OldAssigneeId { get; set; }
+    public required string? OldAssigneeColor { get; set; }
     public required string? NewAssigneeDisplayName { get; set; }
     public required Guid? NewAssigneeId { get; set; }
+    public required string? NewAssigneeColor { get; set; }
 }
 
 public record IssueHistoryIssueChange : IssueHistoryItemChange
@@ -1870,8 +1894,10 @@ public record IssueHistoryStatusChange : IssueHistoryItemChange
 {
     public required string? OldStatusName { get; set; }
     public required long? OldStatusId { get; set; }
+    public required string? OldStatusColor { get; set; }
     public required string? NewStatusName { get; set; }
     public required long? NewStatusId { get; set; }
+    public required string? NewStatusColor { get; set; }
 }
 
 public record IssueHistoryPropertyChange : IssueHistoryItemChange
@@ -1886,6 +1912,20 @@ public record IssueHistoryPropertyChange : IssueHistoryItemChange
 
 public record IssueHistoryAttachmentChange : IssueHistoryItemChange
 {
+    public required string? FileName { get; set; }
+    public required Guid FileId { get; set; }
+    public required ChangeAction ChangeAction { get; set; }
+}
+
+public record IssueHistoryCommentContentChange : IssueHistoryItemChange
+{
+    public required string? OldContent { get; set; }
+    public required string? NewContent { get; set; }
+}
+
+public record IssueHistoryCommentAttachmentChange : IssueHistoryItemChange
+{
+    public long CommentId { get; set; }
     public required string? FileName { get; set; }
     public required Guid FileId { get; set; }
     public required ChangeAction ChangeAction { get; set; }

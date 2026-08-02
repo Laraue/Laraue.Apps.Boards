@@ -847,6 +847,31 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         var attachment = Assert.Single(comment.Attachments);
         Assert.Equal(AttachmentType.Image, attachment.Attachment!.Type);
+        
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(issue.Issue.Id, historyChange.IssueId);
+        Assert.Equal(2, historyChange.Items!.Count);
+        
+        var contentChange = historyChange.Items[0];
+        var newFileChange = historyChange.Items[1];
+        
+        Assert.Null(contentChange.OldDisplayValue);
+        Assert.Equal("New comment", contentChange.NewDisplayValue);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Null(contentChange.OldValueData.ValueId);
+        Assert.Null(contentChange.NewValueData.ValueId);
+        Assert.Equal(ChangeAction.Create, contentChange.Action);
+        Assert.Equal(IssueUpdateEntityType.CommentContent, contentChange.EntityType);
+        
+        Assert.Null(newFileChange.OldDisplayValue);
+        Assert.Equal("image.jpg", newFileChange.NewDisplayValue);
+        Assert.Null(newFileChange.PropertyName);
+        Assert.Null(newFileChange.OldValueData.ValueId);
+        Assert.Equal(comment.Id.ToString(), newFileChange.NewValueData.ParentValueId);
+        Assert.True(Guid.TryParse(newFileChange.NewValueData.ValueId, out _));
+        Assert.Null(newFileChange.PropertyName);
+        Assert.Equal(ChangeAction.Create, newFileChange.Action);
+        Assert.Equal(IssueUpdateEntityType.CommentAttachment, newFileChange.EntityType);
     }
 
     [Fact]
