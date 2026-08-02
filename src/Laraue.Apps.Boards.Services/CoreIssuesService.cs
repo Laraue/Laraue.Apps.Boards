@@ -168,7 +168,10 @@ public class CoreIssuesService(
                     Action = ChangeAction.Update,
                     EntityType = IssueUpdateEntityType.Status,
                     NewDisplayValue = issueData.StatusName,
-                    NewValueId = statusId.ToString(),
+                    NewValueData = new ValueData
+                    {
+                        ValueId = statusId.ToString(),
+                    },
                 }
             ],
             OrganizationId = issueData.OrganizationId,
@@ -193,7 +196,10 @@ public class CoreIssuesService(
         change.Items.Add(new OrganizationLogItem
         {
             NewDisplayValue = usersInitials.DisplayName,
-            NewValueId = assigneeId.ToString(),
+            NewValueData = new ValueData
+            {
+                ValueId = assigneeId.ToString(),
+            },
             Action = ChangeAction.Update,
             EntityType = IssueUpdateEntityType.Assignee,
         });
@@ -272,8 +278,14 @@ public class CoreIssuesService(
             {
                 NewDisplayValue = usersInitials[assigneeId].DisplayName,
                 OldDisplayValue = usersInitials[oldAssigneeId].DisplayName,
-                OldValueId = issueData.AssigneeId.ToString(),
-                NewValueId = assigneeId.ToString(),
+                NewValueData = new ValueData
+                {
+                    ValueId = assigneeId.ToString(),
+                },
+                OldValueData = new ValueData
+                {
+                    ValueId = issueData.AssigneeId.ToString(),
+                },
                 Action = ChangeAction.Update,
                 EntityType = IssueUpdateEntityType.Assignee,
             });
@@ -368,30 +380,36 @@ public class CoreIssuesService(
                 // Update old
                 if (oldAttributeById.TryGetValue(request.Id, out var oldAttribute))
                 {
-                    if (oldAttribute.AttributeListValueId != request.ListValueId)
-                    {
-                        var entity = new IssueAttributeListValue
-                        {
-                            Id = oldAttribute.Id,
-                            IssueId = issueId,
-                            AttributeId = oldAttribute.AttributeId,
-                            AttributeListValueId = request.ListValueId,
-                        };
-
-                        context.Attach(entity);
-                        context.Entry(entity).State = EntityState.Modified;
+                    if (oldAttribute.AttributeListValueId == request.ListValueId)
+                        continue;
                     
-                        changes.Add(new OrganizationLogItem
+                    var entity = new IssueAttributeListValue
+                    {
+                        Id = oldAttribute.Id,
+                        IssueId = issueId,
+                        AttributeId = oldAttribute.AttributeId,
+                        AttributeListValueId = request.ListValueId,
+                    };
+
+                    context.Attach(entity);
+                    context.Entry(entity).State = EntityState.Modified;
+                    
+                    changes.Add(new OrganizationLogItem
+                    {
+                        NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
+                        OldDisplayValue = oldAttribute.AttributeListValue,
+                        EntityType = IssueUpdateEntityType.Property,
+                        Action = ChangeAction.Update,
+                        OldValueData = new ValueData
                         {
-                            NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
-                            OldDisplayValue = oldAttribute.AttributeListValue,
-                            EntityType = IssueUpdateEntityType.Property,
-                            Action = ChangeAction.Update,
-                            OldValueId = oldAttribute.AttributeListValueId.ToString(),
-                            NewValueId = request.ListValueId.ToString(),
-                            PropertyName = attributeNameById[request.Id],
-                        });
-                    }
+                            ValueId = oldAttribute.AttributeListValueId.ToString(),
+                        },
+                        NewValueData =  new ValueData
+                        {
+                            ValueId = request.ListValueId.ToString(),
+                        },
+                        PropertyName = attributeNameById[request.Id],
+                    });
                 }
                 // Insert new
                 else
@@ -408,7 +426,10 @@ public class CoreIssuesService(
                         NewDisplayValue = valueNamesByAttributeId[request.Id][request.ListValueId],
                         EntityType = IssueUpdateEntityType.Property,
                         Action = ChangeAction.Create,
-                        NewValueId = request.ListValueId.ToString(),
+                        NewValueData =  new ValueData
+                        {
+                            ValueId = request.ListValueId.ToString(),
+                        },
                         PropertyName = attributeNameById[request.Id],
                     });
                 }
@@ -442,7 +463,10 @@ public class CoreIssuesService(
                     OldDisplayValue = deletableValue.Value.AttributeListValueName,
                     EntityType = IssueUpdateEntityType.Property,
                     Action = ChangeAction.Delete,
-                    OldValueId = deletableValue.Value.AttributeListValueId.ToString(),
+                    OldValueData =  new ValueData
+                    {
+                        ValueId = deletableValue.Value.AttributeListValueId.ToString(),
+                    },
                     PropertyName = attributeNameById[deletableValue.Key],
                 });
             }
@@ -476,27 +500,27 @@ public class CoreIssuesService(
                 // Update old
                 if (oldAttributes.TryGetValue(request.Id, out var oldAttribute))
                 {
-                    if (oldAttribute.Text != request.Value)
+                    if (oldAttribute.Text == request.Value)
+                        continue;
+                    
+                    var entity = new IssueAttributeTextValue
                     {
-                        var entity = new IssueAttributeTextValue
-                        {
-                            IssueId = issueId,
-                            AttributeId = request.Id,
-                            Text = request.Value,
-                        };
+                        IssueId = issueId,
+                        AttributeId = request.Id,
+                        Text = request.Value,
+                    };
                     
-                        context.Attach(entity);
-                        context.Entry(entity).State = EntityState.Modified;
+                    context.Attach(entity);
+                    context.Entry(entity).State = EntityState.Modified;
                     
-                        changes.Add(new OrganizationLogItem
-                        {
-                            NewDisplayValue = request.Value,
-                            OldDisplayValue = oldAttribute.Text,
-                            EntityType = IssueUpdateEntityType.Property,
-                            Action = ChangeAction.Update,
-                            PropertyName = attributeNameById[oldAttribute.AttributeId],
-                        });
-                    }
+                    changes.Add(new OrganizationLogItem
+                    {
+                        NewDisplayValue = request.Value,
+                        OldDisplayValue = oldAttribute.Text,
+                        EntityType = IssueUpdateEntityType.Property,
+                        Action = ChangeAction.Update,
+                        PropertyName = attributeNameById[oldAttribute.AttributeId],
+                    });
                 }
                 // Insert new
                 else
@@ -590,6 +614,16 @@ public class CoreIssuesService(
         IEnumerable<MediaInfo> mediaInfos,
         CancellationToken cancellationToken)
     {
+        context.Database.EnsureTransactionStarted();
+        
+        var issueData = await context.Issues
+            .Where(x => x.Id == issueId)
+            .Select(x => new
+            {
+                x.Status!.Epic!.Space!.OrganizationId,
+            })
+            .FirstAsyncEF(cancellationToken);
+        
         var issueComment = new IssueComment
         {
             Text = comment,
@@ -600,6 +634,8 @@ public class CoreIssuesService(
         };
 
         context.Add(issueComment);
+
+        var attachments = new List<IssueCommentAttachment>();
         
         foreach (var mediaInfo in mediaInfos)
         {
@@ -609,10 +645,46 @@ public class CoreIssuesService(
                 Attachment = GetAttachmentEntity(ownerId, mediaInfo),
             };
         
-            context.Add(attachment);
+            attachments.Add(attachment);
         }
         
+        context.AddRange(attachments);
         await context.SaveChangesAsync(cancellationToken);
+        
+        var logEntity = new OrganizationLog
+        {
+            CreatedAt = dateTimeProvider.UtcNow,
+            OrganizationId = issueData.OrganizationId,
+            IssueId = issueId,
+            OwnerId = ownerId,
+            Items =
+            [
+                new OrganizationLogItem
+                {
+                    Action = ChangeAction.Create,
+                    EntityType = IssueUpdateEntityType.CommentContent,
+                    NewDisplayValue = comment,
+                }
+            ]
+        };
+
+        foreach (var attachment in attachments)
+        {
+            logEntity.Items.Add(new OrganizationLogItem
+            {
+                Action = ChangeAction.Create,
+                EntityType = IssueUpdateEntityType.CommentAttachment,
+                NewValueData = new ValueData
+                {
+                    ParentValueId = issueComment.Id.ToString(),
+                    ValueId = attachment.Attachment!.FileId.ToString(),
+                }
+            });
+        }
+
+        context.OrganizationLogs.Add(logEntity);
+        await context.SaveChangesAsync(cancellationToken);
+        
         return issueComment.Id;
     }
 
@@ -730,7 +802,7 @@ public class CoreIssuesService(
 
         foreach (var issue in oldIssuesData)
         {
-            context.IssueUpdates.Add(new OrganizationLog
+            context.OrganizationLogs.Add(new OrganizationLog
             {
                 CreatedAt = dateTimeProvider.UtcNow,
                 IssueId = issue.Id,
@@ -742,8 +814,14 @@ public class CoreIssuesService(
                     {
                         Action = ChangeAction.Update,
                         EntityType = IssueUpdateEntityType.Status,
-                        OldValueId = issue.StatusId.ToString(),
-                        NewValueId = statusId.ToString(),
+                        OldValueData = new ValueData
+                        {
+                            ValueId = issue.StatusId.ToString(),
+                        },
+                        NewValueData = new ValueData
+                        {
+                            ValueId = statusId.ToString()
+                        },
                         OldDisplayValue = issue.StatusName,
                         NewDisplayValue = newSpaceData.StatusName,
                     }
@@ -842,7 +920,10 @@ public class CoreIssuesService(
             {
                 Action = ChangeAction.Create,
                 EntityType = IssueUpdateEntityType.Attachment,
-                NewValueId = x.OriginalFileId.ToString(),
+                NewValueData = new ValueData
+                {
+                    ValueId = x.OriginalFileId.ToString(),
+                },
                 NewDisplayValue = x.FileName,
             })
             .ToArray();
@@ -866,7 +947,10 @@ public class CoreIssuesService(
             {
                 OldDisplayValue = x.Name,
                 Action = ChangeAction.Delete,
-                OldValueId = x.FileId.ToString(),
+                OldValueData = new ValueData
+                {
+                    ValueId = x.FileId.ToString(),
+                },
                 EntityType = IssueUpdateEntityType.Attachment,
             })
             .ToArray();

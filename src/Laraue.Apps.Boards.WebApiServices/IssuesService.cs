@@ -662,12 +662,18 @@ public class IssuesService(
         
         var uploadedFiles = await UploadFiles(request.Files, cancellationToken);
 
-        return await issuesService.AddComment(
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        
+        var commentId = await issuesService.AddComment(
             issueId,
             request.AuthData.UserId,
             request.Text,
             uploadedFiles,
             cancellationToken);
+        
+        await transaction.CommitAsync(cancellationToken);
+        
+        return commentId;
     }
 
     public async Task UpdateIssueComment(
@@ -875,7 +881,7 @@ public class IssuesService(
             throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
         
         var updatesData = await context
-            .IssueUpdates
+            .OrganizationLogs
             .Where(x => x.IssueId == issueId)
             .OrderByDescending(x => x.Id)
             .Select(x => new
@@ -931,8 +937,8 @@ public class IssuesService(
             {
                 OldAssigneeDisplayName = item.OldDisplayValue,
                 NewAssigneeDisplayName = item.NewDisplayValue,
-                NewAssigneeId = Guid.TryParse(item.NewValueId, out var newAssigneeId) ? newAssigneeId : null,
-                OldAssigneeId = Guid.TryParse(item.OldValueId, out var oldAssigneeId) ? oldAssigneeId : null,
+                NewAssigneeId = Guid.TryParse(item.NewValueData.ValueId, out var newAssigneeId) ? newAssigneeId : null,
+                OldAssigneeId = Guid.TryParse(item.OldValueData.ValueId, out var oldAssigneeId) ? oldAssigneeId : null,
             },
             IssueUpdateEntityType.Issue => new IssueHistoryIssueChange
             {
@@ -940,25 +946,25 @@ public class IssuesService(
             },
             IssueUpdateEntityType.Status => new IssueHistoryStatusChange
             {
-                NewStatusId = long.TryParse(item.NewValueId, out var newStatusId) ? newStatusId : null,
-                OldStatusId = long.TryParse(item.OldValueId, out var oldStatusId) ? oldStatusId : null,
+                NewStatusId = long.TryParse(item.NewValueData.ValueId, out var newStatusId) ? newStatusId : null,
+                OldStatusId = long.TryParse(item.OldValueData.ValueId, out var oldStatusId) ? oldStatusId : null,
                 NewStatusName = item.NewDisplayValue,
                 OldStatusName = item.OldDisplayValue,
             },
             IssueUpdateEntityType.Property => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
-                NewValueId = long.TryParse(item.NewValueId, out var newValueId) ? newValueId : null,
-                OldValueId = long.TryParse(item.OldValueId, out var oldValueId) ? oldValueId : null,
+                NewValueId = long.TryParse(item.NewValueData.ValueId, out var newValueId) ? newValueId : null,
+                OldValueId = long.TryParse(item.OldValueData.ValueId, out var oldValueId) ? oldValueId : null,
                 NewValueName = item.NewDisplayValue,
                 OldValueName = item.OldDisplayValue,
                 ChangeAction = item.Action,
             },
             IssueUpdateEntityType.Attachment => new IssueHistoryAttachmentChange
             {
-                FileId = Guid.TryParse(item.NewValueId, out var addedFileId)
+                FileId = Guid.TryParse(item.NewValueData.ValueId, out var addedFileId)
                     ? addedFileId
-                    : Guid.TryParse(item.OldValueId, out var deletedFile)
+                    : Guid.TryParse(item.OldValueData.ValueId, out var deletedFile)
                         ? deletedFile
                         : Guid.Empty,
                 FileName = item.NewDisplayValue ?? item.OldDisplayValue,

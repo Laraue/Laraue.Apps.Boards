@@ -8,25 +8,9 @@ public class OrganizationLogItem
     
     public long OrganizationLogId { get; set; }
     public OrganizationLog? OrganizationLog { get; set; }
-    
-    /// <summary>
-    /// Value identifier (long or GUID identifier serialized as string).
-    /// </summary>
-    [MaxLength(36)]
-    public string? OldValueId { get; set; }
-    
-    /// <summary>
-    /// Value identifier (long or GUID identifier serialized as string).
-    /// </summary>
-    [MaxLength(36)]
-    public string? NewValueId { get; set; }
-    
-    /// <summary>
-    /// When the change related to the issue entity the field is filled.
-    /// For example, comment attachment update will store comment id here.
-    /// </summary>
-    [MaxLength(36)]
-    public string? ParentValueId { get; set; }
+
+    public ValueData OldValueData { get; set; } = new ();
+    public ValueData NewValueData { get; set; } = new ();
     
     public ChangeAction Action { get; set; }
     public IssueUpdateEntityType EntityType { get; set; }
@@ -39,6 +23,25 @@ public class OrganizationLogItem
 
     [MaxLength(255)]
     public string? PropertyName { get; set; }
+}
+
+public record ValueData
+{
+    /// <summary>
+    /// Value identifier (long or GUID identifier serialized as string).
+    /// </summary>
+    public string? ValueId { get; set; }
+    
+    /// <summary>
+    /// When the change related to the issue entity the field is filled.
+    /// For example, comment attachment update will store comment id here.
+    /// </summary>
+    public string? ParentValueId { get; set; }
+
+    /// <summary>
+    /// Used when needs to store information about value color.
+    /// </summary>
+    public string? Color { get; set; }
 }
 
 public enum IssueUpdateEntityType

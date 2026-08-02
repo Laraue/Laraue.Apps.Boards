@@ -21,8 +21,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<UserOrganizationPreferences> UserOrganizationPreferences { get; init; }
     public DbSet<Issue> Issues { get; init; }
     public DbSet<IssueAttachment> IssueAttachments { get; init; }
-    public DbSet<OrganizationLog> IssueUpdates { get; init; }
-    public DbSet<OrganizationLogItem> IssueUpdateItems { get; init; }
+    public DbSet<OrganizationLog> OrganizationLogs { get; init; }
+    public DbSet<OrganizationLogItem> OrganizationLogItems { get; init; }
     public DbSet<IssueNumber> IssueNumbers { get; init; }
     public DbSet<IssueComment> IssueComments { get; init; }
     public DbSet<IssueCommentAttachment> IssueCommentsAttachments { get; init; }
@@ -166,6 +166,14 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             builder
                 .HasIndex(x => new { x.OrganizationId, x.CreatedAt })
                 .IsDescending(false, true);
+        });
+        
+        modelBuilder.Entity<OrganizationLogItem>(builder =>
+        {
+            builder
+                .ComplexProperty(c => c.OldValueData, d => d.ToJson());
+            builder
+                .ComplexProperty(c => c.NewValueData, d => d.ToJson());
         });
     }
 }

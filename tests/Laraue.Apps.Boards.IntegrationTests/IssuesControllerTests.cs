@@ -40,7 +40,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issue.Id);
         Assert.Equal(1, issueNumber.Number);
         
-        var historyChange = await testScope.Database.IssueUpdates.Include(x => x.Items).SingleAsyncEF();
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
         Assert.Equal(issue.Id, historyChange.IssueId);
         Assert.Equal(4, historyChange.Items!.Count);
 
@@ -52,8 +52,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(issueChange.OldDisplayValue);
         Assert.Equal(issueKey, issueChange.NewDisplayValue);
         Assert.Null(issueChange.PropertyName);
-        Assert.Null(issueChange.OldValueId);
-        Assert.Null(issueChange.NewValueId);
+        Assert.Null(issueChange.OldValueData.ValueId);
+        Assert.Null(issueChange.NewValueData.ValueId);
         Assert.Null(issueChange.PropertyName);
         Assert.Equal(ChangeAction.Create, issueChange.Action);
         Assert.Equal(IssueUpdateEntityType.Issue, issueChange.EntityType);
@@ -61,8 +61,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(statusChange.OldDisplayValue);
         Assert.Equal(status.Name, statusChange.NewDisplayValue);
         Assert.Null(statusChange.PropertyName);
-        Assert.Null(statusChange.OldValueId);
-        Assert.Equal(status.Id.ToString(), statusChange.NewValueId);
+        Assert.Null(statusChange.OldValueData.ValueId);
+        Assert.Equal(status.Id.ToString(), statusChange.NewValueData.ValueId);
         Assert.Null(statusChange.PropertyName);
         Assert.Equal(ChangeAction.Update, statusChange.Action);
         Assert.Equal(IssueUpdateEntityType.Status, statusChange.EntityType);
@@ -70,8 +70,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(contentChange.OldDisplayValue);
         Assert.Equal("New Issue", contentChange.NewDisplayValue);
         Assert.Null(contentChange.PropertyName);
-        Assert.Null(contentChange.OldValueId);
-        Assert.Null(contentChange.NewValueId);
+        Assert.Null(contentChange.OldValueData.ValueId);
+        Assert.Null(contentChange.NewValueData.ValueId);
         Assert.Null(contentChange.PropertyName);
         Assert.Equal(ChangeAction.Update, contentChange.Action);
         Assert.Equal(IssueUpdateEntityType.Content, contentChange.EntityType);
@@ -79,8 +79,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(assigneeChange.OldDisplayValue);
         Assert.Equal("user1", assigneeChange.NewDisplayValue);
         Assert.Null(assigneeChange.PropertyName);
-        Assert.Null(assigneeChange.OldValueId);
-        Assert.Equal(userId.ToString(), assigneeChange.NewValueId);
+        Assert.Null(assigneeChange.OldValueData.ValueId);
+        Assert.Equal(userId.ToString(), assigneeChange.NewValueData.ValueId);
         Assert.Null(assigneeChange.PropertyName);
         Assert.Equal(ChangeAction.Update, assigneeChange.Action);
         Assert.Equal(IssueUpdateEntityType.Assignee, assigneeChange.EntityType);
@@ -289,7 +289,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.NotNull(issue);
         Assert.Equal("New", issue.Content);
 
-        var historyChange = await testScope.Database.IssueUpdates.Include(x => x.Items).SingleAsyncEF();
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
         Assert.Equal(issue.Id, historyChange.IssueId);
         Assert.Equal(2, historyChange.Items!.Count);
 
@@ -299,8 +299,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("Hi", contentChange.OldDisplayValue);
         Assert.Equal("New", contentChange.NewDisplayValue);
         Assert.Null(contentChange.PropertyName);
-        Assert.Null(contentChange.OldValueId);
-        Assert.Null(contentChange.NewValueId);
+        Assert.Null(contentChange.OldValueData.ValueId);
+        Assert.Null(contentChange.NewValueData.ValueId);
         Assert.Null(contentChange.PropertyName);
         Assert.Equal(ChangeAction.Update, contentChange.Action);
         Assert.Equal(IssueUpdateEntityType.Content, contentChange.EntityType);
@@ -308,8 +308,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("first_user", assigneeChange.OldDisplayValue);
         Assert.Equal("second_user", assigneeChange.NewDisplayValue);
         Assert.Null(assigneeChange.PropertyName);
-        Assert.Equal(userId.ToString(), assigneeChange.OldValueId);
-        Assert.Equal(participatorId.ToString(), assigneeChange.NewValueId);
+        Assert.Equal(userId.ToString(), assigneeChange.OldValueData.ValueId);
+        Assert.Equal(participatorId.ToString(), assigneeChange.NewValueData.ValueId);
         Assert.Null(assigneeChange.PropertyName);
         Assert.Equal(ChangeAction.Update, assigneeChange.Action);
         Assert.Equal(IssueUpdateEntityType.Assignee, assigneeChange.EntityType);
@@ -366,15 +366,15 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Null(issue);
         
-        var historyChange = await testScope.Database.IssueUpdates.Include(x => x.Items).SingleAsyncEF();
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
         Assert.Equal(issueData.Issue.Id, historyChange.IssueId);
         var issueChange = Assert.Single(historyChange.Items!);
         
         Assert.Equal(issueData.Key, issueChange.OldDisplayValue);
         Assert.Null(issueChange.NewDisplayValue);
         Assert.Null(issueChange.PropertyName);
-        Assert.Null(issueChange.OldValueId);
-        Assert.Null(issueChange.NewValueId);
+        Assert.Null(issueChange.OldValueData.ValueId);
+        Assert.Null(issueChange.NewValueData.ValueId);
         Assert.Null(issueChange.PropertyName);
         Assert.Equal(ChangeAction.Delete, issueChange.Action);
         Assert.Equal(IssueUpdateEntityType.Issue, issueChange.EntityType);
