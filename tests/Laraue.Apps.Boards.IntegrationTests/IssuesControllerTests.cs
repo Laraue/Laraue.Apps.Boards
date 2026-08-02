@@ -45,22 +45,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(1, issueNumber.Number);
         
         var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
-        Assert.Equal(issue.Id, historyChange.IssueId);
-        Assert.Equal(4, historyChange.Items!.Count);
+        Assert.Equal(issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Create, historyChange.Action);
+        Assert.Equal(3, historyChange.Items!.Count);
 
-        var issueChange = historyChange.Items[0];
-        var statusChange = historyChange.Items[1];
-        var contentChange = historyChange.Items[2];
-        var assigneeChange = historyChange.Items[3];
-        
-        Assert.Null(issueChange.OldDisplayValue);
-        Assert.Equal(issueKey, issueChange.NewDisplayValue);
-        Assert.Null(issueChange.PropertyName);
-        Assert.Null(issueChange.OldValueData.ValueId);
-        Assert.Null(issueChange.NewValueData.ValueId);
-        Assert.Null(issueChange.PropertyName);
-        Assert.Equal(ChangeAction.Create, issueChange.Action);
-        Assert.Equal(IssueUpdateEntityType.Issue, issueChange.EntityType);
+        var statusChange = historyChange.Items[0];
+        var contentChange = historyChange.Items[1];
+        var assigneeChange = historyChange.Items[2];
         
         Assert.Null(statusChange.OldDisplayValue);
         Assert.Equal(status.Name, statusChange.NewDisplayValue);
@@ -69,8 +61,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.NotNull(statusChange.NewValueData.Color);
         Assert.Equal(status.Id.ToString(), statusChange.NewValueData.ValueId);
         Assert.Null(statusChange.PropertyName);
-        Assert.Equal(ChangeAction.Update, statusChange.Action);
-        Assert.Equal(IssueUpdateEntityType.Status, statusChange.EntityType);
+        Assert.Equal(PropertyType.Status, statusChange.PropertyType);
         
         Assert.Null(contentChange.OldDisplayValue);
         Assert.Equal("New Issue", contentChange.NewDisplayValue);
@@ -78,8 +69,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(contentChange.OldValueData.ValueId);
         Assert.Null(contentChange.NewValueData.ValueId);
         Assert.Null(contentChange.PropertyName);
-        Assert.Equal(ChangeAction.Update, contentChange.Action);
-        Assert.Equal(IssueUpdateEntityType.Content, contentChange.EntityType);
+        Assert.Equal(PropertyType.Content, contentChange.PropertyType);
         
         Assert.Null(assigneeChange.OldDisplayValue);
         Assert.Equal("user1", assigneeChange.NewDisplayValue);
@@ -88,8 +78,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(assigneeChange.OldValueData.ValueId);
         Assert.Equal(userId.ToString(), assigneeChange.NewValueData.ValueId);
         Assert.Null(assigneeChange.PropertyName);
-        Assert.Equal(ChangeAction.Update, assigneeChange.Action);
-        Assert.Equal(IssueUpdateEntityType.Assignee, assigneeChange.EntityType);
+        Assert.Equal(PropertyType.Assignee, assigneeChange.PropertyType);
     }
     
     [Fact]
@@ -296,7 +285,9 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("New", issue.Content);
 
         var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
-        Assert.Equal(issue.Id, historyChange.IssueId);
+        Assert.Equal(issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Update, historyChange.Action);
         Assert.Equal(2, historyChange.Items!.Count);
 
         var contentChange = historyChange.Items[0];
@@ -308,8 +299,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(contentChange.OldValueData.ValueId);
         Assert.Null(contentChange.NewValueData.ValueId);
         Assert.Null(contentChange.PropertyName);
-        Assert.Equal(ChangeAction.Update, contentChange.Action);
-        Assert.Equal(IssueUpdateEntityType.Content, contentChange.EntityType);
+        Assert.Equal(PropertyType.Content, contentChange.PropertyType);
         
         Assert.Equal("first_user", assigneeChange.OldDisplayValue);
         Assert.Equal("second_user", assigneeChange.NewDisplayValue);
@@ -317,8 +307,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(userId.ToString(), assigneeChange.OldValueData.ValueId);
         Assert.Equal(participatorId.ToString(), assigneeChange.NewValueData.ValueId);
         Assert.Null(assigneeChange.PropertyName);
-        Assert.Equal(ChangeAction.Update, assigneeChange.Action);
-        Assert.Equal(IssueUpdateEntityType.Assignee, assigneeChange.EntityType);
+        Assert.Equal(PropertyType.Assignee, assigneeChange.PropertyType);
     }
     
     [Fact]
@@ -373,17 +362,10 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(issue);
         
         var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
-        Assert.Equal(issueData.Issue.Id, historyChange.IssueId);
-        var issueChange = Assert.Single(historyChange.Items!);
-        
-        Assert.Equal(issueData.Key, issueChange.OldDisplayValue);
-        Assert.Null(issueChange.NewDisplayValue);
-        Assert.Null(issueChange.PropertyName);
-        Assert.Null(issueChange.OldValueData.ValueId);
-        Assert.Null(issueChange.NewValueData.ValueId);
-        Assert.Null(issueChange.PropertyName);
-        Assert.Equal(ChangeAction.Delete, issueChange.Action);
-        Assert.Equal(IssueUpdateEntityType.Issue, issueChange.EntityType);
+        Assert.Equal(issueData.Issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Delete, historyChange.Action);
+        Assert.Empty(historyChange.Items!);
     }
     
     [Fact]
@@ -937,7 +919,10 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.GetIssueHistory(issueData.Key!, request));
 
+        
         var change = Assert.Single(historyData!.Data);
+        Assert.Equal(LogEntityType.Issue, change.EntityType);
+        Assert.Equal(LogAction.Update, change.Action);
         Assert.Equal("user1", change.Owner.DisplayName);
         
         var itemChanges = change.Changes;
@@ -960,11 +945,9 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.Equal("image.jpg", attachmentAddChange.FileName);
         Assert.True(attachmentAddChange.FileId != Guid.Empty);
-        Assert.Equal(ChangeAction.Create, attachmentAddChange.ChangeAction);
         
         Assert.Equal("old.jpg", attachmentDeleteChange.FileName);
         Assert.Equal(issueData.Issue.IssueAttachments[0].Attachment!.FileId, attachmentDeleteChange.FileId);
-        Assert.Equal(ChangeAction.Delete, attachmentDeleteChange.ChangeAction);
         
         Assert.Equal("Description", descriptionAttributeChange.PropertyName);
         Assert.Null(descriptionAttributeChange.NewValueName);

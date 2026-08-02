@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260802085732_AddOrganizationLog")]
+    [Migration("20260802195632_AddOrganizationLog")]
     partial class AddOrganizationLog
     {
         /// <inheritdoc />
@@ -607,13 +607,21 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<int>("Action")
+                        .HasColumnType("integer")
+                        .HasColumnName("action");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<long?>("IssueId")
+                    b.Property<long?>("EntityId")
                         .HasColumnType("bigint")
-                        .HasColumnName("issue_id");
+                        .HasColumnName("entity_id");
+
+                    b.Property<int>("EntityType")
+                        .HasColumnType("integer")
+                        .HasColumnName("entity_type");
 
                     b.Property<long>("OrganizationId")
                         .HasColumnType("bigint")
@@ -628,6 +636,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasIndex("OwnerId")
                         .HasDatabaseName("ix_organization_logs_owner_id");
+
+                    b.HasIndex("EntityId", "EntityType")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_organization_logs_entity_id_entity_type");
 
                     b.HasIndex("OrganizationId", "CreatedAt")
                         .IsDescending(false, true)
@@ -644,14 +656,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<int>("Action")
-                        .HasColumnType("integer")
-                        .HasColumnName("action");
-
-                    b.Property<int>("EntityType")
-                        .HasColumnType("integer")
-                        .HasColumnName("entity_type");
 
                     b.Property<string>("NewDisplayValue")
                         .HasMaxLength(4096)
@@ -671,6 +675,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("property_name");
+
+                    b.Property<int>("PropertyType")
+                        .HasColumnType("integer")
+                        .HasColumnName("property_type");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "NewValueData", "Laraue.Apps.Boards.DataAccess.Models.OrganizationLogItem.NewValueData#ValueData", b1 =>
                         {

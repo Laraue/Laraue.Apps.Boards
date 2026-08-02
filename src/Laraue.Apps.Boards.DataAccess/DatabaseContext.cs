@@ -166,6 +166,10 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             builder
                 .HasIndex(x => new { x.OrganizationId, x.CreatedAt })
                 .IsDescending(false, true);
+            
+            builder
+                .HasIndex(x => new { x.EntityId, x.EntityType })
+                .IsDescending(false, true);
         });
         
         modelBuilder.Entity<OrganizationLogItem>(builder =>

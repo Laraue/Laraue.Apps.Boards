@@ -883,12 +883,14 @@ public class IssuesService(
         
         var updatesData = await context
             .OrganizationLogs
-            .Where(x => x.IssueId == issueId)
+            .Where(x => x.EntityId == issueId && x.EntityType == LogEntityType.Issue)
             .OrderByDescending(x => x.Id)
             .Select(x => new
             {
                 x.Id,
                 x.CreatedAt,
+                x.EntityType,
+                x.Action,
                 x.Owner!.Color,
                 x.Owner.TelegramFirstName,
                 x.Owner.TelegramLastName,
@@ -913,7 +915,9 @@ public class IssuesService(
                     DisplayName = userInitials.DisplayName,
                     Initials = userInitials.Initials,
                 },
-                Changes = changes
+                Changes = changes,
+                EntityType = x.EntityType,
+                Action = x.Action,
             };
         });
         
@@ -927,14 +931,14 @@ public class IssuesService(
 
     private static IssueHistoryItemChange MapChange(OrganizationLogItem item)
     {
-        return item.EntityType switch
+        return item.PropertyType switch
         {
-            IssueUpdateEntityType.Content => new IssueHistoryContentChange
+            PropertyType.Content => new IssueHistoryContentChange
             {
                 NewContent = item.NewDisplayValue,
                 OldContent = item.OldDisplayValue,
             },
-            IssueUpdateEntityType.Assignee => new IssueHistoryAssigneeChange
+            PropertyType.Assignee => new IssueHistoryAssigneeChange
             {
                 OldAssigneeDisplayName = item.OldDisplayValue,
                 NewAssigneeDisplayName = item.NewDisplayValue,
@@ -943,11 +947,7 @@ public class IssuesService(
                 OldAssigneeColor = item.OldValueData.Color,
                 NewAssigneeColor = item.NewValueData.Color,
             },
-            IssueUpdateEntityType.Issue => new IssueHistoryIssueChange
-            {
-                ChangeAction = item.Action,
-            },
-            IssueUpdateEntityType.Status => new IssueHistoryStatusChange
+            PropertyType.Status => new IssueHistoryStatusChange
             {
                 NewStatusId = long.TryParse(item.NewValueData.ValueId, out var newStatusId) ? newStatusId : null,
                 OldStatusId = long.TryParse(item.OldValueData.ValueId, out var oldStatusId) ? oldStatusId : null,
@@ -956,16 +956,15 @@ public class IssuesService(
                 OldStatusName = item.OldDisplayValue,
                 OldStatusColor = item.OldValueData.Color,
             },
-            IssueUpdateEntityType.Property => new IssueHistoryPropertyChange
+            PropertyType.Property => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
                 NewValueId = long.TryParse(item.NewValueData.ValueId, out var newValueId) ? newValueId : null,
                 OldValueId = long.TryParse(item.OldValueData.ValueId, out var oldValueId) ? oldValueId : null,
                 NewValueName = item.NewDisplayValue,
                 OldValueName = item.OldDisplayValue,
-                ChangeAction = item.Action,
             },
-            IssueUpdateEntityType.Attachment => new IssueHistoryAttachmentChange
+            PropertyType.Attachment => new IssueHistoryAttachmentChange
             {
                 FileId = Guid.TryParse(item.NewValueData.ValueId, out var addedFileId)
                     ? addedFileId
@@ -973,25 +972,8 @@ public class IssuesService(
                         ? deletedFile
                         : Guid.Empty,
                 FileName = item.NewDisplayValue ?? item.OldDisplayValue,
-                ChangeAction = item.Action,
             },
-            IssueUpdateEntityType.CommentContent => new IssueHistoryCommentContentChange
-            {
-                NewContent = item.NewDisplayValue,
-                OldContent = item.OldDisplayValue,
-            },
-            IssueUpdateEntityType.CommentAttachment => new IssueHistoryCommentAttachmentChange
-            {
-                FileId = Guid.TryParse(item.NewValueData.ValueId, out var addedFileId)
-                    ? addedFileId
-                    : Guid.TryParse(item.OldValueData.ValueId, out var deletedFile)
-                        ? deletedFile
-                        : Guid.Empty,
-                FileName = item.NewDisplayValue ?? item.OldDisplayValue,
-                ChangeAction = item.Action,
-                CommentId = long.TryParse(item.NewValueData.ParentValueId, out var commentId) ? commentId : 0,
-            },
-            _ => throw new InvalidOperationException($"Change of type {item.EntityType} is not supported yet")
+            _ => throw new InvalidOperationException($"Change of type {item.PropertyType} is not supported yet")
         };
     }
 
@@ -1856,11 +1838,12 @@ public record IssueHistoryItem
     public required DateTime CreatedAt { get; set; }
     public required UserDetails Owner { get; set; }
     public required IssueHistoryItemChange[] Changes { get; set; }
+    public required LogEntityType EntityType { get; set; }
+    public required LogAction Action { get; set; }
 }
 
 [JsonDerivedType(typeof(IssueHistoryContentChange), "content")]
 [JsonDerivedType(typeof(IssueHistoryAssigneeChange), "assignee")]
-[JsonDerivedType(typeof(IssueHistoryIssueChange), "issue")]
 [JsonDerivedType(typeof(IssueHistoryStatusChange), "status")]
 [JsonDerivedType(typeof(IssueHistoryPropertyChange), "property")]
 [JsonDerivedType(typeof(IssueHistoryAttachmentChange), "attachment")]
@@ -1885,11 +1868,6 @@ public record IssueHistoryAssigneeChange : IssueHistoryItemChange
     public required string? NewAssigneeColor { get; set; }
 }
 
-public record IssueHistoryIssueChange : IssueHistoryItemChange
-{
-    public ChangeAction ChangeAction { get; set; }
-}
-
 public record IssueHistoryStatusChange : IssueHistoryItemChange
 {
     public required string? OldStatusName { get; set; }
@@ -1907,14 +1885,12 @@ public record IssueHistoryPropertyChange : IssueHistoryItemChange
     public required long? OldValueId { get; set; }
     public required string? NewValueName { get; set; }
     public required long? NewValueId { get; set; }
-    public required ChangeAction ChangeAction { get; set; }
 }
 
 public record IssueHistoryAttachmentChange : IssueHistoryItemChange
 {
     public required string? FileName { get; set; }
     public required Guid FileId { get; set; }
-    public required ChangeAction ChangeAction { get; set; }
 }
 
 public record IssueHistoryCommentContentChange : IssueHistoryItemChange
@@ -1928,5 +1904,4 @@ public record IssueHistoryCommentAttachmentChange : IssueHistoryItemChange
     public long CommentId { get; set; }
     public required string? FileName { get; set; }
     public required Guid FileId { get; set; }
-    public required ChangeAction ChangeAction { get; set; }
 }

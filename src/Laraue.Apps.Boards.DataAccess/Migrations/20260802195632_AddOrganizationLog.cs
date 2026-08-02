@@ -18,10 +18,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 {
                     id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    issue_id = table.Column<long>(type: "bigint", nullable: true),
+                    entity_id = table.Column<long>(type: "bigint", nullable: true),
+                    entity_type = table.Column<int>(type: "integer", nullable: false),
                     organization_id = table.Column<long>(type: "bigint", nullable: false),
                     owner_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    action = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -47,11 +49,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     organization_log_id = table.Column<long>(type: "bigint", nullable: false),
-                    action = table.Column<int>(type: "integer", nullable: false),
-                    entity_type = table.Column<int>(type: "integer", nullable: false),
+                    property_type = table.Column<int>(type: "integer", nullable: false),
+                    property_name = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
                     old_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true),
                     new_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true),
-                    property_name = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
                     new_value_data = table.Column<string>(type: "jsonb", nullable: false),
                     old_value_data = table.Column<string>(type: "jsonb", nullable: false)
                 },
@@ -70,6 +71,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                 name: "ix_organization_log_items_organization_log_id",
                 table: "organization_log_items",
                 column: "organization_log_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_organization_logs_entity_id_entity_type",
+                table: "organization_logs",
+                columns: new[] { "entity_id", "entity_type" },
+                descending: new[] { false, true });
 
             migrationBuilder.CreateIndex(
                 name: "ix_organization_logs_organization_id_created_at",

@@ -12,17 +12,16 @@ public class OrganizationLogItem
     public ValueData OldValueData { get; set; } = new ();
     public ValueData NewValueData { get; set; } = new ();
     
-    public ChangeAction Action { get; set; }
-    public IssueUpdateEntityType EntityType { get; set; }
+    public PropertyType PropertyType { get; set; }
+    
+    [MaxLength(255)]
+    public string? PropertyName { get; set; }
     
     [MaxLength(4096)]
     public string? OldDisplayValue { get; set; }
     
     [MaxLength(4096)]
     public string? NewDisplayValue { get; set; }
-
-    [MaxLength(255)]
-    public string? PropertyName { get; set; }
 }
 
 public record ValueData
@@ -44,21 +43,11 @@ public record ValueData
     public string? Color { get; set; }
 }
 
-public enum IssueUpdateEntityType
+public enum PropertyType
 {
     Attachment,
     Content,
-    CommentContent,
-    CommentAttachment,
     Property,
-    Issue,
     Assignee,
     Status,
-}
-
-public enum ChangeAction
-{
-    Create,
-    Update,
-    Delete,
 }

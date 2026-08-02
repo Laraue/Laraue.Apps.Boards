@@ -155,19 +155,14 @@ public class CoreIssuesService(
         var change = new OrganizationLog
         {
             CreatedAt = createdAt,
-            IssueId = issue.Id,
+            EntityId = issue.Id,
+            EntityType = LogEntityType.Issue,
+            Action = LogAction.Create,
             Items =
             [
                 new OrganizationLogItem
                 {
-                    Action = ChangeAction.Create,
-                    EntityType = IssueUpdateEntityType.Issue,
-                    NewDisplayValue = new IssueKey(issueData.Key, issueNumber.Number).ToString(),
-                },
-                new OrganizationLogItem
-                {
-                    Action = ChangeAction.Update,
-                    EntityType = IssueUpdateEntityType.Status,
+                    PropertyType = PropertyType.Status,
                     NewDisplayValue = issueData.StatusName,
                     NewValueData = new ValueData
                     {
@@ -185,8 +180,7 @@ public class CoreIssuesService(
             change.Items.Add(new OrganizationLogItem
             {
                 NewDisplayValue = text,
-                Action = ChangeAction.Update,
-                EntityType = IssueUpdateEntityType.Content,
+                PropertyType = PropertyType.Content,
             });
         }
         
@@ -207,8 +201,7 @@ public class CoreIssuesService(
                 ValueId = assigneeId.ToString(),
                 Color = userData.Color,
             },
-            Action = ChangeAction.Update,
-            EntityType = IssueUpdateEntityType.Assignee,
+            PropertyType = PropertyType.Assignee,
         });
         
         change.Items.AddRange(await UpdateAttributes(issue.Id, issueData.OrganizationId, attributes, cancellationToken));
@@ -247,10 +240,12 @@ public class CoreIssuesService(
         var change = new OrganizationLog
         {
             CreatedAt = date,
-            IssueId = issueId,
+            EntityId = issueId,
+            EntityType = LogEntityType.Issue,
             Items = [],
             OrganizationId = issueData.OrganizationId,
             OwnerId = updaterId,
+            Action = LogAction.Update,
         };
 
         Action<UpdateSettersBuilder<Issue>> settersBuilder = builder
@@ -264,8 +259,7 @@ public class CoreIssuesService(
             {
                 NewDisplayValue = content,
                 OldDisplayValue = oldContent,
-                Action = ChangeAction.Update,
-                EntityType = IssueUpdateEntityType.Content,
+                PropertyType = PropertyType.Content,
             });
         }
 
@@ -299,8 +293,7 @@ public class CoreIssuesService(
                     ValueId = issueData.AssigneeId.ToString(),
                     Color = usersData[oldAssigneeId].Color,
                 },
-                Action = ChangeAction.Update,
-                EntityType = IssueUpdateEntityType.Assignee,
+                PropertyType = PropertyType.Assignee,
             });
         }
 
@@ -412,8 +405,7 @@ public class CoreIssuesService(
                     {
                         NewDisplayValue = listValueData.Value,
                         OldDisplayValue = oldAttribute.AttributeListValue,
-                        EntityType = IssueUpdateEntityType.Property,
-                        Action = ChangeAction.Update,
+                        PropertyType = PropertyType.Property,
                         OldValueData = new ValueData
                         {
                             ValueId = oldAttribute.AttributeListValueId.ToString(),
@@ -440,8 +432,7 @@ public class CoreIssuesService(
                     changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = listValueData.Value,
-                        EntityType = IssueUpdateEntityType.Property,
-                        Action = ChangeAction.Create,
+                        PropertyType = PropertyType.Property,
                         NewValueData =  new ValueData
                         {
                             ValueId = request.ListValueId.ToString(),
@@ -478,8 +469,7 @@ public class CoreIssuesService(
                 changes.Add(new OrganizationLogItem
                 {
                     OldDisplayValue = deletableValue.Value.AttributeListValueName,
-                    EntityType = IssueUpdateEntityType.Property,
-                    Action = ChangeAction.Delete,
+                    PropertyType = PropertyType.Property,
                     OldValueData = new ValueData
                     {
                         ValueId = deletableValue.Value.AttributeListValueId.ToString(),
@@ -534,8 +524,7 @@ public class CoreIssuesService(
                     {
                         NewDisplayValue = request.Value,
                         OldDisplayValue = oldAttribute.Text,
-                        EntityType = IssueUpdateEntityType.Property,
-                        Action = ChangeAction.Update,
+                        PropertyType = PropertyType.Property,
                         PropertyName = attributeNameById[oldAttribute.AttributeId],
                     });
                 }
@@ -552,8 +541,7 @@ public class CoreIssuesService(
                     changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = request.Value,
-                        EntityType = IssueUpdateEntityType.Property,
-                        Action = ChangeAction.Create,
+                        PropertyType = PropertyType.Property,
                         PropertyName = attributeNameById[request.Id],
                     });
                 }
@@ -578,8 +566,7 @@ public class CoreIssuesService(
             changes.Add(new OrganizationLogItem
             {
                 OldDisplayValue = deletable.Value.Text,
-                EntityType = IssueUpdateEntityType.Property,
-                Action = ChangeAction.Delete,
+                PropertyType = PropertyType.Property,
                 PropertyName = attributeNameById[deletable.Key],
             });
         }
@@ -604,16 +591,9 @@ public class CoreIssuesService(
         context.Add(new OrganizationLog
         {
             CreatedAt = dateTimeProvider.UtcNow,
-            Items =
-            [
-                new OrganizationLogItem
-                {
-                    Action = ChangeAction.Delete,
-                    EntityType = IssueUpdateEntityType.Issue,
-                    OldDisplayValue = issueData.Key.ToString(),
-                }
-            ],
-            IssueId = id,
+            EntityId = id,
+            EntityType = LogEntityType.Issue,
+            Action = LogAction.Delete,
             OrganizationId = issueData.OrganizationId,
             OwnerId = deleterId,
         });
@@ -672,14 +652,15 @@ public class CoreIssuesService(
         {
             CreatedAt = dateTimeProvider.UtcNow,
             OrganizationId = issueData.OrganizationId,
-            IssueId = issueId,
+            EntityId = issueComment.Id,
+            EntityType = LogEntityType.Comment,
+            Action = LogAction.Create,
             OwnerId = ownerId,
             Items =
             [
                 new OrganizationLogItem
                 {
-                    Action = ChangeAction.Create,
-                    EntityType = IssueUpdateEntityType.CommentContent,
+                    PropertyType = PropertyType.Content,
                     NewDisplayValue = comment,
                 }
             ]
@@ -689,14 +670,13 @@ public class CoreIssuesService(
         {
             logEntity.Items.Add(new OrganizationLogItem
             {
-                Action = ChangeAction.Create,
-                EntityType = IssueUpdateEntityType.CommentAttachment,
                 NewValueData = new ValueData
                 {
                     ParentValueId = issueComment.Id.ToString(),
                     ValueId = attachment.Attachment!.FileId.ToString(),
                 },
                 NewDisplayValue = attachment.Attachment.File!.Name,
+                PropertyType = PropertyType.Attachment,
             });
         }
 
@@ -824,15 +804,15 @@ public class CoreIssuesService(
             context.OrganizationLogs.Add(new OrganizationLog
             {
                 CreatedAt = dateTimeProvider.UtcNow,
-                IssueId = issue.Id,
+                EntityId = issue.Id,
+                EntityType = LogEntityType.Issue,
                 OrganizationId = issue.OrganizationId,
                 OwnerId = updaterId,
                 Items =
                 [
                     new OrganizationLogItem
                     {
-                        Action = ChangeAction.Update,
-                        EntityType = IssueUpdateEntityType.Status,
+                        PropertyType = PropertyType.Status,
                         OldValueData = new ValueData
                         {
                             ValueId = issue.StatusId.ToString(),
@@ -939,8 +919,7 @@ public class CoreIssuesService(
         return mediaInfos
             .Select(x => new OrganizationLogItem
             {
-                Action = ChangeAction.Create,
-                EntityType = IssueUpdateEntityType.Attachment,
+                PropertyType = PropertyType.Attachment,
                 NewValueData = new ValueData
                 {
                     ValueId = x.OriginalFileId.ToString(),
@@ -967,12 +946,11 @@ public class CoreIssuesService(
             .Select(x => new OrganizationLogItem
             {
                 OldDisplayValue = x.Name,
-                Action = ChangeAction.Delete,
                 OldValueData = new ValueData
                 {
                     ValueId = x.FileId.ToString(),
                 },
-                EntityType = IssueUpdateEntityType.Attachment,
+                PropertyType = PropertyType.Attachment,
             })
             .ToArray();
     }

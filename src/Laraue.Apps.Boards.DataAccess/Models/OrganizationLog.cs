@@ -4,11 +4,9 @@ public class OrganizationLog
 {
     public long Id { get; set; }
     
-    /// <summary>
-    /// The issue link. The issue can be already deleted.
-    /// </summary>
-    public long? IssueId { get; set; }
-
+    public long? EntityId { get; set; }
+    public LogEntityType EntityType { get; set; }
+    
     public long OrganizationId { get; set; }
     public Organization? Organization { get; set; }
     
@@ -17,5 +15,20 @@ public class OrganizationLog
 
     public DateTime CreatedAt { get; set; }
     
+    public LogAction Action { get; set; }
+    
     public List<OrganizationLogItem>? Items { get; set; }
+}
+
+public enum LogEntityType
+{
+    Issue,
+    Comment,
+}
+
+public enum LogAction
+{
+    Create,
+    Update,
+    Delete,
 }
