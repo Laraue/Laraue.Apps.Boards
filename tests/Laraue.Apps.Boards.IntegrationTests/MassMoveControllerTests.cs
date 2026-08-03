@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -63,7 +64,8 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
                 .AddSpace(userId, s => s
                     .AddEpic(userId, e => e
                         .AddIssue(userId, 0, builder => builder
-                            .WithContent("Moving issue")))));
+                            .WithContent("Moving issue")
+                            .AddComment(userId, "Just a comment")))));
         
         var organization = await testScope.InitializeOrganization(
             userId,
@@ -74,6 +76,8 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         var sourceSpace = personalOrganization.GetSpace(1);
         var backlogEpic = personalOrganization.GetEpic(1, 0); // Backlog should not be moved
         var epicToMove = personalOrganization.GetEpic(1, 1); // Other epics should be moved
+        var issueData = personalOrganization.GetIssueData(1, 1, 0, 0);
+        var commentId = issueData.Issue.IssueComments![0].Id;
         
         var spaceToReceive = organization.GetSpace(0);
         
@@ -92,6 +96,25 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         Assert.Equal(spaceToReceive.Id, secondIssue.SpaceId);
         Assert.Equal(1, secondIssue.Number);
         Assert.Equal("Old issue", secondIssue.Content);
+        
+        // Insert issue log entries. It should be moved to new org
+        testScope.Database.OrganizationLogs.Add(new OrganizationLog
+        {
+            EntityId = issueData.Issue.Id,
+            OrganizationId = personalOrganization.Id,
+            OwnerId = userId,
+            EntityType = LogEntityType.Issue,
+        });
+        
+        // Comment related to the issue. So it should be also moved
+        testScope.Database.OrganizationLogs.Add(new OrganizationLog
+        {
+            EntityId = commentId,
+            OrganizationId = personalOrganization.Id,
+            OwnerId = userId,
+            EntityType = LogEntityType.Comment,
+        });
+        await testScope.Database.SaveChangesAsync();
 
         var request = new MoveSpaceEpicsRequest
         {
@@ -131,6 +154,14 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         
         var notMovedEpic = await testScope.Database.Epics.FirstAsyncEF(e => e.Id == backlogEpic.Id);
         Assert.Equal(sourceSpace.Id, notMovedEpic.SpaceId);
+
+        var logs = await testScope.Database.OrganizationLogs.OrderBy(x => x.Id).ToListAsyncEF();
+        Assert.Equal(2, logs.Count);
+
+        Assert.All(logs, log =>
+        {
+            Assert.Equal(organization.Id, log.OrganizationId);
+        });
     }
     
     [Fact]
