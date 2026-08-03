@@ -958,6 +958,20 @@ public class IssuesService(
             .Distinct()
             .Where(x => long.TryParse(x, out _))
             .Select(long.Parse!);
+        
+        var possibleEpicIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Epic)
+            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
+        
+        var possibleSpacesIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Space)
+            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
 
         var statusColors = await context.Statuses
             .Where(s => possibleStatusIds.Contains(s.Id))
@@ -972,12 +986,26 @@ public class IssuesService(
             .Select(x => new { x.Id, x.Attribute!.Color })
             .ToArrayAsyncEF(cancellationToken))
             .ToDictionary(s => s.Id.ToString(), s => s.Color);
+        
+        var epicColors = await context.Epics
+            .Where(s => possibleEpicIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        
+        var spacesColors = await context.Spaces
+            .Where(s => possibleSpacesIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
 
         var result = changes
             .Select(x => new
             {
                 x.Key,
-                Changes = x.Value.Select(y => MapChange(y, statusColors, userColors, attributeColors))
+                Changes = x.Value.Select(y => MapChange(
+                    y,
+                    statusColors,
+                    userColors,
+                    attributeColors,
+                    epicColors,
+                    spacesColors))
             })
             .ToDictionary(x => x.Key, x => x.Changes.ToArray());
 
@@ -988,7 +1016,9 @@ public class IssuesService(
         OrganizationLogItem item,
         Dictionary<string, string> statusColors,
         Dictionary<string, string> userColors,
-        Dictionary<string, string> attributeColors)
+        Dictionary<string, string> attributeColors,
+        Dictionary<string, string> epicColors,
+        Dictionary<string, string> spacesColors)
     {
         return item.PropertyType switch
         {
@@ -1001,15 +1031,11 @@ public class IssuesService(
             {
                 OldAssigneeDisplayName = item.OldDisplayValue,
                 NewAssigneeDisplayName = item.NewDisplayValue,
-                NewAssigneeId = Guid.TryParse(item.NewValueData.ValueId, out var newAssigneeId) ? newAssigneeId : null,
-                OldAssigneeId = Guid.TryParse(item.OldValueData.ValueId, out var oldAssigneeId) ? oldAssigneeId : null,
                 OldAssigneeColor = item.OldValueData.ValueId is not null ? userColors[item.OldValueData.ValueId] : null,
                 NewAssigneeColor = item.NewValueData.ValueId is not null ? userColors[item.NewValueData.ValueId] : null,
             },
             PropertyType.Status => new IssueHistoryStatusChange
             {
-                NewStatusId = long.TryParse(item.NewValueData.ValueId, out var newStatusId) ? newStatusId : null,
-                OldStatusId = long.TryParse(item.OldValueData.ValueId, out var oldStatusId) ? oldStatusId : null,
                 NewStatusName = item.NewDisplayValue,
                 NewStatusColor = item.NewValueData.ValueId is not null ? statusColors[item.NewValueData.ValueId] : null,
                 OldStatusName = item.OldDisplayValue,
@@ -1018,8 +1044,6 @@ public class IssuesService(
             PropertyType.Attribute => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
-                NewValueId = long.TryParse(item.NewValueData.ValueId, out var newValueId) ? newValueId : null,
-                OldValueId = long.TryParse(item.OldValueData.ValueId, out var oldValueId) ? oldValueId : null,
                 NewValueName = item.NewDisplayValue,
                 NewValueColor = item.NewValueData.ValueId is not null ? attributeColors[item.NewValueData.ValueId] : null,
                 OldValueName = item.OldDisplayValue,
@@ -1033,6 +1057,20 @@ public class IssuesService(
                         ? deletedFile
                         : Guid.Empty,
                 FileName = item.NewDisplayValue ?? item.OldDisplayValue,
+            },
+            PropertyType.Epic => new IssueHistoryEpicChange
+            {
+                NewEpicName = item.NewDisplayValue,
+                NewEpicColor = item.NewValueData.ValueId is not null ? epicColors[item.NewValueData.ValueId] : null,
+                OldEpicName = item.OldDisplayValue,
+                OldEpicColor = item.OldValueData.ValueId is not null ? epicColors[item.OldValueData.ValueId] : null,
+            },
+            PropertyType.Space => new IssueHistorySpaceChange
+            {
+                NewSpaceName = item.NewDisplayValue,
+                NewSpaceColor = item.NewValueData.ValueId is not null ? spacesColors[item.NewValueData.ValueId] : null,
+                OldSpaceName = item.OldDisplayValue,
+                OldSpaceColor = item.OldValueData.ValueId is not null ? spacesColors[item.OldValueData.ValueId] : null,
             },
             _ => throw new InvalidOperationException($"Change of type {item.PropertyType} is not supported yet")
         };
@@ -1908,7 +1946,8 @@ public record IssueHistoryItem
 [JsonDerivedType(typeof(IssueHistoryStatusChange), "status")]
 [JsonDerivedType(typeof(IssueHistoryPropertyChange), "property")]
 [JsonDerivedType(typeof(IssueHistoryAttachmentChange), "attachment")]
-[JsonDerivedType(typeof(IssueHistoryCommentContentChange), "commentContent")]
+[JsonDerivedType(typeof(IssueHistoryEpicChange), "epic")]
+[JsonDerivedType(typeof(IssueHistorySpaceChange), "space")]
 public abstract record IssueHistoryItemChange
 {
 }
@@ -1922,20 +1961,16 @@ public record IssueHistoryContentChange : IssueHistoryItemChange
 public record IssueHistoryAssigneeChange : IssueHistoryItemChange
 {
     public required string? OldAssigneeDisplayName { get; set; }
-    public required Guid? OldAssigneeId { get; set; }
     public required string? OldAssigneeColor { get; set; }
     public required string? NewAssigneeDisplayName { get; set; }
-    public required Guid? NewAssigneeId { get; set; }
     public required string? NewAssigneeColor { get; set; }
 }
 
 public record IssueHistoryStatusChange : IssueHistoryItemChange
 {
     public required string? OldStatusName { get; set; }
-    public required long? OldStatusId { get; set; }
     public required string? OldStatusColor { get; set; }
     public required string? NewStatusName { get; set; }
-    public required long? NewStatusId { get; set; }
     public required string? NewStatusColor { get; set; }
 }
 
@@ -1944,10 +1979,8 @@ public record IssueHistoryPropertyChange : IssueHistoryItemChange
     public required string PropertyName { get; set; }
     public required string? OldValueName { get; set; }
     public required string? OldValueColor { get; set; }
-    public required long? OldValueId { get; set; }
     public required string? NewValueName { get; set; }
     public required string? NewValueColor { get; set; }
-    public required long? NewValueId { get; set; }
 }
 
 public record IssueHistoryAttachmentChange : IssueHistoryItemChange
@@ -1956,15 +1989,18 @@ public record IssueHistoryAttachmentChange : IssueHistoryItemChange
     public required Guid FileId { get; set; }
 }
 
-public record IssueHistoryCommentContentChange : IssueHistoryItemChange
+public record IssueHistoryEpicChange : IssueHistoryItemChange
 {
-    public required string? OldContent { get; set; }
-    public required string? NewContent { get; set; }
+    public required string? OldEpicName { get; set; }
+    public required string? OldEpicColor { get; set; }
+    public required string? NewEpicName { get; set; }
+    public required string? NewEpicColor { get; set; }
 }
 
-public record IssueHistoryCommentAttachmentChange : IssueHistoryItemChange
+public record IssueHistorySpaceChange : IssueHistoryItemChange
 {
-    public long CommentId { get; set; }
-    public required string? FileName { get; set; }
-    public required Guid FileId { get; set; }
+    public required string? OldSpaceName { get; set; }
+    public required string? OldSpaceColor { get; set; }
+    public required string? NewSpaceName { get; set; }
+    public required string? NewSpaceColor { get; set; }
 }

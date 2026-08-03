@@ -71,7 +71,7 @@ public interface ICoreIssuesService
     /// </summary>
     Task UpdateIssuesStatus(
         long[] issueIds,
-        long statusId,
+        long newStatusId,
         Guid updaterId,
         CancellationToken ct);
 }
@@ -804,14 +804,15 @@ public class CoreIssuesService(
     
     public async Task UpdateIssuesStatus(
         long[] issueIds,
-        long statusId,
+        long newStatusId,
         Guid updaterId,
         CancellationToken ct)
     {
         context.Database.EnsureTransactionStarted();
         
-        var oldIssuesData = await context.Issues
+        var issuesToUpdate = await context.Issues
             .Where(i => ((IEnumerable<long>)issueIds).Contains(i.Id))
+            .Where(i => i.StatusId != newStatusId)
             .Select(i => new
             {
                 i.Id,
@@ -820,16 +821,28 @@ public class CoreIssuesService(
                 StatusName = i.Status.Name,
                 i.StatusId,
                 i.Status.Color,
+                i.Status.EpicId,
+                EpicName = i.Status.Epic.Name,
+                SpaceName = i.Status.Epic.Space.Name,
             })
             .ToListAsyncEF(ct);
         
-        var newSpaceData = await context.Statuses
-            .Where(i => i.Id == statusId)
-            .Select(i => new { i.Epic!.SpaceId, i.Epic!.Space!.OrganizationId, StatusName = i.Name, i.Color })
-            .FirstOrThrowNotFoundEFAsync($"Status: {statusId} is not found", ct);
+        var newStatusData = await context.Statuses
+            .Where(i => i.Id == newStatusId)
+            .Select(i => new
+            {
+                i.Epic!.SpaceId,
+                i.Epic!.Space!.OrganizationId,
+                StatusName = i.Name,
+                i.Color,
+                i.EpicId,
+                EpicName = i.Epic.Name,
+                SpaceName = i.Epic.Space.Name,
+            })
+            .FirstOrThrowNotFoundEFAsync($"Status: {newStatusId} is not found", ct);
 
         // TODO - If organization can be changed, is it possible to pass issues from different orgs? Or we will leave that limit?
-        if (oldIssuesData.Any(x => x.OrganizationId != newSpaceData.OrganizationId))
+        if (issuesToUpdate.Any(x => x.OrganizationId != newStatusData.OrganizationId))
             throw new InvalidOperationException("Change issue status works only inside the organization");
         
         await context.Issues
@@ -838,32 +851,50 @@ public class CoreIssuesService(
                 upd =>
                 {
                     upd
-                        .SetProperty(x => x.StatusId, statusId)
+                        .SetProperty(x => x.StatusId, newStatusId)
                         .SetProperty(x => x.UpdatedAt, dateTimeProvider.UtcNow);
                 },
                 ct);
 
-        var issuesWithUpdatedSpace = oldIssuesData
-            .Where(i => i.SpaceId != newSpaceData.SpaceId)
+        var issuesWithUpdatedSpace = issuesToUpdate
+            .Where(i => i.SpaceId != newStatusData.SpaceId)
             .GroupBy(i => i.SpaceId)
             .ToArray();
 
-        foreach (var issue in oldIssuesData)
+        foreach (var issue in issuesToUpdate)
         {
-            context.OrganizationLogs.Add(new OrganizationLog
+            var logEntry = new OrganizationLog
             {
                 CreatedAt = dateTimeProvider.UtcNow,
                 EntityId = issue.Id,
                 EntityType = LogEntityType.Issue,
                 OrganizationId = issue.OrganizationId,
                 OwnerId = updaterId,
-                Items =
-                [
-                    GetStatusLogItem(
-                        new IdName<long>(issue.StatusId, issue.StatusName),
-                        new IdName<long>(statusId, newSpaceData.StatusName)),
-                ]
-            });
+                Items = [],
+            };
+
+            if (issue.SpaceId != newStatusData.SpaceId)
+            {
+                logEntry.Items.Add(
+                    GetSpaceLogItem(
+                        new IdName<long>(issue.SpaceId, issue.SpaceName),
+                        new IdName<long>(newStatusData.SpaceId, newStatusData.SpaceName)));
+            }
+
+            if (issue.EpicId != newStatusData.EpicId)
+            {
+                logEntry.Items.Add(
+                    GetEpicLogItem(
+                        new IdName<long>(issue.EpicId, issue.EpicName),
+                        new IdName<long>(newStatusData.EpicId, newStatusData.EpicName)));
+            }
+            
+            logEntry.Items.Add(
+                GetStatusLogItem(
+                    new IdName<long>(issue.StatusId, issue.StatusName),
+                    new IdName<long>(newStatusId, newStatusData.StatusName)));
+            
+            context.OrganizationLogs.Add(logEntry);
         }
         
         await context.SaveChangesAsync(ct);
@@ -981,6 +1012,16 @@ public class CoreIssuesService(
             },
             OldDisplayValue = fileName,
         };
+    }
+
+    private static OrganizationLogItem GetEpicLogItem(IdName<long>? old, IdName<long>? @new)
+    {
+        return GetLogItem(PropertyType.Epic, old, @new);
+    }
+
+    private static OrganizationLogItem GetSpaceLogItem(IdName<long>? old, IdName<long>? @new)
+    {
+        return GetLogItem(PropertyType.Space, old, @new);
     }
 
     private static OrganizationLogItem GetStatusLogItem(IdName<long>? old, IdName<long>? @new)

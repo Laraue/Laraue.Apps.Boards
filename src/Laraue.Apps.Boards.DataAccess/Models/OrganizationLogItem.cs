@@ -39,4 +39,6 @@ public enum PropertyType
     Attribute,
     Assignee,
     Status,
+    Epic,
+    Space,
 }

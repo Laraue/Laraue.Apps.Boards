@@ -937,9 +937,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("New", contentChange.NewContent);
         
         Assert.Equal("user2", assigneeChange.OldAssigneeDisplayName);
-        Assert.Equal(participatorId, assigneeChange.OldAssigneeId);
         Assert.Equal("user1", assigneeChange.NewAssigneeDisplayName);
-        Assert.Equal(userId, assigneeChange.NewAssigneeId);
         
         Assert.Equal("image.jpg", attachmentAddChange.FileName);
         Assert.True(attachmentAddChange.FileId != Guid.Empty);
@@ -949,14 +947,10 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.Equal("Description", descriptionAttributeChange.PropertyName);
         Assert.Null(descriptionAttributeChange.NewValueName);
-        Assert.Null(descriptionAttributeChange.NewValueId);
         Assert.Equal("50 cents debt", descriptionAttributeChange.OldValueName);
-        Assert.Null(descriptionAttributeChange.OldValueId);
         
         Assert.Equal("Urgency", urgencyAttributeChange.PropertyName);
         Assert.Equal("High", urgencyAttributeChange.NewValueName);
-        Assert.Equal(urgencyAttribute.AttributeListValues[1].Id,  urgencyAttributeChange.NewValueId);
         Assert.Equal("Low", urgencyAttributeChange.OldValueName);
-        Assert.Equal(urgencyAttribute.AttributeListValues[0].Id,  urgencyAttributeChange.OldValueId);
     }
 }
