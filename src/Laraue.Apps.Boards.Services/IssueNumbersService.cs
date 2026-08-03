@@ -7,6 +7,13 @@ namespace Laraue.Apps.Boards.Services;
 
 public interface IIssueNumbersService
 {
+    /// <summary>
+    /// Update issue numbers, returns dictionary with new numbers.
+    /// </summary>
+    /// <param name="issueNumbersQuery"></param>
+    /// <param name="newSpaceId"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
     Task UpdateIssueNumbers(
         IQueryable<IssueNumber> issueNumbersQuery,
         long newSpaceId,

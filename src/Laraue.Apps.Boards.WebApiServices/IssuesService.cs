@@ -16,7 +16,6 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Razor.Hosting;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -71,7 +70,7 @@ public interface IIssuesService
         ChangesIssuesOrderRequest request,
         CancellationToken ct);
 
-    Task UpdateIssuesStatus(
+    Task<Dictionary<string, string>> UpdateIssuesStatus(
         UpdateIssuesStatusRequest request,
         CancellationToken ct);
 
@@ -759,7 +758,7 @@ public class IssuesService(
         await transaction.CommitAsync(ct);
     }
 
-    public async Task UpdateIssuesStatus(UpdateIssuesStatusRequest request, CancellationToken ct)
+    public async Task<Dictionary<string, string>> UpdateIssuesStatus(UpdateIssuesStatusRequest request, CancellationToken ct)
     {
         // Check that can move Issues
         var issueIds = new List<long>();
@@ -784,12 +783,14 @@ public class IssuesService(
             throw new NotFoundException($"Status: {request.StatusId} is not found");
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        await issuesService.UpdateIssuesStatus(
+        var result = await issuesService.UpdateIssuesStatus(
             issueIds.ToArray(),
             request.StatusId,
             request.AuthData.UserId,
             ct);
         await transaction.CommitAsync(ct);
+
+        return result;
     }
 
     public async Task<ShortPaginatedResult<CommentDto>> GetIssueComments(

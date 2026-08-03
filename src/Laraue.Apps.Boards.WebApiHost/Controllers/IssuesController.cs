@@ -197,7 +197,7 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     [HttpPost("status")]
-    public Task UpdateStatus(
+    public Task<Dictionary<string, string>> UpdateStatus(
         [FromBody] UpdateIssuesStatusRequest request,
         CancellationToken cancellationToken = default)
     {

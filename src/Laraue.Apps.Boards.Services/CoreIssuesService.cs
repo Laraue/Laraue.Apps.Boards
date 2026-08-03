@@ -69,7 +69,7 @@ public interface ICoreIssuesService
     /// <summary>
     /// Move issue to new status.
     /// </summary>
-    Task UpdateIssuesStatus(
+    Task<Dictionary<string, string>> UpdateIssuesStatus(
         long[] issueIds,
         long newStatusId,
         Guid updaterId,
@@ -795,7 +795,7 @@ public class CoreIssuesService(
             ct);
     }
     
-    public async Task UpdateIssuesStatus(
+    public async Task<Dictionary<string, string>> UpdateIssuesStatus(
         long[] issueIds,
         long newStatusId,
         Guid updaterId,
@@ -817,6 +817,8 @@ public class CoreIssuesService(
                 i.Status.EpicId,
                 EpicName = i.Status.Epic.Name,
                 SpaceName = i.Status.Epic.Space.Name,
+                SpaceKey = i.Status.Epic.Space.Key,
+                i.IssueNumber!.Number,
             })
             .ToListAsyncEF(ct);
         
@@ -848,11 +850,6 @@ public class CoreIssuesService(
                         .SetProperty(x => x.UpdatedAt, dateTimeProvider.UtcNow);
                 },
                 ct);
-
-        var issuesWithUpdatedSpace = issuesToUpdate
-            .Where(i => i.SpaceId != newStatusData.SpaceId)
-            .GroupBy(i => i.SpaceId)
-            .ToArray();
 
         foreach (var issue in issuesToUpdate)
         {
@@ -892,17 +889,44 @@ public class CoreIssuesService(
         }
         
         await context.SaveChangesAsync(ct);
+        
+        var issuesWithUpdatedSpace = issuesToUpdate
+            .Where(i => i.SpaceId != newStatusData.SpaceId)
+            .ToArray();
+        
+        // Issue with non updated space
+        var oldToNewKeyMap = issuesToUpdate
+            .Except(issuesWithUpdatedSpace)
+            .Select(x => new IssueKey(x.SpaceKey, x.Number).ToString())
+            .ToDictionary(x => x, x => x);
 
         if (issuesWithUpdatedSpace.Length == 0)
-            return;
+            return oldToNewKeyMap;
+        
+        var affectedIssueNumbers = context.IssueNumbers
+            .Where(i => issuesWithUpdatedSpace.Select(x => x.Id).Contains(i.IssueId));
+        
+        await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, newStatusData.SpaceId, ct);
 
-        foreach (var issues in issuesWithUpdatedSpace)
+        var updatedIssueKeyByIssueId = await context.Issues
+            .Where(x => issuesWithUpdatedSpace.Select(y => y.Id).Contains(x.Id))
+            .Select(x => new
+            {
+                Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
+                x.Id
+            })
+            .ToDictionaryAsyncEF(x => x.Id, x => x.Key, ct);
+        
+        foreach (var issueWithUpdatedSpace in issuesWithUpdatedSpace)
         {
-            var affectedIssueNumbers = context.IssueNumbers
-                .Where(i => issues.Select(x => x.Id).Contains(i.IssueId));
+            var key = updatedIssueKeyByIssueId[issueWithUpdatedSpace.Id];
             
-            await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, issues.Key, ct);
+            oldToNewKeyMap.Add(
+                new IssueKey(issueWithUpdatedSpace.SpaceKey, issueWithUpdatedSpace.Number).ToString(),
+                key.ToString());
         }
+        
+        return oldToNewKeyMap;
     }
 
     private async Task ChangesIssuesOrderInternal(
