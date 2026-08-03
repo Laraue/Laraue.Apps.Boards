@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
@@ -726,12 +727,21 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var newStatus = organization.GetStatus(1, 1, 1);
         
         var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
-        await _issuesController
+        var keysMap = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.UpdateStatus(request));
 
-        var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
+        var issue = await testScope.Database.Issues
+            .Where(x => x.Id == issueData.Issue.Id)
+            .Select(x => new { x.StatusId, Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number) })
+            .FirstAsyncEF();
+        
         Assert.Equal(newStatus.Id, issue.StatusId);
+        
+        var pair = Assert.Single(keysMap!);
+        Assert.Equal(issueData.Key, pair.Key);
+        Assert.Equal(issue.Key.ToString(), pair.Value);
+        Assert.NotEqual(pair.Key, pair.Value);
     }
 
     [Fact]
