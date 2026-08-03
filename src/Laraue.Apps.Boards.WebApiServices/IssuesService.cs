@@ -897,14 +897,20 @@ public class IssuesService(
                 x.Owner.TelegramUserName,
                 Items = x.Items!
                     .OrderBy(i => i.Id)
-                    .ToList(),
+                    .ToArray(),
             })
             .ShortPaginateEFAsync(request.Pagination, ct);
+        
+        
+        var changes = await MapChanges(
+            updatesData.Data.ToDictionary(
+                x => x.Id,
+                x => x.Items),
+            ct);
 
         var result = updatesData.MapTo(x =>
         {
             var userInitials = new UserInitials(x.TelegramUserName, x.TelegramFirstName, x.TelegramLastName);
-            var changes = MapChanges(x.Items!);
 
             return new IssueHistoryItem
             {
@@ -915,7 +921,7 @@ public class IssuesService(
                     DisplayName = userInitials.DisplayName,
                     Initials = userInitials.Initials,
                 },
-                Changes = changes,
+                Changes = changes[x.Id],
                 EntityType = x.EntityType,
                 Action = x.Action,
             };
@@ -924,12 +930,65 @@ public class IssuesService(
         return result;
     }
     
-    private static IssueHistoryItemChange[] MapChanges(IEnumerable<OrganizationLogItem> items)
+    private async Task<Dictionary<long, IssueHistoryItemChange[]>> MapChanges(
+        Dictionary<long, OrganizationLogItem[]> changes,
+        CancellationToken cancellationToken)
     {
-        return items.Select(MapChange).ToArray();
+        var allChanges = changes
+            .SelectMany(x => x.Value)
+            .ToArray();
+        
+        var possibleStatusIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Status)
+            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
+        
+        var possibleAssigneeIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Assignee)
+            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .Distinct()
+            .Where(x => Guid.TryParse(x, out _))
+            .Select(Guid.Parse!);
+        
+        var possibleAttributeListValueIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Attribute)
+            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
+
+        var statusColors = await context.Statuses
+            .Where(s => possibleStatusIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        
+        var userColors = await context.Users
+            .Where(s => possibleAssigneeIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        
+        var attributeColors = (await context.AttributeListValues
+            .Where(s => possibleAttributeListValueIds.Contains(s.Id))
+            .Select(x => new { x.Id, x.Attribute!.Color })
+            .ToArrayAsyncEF(cancellationToken))
+            .ToDictionary(s => s.Id.ToString(), s => s.Color);
+
+        var result = changes
+            .Select(x => new
+            {
+                x.Key,
+                Changes = x.Value.Select(y => MapChange(y, statusColors, userColors, attributeColors))
+            })
+            .ToDictionary(x => x.Key, x => x.Changes.ToArray());
+
+        return result;
     }
 
-    private static IssueHistoryItemChange MapChange(OrganizationLogItem item)
+    private static IssueHistoryItemChange MapChange(
+        OrganizationLogItem item,
+        Dictionary<string, string> statusColors,
+        Dictionary<string, string> userColors,
+        Dictionary<string, string> attributeColors)
     {
         return item.PropertyType switch
         {
@@ -944,25 +1003,27 @@ public class IssuesService(
                 NewAssigneeDisplayName = item.NewDisplayValue,
                 NewAssigneeId = Guid.TryParse(item.NewValueData.ValueId, out var newAssigneeId) ? newAssigneeId : null,
                 OldAssigneeId = Guid.TryParse(item.OldValueData.ValueId, out var oldAssigneeId) ? oldAssigneeId : null,
-                OldAssigneeColor = item.OldValueData.Color,
-                NewAssigneeColor = item.NewValueData.Color,
+                OldAssigneeColor = item.OldValueData.ValueId is not null ? userColors[item.OldValueData.ValueId] : null,
+                NewAssigneeColor = item.NewValueData.ValueId is not null ? userColors[item.NewValueData.ValueId] : null,
             },
             PropertyType.Status => new IssueHistoryStatusChange
             {
                 NewStatusId = long.TryParse(item.NewValueData.ValueId, out var newStatusId) ? newStatusId : null,
                 OldStatusId = long.TryParse(item.OldValueData.ValueId, out var oldStatusId) ? oldStatusId : null,
                 NewStatusName = item.NewDisplayValue,
-                NewStatusColor = item.NewValueData.Color,
+                NewStatusColor = item.NewValueData.ValueId is not null ? statusColors[item.NewValueData.ValueId] : null,
                 OldStatusName = item.OldDisplayValue,
-                OldStatusColor = item.OldValueData.Color,
+                OldStatusColor = item.OldValueData.ValueId is not null ? statusColors[item.OldValueData.ValueId] : null,
             },
-            PropertyType.Property => new IssueHistoryPropertyChange
+            PropertyType.Attribute => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
                 NewValueId = long.TryParse(item.NewValueData.ValueId, out var newValueId) ? newValueId : null,
                 OldValueId = long.TryParse(item.OldValueData.ValueId, out var oldValueId) ? oldValueId : null,
                 NewValueName = item.NewDisplayValue,
+                NewValueColor = item.NewValueData.ValueId is not null ? attributeColors[item.NewValueData.ValueId] : null,
                 OldValueName = item.OldDisplayValue,
+                OldValueColor = item.OldValueData.ValueId is not null ? attributeColors[item.OldValueData.ValueId] : null,
             },
             PropertyType.Attachment => new IssueHistoryAttachmentChange
             {
@@ -1882,8 +1943,10 @@ public record IssueHistoryPropertyChange : IssueHistoryItemChange
 {
     public required string PropertyName { get; set; }
     public required string? OldValueName { get; set; }
+    public required string? OldValueColor { get; set; }
     public required long? OldValueId { get; set; }
     public required string? NewValueName { get; set; }
+    public required string? NewValueColor { get; set; }
     public required long? NewValueId { get; set; }
 }
 

@@ -58,7 +58,6 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(status.Name, statusChange.NewDisplayValue);
         Assert.Null(statusChange.PropertyName);
         Assert.Null(statusChange.OldValueData.ValueId);
-        Assert.NotNull(statusChange.NewValueData.Color);
         Assert.Equal(status.Id.ToString(), statusChange.NewValueData.ValueId);
         Assert.Null(statusChange.PropertyName);
         Assert.Equal(PropertyType.Status, statusChange.PropertyType);
@@ -73,7 +72,6 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.Null(assigneeChange.OldDisplayValue);
         Assert.Equal("user1", assigneeChange.NewDisplayValue);
-        Assert.Equal("#000000", assigneeChange.NewValueData.Color);
         Assert.Null(assigneeChange.PropertyName);
         Assert.Null(assigneeChange.OldValueData.ValueId);
         Assert.Equal(userId.ToString(), assigneeChange.NewValueData.ValueId);

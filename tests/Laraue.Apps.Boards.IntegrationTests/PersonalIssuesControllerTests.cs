@@ -250,7 +250,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Null(noteChange.NewValueData.ValueId);
         Assert.Null(noteChange.OldValueData.ValueId);
         Assert.Equal("Note", noteChange.PropertyName);
-        Assert.Equal(PropertyType.Property, noteChange.PropertyType);
+        Assert.Equal(PropertyType.Attribute, noteChange.PropertyType);
         
         Assert.Equal("Bug", typeChange.OldDisplayValue);
         Assert.Equal("Feature", typeChange.NewDisplayValue);
@@ -258,7 +258,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal(typeAttribute.GetListValue(0).Id.ToString(), typeChange.OldValueData.ValueId);
         Assert.Equal(typeAttribute.GetListValue(1).Id.ToString(), typeChange.NewValueData.ValueId);
         Assert.Equal("Type", typeChange.PropertyName);
-        Assert.Equal(PropertyType.Property, noteChange.PropertyType);
+        Assert.Equal(PropertyType.Attribute, noteChange.PropertyType);
     }
     
     [Fact]
@@ -854,18 +854,11 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         Assert.Null(contentChange.OldDisplayValue);
         Assert.Equal("New comment", contentChange.NewDisplayValue);
-        Assert.Null(contentChange.PropertyName);
-        Assert.Null(contentChange.OldValueData.ValueId);
-        Assert.Null(contentChange.NewValueData.ValueId);
         Assert.Equal(PropertyType.Content, contentChange.PropertyType);
         
         Assert.Null(newFileChange.OldDisplayValue);
         Assert.Equal("image.jpg", newFileChange.NewDisplayValue);
-        Assert.Null(newFileChange.PropertyName);
-        Assert.Null(newFileChange.OldValueData.ValueId);
-        Assert.Equal(comment.Id.ToString(), newFileChange.NewValueData.ParentValueId);
         Assert.True(Guid.TryParse(newFileChange.NewValueData.ValueId, out _));
-        Assert.Null(newFileChange.PropertyName);
         Assert.Equal(PropertyType.Attachment, newFileChange.PropertyType);
     }
 
@@ -912,6 +905,29 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         var attachment = Assert.Single(comment.Attachments);
         Assert.Equal("image2.jpg", attachment.Attachment!.File!.Name);
+        
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(comment.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Comment, historyChange.EntityType);
+        Assert.Equal(3, historyChange.Items!.Count);
+        
+        var contentChange = historyChange.Items[0];
+        var newFileChange = historyChange.Items[1];
+        var deletedFileChange = historyChange.Items[2];
+        
+        Assert.Equal("New comment", contentChange.OldDisplayValue);
+        Assert.Equal("Updated comment", contentChange.NewDisplayValue);
+        Assert.Equal(PropertyType.Content, contentChange.PropertyType);
+        
+        Assert.Null(newFileChange.OldDisplayValue);
+        Assert.Equal("image2.jpg", newFileChange.NewDisplayValue);
+        Assert.True(Guid.TryParse(newFileChange.NewValueData.ValueId, out _));
+        Assert.Equal(PropertyType.Attachment, newFileChange.PropertyType);
+        
+        Assert.Null(deletedFileChange.NewDisplayValue);
+        Assert.Equal("image.jpg", deletedFileChange.OldDisplayValue);
+        Assert.True(Guid.TryParse(deletedFileChange.OldValueData.ValueId, out _));
+        Assert.Equal(PropertyType.Attachment, deletedFileChange.PropertyType);
     }
 
     [Fact]

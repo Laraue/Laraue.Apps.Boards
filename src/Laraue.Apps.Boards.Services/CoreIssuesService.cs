@@ -51,8 +51,8 @@ public interface ICoreIssuesService
         long commentId,
         Guid ownerId,
         string comment,
-        IEnumerable<MediaInfo> newFiles,
-        IEnumerable<Guid> deleteAttachmentIds,
+        MediaInfo[] newFiles,
+        Guid[] deleteAttachmentIds,
         CancellationToken cancellationToken);
     
     Task DeleteComment(
@@ -160,29 +160,14 @@ public class CoreIssuesService(
             Action = LogAction.Create,
             Items =
             [
-                new OrganizationLogItem
-                {
-                    PropertyType = PropertyType.Status,
-                    NewDisplayValue = issueData.StatusName,
-                    NewValueData = new ValueData
-                    {
-                        ValueId = statusId.ToString(),
-                        Color = issueData.Color,
-                    },
-                }
+                GetStatusLogItem(oldStatus: null, newStatus: new IdName(statusId, issueData.StatusName)),
             ],
             OrganizationId = issueData.OrganizationId,
             OwnerId = ownerId,
         };
 
         if (!string.IsNullOrEmpty(text))
-        {
-            change.Items.Add(new OrganizationLogItem
-            {
-                NewDisplayValue = text,
-                PropertyType = PropertyType.Content,
-            });
-        }
+            change.Items.Add(GetContentLogItem(oldValue: null, newValue: text));
         
         var userData = await context.Users
             .Where(x => x.Id == assigneeId)
@@ -199,7 +184,6 @@ public class CoreIssuesService(
             NewValueData = new ValueData
             {
                 ValueId = assigneeId.ToString(),
-                Color = userData.Color,
             },
             PropertyType = PropertyType.Assignee,
         });
@@ -255,12 +239,7 @@ public class CoreIssuesService(
         if (oldContent != content)
         {
             settersBuilder += builder => builder.SetProperty(x => x.Content, content);
-            change.Items.Add(new OrganizationLogItem
-            {
-                NewDisplayValue = content,
-                OldDisplayValue = oldContent,
-                PropertyType = PropertyType.Content,
-            });
+            change.Items.Add(GetContentLogItem(oldContent, content));
         }
 
         var oldAssigneeId = issueData.AssigneeId;
@@ -286,12 +265,10 @@ public class CoreIssuesService(
                 NewValueData = new ValueData
                 {
                     ValueId = assigneeId.ToString(),
-                    Color = usersData[assigneeId].Color,
                 },
                 OldValueData = new ValueData
                 {
                     ValueId = issueData.AssigneeId.ToString(),
-                    Color = usersData[oldAssigneeId].Color,
                 },
                 PropertyType = PropertyType.Assignee,
             });
@@ -405,16 +382,14 @@ public class CoreIssuesService(
                     {
                         NewDisplayValue = listValueData.Value,
                         OldDisplayValue = oldAttribute.AttributeListValue,
-                        PropertyType = PropertyType.Property,
+                        PropertyType = PropertyType.Attribute,
                         OldValueData = new ValueData
                         {
                             ValueId = oldAttribute.AttributeListValueId.ToString(),
-                            Color = oldAttribute.Color,
                         },
                         NewValueData = new ValueData
                         {
                             ValueId = request.ListValueId.ToString(),
-                            Color = oldAttribute.Color,
                         },
                         PropertyName = attributeNameById[request.Id],
                     });
@@ -432,11 +407,10 @@ public class CoreIssuesService(
                     changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = listValueData.Value,
-                        PropertyType = PropertyType.Property,
+                        PropertyType = PropertyType.Attribute,
                         NewValueData =  new ValueData
                         {
                             ValueId = request.ListValueId.ToString(),
-                            Color = listValueData.Color,
                         },
                         PropertyName = attributeNameById[request.Id],
                     });
@@ -469,7 +443,7 @@ public class CoreIssuesService(
                 changes.Add(new OrganizationLogItem
                 {
                     OldDisplayValue = deletableValue.Value.AttributeListValueName,
-                    PropertyType = PropertyType.Property,
+                    PropertyType = PropertyType.Attribute,
                     OldValueData = new ValueData
                     {
                         ValueId = deletableValue.Value.AttributeListValueId.ToString(),
@@ -524,7 +498,7 @@ public class CoreIssuesService(
                     {
                         NewDisplayValue = request.Value,
                         OldDisplayValue = oldAttribute.Text,
-                        PropertyType = PropertyType.Property,
+                        PropertyType = PropertyType.Attribute,
                         PropertyName = attributeNameById[oldAttribute.AttributeId],
                     });
                 }
@@ -541,7 +515,7 @@ public class CoreIssuesService(
                     changes.Add(new OrganizationLogItem
                     {
                         NewDisplayValue = request.Value,
-                        PropertyType = PropertyType.Property,
+                        PropertyType = PropertyType.Attribute,
                         PropertyName = attributeNameById[request.Id],
                     });
                 }
@@ -566,7 +540,7 @@ public class CoreIssuesService(
             changes.Add(new OrganizationLogItem
             {
                 OldDisplayValue = deletable.Value.Text,
-                PropertyType = PropertyType.Property,
+                PropertyType = PropertyType.Attribute,
                 PropertyName = attributeNameById[deletable.Key],
             });
         }
@@ -668,16 +642,10 @@ public class CoreIssuesService(
 
         foreach (var attachment in attachments)
         {
-            logEntity.Items.Add(new OrganizationLogItem
-            {
-                NewValueData = new ValueData
-                {
-                    ParentValueId = issueComment.Id.ToString(),
-                    ValueId = attachment.Attachment!.FileId.ToString(),
-                },
-                NewDisplayValue = attachment.Attachment.File!.Name,
-                PropertyType = PropertyType.Attachment,
-            });
+            logEntity.Items.Add(
+                GetAttachmentAddedLogItem(
+                    attachment.Attachment!.FileId,
+                    attachment.Attachment.File!.Name));
         }
 
         context.OrganizationLogs.Add(logEntity);
@@ -690,17 +658,45 @@ public class CoreIssuesService(
         long commentId,
         Guid ownerId,
         string comment,
-        IEnumerable<MediaInfo> newFiles,
-        IEnumerable<Guid> deleteAttachmentIds,
+        MediaInfo[] newFiles,
+        Guid[] deleteAttachmentIds,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
         
-        await context.IssueComments
+        var commentData = await context.IssueComments
             .Where(x => x.Id == commentId)
-            .ExecuteUpdateAsync(u => u
-                .SetProperty(p => p.Text, _ => comment),
-                cancellationToken);
+            .Select(x => new
+            {
+                x.IssueId,
+                x.Issue!.Status!.Epic!.Space!.OrganizationId,
+                x.Text,
+            })
+            .FirstAsyncEF(cancellationToken);
+        
+        var logEntity = new OrganizationLog
+        {
+            CreatedAt = dateTimeProvider.UtcNow,
+            OrganizationId = commentData.OrganizationId,
+            EntityId = commentId,
+            EntityType = LogEntityType.Comment,
+            Action = LogAction.Update,
+            OwnerId = ownerId,
+            Items = [],
+        };
+
+        if (commentData.Text != comment)
+        {
+            await context.IssueComments
+                .Where(x => x.Id == commentId)
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(p => p.Text, _ => comment),
+                    cancellationToken);
+            
+            logEntity.Items.Add(GetContentLogItem(commentData.Text, comment));
+        }
+        
+        var commentAttachments = new List<IssueCommentAttachment>();
         
         foreach (var mediaInfo in newFiles)
         {
@@ -710,15 +706,54 @@ public class CoreIssuesService(
                 Attachment = GetAttachmentEntity(ownerId, mediaInfo),
             };
         
-            context.Add(attachment);
+            commentAttachments.Add(attachment);
         }
+
+        if (commentAttachments.Count > 0)
+        {
+            context.AddRange(commentAttachments);
+            await context.SaveChangesAsync(cancellationToken);
+
+            foreach (var commentAttachment in commentAttachments)
+            {
+                logEntity.Items.Add(
+                    GetAttachmentAddedLogItem(
+                        commentAttachment.Attachment!.FileId,
+                        commentAttachment.Attachment.File!.Name));
+            }
+        }
+
+        if (deleteAttachmentIds.Length != 0)
+        {
+            var deletableAttachments = await context.IssueCommentsAttachments
+                .Where(x => x.CommentId == commentId)
+                .Where(x => deleteAttachmentIds.Contains(x.AttachmentId))
+                .Select(x => new
+                {
+                    x.AttachmentId,
+                    x.Attachment!.FileId,
+                    x.Attachment.File!.Name,
+                })
+                .ToListAsyncEF(cancellationToken);
         
-        await context.SaveChangesAsync(cancellationToken);
-        await context.IssueCommentsAttachments
-            .Where(x => x.CommentId == commentId)
-            .Where(x => deleteAttachmentIds.Contains(x.AttachmentId))
-            .Select(x => x.Attachment)
-            .ExecuteDeleteAsync(cancellationToken);
+            await context.Attachments
+                .Where(x => deletableAttachments.Select(a => a.AttachmentId).Contains(x.Id))
+                .ExecuteDeleteAsync(cancellationToken);
+
+            foreach (var attachment in deletableAttachments)
+            {
+                logEntity.Items.Add(
+                    GetAttachmentDeletedLogItem(
+                        attachment.FileId,
+                        attachment.Name));
+            }
+        }
+
+        if (logEntity.Items.Count != 0)
+        {
+            context.Add(logEntity);
+            await context.SaveChangesAsync(cancellationToken);
+        }
     }
 
     public async Task DeleteComment(long id, CancellationToken cancellationToken)
@@ -810,22 +845,9 @@ public class CoreIssuesService(
                 OwnerId = updaterId,
                 Items =
                 [
-                    new OrganizationLogItem
-                    {
-                        PropertyType = PropertyType.Status,
-                        OldValueData = new ValueData
-                        {
-                            ValueId = issue.StatusId.ToString(),
-                            Color = issue.Color,
-                        },
-                        OldDisplayValue = issue.StatusName,
-                        NewValueData = new ValueData
-                        {
-                            ValueId = statusId.ToString(),
-                            Color = newSpaceData.Color,
-                        },
-                        NewDisplayValue = newSpaceData.StatusName,
-                    }
+                    GetStatusLogItem(
+                        new IdName(issue.StatusId, issue.StatusName),
+                        new IdName(statusId, newSpaceData.StatusName)),
                 ]
             });
         }
@@ -917,16 +939,64 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(cancellationToken);
 
         return mediaInfos
-            .Select(x => new OrganizationLogItem
-            {
-                PropertyType = PropertyType.Attachment,
-                NewValueData = new ValueData
-                {
-                    ValueId = x.OriginalFileId.ToString(),
-                },
-                NewDisplayValue = x.FileName,
-            })
+            .Select(x => GetAttachmentAddedLogItem(x.OriginalFileId, x.FileName))
             .ToArray();
+    }
+
+    private static OrganizationLogItem GetAttachmentAddedLogItem(Guid originalFileId, string? fileName)
+    {
+        return new OrganizationLogItem
+        {
+            PropertyType = PropertyType.Attachment,
+            NewValueData = new ValueData
+            {
+                ValueId = originalFileId.ToString(),
+            },
+            NewDisplayValue = fileName,
+        };
+    }
+
+    private static OrganizationLogItem GetAttachmentDeletedLogItem(Guid originalFileId, string? fileName)
+    {
+        return new OrganizationLogItem
+        {
+            PropertyType = PropertyType.Attachment,
+            OldValueData = new ValueData
+            {
+                ValueId = originalFileId.ToString(),
+            },
+            OldDisplayValue = fileName,
+        };
+    }
+
+    private static OrganizationLogItem GetStatusLogItem(IdName? oldStatus, IdName? newStatus)
+    {
+        var item = new OrganizationLogItem
+        {
+            PropertyType = PropertyType.Status,
+            NewDisplayValue = newStatus?.Name,
+            OldDisplayValue = oldStatus?.Name,
+        };
+        
+        if (oldStatus.HasValue)
+            item.OldValueData.ValueId = oldStatus.Value.Id.ToString();
+        
+        if (newStatus.HasValue)
+            item.NewValueData.ValueId = newStatus.Value.Id.ToString();
+        
+        return item;
+    }
+
+    private record struct IdName(long Id, string Name);
+    
+    private static OrganizationLogItem GetContentLogItem(string? oldValue, string? newValue)
+    {
+        return new OrganizationLogItem
+        {
+            NewDisplayValue = newValue,
+            OldDisplayValue = oldValue,
+            PropertyType = PropertyType.Content,
+        };
     }
 
     private async Task<OrganizationLogItem[]> DetachIssueAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
@@ -943,15 +1013,7 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
         
         return attachments
-            .Select(x => new OrganizationLogItem
-            {
-                OldDisplayValue = x.Name,
-                OldValueData = new ValueData
-                {
-                    ValueId = x.FileId.ToString(),
-                },
-                PropertyType = PropertyType.Attachment,
-            })
+            .Select(x => GetAttachmentDeletedLogItem(x.FileId, x.Name))
             .ToArray();
     }
 

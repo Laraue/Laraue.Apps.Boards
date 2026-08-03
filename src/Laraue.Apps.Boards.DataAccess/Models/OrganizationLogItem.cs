@@ -30,24 +30,13 @@ public record ValueData
     /// Value identifier (long or GUID identifier serialized as string).
     /// </summary>
     public string? ValueId { get; set; }
-    
-    /// <summary>
-    /// When the change related to the issue entity the field is filled.
-    /// For example, comment attachment update will store comment id here.
-    /// </summary>
-    public string? ParentValueId { get; set; }
-
-    /// <summary>
-    /// Used when needs to store information about value color.
-    /// </summary>
-    public string? Color { get; set; }
 }
 
 public enum PropertyType
 {
     Attachment,
     Content,
-    Property,
+    Attribute,
     Assignee,
     Status,
 }
