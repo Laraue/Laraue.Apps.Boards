@@ -652,10 +652,19 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             userId,
             o => o
                 .AddSpace(userId, s => s
-                    .AddEpic(userId, e => e.AddStatus()))
+                    .WithName("NEW SPACE")
+                    .AddEpic(userId, e => e
+                        .WithName("NEW EPIC")
+                        .AddStatus(b => b
+                            .WithName("NEW STATUS"))))
                 .AddIssueToDefaultStatus(userId));
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var defaultSpace = organization.GetSpace(0);
+        var defaultEpic = organization.GetEpic(0, 0);
+        var defaultStatus = organization.GetStatus(0, 0, 0);
+        var newSpace = organization.GetSpace(1);
+        var newEpic = organization.GetEpic(1, 1);
         var newStatus = organization.GetStatus(1, 1, 1);
 
         var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
@@ -665,6 +674,34 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal(newStatus.Id, issue.StatusId);
+        
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Update, historyChange.Action);
+        Assert.Equal(3, historyChange.Items!.Count);
+        
+        var spaceChange = historyChange.Items[0];
+        var epicChange = historyChange.Items[1];
+        var statusChange = historyChange.Items[2];
+        
+        Assert.Equal(defaultSpace.Name, spaceChange.OldDisplayValue);
+        Assert.Equal("NEW SPACE", spaceChange.NewDisplayValue);
+        Assert.Equal(defaultSpace.Id.ToString(), spaceChange.OldValueData.ValueId);
+        Assert.Equal(newSpace.Id.ToString(), spaceChange.NewValueData.ValueId);
+        Assert.Equal(PropertyType.Space, spaceChange.PropertyType);
+        
+        Assert.Equal(defaultEpic.Name, epicChange.OldDisplayValue);
+        Assert.Equal("NEW EPIC", epicChange.NewDisplayValue);
+        Assert.Equal(defaultEpic.Id.ToString(), epicChange.OldValueData.ValueId);
+        Assert.Equal(newEpic.Id.ToString(), epicChange.NewValueData.ValueId);
+        Assert.Equal(PropertyType.Epic, epicChange.PropertyType);
+        
+        Assert.Equal(defaultStatus.Name, statusChange.OldDisplayValue);
+        Assert.Equal("NEW STATUS", statusChange.NewDisplayValue);
+        Assert.Equal(defaultStatus.Id.ToString(), statusChange.OldValueData.ValueId);
+        Assert.Equal(newStatus.Id.ToString(), statusChange.NewValueData.ValueId);
+        Assert.Equal(PropertyType.Status, statusChange.PropertyType);
     }
 
     [Fact]

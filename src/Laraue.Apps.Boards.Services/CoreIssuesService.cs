@@ -868,6 +868,7 @@ public class CoreIssuesService(
                 CreatedAt = dateTimeProvider.UtcNow,
                 EntityId = issue.Id,
                 EntityType = LogEntityType.Issue,
+                Action = LogAction.Update,
                 OrganizationId = issue.OrganizationId,
                 OwnerId = updaterId,
                 Items = [],
