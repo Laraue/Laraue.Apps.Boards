@@ -1,8 +1,12 @@
-﻿using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -15,10 +19,16 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldCreateIssue_WhenIsOrganizationOwner()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser();
+        var userId = await testScope.CreateUser(x => 
+        {
+            x.TelegramUserName = "user1";
+            x.Color = "#000000";
+        });
         var organization = await testScope.InitializeOrganization(userId);
 
         var status = organization.GetStatus(0, 0, 0);
+        var space = organization.GetSpace(0);
+        var epic = organization.GetEpic(0, 0);
         
         var issueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -36,6 +46,43 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var issueNumber = await testScope.Database.IssueNumbers.FirstAsyncEF(e => e.IssueId == issue.Id);
         Assert.Equal(1, issueNumber.Number);
+        
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Create, historyChange.Action);
+        Assert.Equal(5, historyChange.Items!.Count);
+
+        var spaceChange = historyChange.Items[0];
+        var epicChange = historyChange.Items[1];
+        var statusChange = historyChange.Items[2];
+        var contentChange = historyChange.Items[3];
+        var assigneeChange = historyChange.Items[4];
+        
+        Assert.Null(spaceChange.OldDisplayValue);
+        Assert.Equal(space.Name, spaceChange.NewDisplayValue);
+        Assert.Equal(space.Id.ToString(), spaceChange.NewValueId);
+        Assert.Equal(PropertyType.Space, spaceChange.PropertyType);
+        
+        Assert.Null(epicChange.OldDisplayValue);
+        Assert.Equal(epic.Name, epicChange.NewDisplayValue);
+        Assert.Equal(epic.Id.ToString(), epicChange.NewValueId);
+        Assert.Equal(PropertyType.Epic, epicChange.PropertyType);
+        
+        Assert.Null(statusChange.OldDisplayValue);
+        Assert.Equal(status.Name, statusChange.NewDisplayValue);
+        Assert.Equal(status.Id.ToString(), statusChange.NewValueId);
+        Assert.Equal(PropertyType.Status, statusChange.PropertyType);
+        
+        Assert.Null(contentChange.OldDisplayValue);
+        Assert.Equal("New Issue", contentChange.NewDisplayValue);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Equal(PropertyType.Content, contentChange.PropertyType);
+        
+        Assert.Null(assigneeChange.OldDisplayValue);
+        Assert.Equal("user1", assigneeChange.NewDisplayValue);
+        Assert.Equal(userId.ToString(), assigneeChange.NewValueId);
+        Assert.Equal(PropertyType.Assignee, assigneeChange.PropertyType);
     }
     
     [Fact]
@@ -215,8 +262,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldUpdateIssue_WhenHasGlobalAccessToUpdateIssues()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser();
-        var participatorId = await testScope.CreateUser();
+        var userId = await testScope.CreateUser(u => u.TelegramUserName = "first_user");
+        var participatorId = await testScope.CreateUser(u => u.TelegramUserName = "second_user");
         var organization = await testScope.InitializeOrganization(
             userId,
             o => o
@@ -234,12 +281,35 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 {
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
-                    AssigneeId = userId,
+                    AssigneeId = participatorId,
                 }));
 
         var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.NotNull(issue);
         Assert.Equal("New", issue.Content);
+
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Update, historyChange.Action);
+        Assert.Equal(2, historyChange.Items!.Count);
+
+        var contentChange = historyChange.Items[0];
+        var assigneeChange = historyChange.Items[1];
+        
+        Assert.Equal("Hi", contentChange.OldDisplayValue);
+        Assert.Equal("New", contentChange.NewDisplayValue);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Null(contentChange.PropertyName);
+        Assert.Equal(PropertyType.Content, contentChange.PropertyType);
+        
+        Assert.Equal("first_user", assigneeChange.OldDisplayValue);
+        Assert.Equal("second_user", assigneeChange.NewDisplayValue);
+        Assert.Null(assigneeChange.PropertyName);
+        Assert.Equal(userId.ToString(), assigneeChange.OldValueId);
+        Assert.Equal(participatorId.ToString(), assigneeChange.NewValueId);
+        Assert.Null(assigneeChange.PropertyName);
+        Assert.Equal(PropertyType.Assignee, assigneeChange.PropertyType);
     }
     
     [Fact]
@@ -292,6 +362,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Null(issue);
+        
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(issueData.Issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Delete, historyChange.Action);
+        Assert.Empty(historyChange.Items!);
     }
     
     [Fact]
@@ -580,10 +656,19 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             userId,
             o => o
                 .AddSpace(userId, s => s
-                    .AddEpic(userId, e => e.AddStatus()))
+                    .WithName("NEW SPACE")
+                    .AddEpic(userId, e => e
+                        .WithName("NEW EPIC")
+                        .AddStatus(b => b
+                            .WithName("NEW STATUS"))))
                 .AddIssueToDefaultStatus(userId));
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var defaultSpace = organization.GetSpace(0);
+        var defaultEpic = organization.GetEpic(0, 0);
+        var defaultStatus = organization.GetStatus(0, 0, 0);
+        var newSpace = organization.GetSpace(1);
+        var newEpic = organization.GetEpic(1, 1);
         var newStatus = organization.GetStatus(1, 1, 1);
 
         var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
@@ -593,6 +678,34 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal(newStatus.Id, issue.StatusId);
+        
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(issue.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
+        Assert.Equal(LogAction.Update, historyChange.Action);
+        Assert.Equal(3, historyChange.Items!.Count);
+        
+        var spaceChange = historyChange.Items[0];
+        var epicChange = historyChange.Items[1];
+        var statusChange = historyChange.Items[2];
+        
+        Assert.Equal(defaultSpace.Name, spaceChange.OldDisplayValue);
+        Assert.Equal("NEW SPACE", spaceChange.NewDisplayValue);
+        Assert.Equal(defaultSpace.Id.ToString(), spaceChange.OldValueId);
+        Assert.Equal(newSpace.Id.ToString(), spaceChange.NewValueId);
+        Assert.Equal(PropertyType.Space, spaceChange.PropertyType);
+        
+        Assert.Equal(defaultEpic.Name, epicChange.OldDisplayValue);
+        Assert.Equal("NEW EPIC", epicChange.NewDisplayValue);
+        Assert.Equal(defaultEpic.Id.ToString(), epicChange.OldValueId);
+        Assert.Equal(newEpic.Id.ToString(), epicChange.NewValueId);
+        Assert.Equal(PropertyType.Epic, epicChange.PropertyType);
+        
+        Assert.Equal(defaultStatus.Name, statusChange.OldDisplayValue);
+        Assert.Equal("NEW STATUS", statusChange.NewDisplayValue);
+        Assert.Equal(defaultStatus.Id.ToString(), statusChange.OldValueId);
+        Assert.Equal(newStatus.Id.ToString(), statusChange.NewValueId);
+        Assert.Equal(PropertyType.Status, statusChange.PropertyType);
     }
 
     [Fact]
@@ -614,12 +727,21 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var newStatus = organization.GetStatus(1, 1, 1);
         
         var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = newStatus.Id };
-        await _issuesController
+        var keysMap = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.UpdateStatus(request));
 
-        var issue = await testScope.Database.Issues.FirstAsyncEF(x => x.Id == issueData.Issue.Id);
+        var issue = await testScope.Database.Issues
+            .Where(x => x.Id == issueData.Issue.Id)
+            .Select(x => new { x.StatusId, Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number) })
+            .FirstAsyncEF();
+        
         Assert.Equal(newStatus.Id, issue.StatusId);
+        
+        var pair = Assert.Single(keysMap!);
+        Assert.Equal(issueData.Key, pair.Key);
+        Assert.Equal(issue.Key.ToString(), pair.Value);
+        Assert.NotEqual(pair.Key, pair.Value);
     }
 
     [Fact]
@@ -724,5 +846,196 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var notFoundException = ex.HasInnerException<NotFoundException>();
         Assert.Equal("Status: 0 is not found", notFoundException.Message);
+    }
+    
+    [Fact]
+    public async Task User_ShouldSeeIssueComments_WhenIssueAvailable()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddUser(
+                    participatorId,
+                    permissions => permissions
+                        .SetGlobalAccessLevel(l => l.CanRead = true))
+                .AddIssueToDefaultStatus(userId, builder => builder
+                    .AddComment(userId, "Comment 1")
+                    .AddComment(participatorId, "Comment 2")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        var request = new GetIssueCommentsRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 8,
+            }
+        };
+        
+        var commentsData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.GetIssueComments(issueData.Key, request));
+
+        var data = commentsData!.Data;
+        Assert.Equal(2, data.Count);
+
+        var userComment = data[0];
+        var participatorComment = data[1];
+        
+        Assert.False(userComment.CanModify);
+        Assert.Equal("Comment 1", userComment.Text);
+        
+        Assert.True(participatorComment.CanModify);
+        Assert.Equal("Comment 2", participatorComment.Text);
+    }
+    
+    [Fact]
+    public async Task User_ShouldSeeIssueHistory_WhenIssueAvailable()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "user1";
+            x.Color = "#111111";
+        });
+        var participatorId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "user2";
+            x.Color = "#222222";
+        });
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddListAttribute("Type", ["Bug", "Feature"])
+                .AddListAttribute("Urgency", ["Low", "High"], "#333333")
+                .AddTextAttribute("Note")
+                .AddTextAttribute("Description", "#444444")
+                .AddIssueToDefaultStatus(participatorId, builder => builder
+                    .AddAttachment("old.jpg", AttachmentType.Image)
+                    .WithAttributeValue(0, 0) // Type = Bug
+                    .WithAttributeValue(1, 0) // Urgency = Low
+                    .WithAttributeValue(2, "Ask mr. John") // Note = Ask mr. John
+                    .WithAttributeValue(3, "50 cents debt") // Description = 50 cents debt
+                    .WithContent("Old")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var typeAttribute = organization.Attributes![0];
+        var urgencyAttribute = organization.Attributes![1];
+        var noteAttribute = organization.Attributes![2];
+        var descriptionAttribute = organization.Attributes![3];
+        
+        var updateIssueRequest = new UpdateIssueRequest
+        {
+            AssigneeId = userId,
+            Content = "New",
+            AttributeValues =
+            [
+                new EnumAttributeValue // Type = Bug, unchanged
+                {
+                    ValueId = typeAttribute.AttributeListValues![0].Id,
+                    AttributeId = typeAttribute.Id,
+                },
+                new EnumAttributeValue // Urgency = High, changed
+                {
+                    ValueId = urgencyAttribute.AttributeListValues![1].Id,
+                    AttributeId = urgencyAttribute.Id,
+                },
+                new StringAttributeValue // Note, unchanged
+                {
+                    AttributeId = noteAttribute.Id,
+                    Value = "Ask mr. John"
+                },
+                // Description deleted
+            ],
+            AddFiles =
+            [
+                FormFileUtility.GetFormFile("image.jpg"),
+            ],
+            RemoveAttachmentIds = [issueData.Issue.IssueAttachments![0].AttachmentId]
+        };
+        
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, updateIssueRequest));
+
+        var addCommentRequest = new AddCommentRequest
+        {
+            Text = "Comment 1",
+            IssueKey = issueData.Key,
+        };
+        
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.AddComment(addCommentRequest));
+
+        var request = new GetIssueHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 8,
+            }
+        };
+        
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(issueData.Key!, request));
+
+        Assert.Equal(2, historyData!.Data.Count);
+
+        var commentChanged = historyData.Data[0];
+        var issueChanged = historyData.Data[1];
+        
+        Assert.Equal(LogEntityType.Issue, issueChanged.EntityType);
+        Assert.Equal(LogAction.Update, issueChanged.Action);
+        Assert.Equal("user1", issueChanged.Owner.DisplayName);
+        
+        Assert.Equal(LogEntityType.Comment, commentChanged.EntityType);
+        Assert.Equal(LogAction.Create, commentChanged.Action);
+        Assert.Equal("user1", commentChanged.Owner.DisplayName);
+        
+        var issueChanges = issueChanged.Changes;
+        Assert.Equal(6, issueChanges.Length);
+        
+        var contentChange = Assert.IsType<IssueHistoryContentChange>(issueChanges[0]);
+        var assigneeChange = Assert.IsType<IssueHistoryAssigneeChange>(issueChanges[1]);
+        var attachmentAddChange = Assert.IsType<IssueHistoryAttachmentChange>(issueChanges[2]);
+        var attachmentDeleteChange = Assert.IsType<IssueHistoryAttachmentChange>(issueChanges[3]);
+        var descriptionAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(issueChanges[4]);
+        var urgencyAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(issueChanges[5]);
+        
+        Assert.Equal("Old", contentChange.OldContent);
+        Assert.Equal("New", contentChange.NewContent);
+        
+        Assert.Equal("user2", assigneeChange.OldAssigneeDisplayName);
+        Assert.Equal("user1", assigneeChange.NewAssigneeDisplayName);
+        Assert.Equal("#222222", assigneeChange.OldAssigneeColor);
+        Assert.Equal("#111111", assigneeChange.NewAssigneeColor);
+        
+        Assert.Equal("image.jpg", attachmentAddChange.FileName);
+        Assert.True(attachmentAddChange.FileId != Guid.Empty);
+        
+        Assert.Equal("old.jpg", attachmentDeleteChange.FileName);
+        Assert.Equal(issueData.Issue.IssueAttachments[0].Attachment!.FileId, attachmentDeleteChange.FileId);
+        
+        Assert.Equal("Description", descriptionAttributeChange.PropertyName);
+        Assert.Null(descriptionAttributeChange.NewValueName);
+        Assert.Null(descriptionAttributeChange.NewValueColor);
+        Assert.Equal("50 cents debt", descriptionAttributeChange.OldValueName);
+        Assert.Equal("#444444", descriptionAttributeChange.OldValueColor);
+        
+        Assert.Equal("Urgency", urgencyAttributeChange.PropertyName);
+        Assert.Equal("High", urgencyAttributeChange.NewValueName);
+        Assert.Equal("Low", urgencyAttributeChange.OldValueName);
+        Assert.Equal("#333333", urgencyAttributeChange.NewValueColor);
+        Assert.Equal("#333333", urgencyAttributeChange.OldValueColor);
+
+        var commentChange = Assert.IsType<IssueHistoryContentChange>(Assert.Single(commentChanged.Changes));
+        Assert.Null(commentChange.OldContent);
+        Assert.Equal("Comment 1", commentChange.NewContent);
     }
 }

@@ -197,7 +197,7 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     [HttpPost("status")]
-    public Task UpdateStatus(
+    public Task<Dictionary<string, string>> UpdateStatus(
         [FromBody] UpdateIssuesStatusRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -205,6 +205,36 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+    
+    [HttpPost("{key}/comments")]
+    public Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
+        string key,
+        [FromBody] GetIssueCommentsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.GetIssueComments(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                IssueKey = key,
+            },
+            cancellationToken);
+    }
+    
+    [HttpPost("{key}/history")]
+    public Task<ShortPaginatedResult<IssueHistoryItem>> GetIssueHistory(
+        string key,
+        [FromBody] GetIssueHistoryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.GetIssueHistory(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                IssueKey = key,
             },
             cancellationToken);
     }

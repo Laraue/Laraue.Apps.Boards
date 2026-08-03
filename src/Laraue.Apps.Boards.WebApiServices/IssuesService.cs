@@ -53,11 +53,6 @@ public interface IIssuesService
     Task<IssueDetailDto> GetIssue(
         GetIssueRequest request,
         CancellationToken cancellationToken);
-
-    Task<long> GetIssueIdByIssueKey(
-        long organizationId,
-        IssueKey issueKey,
-        CancellationToken cancellationToken);
     
     Task<long> AddIssueComment(
         AddCommentRequest request,
@@ -75,8 +70,16 @@ public interface IIssuesService
         ChangesIssuesOrderRequest request,
         CancellationToken ct);
 
-    Task UpdateIssuesStatus(
+    Task<Dictionary<string, string>> UpdateIssuesStatus(
         UpdateIssuesStatusRequest request,
+        CancellationToken ct);
+
+    Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
+        GetIssueCommentsRequest request,
+        CancellationToken ct);
+
+    Task<ShortPaginatedResult<IssueHistoryItem>> GetIssueHistory(
+        GetIssueHistoryRequest request,
         CancellationToken ct);
 }
 
@@ -311,7 +314,7 @@ public class IssuesService(
         if (!accessLevel.CanDeleteIssue)
             throw new ForbiddenException($"Issue: {request.IssueKey} delete is forbidden");
 
-        await issuesService.Delete(issueId, ct);
+        await issuesService.Delete(issueId, request.AuthData.UserId, ct);
     }
 
     public async Task<string> Create(CreateIssueRequest request, CancellationToken ct)
@@ -353,10 +356,9 @@ public class IssuesService(
             dateTimeProvider.UtcNow,
             request.StatusId,
             telegramMessageId: null,
+            attributeUpdateRequests,
             uploadedFiles,
             ct);
-        
-        await issuesService.UpdateAttributes(id, attributeUpdateRequests, ct);
         
         await transaction.CommitAsync(ct);
 
@@ -403,14 +405,13 @@ public class IssuesService(
         await issuesService.Update(
             issueId,
             request.AuthData.UserId,
-            upd => upd
-                .SetProperty(x => x.Content, request.Content)
-                .SetProperty(x => x.AssigneeId, request.AssigneeId),
+            request.Content,
+            request.AssigneeId,
+            attributeUpdateRequests,
             uploadedFiles,
             request.RemoveAttachmentIds,
             ct);
         
-        await issuesService.UpdateAttributes(issueId, attributeUpdateRequests, ct);
         await transaction.CommitAsync(ct);
     }
 
@@ -545,12 +546,12 @@ public class IssuesService(
             })
             .FirstAsyncEF(cancellationToken);
 
-        var owner = UserInitialsUtility.GetInitials(
+        var owner = new UserInitials(
             result.TelegramUsername,
             result.TelegramFirstName,
             result.TelegramLastName);
         
-        var assignee = UserInitialsUtility.GetInitials(
+        var assignee = new UserInitials(
             result.AssigneeTelegramUsername,
             result.AssigneeTelegramFirstName,
             result.AssigneeTelegramLastName);
@@ -573,57 +574,6 @@ public class IssuesService(
                 Color = x.Color,
             })
             .ToArrayAsyncEF(cancellationToken);
-
-        var commentsData = await context
-            .IssueComments
-            .Where(x => x.IssueId == issueId)
-            .Select(x => new
-            {
-                x.Text,
-                x.Id,
-                x.CreatedAt,
-                x.UpdatedAt,
-                x.Owner!.Color,
-                x.Owner.TelegramFirstName,
-                x.Owner.TelegramLastName,
-                x.Owner.TelegramUserName,
-                CanModify = x.OwnerId == request.AuthData.UserId,
-                Attachments = x.Attachments
-                    .Select(a => new AttachmentData
-                    {
-                        Id = a.AttachmentId,
-                        OriginalFileId = a.Attachment!.FileId,
-                        PreviewFileId = a.Attachment.PreviewFileId,
-                        Type = a.Attachment.Type,
-                    })
-                    .ToList(),
-            })
-            .ToListAsyncEF(cancellationToken);
-
-        var comments = new List<CommentDto>();
-        foreach (var commentData in commentsData)
-        {
-            var userInitials = UserInitialsUtility.GetInitials(
-                commentData.TelegramUserName,
-                commentData.TelegramFirstName,
-                commentData.TelegramLastName);
-            
-            comments.Add(new CommentDto
-            {
-                Id = commentData.Id,
-                Text = commentData.Text,
-                CreatedAt = commentData.CreatedAt,
-                UpdatedAt = commentData.UpdatedAt,
-                CanModify = commentData.CanModify,
-                Owner = new UserDetails
-                {
-                    Color = commentData.Color,
-                    DisplayName = userInitials.DisplayName,
-                    Initials = userInitials.Initials,
-                },
-                Attachments = commentData.Attachments,
-            });
-        }
 
         var attributeValuesResult = await GetIssueAttributeValues(issueId, cancellationToken);
         foreach (var attributeValue in attributeValues)
@@ -666,7 +616,6 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
-            Comments = comments,
         };
     }
 
@@ -681,11 +630,12 @@ public class IssuesService(
                 Type = x.Attachment!.Type,
                 OriginalFileId = x.Attachment.FileId,
                 PreviewFileId = x.Attachment.PreviewFileId,
+                FileName = x.Attachment.File!.Name,
             })
             .ToListAsyncEF(ct);
     }
 
-    public Task<long> GetIssueIdByIssueKey(
+    private Task<long> GetIssueIdByIssueKey(
         long organizationId,
         IssueKey issueKey,
         CancellationToken cancellationToken)
@@ -712,12 +662,18 @@ public class IssuesService(
         
         var uploadedFiles = await UploadFiles(request.Files, cancellationToken);
 
-        return await issuesService.AddComment(
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        
+        var commentId = await issuesService.AddComment(
             issueId,
             request.AuthData.UserId,
             request.Text,
             uploadedFiles,
             cancellationToken);
+        
+        await transaction.CommitAsync(cancellationToken);
+        
+        return commentId;
     }
 
     public async Task UpdateIssueComment(
@@ -769,7 +725,7 @@ public class IssuesService(
             throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to delete");
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await issuesService.DeleteComment(request.CommentId, cancellationToken);
+        await issuesService.DeleteComment(request.CommentId, request.AuthData.UserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -802,7 +758,7 @@ public class IssuesService(
         await transaction.CommitAsync(ct);
     }
 
-    public async Task UpdateIssuesStatus(UpdateIssuesStatusRequest request, CancellationToken ct)
+    public async Task<Dictionary<string, string>> UpdateIssuesStatus(UpdateIssuesStatusRequest request, CancellationToken ct)
     {
         // Check that can move Issues
         var issueIds = new List<long>();
@@ -827,11 +783,298 @@ public class IssuesService(
             throw new NotFoundException($"Status: {request.StatusId} is not found");
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        await issuesService.UpdateIssuesStatus(
+        var result = await issuesService.UpdateIssuesStatus(
             issueIds.ToArray(),
             request.StatusId,
+            request.AuthData.UserId,
             ct);
         await transaction.CommitAsync(ct);
+
+        return result;
+    }
+
+    public async Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
+        GetIssueCommentsRequest request,
+        CancellationToken ct)
+    {
+        var issueId = await GetIssueIdByIssueKey(
+            request.AuthData.OrganizationId,
+            new IssueKey(request.IssueKey),
+            ct);
+        
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+            request.AuthData,
+            issueId,
+            ct);
+
+        if (issueAccessLevels is null || !issueAccessLevels.CanRead)
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+
+        var commentsData = await context
+            .IssueComments
+            .Where(x => x.IssueId == issueId)
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Text,
+                x.Id,
+                x.CreatedAt,
+                x.UpdatedAt,
+                x.Owner!.Color,
+                x.Owner.TelegramFirstName,
+                x.Owner.TelegramLastName,
+                x.Owner.TelegramUserName,
+                CanModify = x.OwnerId == request.AuthData.UserId,
+                Attachments = x.Attachments
+                    .Select(a => new AttachmentData
+                    {
+                        Id = a.AttachmentId,
+                        OriginalFileId = a.Attachment!.FileId,
+                        PreviewFileId = a.Attachment.PreviewFileId,
+                        Type = a.Attachment.Type,
+                        FileName = a.Attachment.File!.Name,
+                    })
+                    .ToList(),
+            })
+            .ShortPaginateEFAsync(request.Pagination, ct);
+
+        var result = commentsData.MapTo(item =>
+        {
+            var userInitials = new UserInitials(
+                item.TelegramUserName,
+                item.TelegramFirstName,
+                item.TelegramLastName);
+
+            return new CommentDto
+            {
+                Id = item.Id,
+                Text = item.Text,
+                CreatedAt = item.CreatedAt,
+                UpdatedAt = item.UpdatedAt,
+                CanModify = item.CanModify,
+                Owner = new UserDetails
+                {
+                    Color = item.Color,
+                    DisplayName = userInitials.DisplayName,
+                    Initials = userInitials.Initials,
+                },
+                Attachments = item.Attachments,
+            };
+        });
+
+        return result;
+    }
+
+    public async Task<ShortPaginatedResult<IssueHistoryItem>> GetIssueHistory(
+        GetIssueHistoryRequest request,
+        CancellationToken ct)
+    {
+        var issueId = await GetIssueIdByIssueKey(
+            request.AuthData.OrganizationId,
+            new IssueKey(request.IssueKey),
+            ct);
+        
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
+            request.AuthData,
+            issueId,
+            ct);
+
+        if (issueAccessLevels is null || !issueAccessLevels.CanRead)
+            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+        
+        var updatesData = await context
+            .OrganizationLogs
+            .Where(x => 
+                (x.EntityType == LogEntityType.Comment && context.IssueComments.Any(y => y.IssueId == issueId))
+                || (x.EntityId == issueId && x.EntityType == LogEntityType.Issue))
+            .OrderByDescending(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                x.CreatedAt,
+                x.EntityType,
+                x.Action,
+                x.Owner!.Color,
+                x.Owner.TelegramFirstName,
+                x.Owner.TelegramLastName,
+                x.Owner.TelegramUserName,
+                Items = x.Items!
+                    .OrderBy(i => i.Id)
+                    .ToArray(),
+            })
+            .ShortPaginateEFAsync(request.Pagination, ct);
+        
+        
+        var changes = await MapHistoryChanges(
+            updatesData.Data.ToDictionary(
+                x => x.Id,
+                x => x.Items),
+            ct);
+
+        var result = updatesData.MapTo(x =>
+        {
+            var userInitials = new UserInitials(x.TelegramUserName, x.TelegramFirstName, x.TelegramLastName);
+
+            return new IssueHistoryItem
+            {
+                CreatedAt = x.CreatedAt,
+                Owner = new UserDetails
+                {
+                    Color = x.Color,
+                    DisplayName = userInitials.DisplayName,
+                    Initials = userInitials.Initials,
+                },
+                Changes = changes[x.Id],
+                EntityType = x.EntityType,
+                Action = x.Action,
+            };
+        });
+        
+        return result;
+    }
+    
+    private async Task<Dictionary<long, IssueHistoryItemChange[]>> MapHistoryChanges(
+        Dictionary<long, OrganizationLogItem[]> changes,
+        CancellationToken cancellationToken)
+    {
+        var allChanges = changes
+            .SelectMany(x => x.Value)
+            .ToArray();
+        
+        var possibleStatusIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Status)
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
+        
+        var possibleAssigneeIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Assignee)
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
+            .Distinct()
+            .Where(x => Guid.TryParse(x, out _))
+            .Select(Guid.Parse!);
+        
+        var possibleAttributeIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Attribute)
+            .Select(x => x.ParentId)
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
+        
+        var possibleEpicIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Epic)
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
+        
+        var possibleSpacesIds = allChanges
+            .Where(x => x.PropertyType == PropertyType.Space)
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
+            .Distinct()
+            .Where(x => long.TryParse(x, out _))
+            .Select(long.Parse!);
+
+        var statusColors = await context.Statuses
+            .Where(s => possibleStatusIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        
+        var userColors = await context.Users
+            .Where(s => possibleAssigneeIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        
+        var attributeColors = await context.Attributes
+            .Where(s => possibleAttributeIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        
+        var epicColors = await context.Epics
+            .Where(s => possibleEpicIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        
+        var spacesColors = await context.Spaces
+            .Where(s => possibleSpacesIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+
+        var result = changes
+            .Select(x => new
+            {
+                x.Key,
+                Changes = x.Value.Select(y => MapChange(
+                    y,
+                    statusColors,
+                    userColors,
+                    attributeColors,
+                    epicColors,
+                    spacesColors))
+            })
+            .ToDictionary(x => x.Key, x => x.Changes.ToArray());
+
+        return result;
+    }
+
+    private static IssueHistoryItemChange MapChange(
+        OrganizationLogItem item,
+        Dictionary<string, string> statusColors,
+        Dictionary<string, string> userColors,
+        Dictionary<string, string> attributeColors,
+        Dictionary<string, string> epicColors,
+        Dictionary<string, string> spacesColors)
+    {
+        return item.PropertyType switch
+        {
+            PropertyType.Content => new IssueHistoryContentChange
+            {
+                NewContent = item.NewDisplayValue,
+                OldContent = item.OldDisplayValue,
+            },
+            PropertyType.Assignee => new IssueHistoryAssigneeChange
+            {
+                OldAssigneeDisplayName = item.OldDisplayValue,
+                NewAssigneeDisplayName = item.NewDisplayValue,
+                OldAssigneeColor = item.OldValueId is not null ? userColors[item.OldValueId] : null,
+                NewAssigneeColor = item.NewValueId is not null ? userColors[item.NewValueId] : null,
+            },
+            PropertyType.Status => new IssueHistoryStatusChange
+            {
+                NewStatusName = item.NewDisplayValue,
+                NewStatusColor = item.NewValueId is not null ? statusColors[item.NewValueId] : null,
+                OldStatusName = item.OldDisplayValue,
+                OldStatusColor = item.OldValueId is not null ? statusColors[item.OldValueId] : null,
+            },
+            PropertyType.Attribute => new IssueHistoryPropertyChange
+            {
+                PropertyName = item.PropertyName ?? string.Empty,
+                NewValueName = item.NewDisplayValue,
+                NewValueColor = item.NewDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
+                OldValueName = item.OldDisplayValue,
+                OldValueColor = item.OldDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
+            },
+            PropertyType.Attachment => new IssueHistoryAttachmentChange
+            {
+                FileId = Guid.TryParse(item.NewValueId, out var addedFileId)
+                    ? addedFileId
+                    : Guid.TryParse(item.OldValueId, out var deletedFile)
+                        ? deletedFile
+                        : Guid.Empty,
+                FileName = item.NewDisplayValue ?? item.OldDisplayValue,
+            },
+            PropertyType.Epic => new IssueHistoryEpicChange
+            {
+                NewEpicName = item.NewDisplayValue,
+                NewEpicColor = item.NewValueId is not null ? epicColors[item.NewValueId] : null,
+                OldEpicName = item.OldDisplayValue,
+                OldEpicColor = item.OldValueId is not null ? epicColors[item.OldValueId] : null,
+            },
+            PropertyType.Space => new IssueHistorySpaceChange
+            {
+                NewSpaceName = item.NewDisplayValue,
+                NewSpaceColor = item.NewValueId is not null ? spacesColors[item.NewValueId] : null,
+                OldSpaceName = item.OldDisplayValue,
+                OldSpaceColor = item.OldValueId is not null ? spacesColors[item.OldValueId] : null,
+            },
+            _ => throw new InvalidOperationException($"Change of type {item.PropertyType} is not supported yet")
+        };
     }
 
     private async Task<long> GetIssueIdIfAccessible(
@@ -876,7 +1119,7 @@ public class IssuesService(
         return files.ToArray();
     }
 
-    private async Task<UpdateIssueAttributeRequest[]> GetAttributeUpdateRequests(
+    private async Task<SetIssueAttributeRequest[]> GetAttributeUpdateRequests(
         long organizationId,
         AttributeValue[] attributeValues,
         CancellationToken ct)
@@ -888,7 +1131,7 @@ public class IssuesService(
             .DistinctBy(x => x.AttributeId)
             .ToArray();
         
-        var requests = new List<UpdateIssueAttributeRequest>();
+        var requests = new List<SetIssueAttributeRequest>();
         var attributeValidationErrors = new List<string>();
         
         var attributes = await context.Attributes
@@ -913,10 +1156,10 @@ public class IssuesService(
                     }
                     
                     requests.Add(
-                        new UpdateIssueListAttributeRequest
+                        new SetIssueListAttributeRequest
                         {
                             Id = enumAttributeValue.AttributeId,
-                            Value = enumAttributeValue.ValueId
+                            ListValueId = enumAttributeValue.ValueId
                         });
                     break;
                 }
@@ -935,7 +1178,7 @@ public class IssuesService(
                     }
                     
                     requests.Add(
-                        new UpdateIssueTextAttributeRequest
+                        new SetIssueTextAttributeRequest
                         {
                             Id = stringAttributeValue.AttributeId,
                             Value = stringAttributeValue.Value,
@@ -1123,7 +1366,7 @@ public class IssuesService(
     
     private static IssueListDto Map(IssueListDtoData source)
     {
-        var assigneeData = UserInitialsUtility.GetInitials(
+        var assigneeData = new UserInitials(
             source.AssigneeTelegramUsername,
             source.AssigneeTelegramFirstName,
             source.AssigneeTelegramLastName);
@@ -1517,7 +1760,6 @@ public class IssueDetailDto
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
-    public required List<CommentDto> Comments { get; set; }
 }
 
 public record CommentDto
@@ -1675,4 +1917,91 @@ public record UpdateIssuesStatusRequest
     public OrganizationAuthData AuthData { get; set; }
     public required string[] IssueKeys { get; set; } = [];
     public required long StatusId { get; set; }
+}
+
+public record GetIssueCommentsRequest : IPaginatedRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+    public string IssueKey { get; set; } = string.Empty;
+    public required PaginationData Pagination { get; set; }
+}
+
+public record GetIssueHistoryRequest : IPaginatedRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+    public string IssueKey { get; set; } = string.Empty;
+    public required PaginationData Pagination { get; set; }
+}
+
+public record IssueHistoryItem
+{
+    public required DateTime CreatedAt { get; set; }
+    public required UserDetails Owner { get; set; }
+    public required IssueHistoryItemChange[] Changes { get; set; }
+    public required LogEntityType EntityType { get; set; }
+    public required LogAction Action { get; set; }
+}
+
+[JsonDerivedType(typeof(IssueHistoryContentChange), "content")]
+[JsonDerivedType(typeof(IssueHistoryAssigneeChange), "assignee")]
+[JsonDerivedType(typeof(IssueHistoryStatusChange), "status")]
+[JsonDerivedType(typeof(IssueHistoryPropertyChange), "property")]
+[JsonDerivedType(typeof(IssueHistoryAttachmentChange), "attachment")]
+[JsonDerivedType(typeof(IssueHistoryEpicChange), "epic")]
+[JsonDerivedType(typeof(IssueHistorySpaceChange), "space")]
+public abstract record IssueHistoryItemChange
+{
+}
+
+public record IssueHistoryContentChange : IssueHistoryItemChange
+{
+    public required string? OldContent { get; set; }
+    public required string? NewContent { get; set; }
+}
+
+public record IssueHistoryAssigneeChange : IssueHistoryItemChange
+{
+    public required string? OldAssigneeDisplayName { get; set; }
+    public required string? OldAssigneeColor { get; set; }
+    public required string? NewAssigneeDisplayName { get; set; }
+    public required string? NewAssigneeColor { get; set; }
+}
+
+public record IssueHistoryStatusChange : IssueHistoryItemChange
+{
+    public required string? OldStatusName { get; set; }
+    public required string? OldStatusColor { get; set; }
+    public required string? NewStatusName { get; set; }
+    public required string? NewStatusColor { get; set; }
+}
+
+public record IssueHistoryPropertyChange : IssueHistoryItemChange
+{
+    public required string PropertyName { get; set; }
+    public required string? OldValueName { get; set; }
+    public required string? OldValueColor { get; set; }
+    public required string? NewValueName { get; set; }
+    public required string? NewValueColor { get; set; }
+}
+
+public record IssueHistoryAttachmentChange : IssueHistoryItemChange
+{
+    public required string? FileName { get; set; }
+    public required Guid FileId { get; set; }
+}
+
+public record IssueHistoryEpicChange : IssueHistoryItemChange
+{
+    public required string? OldEpicName { get; set; }
+    public required string? OldEpicColor { get; set; }
+    public required string? NewEpicName { get; set; }
+    public required string? NewEpicColor { get; set; }
+}
+
+public record IssueHistorySpaceChange : IssueHistoryItemChange
+{
+    public required string? OldSpaceName { get; set; }
+    public required string? OldSpaceColor { get; set; }
+    public required string? NewSpaceName { get; set; }
+    public required string? NewSpaceColor { get; set; }
 }

@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -75,15 +76,17 @@ public class CoreMovementService(
                 .SetProperty(p => p.OrganizationId, newOrganizationId),
                 cancellationToken);
 
+        var affectedIssueIds = await context.Issues
+            .Where(x => x.Status!.Epic!.SpaceId == spaceId)
+            .Select(x => x.Id)
+            .ToArrayAsyncEF(cancellationToken);
+        
+        await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
+        
         if (lastIssueInNewOrganization.HasValue)
         {
-            var issueIds = await context.Issues
-                .Where(x => x.Status!.Epic!.SpaceId == spaceId)
-                .Select(x => x.Id)
-                .ToArrayAsyncEF(cancellationToken);
-            
             await issuesService.UpdateIssuesOrder(
-                issueIds,
+                affectedIssueIds,
                 lastIssueInNewOrganization.Value,
                 OrderTargetType.After,
                 cancellationToken);
@@ -128,15 +131,18 @@ public class CoreMovementService(
 
         await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, newSpaceId, cancellationToken);
         
+        var affectedIssueIds = await context.Issues
+            .Where(x => ((IEnumerable<long>)epicsIdsToUpdate).Contains(x.Status!.EpicId))
+            .Select(x => x.Id)
+            .ToArrayAsyncEF(cancellationToken);
+        
+        if (organizationWillChanged)
+            await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
+        
         if (lastIssueInNewOrganization.HasValue)
         {
-            var issueIds = await context.Issues
-                .Where(x => ((IEnumerable<long>)epicsIdsToUpdate).Contains(x.Status!.EpicId))
-                .Select(x => x.Id)
-                .ToArrayAsyncEF(cancellationToken);
-            
             await issuesService.UpdateIssuesOrder(
-                issueIds,
+                affectedIssueIds,
                 lastIssueInNewOrganization.Value,
                 OrderTargetType.After,
                 cancellationToken);
@@ -187,19 +193,45 @@ public class CoreMovementService(
 
         await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, newSpaceId, cancellationToken);
         
+        var affectedIssueIds = await context.Issues
+            .Where(x => x.Status!.EpicId == epicId)
+            .Select(x => x.Id)
+            .ToArrayAsyncEF(cancellationToken);
+
+        if (oldOrganizationId != newOrganizationId)
+            await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
+        
         if (lastIssueInNewOrganization.HasValue)
         {
-            var issueIds = await context.Issues
-                .Where(x => x.Status!.EpicId == epicId)
-                .Select(x => x.Id)
-                .ToArrayAsyncEF(cancellationToken);
-            
             await issuesService.UpdateIssuesOrder(
-                issueIds,
+                affectedIssueIds,
                 lastIssueInNewOrganization.Value,
                 OrderTargetType.After,
                 cancellationToken);
         }
+    }
+
+    private async Task MoveLogs(
+        long[] issueIds,
+        long newOrganizationId,
+        CancellationToken cancellationToken)
+    {
+        var affectedCommentIds = await context.IssueComments
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Select(x => x.Id)
+            .ToArrayAsyncEF(cancellationToken);
+
+        await context.OrganizationLogs
+            .Where(x => issueIds.Cast<long?>().Contains(x.EntityId) && x.EntityType == LogEntityType.Issue)
+            .ExecuteUpdateAsync(x => x
+                    .SetProperty(p => p.OrganizationId, newOrganizationId),
+                cancellationToken);
+        
+        await context.OrganizationLogs
+            .Where(x => affectedCommentIds.Cast<long?>().Contains(x.EntityId) && x.EntityType == LogEntityType.Comment)
+            .ExecuteUpdateAsync(x => x
+                    .SetProperty(p => p.OrganizationId, newOrganizationId),
+                cancellationToken);
     }
 
     private async Task<long?> GetLastOrganizationIssue(long organizationId, CancellationToken cancellationToken)

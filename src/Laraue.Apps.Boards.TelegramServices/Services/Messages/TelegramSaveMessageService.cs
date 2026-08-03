@@ -60,6 +60,7 @@ public class TelegramSaveMessageService(
             PreviewFileId = previewFileId,
             OriginalFileId = fileId,
             Type = AttachmentType.Video,
+            FileName = request.Video.FileName,
         };
         
         return await SaveMessageEntity(request, mediaInfo, cancellationToken);
@@ -109,6 +110,7 @@ public class TelegramSaveMessageService(
             PreviewFileId = thumbnailPhotoFileId,
             OriginalFileId = originalPhotoFileId,
             Type = AttachmentType.Image,
+            FileName = originalPhoto.FileName,
         };
         
         return await SaveMessageEntity(request, mediaInfo, cancellationToken);
@@ -187,6 +189,7 @@ public class TelegramSaveMessageService(
                 request.SentAt,
                 statusId,
                 savedMessage.Id,
+                attributes: [],
                 newFiles: [],
                 cancellationToken);
 
@@ -279,6 +282,7 @@ public class TelegramSaveMessageService(
                 request.SentAt,
                 statusId,
                 messageId,
+                attributes: [],
                 newFiles: [],
                 cancellationToken);
             

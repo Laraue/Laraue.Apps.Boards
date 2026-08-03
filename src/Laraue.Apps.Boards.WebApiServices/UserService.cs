@@ -52,7 +52,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
             })
             .FirstOrThrowNotFoundEFAsync("User is not found", cancellationToken);
 
-        var initials = UserInitialsUtility.GetInitials(
+        var initials = new UserInitials(
             user.Username,
             user.FirstName,
             user.LastName);

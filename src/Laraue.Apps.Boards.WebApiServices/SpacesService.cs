@@ -170,7 +170,7 @@ public class SpacesService(
         
         foreach (var member in members)
         {
-            var initials = UserInitialsUtility.GetInitials(
+            var initials = new UserInitials(
                 member.TelegramUserName,
                 member.TelegramFirstName,
                 member.TelegramLastName);

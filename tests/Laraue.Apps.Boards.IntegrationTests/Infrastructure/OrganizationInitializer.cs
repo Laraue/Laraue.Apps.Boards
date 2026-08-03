@@ -61,16 +61,16 @@ public class OrganizationInitializer(
         return this;
     }
 
-    public OrganizationInitializer AddTextAttribute(string name)
+    public OrganizationInitializer AddTextAttribute(string name, string color = "#000000")
     {
-        _attributes.Add(new TextTestAttribute(name));
+        _attributes.Add(new TextTestAttribute(name, color));
 
         return this;
     }
 
-    public OrganizationInitializer AddListAttribute(string name, string[] possibleValues)
+    public OrganizationInitializer AddListAttribute(string name, string[] possibleValues, string color = "#000000")
     {
-        _attributes.Add(new ListTestAttribute(name, possibleValues));
+        _attributes.Add(new ListTestAttribute(name, possibleValues, color));
 
         return this;
     }
@@ -93,7 +93,7 @@ public class OrganizationInitializer(
             organization.Attributes!.Add(new Attribute
             {
                 AttributeType = attribute.AttributeType,
-                Color = "#ffffff",
+                Color = attribute.Color,
                 Name = attribute.Name,
                 AttributeListValues = attribute is ListTestAttribute listTestAttribute
                     ? listTestAttribute.PossibleValues
@@ -451,9 +451,9 @@ public class OrganizationInitializer(
         }
     }
 
-    public abstract record TestAttribute(AttributeType AttributeType, string Name);
-    public record TextTestAttribute(string Name) : TestAttribute(AttributeType.Text, Name);
-    public record ListTestAttribute(string Name, string[] PossibleValues) : TestAttribute(AttributeType.List, Name);
+    public abstract record TestAttribute(AttributeType AttributeType, string Name, string Color);
+    public record TextTestAttribute(string Name, string Color) : TestAttribute(AttributeType.Text, Name, Color);
+    public record ListTestAttribute(string Name, string[] PossibleValues, string Color) : TestAttribute(AttributeType.List, Name, Color);
     
     public class EpicBuilder(Guid creatorId, DateTime timestamp)
     {
@@ -591,7 +591,7 @@ public class OrganizationInitializer(
             return this;
         }
         
-        public IssueBuilder AddComment(Guid ownerId, string comment, Action<IssueCommentBuilder>? setupComment)
+        public IssueBuilder AddComment(Guid ownerId, string comment, Action<IssueCommentBuilder>? setupComment = null)
         {
             var entity = new IssueCommentBuilder(ownerId, comment);
             
