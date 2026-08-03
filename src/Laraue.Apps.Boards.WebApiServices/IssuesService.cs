@@ -726,7 +726,7 @@ public class IssuesService(
             throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to delete");
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await issuesService.DeleteComment(request.CommentId, cancellationToken);
+        await issuesService.DeleteComment(request.CommentId, request.AuthData.UserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

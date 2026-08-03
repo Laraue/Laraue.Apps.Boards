@@ -957,6 +957,12 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         var attachments = await testScope.Database.Attachments.ToListAsyncEF();
         Assert.Empty(attachments);
+        
+        
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(comment.Id, historyChange.EntityId);
+        Assert.Equal(LogEntityType.Comment, historyChange.EntityType);
+        Assert.Empty(historyChange.Items!);
     }
     
     [Fact]

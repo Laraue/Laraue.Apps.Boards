@@ -57,6 +57,7 @@ public interface ICoreIssuesService
     
     Task DeleteComment(
         long id,
+        Guid deleterId,
         CancellationToken cancellationToken);
 
     Task UpdateIssuesOrder(
@@ -160,7 +161,7 @@ public class CoreIssuesService(
             Action = LogAction.Create,
             Items =
             [
-                GetStatusLogItem(oldStatus: null, newStatus: new IdName(statusId, issueData.StatusName)),
+                GetStatusLogItem(old: null, @new: new IdName<long>(statusId, issueData.StatusName)),
             ],
             OrganizationId = issueData.OrganizationId,
             OwnerId = ownerId,
@@ -178,15 +179,8 @@ public class CoreIssuesService(
             })
             .FirstAsyncEF(cancellationToken);
         
-        change.Items.Add(new OrganizationLogItem
-        {
-            NewDisplayValue = userData.Initials.DisplayName,
-            NewValueData = new ValueData
-            {
-                ValueId = assigneeId.ToString(),
-            },
-            PropertyType = PropertyType.Assignee,
-        });
+        change.Items.Add(
+            GetAssigneeLogItem(old: null, new IdName<Guid>(assigneeId.Value, userData.Initials.DisplayName)));
         
         change.Items.AddRange(await UpdateAttributes(issue.Id, issueData.OrganizationId, attributes, cancellationToken));
         change.Items.AddRange(await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken));
@@ -632,11 +626,7 @@ public class CoreIssuesService(
             OwnerId = ownerId,
             Items =
             [
-                new OrganizationLogItem
-                {
-                    PropertyType = PropertyType.Content,
-                    NewDisplayValue = comment,
-                }
+                GetContentLogItem(oldValue: null, newValue: comment),
             ]
         };
 
@@ -756,9 +746,19 @@ public class CoreIssuesService(
         }
     }
 
-    public async Task DeleteComment(long id, CancellationToken cancellationToken)
+    public async Task DeleteComment(long id, Guid deleterId, CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+        
+        var commentData = await context.IssueComments
+            .Where(x => x.Id == id)
+            .Select(x => new
+            {
+                x.IssueId,
+                x.Issue!.Status!.Epic!.Space!.OrganizationId,
+                x.Text,
+            })
+            .FirstAsyncEF(cancellationToken);
 
         await context.IssueCommentsAttachments
             .Where(x => x.CommentId == id)
@@ -768,6 +768,20 @@ public class CoreIssuesService(
         await context.IssueComments
             .Where(x => x.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
+        
+        var logEntity = new OrganizationLog
+        {
+            CreatedAt = dateTimeProvider.UtcNow,
+            OrganizationId = commentData.OrganizationId,
+            EntityId = id,
+            EntityType = LogEntityType.Comment,
+            Action = LogAction.Delete,
+            OwnerId = deleterId,
+            Items = [],
+        };
+        
+        context.Add(logEntity);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task UpdateIssuesOrder(
@@ -846,8 +860,8 @@ public class CoreIssuesService(
                 Items =
                 [
                     GetStatusLogItem(
-                        new IdName(issue.StatusId, issue.StatusName),
-                        new IdName(statusId, newSpaceData.StatusName)),
+                        new IdName<long>(issue.StatusId, issue.StatusName),
+                        new IdName<long>(statusId, newSpaceData.StatusName)),
                 ]
             });
         }
@@ -969,25 +983,38 @@ public class CoreIssuesService(
         };
     }
 
-    private static OrganizationLogItem GetStatusLogItem(IdName? oldStatus, IdName? newStatus)
+    private static OrganizationLogItem GetStatusLogItem(IdName<long>? old, IdName<long>? @new)
+    {
+        return GetLogItem(PropertyType.Status, old, @new);
+    }
+
+    private static OrganizationLogItem GetAssigneeLogItem(IdName<Guid>? old, IdName<Guid>? @new)
+    {
+        return GetLogItem(PropertyType.Assignee, old, @new);
+    }
+    
+    private static OrganizationLogItem GetLogItem<T>(
+        PropertyType propertyType,
+        IdName<T>? oldValue,
+        IdName<T>? newValue) where T : struct
     {
         var item = new OrganizationLogItem
         {
-            PropertyType = PropertyType.Status,
-            NewDisplayValue = newStatus?.Name,
-            OldDisplayValue = oldStatus?.Name,
+            PropertyType = propertyType,
+            NewDisplayValue = newValue?.Name,
+            OldDisplayValue = oldValue?.Name,
         };
         
-        if (oldStatus.HasValue)
-            item.OldValueData.ValueId = oldStatus.Value.Id.ToString();
+        if (oldValue.HasValue)
+            item.OldValueData.ValueId = oldValue.Value.Id.ToString();
         
-        if (newStatus.HasValue)
-            item.NewValueData.ValueId = newStatus.Value.Id.ToString();
+        if (newValue.HasValue)
+            item.NewValueData.ValueId = newValue.Value.Id.ToString();
         
         return item;
     }
 
-    private record struct IdName(long Id, string Name);
+    private record struct IdName<T>(T Id, string Name) where T : struct;
     
     private static OrganizationLogItem GetContentLogItem(string? oldValue, string? newValue)
     {
