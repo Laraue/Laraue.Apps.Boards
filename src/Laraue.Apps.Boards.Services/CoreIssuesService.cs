@@ -107,6 +107,8 @@ public class CoreIssuesService(
                 x.EpicId,
                 StatusName = x.Name,
                 x.Color,
+                SpaceName = x.Epic.Space.Name,
+                EpicName = x.Epic.Name,
             })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
         
@@ -161,6 +163,8 @@ public class CoreIssuesService(
             Action = LogAction.Create,
             Items =
             [
+                GetSpaceLogItem(old: null, @new: new IdName<long>(issueData.SpaceId, issueData.SpaceName)),
+                GetEpicLogItem(old: null, @new: new IdName<long>(issueData.EpicId, issueData.EpicName)),
                 GetStatusLogItem(old: null, @new: new IdName<long>(statusId, issueData.StatusName)),
             ],
             OrganizationId = issueData.OrganizationId,
@@ -256,14 +260,8 @@ public class CoreIssuesService(
             {
                 NewDisplayValue = usersData[assigneeId].Initials.DisplayName,
                 OldDisplayValue = usersData[oldAssigneeId].Initials.DisplayName,
-                NewValueData = new ValueData
-                {
-                    ValueId = assigneeId.ToString(),
-                },
-                OldValueData = new ValueData
-                {
-                    ValueId = issueData.AssigneeId.ToString(),
-                },
+                NewValueId = assigneeId.ToString(),
+                OldValueId = issueData.AssigneeId.ToString(),
                 PropertyType = PropertyType.Assignee,
             });
         }
@@ -377,15 +375,10 @@ public class CoreIssuesService(
                         NewDisplayValue = listValueData.Value,
                         OldDisplayValue = oldAttribute.AttributeListValue,
                         PropertyType = PropertyType.Attribute,
-                        OldValueData = new ValueData
-                        {
-                            ValueId = oldAttribute.AttributeListValueId.ToString(),
-                        },
-                        NewValueData = new ValueData
-                        {
-                            ValueId = request.ListValueId.ToString(),
-                        },
+                        OldValueId = oldAttribute.AttributeListValueId.ToString(),
+                        NewValueId = request.ListValueId.ToString(),
                         PropertyName = attributeNameById[request.Id],
+                        ParentId = request.Id.ToString(),
                     });
                 }
                 // Insert new
@@ -402,11 +395,9 @@ public class CoreIssuesService(
                     {
                         NewDisplayValue = listValueData.Value,
                         PropertyType = PropertyType.Attribute,
-                        NewValueData =  new ValueData
-                        {
-                            ValueId = request.ListValueId.ToString(),
-                        },
+                        NewValueId = request.ListValueId.ToString(),
                         PropertyName = attributeNameById[request.Id],
+                        ParentId = request.Id.ToString(),
                     });
                 }
             }
@@ -427,6 +418,7 @@ public class CoreIssuesService(
                 .Select(x => new
                 {
                     x.Id,
+                    x.AttributeId,
                     AttributeListValueName = x.AttributeListValue!.Value,
                     x.AttributeListValueId,
                 })
@@ -438,11 +430,9 @@ public class CoreIssuesService(
                 {
                     OldDisplayValue = deletableValue.Value.AttributeListValueName,
                     PropertyType = PropertyType.Attribute,
-                    OldValueData = new ValueData
-                    {
-                        ValueId = deletableValue.Value.AttributeListValueId.ToString(),
-                    },
+                    OldValueId = deletableValue.Value.AttributeListValueId.ToString(),
                     PropertyName = attributeNameById[deletableValue.Key],
+                    ParentId = deletableValue.Value.AttributeId.ToString(),
                 });
             }
 
@@ -494,6 +484,7 @@ public class CoreIssuesService(
                         OldDisplayValue = oldAttribute.Text,
                         PropertyType = PropertyType.Attribute,
                         PropertyName = attributeNameById[oldAttribute.AttributeId],
+                        ParentId = request.Id.ToString(),
                     });
                 }
                 // Insert new
@@ -511,6 +502,7 @@ public class CoreIssuesService(
                         NewDisplayValue = request.Value,
                         PropertyType = PropertyType.Attribute,
                         PropertyName = attributeNameById[request.Id],
+                        ParentId = request.Id.ToString(),
                     });
                 }
             }
@@ -536,6 +528,7 @@ public class CoreIssuesService(
                 OldDisplayValue = deletable.Value.Text,
                 PropertyType = PropertyType.Attribute,
                 PropertyName = attributeNameById[deletable.Key],
+                ParentId = deletable.Value.AttributeId.ToString(),
             });
         }
         
@@ -994,10 +987,7 @@ public class CoreIssuesService(
         return new OrganizationLogItem
         {
             PropertyType = PropertyType.Attachment,
-            NewValueData = new ValueData
-            {
-                ValueId = originalFileId.ToString(),
-            },
+            NewValueId = originalFileId.ToString(),
             NewDisplayValue = fileName,
         };
     }
@@ -1007,10 +997,7 @@ public class CoreIssuesService(
         return new OrganizationLogItem
         {
             PropertyType = PropertyType.Attachment,
-            OldValueData = new ValueData
-            {
-                ValueId = originalFileId.ToString(),
-            },
+            OldValueId = originalFileId.ToString(),
             OldDisplayValue = fileName,
         };
     }
@@ -1048,10 +1035,10 @@ public class CoreIssuesService(
         };
         
         if (oldValue.HasValue)
-            item.OldValueData.ValueId = oldValue.Value.Id.ToString();
+            item.OldValueId = oldValue.Value.Id.ToString();
         
         if (newValue.HasValue)
-            item.NewValueData.ValueId = newValue.Value.Id.ToString();
+            item.NewValueId = newValue.Value.Id.ToString();
         
         return item;
     }

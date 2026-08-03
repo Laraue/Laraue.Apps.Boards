@@ -223,16 +223,16 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("Hi", contentChange.OldDisplayValue);
         Assert.Equal("New", contentChange.NewDisplayValue);
         Assert.Null(contentChange.PropertyName);
-        Assert.Null(contentChange.OldValueData.ValueId);
-        Assert.Null(contentChange.NewValueData.ValueId);
+        Assert.Null(contentChange.OldValueId);
+        Assert.Null(contentChange.NewValueId);
         Assert.Null(contentChange.PropertyName);
         Assert.Equal(PropertyType.Content, contentChange.PropertyType);
         
         Assert.Null(newFileChange.OldDisplayValue);
         Assert.Equal("image.jpg", newFileChange.NewDisplayValue);
         Assert.Null(newFileChange.PropertyName);
-        Assert.Null(newFileChange.OldValueData.ValueId);
-        Assert.Equal(attachment.FileId.ToString(), newFileChange.NewValueData.ValueId);
+        Assert.Null(newFileChange.OldValueId);
+        Assert.Equal(attachment.FileId.ToString(), newFileChange.NewValueId);
         Assert.Null(newFileChange.PropertyName);
         Assert.Equal(PropertyType.Attachment, newFileChange.PropertyType);
         
@@ -240,23 +240,23 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Null(deleteFileChange.NewDisplayValue);
         Assert.Null(deleteFileChange.PropertyName);
         var oldFileId = issueData.Issue.IssueAttachments.Single().Attachment!.File!.Id.ToString();
-        Assert.Equal(oldFileId, deleteFileChange.OldValueData.ValueId);
-        Assert.Null(deleteFileChange.NewValueData.ValueId);
+        Assert.Equal(oldFileId, deleteFileChange.OldValueId);
+        Assert.Null(deleteFileChange.NewValueId);
         Assert.Null(deleteFileChange.PropertyName);
         Assert.Equal(PropertyType.Attachment, deleteFileChange.PropertyType);
         
         Assert.Equal("Old Note", noteChange.OldDisplayValue);
         Assert.Equal("My note", noteChange.NewDisplayValue);
-        Assert.Null(noteChange.NewValueData.ValueId);
-        Assert.Null(noteChange.OldValueData.ValueId);
+        Assert.Null(noteChange.NewValueId);
+        Assert.Null(noteChange.OldValueId);
         Assert.Equal("Note", noteChange.PropertyName);
         Assert.Equal(PropertyType.Attribute, noteChange.PropertyType);
         
         Assert.Equal("Bug", typeChange.OldDisplayValue);
         Assert.Equal("Feature", typeChange.NewDisplayValue);
         Assert.Equal("Type", typeChange.PropertyName);
-        Assert.Equal(typeAttribute.GetListValue(0).Id.ToString(), typeChange.OldValueData.ValueId);
-        Assert.Equal(typeAttribute.GetListValue(1).Id.ToString(), typeChange.NewValueData.ValueId);
+        Assert.Equal(typeAttribute.GetListValue(0).Id.ToString(), typeChange.OldValueId);
+        Assert.Equal(typeAttribute.GetListValue(1).Id.ToString(), typeChange.NewValueId);
         Assert.Equal("Type", typeChange.PropertyName);
         Assert.Equal(PropertyType.Attribute, noteChange.PropertyType);
     }
@@ -858,7 +858,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         Assert.Null(newFileChange.OldDisplayValue);
         Assert.Equal("image.jpg", newFileChange.NewDisplayValue);
-        Assert.True(Guid.TryParse(newFileChange.NewValueData.ValueId, out _));
+        Assert.True(Guid.TryParse(newFileChange.NewValueId, out _));
         Assert.Equal(PropertyType.Attachment, newFileChange.PropertyType);
     }
 
@@ -921,12 +921,12 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         
         Assert.Null(newFileChange.OldDisplayValue);
         Assert.Equal("image2.jpg", newFileChange.NewDisplayValue);
-        Assert.True(Guid.TryParse(newFileChange.NewValueData.ValueId, out _));
+        Assert.True(Guid.TryParse(newFileChange.NewValueId, out _));
         Assert.Equal(PropertyType.Attachment, newFileChange.PropertyType);
         
         Assert.Null(deletedFileChange.NewDisplayValue);
         Assert.Equal("image.jpg", deletedFileChange.OldDisplayValue);
-        Assert.True(Guid.TryParse(deletedFileChange.OldValueData.ValueId, out _));
+        Assert.True(Guid.TryParse(deletedFileChange.OldValueId, out _));
         Assert.Equal(PropertyType.Attachment, deletedFileChange.PropertyType);
     }
 

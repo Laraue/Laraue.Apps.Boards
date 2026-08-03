@@ -26,6 +26,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var organization = await testScope.InitializeOrganization(userId);
 
         var status = organization.GetStatus(0, 0, 0);
+        var space = organization.GetSpace(0);
+        var epic = organization.GetEpic(0, 0);
         
         var issueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -48,34 +50,37 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(issue.Id, historyChange.EntityId);
         Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
         Assert.Equal(LogAction.Create, historyChange.Action);
-        Assert.Equal(3, historyChange.Items!.Count);
+        Assert.Equal(5, historyChange.Items!.Count);
 
-        var statusChange = historyChange.Items[0];
-        var contentChange = historyChange.Items[1];
-        var assigneeChange = historyChange.Items[2];
+        var spaceChange = historyChange.Items[0];
+        var epicChange = historyChange.Items[1];
+        var statusChange = historyChange.Items[2];
+        var contentChange = historyChange.Items[3];
+        var assigneeChange = historyChange.Items[4];
+        
+        Assert.Null(spaceChange.OldDisplayValue);
+        Assert.Equal(space.Name, spaceChange.NewDisplayValue);
+        Assert.Equal(space.Id.ToString(), spaceChange.NewValueId);
+        Assert.Equal(PropertyType.Space, spaceChange.PropertyType);
+        
+        Assert.Null(epicChange.OldDisplayValue);
+        Assert.Equal(epic.Name, epicChange.NewDisplayValue);
+        Assert.Equal(epic.Id.ToString(), epicChange.NewValueId);
+        Assert.Equal(PropertyType.Epic, epicChange.PropertyType);
         
         Assert.Null(statusChange.OldDisplayValue);
         Assert.Equal(status.Name, statusChange.NewDisplayValue);
-        Assert.Null(statusChange.PropertyName);
-        Assert.Null(statusChange.OldValueData.ValueId);
-        Assert.Equal(status.Id.ToString(), statusChange.NewValueData.ValueId);
-        Assert.Null(statusChange.PropertyName);
+        Assert.Equal(status.Id.ToString(), statusChange.NewValueId);
         Assert.Equal(PropertyType.Status, statusChange.PropertyType);
         
         Assert.Null(contentChange.OldDisplayValue);
         Assert.Equal("New Issue", contentChange.NewDisplayValue);
         Assert.Null(contentChange.PropertyName);
-        Assert.Null(contentChange.OldValueData.ValueId);
-        Assert.Null(contentChange.NewValueData.ValueId);
-        Assert.Null(contentChange.PropertyName);
         Assert.Equal(PropertyType.Content, contentChange.PropertyType);
         
         Assert.Null(assigneeChange.OldDisplayValue);
         Assert.Equal("user1", assigneeChange.NewDisplayValue);
-        Assert.Null(assigneeChange.PropertyName);
-        Assert.Null(assigneeChange.OldValueData.ValueId);
-        Assert.Equal(userId.ToString(), assigneeChange.NewValueData.ValueId);
-        Assert.Null(assigneeChange.PropertyName);
+        Assert.Equal(userId.ToString(), assigneeChange.NewValueId);
         Assert.Equal(PropertyType.Assignee, assigneeChange.PropertyType);
     }
     
@@ -294,16 +299,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("Hi", contentChange.OldDisplayValue);
         Assert.Equal("New", contentChange.NewDisplayValue);
         Assert.Null(contentChange.PropertyName);
-        Assert.Null(contentChange.OldValueData.ValueId);
-        Assert.Null(contentChange.NewValueData.ValueId);
         Assert.Null(contentChange.PropertyName);
         Assert.Equal(PropertyType.Content, contentChange.PropertyType);
         
         Assert.Equal("first_user", assigneeChange.OldDisplayValue);
         Assert.Equal("second_user", assigneeChange.NewDisplayValue);
         Assert.Null(assigneeChange.PropertyName);
-        Assert.Equal(userId.ToString(), assigneeChange.OldValueData.ValueId);
-        Assert.Equal(participatorId.ToString(), assigneeChange.NewValueData.ValueId);
+        Assert.Equal(userId.ToString(), assigneeChange.OldValueId);
+        Assert.Equal(participatorId.ToString(), assigneeChange.NewValueId);
         Assert.Null(assigneeChange.PropertyName);
         Assert.Equal(PropertyType.Assignee, assigneeChange.PropertyType);
     }
@@ -687,20 +690,20 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.Equal(defaultSpace.Name, spaceChange.OldDisplayValue);
         Assert.Equal("NEW SPACE", spaceChange.NewDisplayValue);
-        Assert.Equal(defaultSpace.Id.ToString(), spaceChange.OldValueData.ValueId);
-        Assert.Equal(newSpace.Id.ToString(), spaceChange.NewValueData.ValueId);
+        Assert.Equal(defaultSpace.Id.ToString(), spaceChange.OldValueId);
+        Assert.Equal(newSpace.Id.ToString(), spaceChange.NewValueId);
         Assert.Equal(PropertyType.Space, spaceChange.PropertyType);
         
         Assert.Equal(defaultEpic.Name, epicChange.OldDisplayValue);
         Assert.Equal("NEW EPIC", epicChange.NewDisplayValue);
-        Assert.Equal(defaultEpic.Id.ToString(), epicChange.OldValueData.ValueId);
-        Assert.Equal(newEpic.Id.ToString(), epicChange.NewValueData.ValueId);
+        Assert.Equal(defaultEpic.Id.ToString(), epicChange.OldValueId);
+        Assert.Equal(newEpic.Id.ToString(), epicChange.NewValueId);
         Assert.Equal(PropertyType.Epic, epicChange.PropertyType);
         
         Assert.Equal(defaultStatus.Name, statusChange.OldDisplayValue);
         Assert.Equal("NEW STATUS", statusChange.NewDisplayValue);
-        Assert.Equal(defaultStatus.Id.ToString(), statusChange.OldValueData.ValueId);
-        Assert.Equal(newStatus.Id.ToString(), statusChange.NewValueData.ValueId);
+        Assert.Equal(defaultStatus.Id.ToString(), statusChange.OldValueId);
+        Assert.Equal(newStatus.Id.ToString(), statusChange.NewValueId);
         Assert.Equal(PropertyType.Status, statusChange.PropertyType);
     }
 
@@ -884,15 +887,23 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldSeeIssueHistory_WhenIssueAvailable()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(x => x.TelegramUserName = "user1");
-        var participatorId = await testScope.CreateUser(x => x.TelegramUserName = "user2");
+        var userId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "user1";
+            x.Color = "#111111";
+        });
+        var participatorId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "user2";
+            x.Color = "#222222";
+        });
         var organization = await testScope.InitializeOrganization(
             userId,
             initializer => initializer
                 .AddListAttribute("Type", ["Bug", "Feature"])
-                .AddListAttribute("Urgency", ["Low", "High"])
+                .AddListAttribute("Urgency", ["Low", "High"], "#333333")
                 .AddTextAttribute("Note")
-                .AddTextAttribute("Description")
+                .AddTextAttribute("Description", "#444444")
                 .AddIssueToDefaultStatus(participatorId, builder => builder
                     .AddAttachment("old.jpg", AttachmentType.Image)
                     .WithAttributeValue(0, 0) // Type = Bug
@@ -954,7 +965,6 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.GetIssueHistory(issueData.Key!, request));
 
-        
         var change = Assert.Single(historyData!.Data);
         Assert.Equal(LogEntityType.Issue, change.EntityType);
         Assert.Equal(LogAction.Update, change.Action);
@@ -975,6 +985,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.Equal("user2", assigneeChange.OldAssigneeDisplayName);
         Assert.Equal("user1", assigneeChange.NewAssigneeDisplayName);
+        Assert.Equal("#222222", assigneeChange.OldAssigneeColor);
+        Assert.Equal("#111111", assigneeChange.NewAssigneeColor);
         
         Assert.Equal("image.jpg", attachmentAddChange.FileName);
         Assert.True(attachmentAddChange.FileId != Guid.Empty);
@@ -984,10 +996,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.Equal("Description", descriptionAttributeChange.PropertyName);
         Assert.Null(descriptionAttributeChange.NewValueName);
+        Assert.Null(descriptionAttributeChange.NewValueColor);
         Assert.Equal("50 cents debt", descriptionAttributeChange.OldValueName);
+        Assert.Equal("#444444", descriptionAttributeChange.OldValueColor);
         
         Assert.Equal("Urgency", urgencyAttributeChange.PropertyName);
         Assert.Equal("High", urgencyAttributeChange.NewValueName);
         Assert.Equal("Low", urgencyAttributeChange.OldValueName);
+        Assert.Equal("#333333", urgencyAttributeChange.NewValueColor);
+        Assert.Equal("#333333", urgencyAttributeChange.OldValueColor);
     }
 }

@@ -171,13 +171,5 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasIndex(x => new { x.EntityId, x.EntityType })
                 .IsDescending(false, true);
         });
-        
-        modelBuilder.Entity<OrganizationLogItem>(builder =>
-        {
-            builder
-                .ComplexProperty(c => c.OldValueData, d => d.ToJson());
-            builder
-                .ComplexProperty(c => c.NewValueData, d => d.ToJson());
-        });
     }
 }

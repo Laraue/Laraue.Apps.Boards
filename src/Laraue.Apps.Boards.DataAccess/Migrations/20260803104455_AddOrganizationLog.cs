@@ -50,11 +50,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     organization_log_id = table.Column<long>(type: "bigint", nullable: false),
                     property_type = table.Column<int>(type: "integer", nullable: false),
+                    parent_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
+                    old_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
+                    new_value_id = table.Column<string>(type: "character varying(36)", maxLength: 36, nullable: true),
                     property_name = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
                     old_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true),
-                    new_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true),
-                    new_value_data = table.Column<string>(type: "jsonb", nullable: false),
-                    old_value_data = table.Column<string>(type: "jsonb", nullable: false)
+                    new_display_value = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: true)
                 },
                 constraints: table =>
                 {

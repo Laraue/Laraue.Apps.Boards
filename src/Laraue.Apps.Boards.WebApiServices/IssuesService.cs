@@ -902,7 +902,7 @@ public class IssuesService(
             .ShortPaginateEFAsync(request.Pagination, ct);
         
         
-        var changes = await MapChanges(
+        var changes = await MapHistoryChanges(
             updatesData.Data.ToDictionary(
                 x => x.Id,
                 x => x.Items),
@@ -930,7 +930,7 @@ public class IssuesService(
         return result;
     }
     
-    private async Task<Dictionary<long, IssueHistoryItemChange[]>> MapChanges(
+    private async Task<Dictionary<long, IssueHistoryItemChange[]>> MapHistoryChanges(
         Dictionary<long, OrganizationLogItem[]> changes,
         CancellationToken cancellationToken)
     {
@@ -940,35 +940,35 @@ public class IssuesService(
         
         var possibleStatusIds = allChanges
             .Where(x => x.PropertyType == PropertyType.Status)
-            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
             .Distinct()
             .Where(x => long.TryParse(x, out _))
             .Select(long.Parse!);
         
         var possibleAssigneeIds = allChanges
             .Where(x => x.PropertyType == PropertyType.Assignee)
-            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
             .Distinct()
             .Where(x => Guid.TryParse(x, out _))
             .Select(Guid.Parse!);
         
-        var possibleAttributeListValueIds = allChanges
+        var possibleAttributeIds = allChanges
             .Where(x => x.PropertyType == PropertyType.Attribute)
-            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .Select(x => x.ParentId)
             .Distinct()
             .Where(x => long.TryParse(x, out _))
             .Select(long.Parse!);
         
         var possibleEpicIds = allChanges
             .Where(x => x.PropertyType == PropertyType.Epic)
-            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
             .Distinct()
             .Where(x => long.TryParse(x, out _))
             .Select(long.Parse!);
         
         var possibleSpacesIds = allChanges
             .Where(x => x.PropertyType == PropertyType.Space)
-            .SelectMany(x => new[] { x.OldValueData.ValueId, x.NewValueData.ValueId })
+            .SelectMany(x => new[] { x.OldValueId, x.NewValueId })
             .Distinct()
             .Where(x => long.TryParse(x, out _))
             .Select(long.Parse!);
@@ -981,11 +981,9 @@ public class IssuesService(
             .Where(s => possibleAssigneeIds.Contains(s.Id))
             .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
         
-        var attributeColors = (await context.AttributeListValues
-            .Where(s => possibleAttributeListValueIds.Contains(s.Id))
-            .Select(x => new { x.Id, x.Attribute!.Color })
-            .ToArrayAsyncEF(cancellationToken))
-            .ToDictionary(s => s.Id.ToString(), s => s.Color);
+        var attributeColors = await context.Attributes
+            .Where(s => possibleAttributeIds.Contains(s.Id))
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
         
         var epicColors = await context.Epics
             .Where(s => possibleEpicIds.Contains(s.Id))
@@ -1031,29 +1029,29 @@ public class IssuesService(
             {
                 OldAssigneeDisplayName = item.OldDisplayValue,
                 NewAssigneeDisplayName = item.NewDisplayValue,
-                OldAssigneeColor = item.OldValueData.ValueId is not null ? userColors[item.OldValueData.ValueId] : null,
-                NewAssigneeColor = item.NewValueData.ValueId is not null ? userColors[item.NewValueData.ValueId] : null,
+                OldAssigneeColor = item.OldValueId is not null ? userColors[item.OldValueId] : null,
+                NewAssigneeColor = item.NewValueId is not null ? userColors[item.NewValueId] : null,
             },
             PropertyType.Status => new IssueHistoryStatusChange
             {
                 NewStatusName = item.NewDisplayValue,
-                NewStatusColor = item.NewValueData.ValueId is not null ? statusColors[item.NewValueData.ValueId] : null,
+                NewStatusColor = item.NewValueId is not null ? statusColors[item.NewValueId] : null,
                 OldStatusName = item.OldDisplayValue,
-                OldStatusColor = item.OldValueData.ValueId is not null ? statusColors[item.OldValueData.ValueId] : null,
+                OldStatusColor = item.OldValueId is not null ? statusColors[item.OldValueId] : null,
             },
             PropertyType.Attribute => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
                 NewValueName = item.NewDisplayValue,
-                NewValueColor = item.NewValueData.ValueId is not null ? attributeColors[item.NewValueData.ValueId] : null,
+                NewValueColor = item.NewDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
                 OldValueName = item.OldDisplayValue,
-                OldValueColor = item.OldValueData.ValueId is not null ? attributeColors[item.OldValueData.ValueId] : null,
+                OldValueColor = item.OldDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
             },
             PropertyType.Attachment => new IssueHistoryAttachmentChange
             {
-                FileId = Guid.TryParse(item.NewValueData.ValueId, out var addedFileId)
+                FileId = Guid.TryParse(item.NewValueId, out var addedFileId)
                     ? addedFileId
-                    : Guid.TryParse(item.OldValueData.ValueId, out var deletedFile)
+                    : Guid.TryParse(item.OldValueId, out var deletedFile)
                         ? deletedFile
                         : Guid.Empty,
                 FileName = item.NewDisplayValue ?? item.OldDisplayValue,
@@ -1061,16 +1059,16 @@ public class IssuesService(
             PropertyType.Epic => new IssueHistoryEpicChange
             {
                 NewEpicName = item.NewDisplayValue,
-                NewEpicColor = item.NewValueData.ValueId is not null ? epicColors[item.NewValueData.ValueId] : null,
+                NewEpicColor = item.NewValueId is not null ? epicColors[item.NewValueId] : null,
                 OldEpicName = item.OldDisplayValue,
-                OldEpicColor = item.OldValueData.ValueId is not null ? epicColors[item.OldValueData.ValueId] : null,
+                OldEpicColor = item.OldValueId is not null ? epicColors[item.OldValueId] : null,
             },
             PropertyType.Space => new IssueHistorySpaceChange
             {
                 NewSpaceName = item.NewDisplayValue,
-                NewSpaceColor = item.NewValueData.ValueId is not null ? spacesColors[item.NewValueData.ValueId] : null,
+                NewSpaceColor = item.NewValueId is not null ? spacesColors[item.NewValueId] : null,
                 OldSpaceName = item.OldDisplayValue,
-                OldSpaceColor = item.OldValueData.ValueId is not null ? spacesColors[item.OldValueData.ValueId] : null,
+                OldSpaceColor = item.OldValueId is not null ? spacesColors[item.OldValueId] : null,
             },
             _ => throw new InvalidOperationException($"Change of type {item.PropertyType} is not supported yet")
         };
