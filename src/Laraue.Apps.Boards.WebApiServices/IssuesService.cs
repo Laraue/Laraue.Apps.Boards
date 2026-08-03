@@ -883,7 +883,9 @@ public class IssuesService(
         
         var updatesData = await context
             .OrganizationLogs
-            .Where(x => x.EntityId == issueId && x.EntityType == LogEntityType.Issue)
+            .Where(x => 
+                (x.EntityType == LogEntityType.Comment && context.IssueComments.Any(y => y.IssueId == issueId))
+                || (x.EntityId == issueId && x.EntityType == LogEntityType.Issue))
             .OrderByDescending(x => x.Id)
             .Select(x => new
             {

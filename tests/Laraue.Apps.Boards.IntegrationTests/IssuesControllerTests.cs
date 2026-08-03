@@ -952,6 +952,16 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(issueData.Key, updateIssueRequest));
 
+        var addCommentRequest = new AddCommentRequest
+        {
+            Text = "Comment 1",
+            IssueKey = issueData.Key,
+        };
+        
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.AddComment(addCommentRequest));
+
         var request = new GetIssueHistoryRequest
         {
             Pagination = new PaginationData
@@ -965,20 +975,28 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.GetIssueHistory(issueData.Key!, request));
 
-        var change = Assert.Single(historyData!.Data);
-        Assert.Equal(LogEntityType.Issue, change.EntityType);
-        Assert.Equal(LogAction.Update, change.Action);
-        Assert.Equal("user1", change.Owner.DisplayName);
+        Assert.Equal(2, historyData!.Data.Count);
+
+        var commentChanged = historyData.Data[0];
+        var issueChanged = historyData.Data[1];
         
-        var itemChanges = change.Changes;
-        Assert.Equal(6, itemChanges.Length);
+        Assert.Equal(LogEntityType.Issue, issueChanged.EntityType);
+        Assert.Equal(LogAction.Update, issueChanged.Action);
+        Assert.Equal("user1", issueChanged.Owner.DisplayName);
         
-        var contentChange = Assert.IsType<IssueHistoryContentChange>(itemChanges[0]);
-        var assigneeChange = Assert.IsType<IssueHistoryAssigneeChange>(itemChanges[1]);
-        var attachmentAddChange = Assert.IsType<IssueHistoryAttachmentChange>(itemChanges[2]);
-        var attachmentDeleteChange = Assert.IsType<IssueHistoryAttachmentChange>(itemChanges[3]);
-        var descriptionAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(itemChanges[4]);
-        var urgencyAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(itemChanges[5]);
+        Assert.Equal(LogEntityType.Comment, commentChanged.EntityType);
+        Assert.Equal(LogAction.Create, commentChanged.Action);
+        Assert.Equal("user1", commentChanged.Owner.DisplayName);
+        
+        var issueChanges = issueChanged.Changes;
+        Assert.Equal(6, issueChanges.Length);
+        
+        var contentChange = Assert.IsType<IssueHistoryContentChange>(issueChanges[0]);
+        var assigneeChange = Assert.IsType<IssueHistoryAssigneeChange>(issueChanges[1]);
+        var attachmentAddChange = Assert.IsType<IssueHistoryAttachmentChange>(issueChanges[2]);
+        var attachmentDeleteChange = Assert.IsType<IssueHistoryAttachmentChange>(issueChanges[3]);
+        var descriptionAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(issueChanges[4]);
+        var urgencyAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(issueChanges[5]);
         
         Assert.Equal("Old", contentChange.OldContent);
         Assert.Equal("New", contentChange.NewContent);
@@ -1005,5 +1023,9 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("Low", urgencyAttributeChange.OldValueName);
         Assert.Equal("#333333", urgencyAttributeChange.NewValueColor);
         Assert.Equal("#333333", urgencyAttributeChange.OldValueColor);
+
+        var commentChange = Assert.IsType<IssueHistoryContentChange>(Assert.Single(commentChanged.Changes));
+        Assert.Null(commentChange.OldContent);
+        Assert.Equal("Comment 1", commentChange.NewContent);
     }
 }
