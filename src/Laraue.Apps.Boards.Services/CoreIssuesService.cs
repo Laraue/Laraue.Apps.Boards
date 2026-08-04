@@ -627,7 +627,7 @@ public class CoreIssuesService(
         {
             logEntity.Items.Add(
                 GetAttachmentAddedLogItem(
-                    attachment.Attachment!.FileId,
+                    attachment.Attachment!.PreviewFileId,
                     attachment.Attachment.File!.Name));
         }
 
@@ -701,7 +701,7 @@ public class CoreIssuesService(
             {
                 logEntity.Items.Add(
                     GetAttachmentAddedLogItem(
-                        commentAttachment.Attachment!.FileId,
+                        commentAttachment.Attachment!.PreviewFileId,
                         commentAttachment.Attachment.File!.Name));
             }
         }
@@ -714,7 +714,7 @@ public class CoreIssuesService(
                 .Select(x => new
                 {
                     x.AttachmentId,
-                    x.Attachment!.FileId,
+                    x.Attachment!.PreviewFileId,
                     x.Attachment.File!.Name,
                 })
                 .ToListAsyncEF(cancellationToken);
@@ -727,7 +727,7 @@ public class CoreIssuesService(
             {
                 logEntity.Items.Add(
                     GetAttachmentDeletedLogItem(
-                        attachment.FileId,
+                        attachment.PreviewFileId,
                         attachment.Name));
             }
         }
@@ -1006,22 +1006,22 @@ public class CoreIssuesService(
             .ToArray();
     }
 
-    private static OrganizationLogItem GetAttachmentAddedLogItem(Guid originalFileId, string? fileName)
+    private static OrganizationLogItem GetAttachmentAddedLogItem(Guid? previewFileId, string? fileName)
     {
         return new OrganizationLogItem
         {
             PropertyType = PropertyType.Attachment,
-            NewValueId = originalFileId.ToString(),
+            NewValueId = previewFileId.ToString(),
             NewDisplayValue = fileName,
         };
     }
 
-    private static OrganizationLogItem GetAttachmentDeletedLogItem(Guid originalFileId, string? fileName)
+    private static OrganizationLogItem GetAttachmentDeletedLogItem(Guid? previewFileId, string? fileName)
     {
         return new OrganizationLogItem
         {
             PropertyType = PropertyType.Attachment,
-            OldValueId = originalFileId.ToString(),
+            OldValueId = previewFileId.ToString(),
             OldDisplayValue = fileName,
         };
     }
@@ -1085,7 +1085,7 @@ public class CoreIssuesService(
             .Where(x => x.IssueId == issueId)
             .Where(x => attachmentIds.Contains(x.AttachmentId))
             .Select(x => x.Attachment!)
-            .Select(x => new { x.Id, x.File!.Name, FileId = x.File.Id })
+            .Select(x => new { x.Id, x.File!.Name, x.PreviewFileId })
             .ToListAsyncEF(cancellationToken);
 
         await context.Attachments
@@ -1093,7 +1093,7 @@ public class CoreIssuesService(
             .ExecuteDeleteAsync(cancellationToken);
         
         return attachments
-            .Select(x => GetAttachmentDeletedLogItem(x.FileId, x.Name))
+            .Select(x => GetAttachmentDeletedLogItem(x.PreviewFileId, x.Name))
             .ToArray();
     }
 

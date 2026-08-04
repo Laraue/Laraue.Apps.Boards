@@ -239,7 +239,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("hey.jpg", deleteFileChange.OldDisplayValue);
         Assert.Null(deleteFileChange.NewDisplayValue);
         Assert.Null(deleteFileChange.PropertyName);
-        var oldFileId = issueData.Issue.IssueAttachments.Single().Attachment!.File!.Id.ToString();
+        var oldFileId = issueData.Issue.IssueAttachments.Single().Attachment!.PreviewFile!.Id.ToString();
         Assert.Equal(oldFileId, deleteFileChange.OldValueId);
         Assert.Null(deleteFileChange.NewValueId);
         Assert.Null(deleteFileChange.PropertyName);

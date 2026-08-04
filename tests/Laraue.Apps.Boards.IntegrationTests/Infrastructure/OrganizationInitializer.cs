@@ -275,23 +275,29 @@ public class OrganizationInitializer(
     {
         return new Attachment
         {
-            File = new File
-            {
-                MimeType = data.AttachmentType switch
-                {
-                    AttachmentType.Image => "image/jpg",
-                    AttachmentType.Video => "video/mp4",
-                    _ => throw new InvalidOperationException()
-                },
-                Name = data.Name,
-                Size = 100,
-                TelegramFile = new TelegramFile
-                {
-                    ExternalFileUniqueId = Guid.NewGuid().ToString(),
-                    ExternalFileId = Guid.NewGuid().ToString(),
-                }
-            },
+            File = GetFile(data.AttachmentType, data.Name, 100),
+            PreviewFile = GetFile(data.AttachmentType, data.Name, 10),
             OwnerId = ownerId,
+        };
+    }
+
+    private static File GetFile(AttachmentType attachmentType, string name, int size)
+    {
+        return new File
+        {
+            MimeType = attachmentType switch
+            {
+                AttachmentType.Image => "image/jpg",
+                AttachmentType.Video => "video/mp4",
+                _ => throw new InvalidOperationException()
+            },
+            Name = name,
+            Size = size,
+            TelegramFile = new TelegramFile
+            {
+                ExternalFileUniqueId = Guid.NewGuid().ToString(),
+                ExternalFileId = Guid.NewGuid().ToString(),
+            }
         };
     }
 

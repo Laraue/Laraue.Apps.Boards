@@ -1017,10 +1017,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("#111111", assigneeChange.NewAssigneeColor);
         
         Assert.Equal("image.jpg", attachmentAddChange.FileName);
-        Assert.True(attachmentAddChange.FileId != Guid.Empty);
+        Assert.NotNull(attachmentAddChange.PreviewFileId);
+        Assert.Equal(AttachmentAction.Created, attachmentAddChange.Action);
         
         Assert.Equal("old.jpg", attachmentDeleteChange.FileName);
-        Assert.Equal(issueData.Issue.IssueAttachments[0].Attachment!.FileId, attachmentDeleteChange.FileId);
+        Assert.Equal(issueData.Issue.IssueAttachments[0].Attachment!.PreviewFileId, attachmentDeleteChange.PreviewFileId);
+        Assert.Equal(AttachmentAction.Deleted, attachmentDeleteChange.Action);
         
         Assert.Equal("Description", descriptionAttributeChange.PropertyName);
         Assert.Null(descriptionAttributeChange.NewValueName);

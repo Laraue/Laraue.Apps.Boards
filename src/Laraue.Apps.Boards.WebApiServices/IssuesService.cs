@@ -1052,12 +1052,15 @@ public class IssuesService(
             },
             PropertyType.Attachment => new IssueHistoryAttachmentChange
             {
-                FileId = Guid.TryParse(item.NewValueId, out var addedFileId)
+                PreviewFileId = Guid.TryParse(item.NewValueId, out var addedFileId)
                     ? addedFileId
                     : Guid.TryParse(item.OldValueId, out var deletedFile)
                         ? deletedFile
-                        : Guid.Empty,
+                        : null,
                 FileName = item.NewDisplayValue ?? item.OldDisplayValue,
+                Action = item.NewValueId is not null || item.NewDisplayValue is not null
+                    ? AttachmentAction.Created
+                    : AttachmentAction.Deleted,
             },
             PropertyType.Epic => new IssueHistoryEpicChange
             {
@@ -1987,7 +1990,15 @@ public record IssueHistoryPropertyChange : IssueHistoryItemChange
 public record IssueHistoryAttachmentChange : IssueHistoryItemChange
 {
     public required string? FileName { get; set; }
-    public required Guid FileId { get; set; }
+    public required Guid? PreviewFileId { get; set; }
+    public required AttachmentAction Action { get; set; }
+    
+}
+
+public enum AttachmentAction
+{
+    Created,
+    Deleted,
 }
 
 public record IssueHistoryEpicChange : IssueHistoryItemChange
