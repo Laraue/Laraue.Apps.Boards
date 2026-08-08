@@ -32,7 +32,17 @@ public class HandleAllMessagesMiddleware(
         if (context.GetExecutedRoute() is null && AllowedUpdates.Contains(context.Update.Type))
         {
             var message = context.Update.Message ?? context.Update.EditedMessage;
-            var text = message!.Text;
+            
+            if (message!.ViaBot is not null)
+            {
+                // This message was produced by the user picking an inline query result
+                // (@yourbot ...), not typed directly — Telegram sets ViaBot for those.
+                // Nothing to save here; the search flow already handled it when it built
+                // the InlineQueryResult in the first place.
+                return;
+            }
+            
+            var text = message.Text;
 
             SaveMessageTelegramRequest? request = message.Type switch
             {
