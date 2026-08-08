@@ -5,11 +5,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 
 /// <summary>
 /// Handles "upd:&lt;op&gt;N&lt;unit&gt;" where op is one of &gt;, &gt;=, &lt;, &lt;=, = (or
-/// omitted / "-", both aliases for &gt;= — kept for backward compatibility) and unit is
-/// d(ays)/h(ours)/w(eeks). Examples: "upd:&gt;7d" (updated more recently than 7 days ago),
-/// "upd:&lt;7d" (last updated more than 7 days ago, i.e. stale), "upd:=7d" (updated on
-/// exactly that day/hour, N units ago). No suggestions are offered while typing since this
-/// is a free-form value, not something to pick from a list.
+/// omitted / "-", both aliases for &lt;=/&gt;= depending on read — see below) and unit is
+/// d(ays)/h(ours)/w(eeks). The operator constrains the *age* of the last update (now minus
+/// UpdatedAt), not the raw timestamp directly — "upd:&lt;6d" means "last updated less than 6
+/// days ago" (recent), "upd:&gt;6d" means "last updated more than 6 days ago" (stale). Since
+/// age runs opposite to the timestamp axis (a smaller age is a *larger*, more recent
+/// UpdatedAt), each operator maps to the flipped comparison against the anchor
+/// ("N units ago"): age &lt; N ⟺ UpdatedAt &gt; anchor, age &gt; N ⟺ UpdatedAt &lt; anchor, etc.
+/// No suggestions are offered while typing since this is a free-form value, not something
+/// to pick from a list.
 /// </summary>
 public sealed class UpdatedTokenFilter : IQueryTokenFilter
 {
@@ -35,7 +39,7 @@ public sealed class UpdatedTokenFilter : IQueryTokenFilter
             // already-complete filter silently do nothing until the user adds a space or
             // another word (it'd fall through to a literal, always-failing content search
             // for the text "upd:3w" instead) — same issue the key: filter had.
-            var op = match.Groups["op"].Success ? match.Groups["op"].Value : ">=";
+            var op = match.Groups["op"].Success ? match.Groups["op"].Value : "<=";
             var num = int.Parse(match.Groups["num"].Value);
             var unit = match.Groups["unit"].Value.ToLowerInvariant();
 
@@ -47,19 +51,18 @@ public sealed class UpdatedTokenFilter : IQueryTokenFilter
                 _ => TimeSpan.Zero
             };
 
-            // The anchor is "N units ago" — every operator compares UpdatedAt against this
-            // single point. ">"/">=" mean "more recently than N units ago" (i.e. within the
-            // last N units); "<"/"<=" mean "further back than N units ago" (i.e. stale,
-            // hasn't been touched in at least N units).
+            // The anchor is "N units ago". The operator constrains *age* (now - UpdatedAt),
+            // which runs opposite to the raw timestamp: a smaller age means a larger
+            // (more recent) UpdatedAt, so age-comparisons flip when translated to UpdatedAt.
             var anchor = DateTime.UtcNow - span;
 
             IQueryable<Issue> filtered = op switch
             {
-                ">" => query.Where(x => x.UpdatedAt > anchor),
-                ">=" or "-" => query.Where(x => x.UpdatedAt >= anchor),
-                "<" => query.Where(x => x.UpdatedAt < anchor),
-                "<=" => query.Where(x => x.UpdatedAt <= anchor),
-                "=" => ApplyEquals(query, anchor, unit),
+                "<" => query.Where(x => x.UpdatedAt > anchor),          // age < N  → recent
+                "<=" or "-" => query.Where(x => x.UpdatedAt >= anchor), // age <= N → recent (inclusive)
+                ">" => query.Where(x => x.UpdatedAt < anchor),          // age > N  → stale
+                ">=" => query.Where(x => x.UpdatedAt <= anchor),        // age >= N → stale (inclusive)
+                "=" => ApplyEquals(query, anchor, unit),                // age == N (± bucket width)
                 _ => query.Where(x => x.UpdatedAt >= anchor)
             };
 
@@ -72,7 +75,8 @@ public sealed class UpdatedTokenFilter : IQueryTokenFilter
             // the expected shape — this is a genuine mistake, worth telling the user about.
             return Task.FromResult<TokenResolution>(new ErrorResolution(
                 "Invalid updated filter",
-                "Use a format like upd:>7d, upd:<7d, upd:>=7d, upd:<=7d, upd:=7d, upd:3w or upd:12h."));
+                "Use a format like upd:<6d (updated less than 6 days ago), upd:>6d (more than " +
+                "6 days ago), upd:<=6d, upd:>=6d, upd:=6d, upd:6d or upd:12h."));
         }
 
         // Still typing and not yet a complete filter ("upd:", "upd:7") — nothing useful to
