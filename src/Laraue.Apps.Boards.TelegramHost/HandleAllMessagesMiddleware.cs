@@ -39,6 +39,9 @@ public class HandleAllMessagesMiddleware(
                 // (@yourbot ...), not typed directly — Telegram sets ViaBot for those.
                 // Nothing to save here; the search flow already handled it when it built
                 // the InlineQueryResult in the first place.
+                context.SetExecutedRoute(
+                    new ExecutedRouteInfo("HandleAllMessagesMiddleware", "ViaBot message"));
+                
                 return;
             }
             

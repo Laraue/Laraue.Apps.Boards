@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.TelegramServices.Resources;
+﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.TelegramServices.Resources;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -15,7 +16,7 @@ public interface ITelegramCommandsService
 
 public class TelegramCommandsService(
     ITelegramBotClient client,
-    IOptions<MiniAppOptions> options)
+    IOptions<AppOptions> options)
     : ITelegramCommandsService
 {
     public Task HandleStart(ReplyData replyData, CancellationToken cancellationToken)

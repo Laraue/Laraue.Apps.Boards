@@ -32,9 +32,9 @@ public static class WebApplicationBuilderExtensions
         {
             builder.AddCoreServices();
             
-            builder.Services.AddOptions<MiniAppOptions>();
-            builder.Services.Configure<MiniAppOptions>(
-                builder.Configuration.GetSection(nameof(MiniAppOptions)));
+            builder.Services.AddOptions<AppOptions>();
+            builder.Services.Configure<AppOptions>(
+                builder.Configuration.GetSection(nameof(AppOptions)));
             
             builder.Services
                 .AddTelegramCore()

@@ -7,6 +7,7 @@ using Laraue.Telegram.NET.Core.Routing;
 using Laraue.Telegram.NET.Core.Routing.Attributes;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InlineQueryResults;
@@ -16,7 +17,8 @@ namespace Laraue.Apps.Boards.TelegramHost.Controllers;
 
 public class SearchController(
     ITokenFilterRegistry filterRegistry,
-    ILogger<SearchController> logger)
+    ILogger<SearchController> logger,
+    IOptions<AppOptions> options)
     : TelegramController
 {
     private const int FragmentContextChars = 70;
@@ -47,7 +49,7 @@ public class SearchController(
         var filterContext = new FilterContext(context, requestContext, readableSpaceIds, readableOrganizations);
 
         var (filterTokens, freeTextWords) = QueryTokenParser.Parse(
-            inlineQuery.Query ?? string.Empty,
+            inlineQuery.Query,
             filterRegistry.Keys);
 
         var issuesQuery = context.Issues
@@ -180,7 +182,7 @@ public class SearchController(
             }
 
             var orgKey = $"{issue.OrganizationSlug}-{issue.OrganizationSlugPostfix}";
-            var issueUrl = $"https://boards.laraue.com/organizations/{orgKey}/issues/{issue.Key}";
+            var issueUrl = $"{options.Value.Url}/organizations/{orgKey}/issues/{issue.Key}";
 
             // The link lives on a button, not in the text — buttons render reliably regardless
             // of MarkdownV2 escaping, whereas an in-text [text](url) link depends on every
@@ -224,8 +226,8 @@ public class SearchController(
             .LeftJoin(
                 context.DirectSpacePermissions,
                 (space, directSpacePermission) => space.space.Id == directSpacePermission.SpaceId,
-                (space, arg2) => new { space, arg2 })
-            .Where(x => x.arg2.CanRead || x.space.organizationData.CanRead)
+                (space, directSpacePermission) => new { space, directSpacePermission })
+            .Where(x => x.directSpacePermission.CanRead || x.space.organizationData.CanRead)
             .Select(x => x.space.space.Id)
             .ToArrayAsyncEF(ct);
     }
