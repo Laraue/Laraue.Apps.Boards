@@ -14,6 +14,6 @@ public sealed record OrganizationInfo(long Id, string Name, string Slug);
 /// </summary>
 public sealed record FilterContext(
     DatabaseContext DbContext,
-    RequestContext RequestContext,
+    SearchRequest RequestContext,
     long[] ReadableSpaceIds,
     IReadOnlyList<OrganizationInfo> ReadableOrganizations);
