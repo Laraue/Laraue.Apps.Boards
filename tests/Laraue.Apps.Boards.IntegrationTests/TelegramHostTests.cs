@@ -441,4 +441,59 @@ public class TelegramHostTests : TelegramIntegrationTest
         var invalidResult = Assert.Single(invalidRequest.Results);
         Assert.Equal("key-error", invalidResult.Id);
     }
+    
+    [Fact]
+    public async Task InlineSearch_ShouldNotReturnIssuesFromInaccessibleOrganizations_Always()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = 777);
+        var otherUserId = await testScope.CreateUser(x => x.TelegramId = 888);
+
+        await testScope.InitializeOrganization(userId, org => org
+            .AddUser(otherUserId, builder => builder
+                .SetSpaceAccessLevel(1, level => level.CanRead = true))
+            .AddSpace(userId, "SEC", s => s
+                .AddEpic(userId, e => e
+                    .AddIssue(userId, 0, i => i
+                        .WithContent("Seen for both users"))))
+            .AddIssueToDefaultStatus(userId, i => i.WithContent("Seen for owner only")));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = new User
+                {
+                    Id = 777,
+                    Username = "user1",
+                },
+                Query = "seen"
+            }
+        });
+
+        var ownerRequest = host.Requests().Single<AnswerInlineQueryRequest>();
+        Assert.Equal(2, ownerRequest.Results.Count());
+
+        // Other user only has read access to the "SEC" space (index 1) via the direct space
+        // permission grant above — the default "DEF" space issue (index 0), visible only to the
+        // owner, must not leak through even though it also matches the search text.
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = new User
+                {
+                    Id = 888,
+                    Username = "user2",
+                },
+                Query = "seen"
+            }
+        });
+
+        var otherUserRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var otherUserResult = Assert.Single(otherUserRequest.Results);
+        Assert.Equal("SEC-1", otherUserResult.Id);
+    }
 }
