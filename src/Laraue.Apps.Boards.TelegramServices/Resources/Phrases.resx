@@ -63,19 +63,18 @@
     <data name="Start" xml:space="preserve">
         <value>👋 Hey! I'm Message Board Bot.
 
-I help you turn important Telegram messages into organized Kanban boards. Message me or forward a message and I'll add it to your Board.
+I turn your Telegram messages into an organized Kanban board. Send or forward me a message, and I'll add it as a card.
 
-You can use full-text search, sorting and filtering, and much more.
+How it works:
+1. Send or forward a message
+2. 👍 = added to your board
+3. Edit the message and I'll react with ❤ and update the card (deleting the message won't delete the card)
 
-How to work with me:
-1. Write me or forward a message.
-2. I will react with 👍 when message is processed.
-3. That's all, the message is in your Board!
+📖 Docs: https://laraue.com/blog/documentation/laraue-boards
 
-You can edit the message, I will react with ❤ and update the Board card.
-Message deleting will NOT delete a card on the Board.
-            
-You boards are available in Web-App {0} and in Mini-App 👇</value>
+🔍 Search from any chat: type @msgboard_bot followed by your search, right in the message field.
+
+Full-text search, sorting, filtering, and more — right from your boards: {0} (also available as a Mini-App 👇)</value>
     </data>
     <data name="OpenMiniApp" xml:space="preserve">
         <value>Open Message Board</value>

@@ -35,6 +35,10 @@ public class TelegramCommandsService(
             replyData.TelegramId,
             string.Format(Phrases.Start, appUrl),
             replyMarkup: markup,
+            linkPreviewOptions: new LinkPreviewOptions
+            {
+                IsDisabled = true,
+            },
             cancellationToken: cancellationToken);
     }
 }
