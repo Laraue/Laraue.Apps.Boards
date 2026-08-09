@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
 using User = Telegram.Bot.Types.User;
 
@@ -380,10 +381,119 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal(issue.Id, videoAttachment.IssueAttachment!.IssueId);
     }
     
-    // TODO
-    // NewGroupMessage_ShouldCreateCard_Always (photo with text + video)
-    // EditNonFirstAttachment_ShouldEditCard_Always (photo with text + video -> photo with text + photo)
-    // EditFirstAttachment_ShouldEditCard_Always (photo with text + video -> video with new text + video)
-    // AddTextToNonFirstAttachment_ShouldEditTextCard_Always (photo with text + video -> photo with text + video with text)
-    // - the case with possible deleting of first attachment
+    [Fact]
+    public async Task InlineSearch_ShouldLookupByExactKey_WhenKeyTokenGiven()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "AAA", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i
+                            .WithContent("Hi")))));
+
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        // Exact key — should return exactly the seeded issue.
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = DefaultUser,
+                Query = $"key:{issueData.Key}"
+            }
+        });
+
+        var foundRequest = host.Requests().Single<AnswerInlineQueryRequest>();
+        var foundResult = Assert.Single(foundRequest.Results);
+        Assert.Equal(issueData.Key, foundResult.Id);
+
+        // Same shape, wrong number — no such issue exists, should fall through to the
+        // generic "no issues found" placeholder rather than erroring.
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = DefaultUser,
+                Query = "key:AAA-999"
+            }
+        });
+
+        var missingRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var missingResult = Assert.Single(missingRequest.Results);
+        Assert.Equal("no-issues", missingResult.Id);
+
+        // Malformed key shape (no number) — filter-level validation error, not "no issues".
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = DefaultUser,
+                Query = "key:notakey"
+            }
+        });
+
+        var invalidRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var invalidResult = Assert.Single(invalidRequest.Results);
+        Assert.Equal("key-error", invalidResult.Id);
+    }
+    
+    [Fact]
+    public async Task InlineSearch_ShouldNotReturnIssuesFromInaccessibleOrganizations_Always()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = 777);
+        var otherUserId = await testScope.CreateUser(x => x.TelegramId = 888);
+
+        await testScope.InitializeOrganization(userId, org => org
+            .AddUser(otherUserId, builder => builder
+                .SetSpaceAccessLevel(1, level => level.CanRead = true))
+            .AddSpace(userId, "SEC", s => s
+                .AddEpic(userId, e => e
+                    .AddIssue(userId, 0, i => i
+                        .WithContent("Seen for both users"))))
+            .AddIssueToDefaultStatus(userId, i => i.WithContent("Seen for owner only")));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = new User
+                {
+                    Id = 777,
+                    Username = "user1",
+                },
+                Query = "seen"
+            }
+        });
+
+        var ownerRequest = host.Requests().Single<AnswerInlineQueryRequest>();
+        Assert.Equal(2, ownerRequest.Results.Count());
+
+        // Other user only has read access to the "SEC" space (index 1) via the direct space
+        // permission grant above — the default "DEF" space issue (index 0), visible only to the
+        // owner, must not leak through even though it also matches the search text.
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = new User
+                {
+                    Id = 888,
+                    Username = "user2",
+                },
+                Query = "seen"
+            }
+        });
+
+        var otherUserRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var otherUserResult = Assert.Single(otherUserRequest.Results);
+        Assert.Equal("SEC-1", otherUserResult.Id);
+    }
 }

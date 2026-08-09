@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
+using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Telegram.NET.Authentication.Extensions;
 using Laraue.Telegram.NET.Core;
 using Laraue.Telegram.NET.Core.Extensions;
@@ -31,9 +32,9 @@ public static class WebApplicationBuilderExtensions
         {
             builder.AddCoreServices();
             
-            builder.Services.AddOptions<MiniAppOptions>();
-            builder.Services.Configure<MiniAppOptions>(
-                builder.Configuration.GetSection(nameof(MiniAppOptions)));
+            builder.Services.AddOptions<AppOptions>();
+            builder.Services.Configure<AppOptions>(
+                builder.Configuration.GetSection(nameof(AppOptions)));
             
             builder.Services
                 .AddTelegramCore()
@@ -61,6 +62,14 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()
                 .AddScoped<ICoreEpicsService, CoreEpicsService>()
                 .AddScoped<ICoreStatusService, CoreStatusService>();
+
+            builder.Services
+                .AddScoped<ISearchService, SearchService>()
+                .AddSingleton<ITokenFilterRegistry, TokenFilterRegistry>()
+                .AddSingleton<IQueryTokenFilter, UpdatedTokenFilter>()
+                .AddSingleton<IQueryTokenFilter, AssigneeTokenFilter>()
+                .AddSingleton<IQueryTokenFilter, OrganizationTokenFilter>()
+                .AddSingleton<IQueryTokenFilter, IssueKeyTokenFilter>();
             
             builder.Services.AddControllers();
 
