@@ -31,7 +31,7 @@ public class SearchService(
 
     public async Task HandleInlineSearchQuery(SearchRequest request, CancellationToken ct)
     {
-        var readableSpaceIds = await GetReadableSpaceIdsAsync(context, request, ct);
+        var readableSpaceIds = await GetReadableSpaceIdsAsync(request, ct);
         var inlineQuery = request.InlineQuery;
 
         logger.LogInformation(
@@ -51,7 +51,7 @@ public class SearchService(
             return;
         }
 
-        var readableOrganizations = await GetReadableOrganizationsAsync(context, readableSpaceIds, ct);
+        var readableOrganizations = await GetReadableOrganizationsAsync(readableSpaceIds, ct);
         var filterContext = new FilterContext(context, request, readableSpaceIds, readableOrganizations);
 
         var (filterTokens, freeTextWords) = QueryTokenParser.Parse(
@@ -228,19 +228,18 @@ public class SearchService(
             cancellationToken: ct);
     }
 
-    private static async Task<long[]> GetReadableSpaceIdsAsync(
-        DatabaseContext context,
+    private async Task<long[]> GetReadableSpaceIdsAsync(
         SearchRequest requestContext,
         CancellationToken ct)
     {
         var organizationsData = context.OrganizationUsers
             .Where(x => x.UserId == requestContext.UserId)
-            .Select(x => new { x.CanRead, x.Id });
+            .Select(x => new { x.CanRead, x.OrganizationId });
 
         return await context.Spaces
             .InnerJoin(
                 organizationsData,
-                (space, organizationData) => space.OrganizationId == organizationData.Id,
+                (space, organizationData) => space.OrganizationId == organizationData.OrganizationId,
                 (space, organizationData) => new { space, organizationData })
             .LeftJoin(
                 context.DirectSpacePermissions,
@@ -251,8 +250,7 @@ public class SearchService(
             .ToArrayAsyncEF(ct);
     }
 
-    private static async Task<IReadOnlyList<OrganizationInfo>> GetReadableOrganizationsAsync(
-        DatabaseContext context,
+    private async Task<IReadOnlyList<OrganizationInfo>> GetReadableOrganizationsAsync(
         long[] readableSpaceIds,
         CancellationToken ct)
     {
