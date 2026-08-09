@@ -91,10 +91,14 @@ public class SearchService(
                     break;
 
                 case SuggestionsResolution suggestions:
+                    // isPersonal: true — results depend on this user's org access/identity and
+                    // must never be served by Telegram's cache to a different user who happens
+                    // to type the same query text.
                     await botClient.AnswerInlineQuery(
                         request.InlineQueryId,
                         suggestions.Results,
                         cacheTime: 0,
+                        isPersonal: true,
                         cancellationToken: ct);
                     
                     return;
@@ -221,10 +225,13 @@ public class SearchService(
                 });
         }
 
+        // isPersonal: true — see note above; the same reasoning applies to every branch
+        // that answers an inline query, not just the suggestions one.
         await botClient.AnswerInlineQuery(
             request.InlineQueryId,
             result,
             cacheTime: 0,
+            isPersonal: true,
             cancellationToken: ct);
     }
 
@@ -287,10 +294,12 @@ public class SearchService(
             Description = message
         };
 
+        // isPersonal: true — see note above.
         await botClient.AnswerInlineQuery(
             inlineQueryId,
             [placeholder],
             cacheTime: 0,
+            isPersonal: true,
             cancellationToken: ct);
     }
 }
