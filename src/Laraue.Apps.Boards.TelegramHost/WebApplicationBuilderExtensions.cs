@@ -69,7 +69,8 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<IQueryTokenFilter, UpdatedTokenFilter>()
                 .AddSingleton<IQueryTokenFilter, AssigneeTokenFilter>()
                 .AddSingleton<IQueryTokenFilter, OrganizationTokenFilter>()
-                .AddSingleton<IQueryTokenFilter, IssueKeyTokenFilter>();
+                .AddSingleton<IQueryTokenFilter, IssueKeyTokenFilter>()
+                .AddSingleton<IQueryTokenFilter, SpaceTokenFilter>();
             
             builder.Services.AddControllers();
 
