@@ -4,20 +4,23 @@ using Laraue.Apps.Boards.DataAccess.Models;
 namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 
 /// <summary>
-/// Handles "upd:&lt;op&gt;N&lt;unit&gt;" where op is one of &gt;, &gt;=, &lt;, &lt;=, = (or
-/// omitted / "-", both aliases for &lt;=/&gt;= depending on read — see below) and unit is
-/// d(ays)/h(ours)/w(eeks). The operator constrains the *age* of the last update (now minus
-/// UpdatedAt), not the raw timestamp directly — "upd:&lt;6d" means "last updated less than 6
-/// days ago" (recent), "upd:&gt;6d" means "last updated more than 6 days ago" (stale). Since
-/// age runs opposite to the timestamp axis (a smaller age is a *larger*, more recent
-/// UpdatedAt), each operator maps to the flipped comparison against the anchor
-/// ("N units ago"): age &lt; N ⟺ UpdatedAt &gt; anchor, age &gt; N ⟺ UpdatedAt &lt; anchor, etc.
-/// No suggestions are offered while typing since this is a free-form value, not something
-/// to pick from a list.
+/// Handles "upd:&lt;op&gt;N&lt;unit&gt;" (op: &gt; &gt;= &lt; &lt;= = or bare/"-", unit:
+/// d/h/w). Same no-candidate-list adaptation as <see cref="IssueKeyTokenFilter"/>: a complete
+/// shape is inherently unambiguous, so it applies immediately (with a human-readable computed
+/// preview shown via <see cref="AppliedResolution.Description"/> if the search ends up empty)
+/// with no marker needed. No wildcard concept here — "starts with" doesn't apply to a duration.
+///
+/// The operator constrains the *age* of the last update (now - UpdatedAt), which runs
+/// opposite to the raw timestamp: "upd:&lt;6d" means "last updated less than 6 days ago"
+/// (recent) -&gt; UpdatedAt &gt; anchor. See ComputeAnchor for the full mapping.
 /// </summary>
 public sealed class UpdatedTokenFilter : IQueryTokenFilter
 {
-    private static readonly Regex ValueRegex = new(
+    // Still typing, not yet complete: an optional operator, and zero or more digits, no unit.
+    private static readonly Regex StillValidPrefixRegex = new(
+        @"^(>=|<=|>|<|=|-)?\d*$", RegexOptions.Compiled);
+
+    private static readonly Regex CompleteRegex = new(
         @"^(?<op>>=|<=|>|<|=|-)?(?<num>\d+)(?<unit>[dhw])$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -27,61 +30,93 @@ public sealed class UpdatedTokenFilter : IQueryTokenFilter
         FilterContext context,
         IQueryable<Issue> query,
         string value,
-        bool isFinalized,
+        bool isFollowedByAnotherToken,
         CancellationToken ct)
     {
-        var match = ValueRegex.Match(value);
+        if (value.Length == 0)
+        {
+            return Task.FromResult<TokenResolution>(new PreviewResolution(
+                "Type a duration",
+                "e.g. >7d, <3w, =12h"));
+        }
 
+        var match = CompleteRegex.Match(value);
         if (match.Success)
         {
-            // The value already has the complete "[op]N[dhw]" shape — resolve immediately,
-            // even without a trailing space. Waiting for isFinalized would make an
-            // already-complete filter silently do nothing until the user adds a space or
-            // another word (it'd fall through to a literal, always-failing content search
-            // for the text "upd:3w" instead) — same issue the key: filter had.
+            var (anchor, description) = ComputeAnchor(match);
             var op = match.Groups["op"].Success ? match.Groups["op"].Value : "<=";
-            var num = int.Parse(match.Groups["num"].Value);
             var unit = match.Groups["unit"].Value.ToLowerInvariant();
-
-            var span = unit switch
-            {
-                "h" => TimeSpan.FromHours(num),
-                "d" => TimeSpan.FromDays(num),
-                "w" => TimeSpan.FromDays(num * 7),
-                _ => TimeSpan.Zero
-            };
-
-            // The anchor is "N units ago". The operator constrains *age* (now - UpdatedAt),
-            // which runs opposite to the raw timestamp: a smaller age means a larger
-            // (more recent) UpdatedAt, so age-comparisons flip when translated to UpdatedAt.
-            var anchor = DateTime.UtcNow - span;
 
             IQueryable<Issue> filtered = op switch
             {
-                "<" => query.Where(x => x.UpdatedAt > anchor),          // age < N  → recent
-                "<=" or "-" => query.Where(x => x.UpdatedAt >= anchor), // age <= N → recent (inclusive)
-                ">" => query.Where(x => x.UpdatedAt < anchor),          // age > N  → stale
-                ">=" => query.Where(x => x.UpdatedAt <= anchor),        // age >= N → stale (inclusive)
-                "=" => ApplyEquals(query, anchor, unit),                // age == N (± bucket width)
+                "<" => query.Where(x => x.UpdatedAt > anchor),          // age < N  -> recent
+                "<=" or "-" => query.Where(x => x.UpdatedAt >= anchor), // age <= N -> recent (inclusive)
+                ">" => query.Where(x => x.UpdatedAt < anchor),          // age > N  -> stale
+                ">=" => query.Where(x => x.UpdatedAt <= anchor),        // age >= N -> stale (inclusive)
+                "=" => ApplyEquals(query, anchor, unit),                // age == N (+/- bucket width)
                 _ => query.Where(x => x.UpdatedAt >= anchor)
             };
 
-            return Task.FromResult<TokenResolution>(new AppliedResolution(filtered));
+            return Task.FromResult<TokenResolution>(new AppliedResolution(
+                filtered, Description: description.ToLowerInvariant()));
         }
 
-        if (isFinalized)
+        if (StillValidPrefixRegex.IsMatch(value))
         {
-            // Finalized (trailing space, or another word came after) but still doesn't match
-            // the expected shape — this is a genuine mistake, worth telling the user about.
-            return Task.FromResult<TokenResolution>(new ErrorResolution(
-                "Invalid updated filter",
-                "Use a format like upd:<6d (updated less than 6 days ago), upd:>6d (more than " +
-                "6 days ago), upd:<=6d, upd:>=6d, upd:=6d, upd:6d or upd:12h."));
+            if (isFollowedByAnotherToken)
+            {
+                return Task.FromResult<TokenResolution>(new ErrorResolution(
+                    "Incomplete updated filter",
+                    $"\"{value}\" isn't a complete duration — expected e.g. >7d, <3w, =12h."));
+            }
+
+            return Task.FromResult<TokenResolution>(new PreviewResolution(
+                "Type a duration",
+                "e.g. >7d, <3w, =12h — keep typing"));
         }
 
-        // Still typing and not yet a complete filter ("upd:", "upd:7") — nothing useful to
-        // show yet, so fall back to free text rather than erroring prematurely mid-keystroke.
-        return Task.FromResult<TokenResolution>(new SuggestionsResolution([]));
+        // Already broken (e.g. a letter that isn't a valid unit, or a second operator) — can
+        // never become valid by typing more, so error now rather than waiting.
+        return Task.FromResult<TokenResolution>(new ErrorResolution(
+            "Invalid updated filter",
+            $"\"{value}\" isn't valid — use a format like >7d, <3w, =12h."));
+    }
+
+    /// <summary>
+    /// Computes the "N units ago" anchor and a human-readable description of what the filter
+    /// actually does — used both as the applied-filter description and (implicitly, via the
+    /// same logic) understandable even without a separate preview step, since it now applies
+    /// immediately once complete.
+    /// </summary>
+    private static (DateTime Anchor, string Description) ComputeAnchor(Match match)
+    {
+        var op = match.Groups["op"].Success ? match.Groups["op"].Value : "<=";
+        var num = int.Parse(match.Groups["num"].Value);
+        var unit = match.Groups["unit"].Value.ToLowerInvariant();
+
+        var span = unit switch
+        {
+            "h" => TimeSpan.FromHours(num),
+            "d" => TimeSpan.FromDays(num),
+            "w" => TimeSpan.FromDays(num * 7),
+            _ => TimeSpan.Zero
+        };
+
+        var anchor = DateTime.UtcNow - span;
+        var anchorText = anchor.ToString("MMM d, yyyy");
+        var unitWord = unit switch { "h" => "hour(s)", "d" => "day(s)", "w" => "week(s)", _ => unit };
+
+        var description = op switch
+        {
+            "<" => $"Updated after {anchorText} (less than {num} {unitWord} ago)",
+            "<=" or "-" => $"Updated within the last {num} {unitWord} (since {anchorText})",
+            ">" => $"Updated before {anchorText} (more than {num} {unitWord} ago)",
+            ">=" => $"Not updated in the last {num} {unitWord} (before {anchorText})",
+            "=" => $"Updated on {anchorText}",
+            _ => $"Updated relative to {anchorText}"
+        };
+
+        return (anchor, description);
     }
 
     /// <summary>

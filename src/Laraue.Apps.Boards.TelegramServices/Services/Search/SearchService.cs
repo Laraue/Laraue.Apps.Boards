@@ -29,6 +29,8 @@ public class SearchService(
 {
     private const int FragmentContextChars = 70;
 
+    private string IssueThumbnailUrl => $"{options.Value.IssueTelegramIconUrl}";
+
     public async Task HandleInlineSearchQuery(SearchRequest request, CancellationToken ct)
     {
         var readableSpaceIds = await GetReadableSpaceIdsAsync(request, ct);
@@ -52,7 +54,9 @@ public class SearchService(
         }
 
         var readableOrganizations = await GetReadableOrganizationsAsync(readableSpaceIds, ct);
-        var filterContext = new FilterContext(context, request, readableSpaceIds, readableOrganizations);
+        var readableSpaces = await GetReadableSpacesAsync(readableSpaceIds, ct);
+        var filterContext = new FilterContext(
+            context, request, readableSpaceIds, readableOrganizations, readableSpaces);
 
         var (filterTokens, freeTextWords) = QueryTokenParser.Parse(
             inlineQuery,
@@ -62,6 +66,7 @@ public class SearchService(
             .Where(x => readableSpaceIds.Contains(x.Status!.Epic!.SpaceId));
 
         var isKeyLookup = false;
+        var appliedDescriptions = new List<string>();
 
         foreach (var token in filterTokens)
         {
@@ -73,7 +78,7 @@ public class SearchService(
                 continue;
             }
 
-            var resolution = await filter.ResolveAsync(filterContext, issuesQuery, token.Value, token.IsFinalized, ct);
+            var resolution = await filter.ResolveAsync(filterContext, issuesQuery, token.Value, token.IsFollowedByAnotherToken, ct);
 
             switch (resolution)
             {
@@ -81,22 +86,52 @@ public class SearchService(
                     issuesQuery = applied.Query;
                     if (string.Equals(token.Key, "key", StringComparison.OrdinalIgnoreCase))
                         isKeyLookup = true;
-                    
-                    break;
 
-                case SuggestionsResolution { Results.Count: 0 }:
-                    // Filter had nothing to suggest for this partial token (e.g. a bare numeric
-                    // filter) — fall back to treating it as free text instead of showing nothing.
-                    freeTextWords.Add($"{token.Key}:{token.Value}");
+                    if (applied.Description is not null)
+                    {
+                        appliedDescriptions.Add(applied.Description);
+                    }
+
+                    if (applied.SelectedOrganizationIds is not null || applied.SelectedSpaceIds is not null)
+                    {
+                        // A token (org: and/or space:) narrowed organization/space scope —
+                        // rebuild the context so later tokens in this same query (e.g.
+                        // assignee: after org: or space:) see it. This is what makes tokens
+                        // apply sequentially rather than each seeing the same static snapshot.
+                        filterContext = filterContext with
+                        {
+                            SelectedOrganizationIds = applied.SelectedOrganizationIds ?? filterContext.SelectedOrganizationIds,
+                            SelectedSpaceIds = applied.SelectedSpaceIds ?? filterContext.SelectedSpaceIds
+                        };
+                    }
+
                     break;
 
                 case SuggestionsResolution suggestions:
+                    // isPersonal: true — results depend on this user's org access/identity and
+                    // must never be served by Telegram's cache to a different user who happens
+                    // to type the same query text.
                     await botClient.AnswerInlineQuery(
                         request.InlineQueryId,
                         suggestions.Results,
                         cacheTime: 0,
+                        isPersonal: true,
                         cancellationToken: ct);
                     
+                    return;
+
+                case PreviewResolution preview:
+                    // Complete-but-not-yet-finalized shape (upd:>7d) or a Browse-state format
+                    // hint (key:, upd: with nothing typed yet) — shown as a single result the
+                    // user isn't meant to tap so much as read, same rendering as a "no
+                    // results" placeholder but conceptually distinct (nothing is wrong here).
+                    await AnswerNoResults(
+                        request.InlineQueryId,
+                        $"{token.Key}-preview",
+                        preview.Title,
+                        preview.Message,
+                        ct);
+
                     return;
 
                 case ErrorResolution error:
@@ -146,14 +181,17 @@ public class SearchService(
 
         if (issues.Count == 0)
         {
-            await AnswerNoResults(
-                request.InlineQueryId,
-                "no-issues",
-                "No issues found",
-                string.IsNullOrWhiteSpace(searchText)
-                    ? "No issues in this scope."
-                    : $"Nothing matched \"{searchText}\".",
-                ct);
+            var scopeParts = new List<string>(appliedDescriptions);
+            if (!string.IsNullOrWhiteSpace(searchText))
+            {
+                scopeParts.Add($"text \"{searchText}\"");
+            }
+
+            var message = scopeParts.Count > 0
+                ? $"No issues found for {string.Join(", ", scopeParts)}."
+                : "No issues in this scope.";
+
+            await AnswerNoResults(request.InlineQueryId, "no-issues", "No issues found", message, ct);
             return;
         }
 
@@ -216,15 +254,22 @@ public class SearchService(
                     })
                 {
                     Description = fragment.ToPlainText(),
+                    // Without this, Telegram falls back to a grey placeholder tile with just
+                    // the first letter of the title — setting a real icon here is what makes
+                    // the mobile results list show an actual image instead.
+                    ThumbnailUrl = IssueThumbnailUrl,
                     ReplyMarkup = new InlineKeyboardMarkup(
                         InlineKeyboardButton.WithUrl("🔗 Open issue", issueUrl))
                 });
         }
 
+        // isPersonal: true — see note above; the same reasoning applies to every branch
+        // that answers an inline query, not just the suggestions one.
         await botClient.AnswerInlineQuery(
             request.InlineQueryId,
             result,
             cacheTime: 0,
+            isPersonal: true,
             cancellationToken: ct);
     }
 
@@ -269,6 +314,20 @@ public class SearchService(
             .ToListAsyncLinqToDB(ct);
     }
 
+    private async Task<IReadOnlyList<SpaceInfo>> GetReadableSpacesAsync(
+        long[] readableSpaceIds,
+        CancellationToken ct)
+    {
+        return await context.Spaces
+            .Where(s => readableSpaceIds.Contains(s.Id))
+            .Select(s => new SpaceInfo(
+                s.Id,
+                s.Key,
+                s.Name, // adjust if Space doesn't have a Name property distinct from Key
+                s.OrganizationId))
+            .ToListAsyncLinqToDB(ct);
+    }
+
     private async Task AnswerNoResults(
         string inlineQueryId,
         string resultId,
@@ -287,10 +346,12 @@ public class SearchService(
             Description = message
         };
 
+        // isPersonal: true — see note above.
         await botClient.AnswerInlineQuery(
             inlineQueryId,
             [placeholder],
             cacheTime: 0,
+            isPersonal: true,
             cancellationToken: ct);
     }
 }

@@ -7,8 +7,6 @@ namespace Laraue.Apps.Boards.TelegramHost.Controllers;
 
 public class SearchController(ISearchService searchService) : TelegramController
 {
-    private const int FragmentContextChars = 70;
-
     [TelegramInlineQueryRoute("*")]
     public Task HandleSearchRequest(
         RequestContext requestContext,
