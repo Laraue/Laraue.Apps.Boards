@@ -22,7 +22,7 @@ public interface ICoreSpacesService
         Action<UpdateSettersBuilder<Space>> setters,
         CancellationToken cancellationToken);
     
-    Task Delete(
+    Task<DeleteImpact> Delete(
         long id,
         CancellationToken cancellationToken);
 
@@ -84,19 +84,25 @@ public class CoreSpacesService(
                 cancellationToken);
     }
 
-    public async Task Delete(long id, CancellationToken cancellationToken)
+    public async Task<DeleteImpact> Delete(long id, CancellationToken cancellationToken)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var affectedLinkedChats = await context.LinkedTelegramChats
+            .Where(x => x.SpaceId == id)
+            .CountAsync(cancellationToken);
 
         await context.IssueNumbers
             .Where(x => x.Issue!.Status!.Epic!.SpaceId == id)
             .ExecuteDeleteAsync(cancellationToken);
-        
+
         await context.Spaces
             .Where(c => c.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
-        
+
         await transaction.CommitAsync(cancellationToken);
+
+        return new DeleteImpact(affectedLinkedChats);
     }
 
     public Task<long> GetSpaceIdBySpaceKey(long organizationId, string spaceKey, CancellationToken cancellationToken)

@@ -11,7 +11,7 @@ public interface IStatusesService
         CreateStatusRequest request,
         CancellationToken cancellationToken);
 
-    Task Delete(
+    Task<DeleteImpact> Delete(
         DeleteStatusRequest request,
         CancellationToken cancellationToken);
     
@@ -55,17 +55,17 @@ public class StatusesService(
             cancellationToken);
     }
 
-    public async Task Delete(DeleteStatusRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteImpact> Delete(DeleteStatusRequest request, CancellationToken cancellationToken)
     {
         var canModify = await accessService.CanModifyStatus(
             request.AuthData,
             request.Id,
             cancellationToken);
-        
+
         if (!canModify)
             throw new NotFoundException($"Status: {request.Id} is not found");
 
-        await statusService.Delete(
+        return await statusService.Delete(
             new Boards.Services.DeleteStatusRequest
             {
                 Id = request.Id,

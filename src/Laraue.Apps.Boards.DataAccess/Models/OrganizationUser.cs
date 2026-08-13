@@ -23,4 +23,5 @@ public class OrganizationUser
     public bool CanCreateIssues { get; set; }
     public bool CanUpdateIssues { get; set; }
     public bool CanDeleteIssues { get; set; }
+    public bool CanLinkChat { get; set; }
 }

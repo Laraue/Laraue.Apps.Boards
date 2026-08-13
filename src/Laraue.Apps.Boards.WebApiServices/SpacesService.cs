@@ -25,7 +25,7 @@ public interface ISpacesService
         UpdateSpaceRequest request,
         CancellationToken cancellationToken);
     
-    Task Delete(
+    Task<DeleteImpact> Delete(
         DeleteSpaceRequest request,
         CancellationToken cancellationToken);
     
@@ -124,13 +124,13 @@ public class SpacesService(
             cancellationToken);
     }
 
-    public async Task Delete(DeleteSpaceRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteImpact> Delete(DeleteSpaceRequest request, CancellationToken cancellationToken)
     {
         var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
             request.AuthData.OrganizationId,
             request.Key,
             cancellationToken);
-        
+
         var accessLevel = await accessService.GetAccessLevelsBySpaceId(
             request.AuthData,
             spaceId,
@@ -138,11 +138,11 @@ public class SpacesService(
 
         if (accessLevel is null)
             throw new NotFoundException($"Space: {request.Key} is not found");
-        
+
         if (!accessLevel.CanDeleteSpace)
             throw new ForbiddenException($"Space: {request.Key} is not accessible");
-        
-        await coreSpacesService.Delete(spaceId, cancellationToken);
+
+        return await coreSpacesService.Delete(spaceId, cancellationToken);
     }
 
     public async Task<SpaceMember[]> GetMembers(GetSpaceMembersRequest request, CancellationToken cancellationToken)

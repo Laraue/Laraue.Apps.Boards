@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.WebApiServices;
+﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -38,7 +39,7 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
     }
     
     [HttpDelete("{key}")]
-    public Task Delete(
+    public Task<DeleteImpact> Delete(
         string key,
         CancellationToken cancellationToken = default)
     {

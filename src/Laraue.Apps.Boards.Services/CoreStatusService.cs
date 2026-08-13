@@ -17,7 +17,7 @@ public interface ICoreStatusService
         long epicId,
         CancellationToken cancellationToken);
     
-    Task Delete(
+    Task<DeleteImpact> Delete(
         DeleteStatusRequest request,
         CancellationToken cancellationToken);
     
@@ -68,7 +68,7 @@ public class CoreStatusService(DatabaseContext context) : ICoreStatusService
             .ToArrayAsyncEF(cancellationToken);
     }
 
-    public async Task Delete(DeleteStatusRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteImpact> Delete(DeleteStatusRequest request, CancellationToken cancellationToken)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -76,7 +76,7 @@ public class CoreStatusService(DatabaseContext context) : ICoreStatusService
             .Where(x => x.Id == request.Id)
             .Select(x => new { MessageCategoryId = x.EpicId })
             .FirstOrThrowNotFoundEFAsync($"Status: {request.Id} is not found", cancellationToken);
-        
+
         var newStatusId = await context.Statuses
             .Where(x => x.EpicId == categoryData.MessageCategoryId)
             .Where(x => x.Id != request.Id)
@@ -88,18 +88,24 @@ public class CoreStatusService(DatabaseContext context) : ICoreStatusService
             throw new BadRequestException(
                 nameof(request.Id),
                 "Deleting the single status in category is not allowed");
-        
+
+        var affectedLinkedChats = await context.LinkedTelegramChats
+            .Where(x => x.StatusId == request.Id)
+            .CountAsync(cancellationToken);
+
         await context.Issues
             .Where(x => x.StatusId == request.Id)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.StatusId, newStatusId.Id),
                 cancellationToken);
-        
+
         await context.Statuses
             .Where(x => x.Id == request.Id)
             .ExecuteDeleteAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+
+        return new DeleteImpact(affectedLinkedChats);
     }
 
     public Task Update(

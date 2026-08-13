@@ -14,6 +14,15 @@ public interface ITelegramSaveMessageService
     Task<GetOrCreateMessageResult> Save(
         SaveMessageTelegramRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Passively records an album (media group) item from a linked group chat - downloads and
+    /// stores its attachment, but does not create a card for it. Used so that later, when
+    /// someone replies+mentions any one item of the album, the rest of the album's attachments
+    /// are already available to pull into the resulting card. No-op if the request isn't part
+    /// of a media group, or if this item was already recorded.
+    /// </summary>
+    Task RecordAlbumItem(SaveMessageTelegramRequest request, CancellationToken cancellationToken);
 }
 
 public class TelegramSaveMessageService(
@@ -44,26 +53,84 @@ public class TelegramSaveMessageService(
         SaveVideoMessageTelegramRequest request,
         CancellationToken cancellationToken)
     {
+        var mediaInfo = await BuildVideoMediaInfo(request, cancellationToken);
+
+        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
+    }
+
+    private async Task<MediaInfo> BuildVideoMediaInfo(
+        SaveVideoMessageTelegramRequest request,
+        CancellationToken cancellationToken)
+    {
         Guid? previewFileId = null;
         if (request.Thumbnail is not null)
         {
             await coreFilesService.DownloadToLocalStorage(request.Thumbnail.FileId, request.Thumbnail.MimeType, cancellationToken);
             previewFileId = await CreateTelegramFileIfNotExists(request.Thumbnail, cancellationToken);
         }
-        
+
         var fileId = await CreateTelegramFileIfNotExists(
             request.Video,
             cancellationToken);
 
-        var mediaInfo = new MediaInfo
+        return new MediaInfo
         {
             PreviewFileId = previewFileId,
             OriginalFileId = fileId,
             Type = AttachmentType.Video,
             FileName = request.Video.FileName,
         };
-        
-        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
+    }
+
+    public async Task RecordAlbumItem(SaveMessageTelegramRequest request, CancellationToken cancellationToken)
+    {
+        if (request.MediaGroupId is null)
+            return;
+
+        var alreadyRecorded = await context.TelegramMessages
+            .AnyAsync(
+                x => x.ExternalMessageId == request.ExternalMessageId && x.ExternalChatId == request.ExternalUserId,
+                cancellationToken);
+
+        if (alreadyRecorded)
+            return;
+
+        MediaInfo? mediaInfo = request switch
+        {
+            SaveImageMessageTelegramRequest image => await BuildImageMediaInfo(image, cancellationToken),
+            SaveVideoMessageTelegramRequest video => await BuildVideoMediaInfo(video, cancellationToken),
+            _ => null,
+        };
+
+        var groupId = await GetOrCreateTelegramMediaGroupId(request.MediaGroupId, cancellationToken);
+
+        Guid? attachmentId = null;
+        if (mediaInfo is not null)
+        {
+            var attachment = new Attachment
+            {
+                FileId = mediaInfo.OriginalFileId,
+                PreviewFileId = mediaInfo.PreviewFileId,
+                Type = mediaInfo.Type,
+                CreatedAt = dateTimeProvider.UtcNow,
+                OwnerId = request.UserId,
+            };
+
+            context.Add(attachment);
+            await context.SaveChangesAsync(cancellationToken);
+            attachmentId = attachment.Id;
+        }
+
+        context.Add(new TelegramMessage
+        {
+            ExternalMessageId = request.ExternalMessageId,
+            ExternalChatId = request.ExternalUserId,
+            TelegramMediaGroupId = groupId,
+            AttachmentId = attachmentId,
+            PendingContent = request.Text,
+        });
+
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<Guid> CreateTelegramFileIfNotExists(File file, CancellationToken cancellationToken)
@@ -98,22 +165,29 @@ public class TelegramSaveMessageService(
         SaveImageMessageTelegramRequest request,
         CancellationToken cancellationToken)
     {
+        var mediaInfo = await BuildImageMediaInfo(request, cancellationToken);
+
+        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
+    }
+
+    private async Task<MediaInfo> BuildImageMediaInfo(
+        SaveImageMessageTelegramRequest request,
+        CancellationToken cancellationToken)
+    {
         var thumbnailPhoto = request.Photos[0];
         var originalPhoto = request.Photos.Last();
-        
+
         await coreFilesService.DownloadToLocalStorage(thumbnailPhoto.FileId, thumbnailPhoto.MimeType, cancellationToken);
         var thumbnailPhotoFileId = await CreateTelegramFileIfNotExists(thumbnailPhoto, cancellationToken);
         var originalPhotoFileId = await CreateTelegramFileIfNotExists(originalPhoto, cancellationToken);
 
-        var mediaInfo = new MediaInfo
+        return new MediaInfo
         {
             PreviewFileId = thumbnailPhotoFileId,
             OriginalFileId = originalPhotoFileId,
             Type = AttachmentType.Image,
             FileName = originalPhoto.FileName,
         };
-        
-        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
     }
         
     // New msg, old group
@@ -178,7 +252,7 @@ public class TelegramSaveMessageService(
         var cardForMessageIsCreated = (firstGroupMessageData?.CardId).HasValue;
         if (!cardForMessageIsCreated)
         {
-            var statusId = await GetStatusIdToSaveMessage(request.UserId, cancellationToken);
+            var statusId = await GetStatusIdToSaveMessage(request, cancellationToken);
 
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             
@@ -256,7 +330,7 @@ public class TelegramSaveMessageService(
         // Message is not stored, save it // TODO - store only if it is the first message
         if (savedMessage?.IssueId is null)
         {
-            var statusId = await GetStatusIdToSaveMessage(request.UserId, cancellationToken);
+            var statusId = await GetStatusIdToSaveMessage(request, cancellationToken);
 
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -376,23 +450,49 @@ public class TelegramSaveMessageService(
                 cancellationToken);
     }
 
-    private async Task<long> GetStatusIdToSaveMessage(Guid userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Resolves the status a message should be saved to. For DM messages
+    /// (<see cref="SaveMessageTelegramRequest.TargetSpaceId"/> unset), that's the sender's
+    /// personal organization's default space. For messages coming from a linked group chat,
+    /// that's the linked space (narrowed to a specific epic/status, when set on the link).
+    /// </summary>
+    private async Task<long> GetStatusIdToSaveMessage(SaveMessageTelegramRequest request, CancellationToken cancellationToken)
     {
-        var organizationData = await context.Organizations
-            .Where(o => o.Type == OrganizationType.Personal)
-            .Where(o => o.OwnerId == userId)
-            .Select(o => new { o.Id })
-            .FirstOrThrowNotFoundEFAsync($"Personal org is not defined for user: {userId}", cancellationToken);
-        
-        var statusData = await context.Statuses
-            .Where(s => 
-                s.Epic!.IsDefault
-                && s.Epic.Space!.IsDefault
-                && s.Epic.Space.OrganizationId == organizationData.Id)
+        if (request.TargetStatusId is not null)
+            return request.TargetStatusId.Value;
+
+        long spaceId;
+        if (request.TargetSpaceId is not null)
+        {
+            spaceId = request.TargetSpaceId.Value;
+        }
+        else
+        {
+            var organizationData = await context.Organizations
+                .Where(o => o.Type == OrganizationType.Personal)
+                .Where(o => o.OwnerId == request.UserId)
+                .Select(o => new { o.Id })
+                .FirstOrThrowNotFoundEFAsync($"Personal org is not defined for user: {request.UserId}", cancellationToken);
+
+            var spaceData = await context.Spaces
+                .Where(s => s.OrganizationId == organizationData.Id && s.IsDefault)
+                .Select(s => new { s.Id })
+                .FirstOrThrowNotFoundEFAsync($"Personal org default space is not defined for user: {request.UserId}", cancellationToken);
+
+            spaceId = spaceData.Id;
+        }
+
+        var statusQuery = context.Statuses.Where(s => s.Epic!.SpaceId == spaceId);
+
+        statusQuery = request.TargetEpicId is not null
+            ? statusQuery.Where(s => s.EpicId == request.TargetEpicId)
+            : statusQuery.Where(s => s.Epic!.IsDefault);
+
+        var statusData = await statusQuery
             .OrderBy(s => s.SortOrder)
             .Select(s => new { s.Id })
             .FirstOrThrowNotFoundEFAsync("Status to save TG message is not defined", cancellationToken);
-        
+
         return statusData.Id;
     }
     

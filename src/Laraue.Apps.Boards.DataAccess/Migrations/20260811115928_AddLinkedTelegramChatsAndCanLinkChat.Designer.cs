@@ -3,6 +3,7 @@ using System;
 using Laraue.Apps.Boards.DataAccess;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    partial class DatabaseContextModelSnapshot : ModelSnapshot
+    [Migration("20260811115928_AddLinkedTelegramChatsAndCanLinkChat")]
+    partial class AddLinkedTelegramChatsAndCanLinkChat
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1039,11 +1042,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Property<int>("ExternalMessageId")
                         .HasColumnType("integer")
                         .HasColumnName("external_message_id");
-
-                    b.Property<string>("PendingContent")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
-                        .HasColumnName("pending_content");
 
                     b.Property<long?>("TelegramMediaGroupId")
                         .HasColumnType("bigint")

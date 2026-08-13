@@ -37,6 +37,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<TelegramFile> TelegramFiles { get; init; }
     public DbSet<TelegramMessage> TelegramMessages { get; init; }
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
+    public DbSet<LinkedTelegramChat> LinkedTelegramChats { get; init; }
     
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
@@ -118,6 +119,43 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => new { x.ExternalMessageId, x.ExternalChatId })
                 .IsUnique();
+        });
+
+        modelBuilder.Entity<LinkedTelegramChat>(entity =>
+        {
+            entity
+                .HasIndex(x => x.ExternalChatId)
+                .IsUnique();
+
+            entity
+                .HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity
+                .HasOne(x => x.Space)
+                .WithMany()
+                .HasForeignKey(x => x.SpaceId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity
+                .HasOne(x => x.Epic)
+                .WithMany()
+                .HasForeignKey(x => x.EpicId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity
+                .HasOne(x => x.Status)
+                .WithMany()
+                .HasForeignKey(x => x.StatusId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity
+                .HasOne(x => x.LinkedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.LinkedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
         
         modelBuilder.Entity<UserPreferences>(entity =>

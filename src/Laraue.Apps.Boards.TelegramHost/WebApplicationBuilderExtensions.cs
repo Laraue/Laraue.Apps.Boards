@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices;
+using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Telegram.NET.Authentication.Extensions;
@@ -42,6 +43,7 @@ public static class WebApplicationBuilderExtensions
                 .AddTelegramMiddleware<HandleExceptionsMiddleware>()
                 .AddTelegramMiddleware<AutoCallbackResponseMiddleware>()
                 .AddTelegramMiddleware<HandleAllMessagesMiddleware>()
+                .AddTelegramMiddleware<GroupMessageMiddleware>()
                 .AddTelegramRequestLocalization<LocalizationProvider>()
                 .Configure<TelegramRequestLocalizationOptions>(opt =>
                 {
@@ -57,6 +59,12 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ITelegramMessageServiceRepository, TelegramMessageServiceRepository>()
                 .AddScoped<ITelegramCommandsService, TelegramCommandsService>()
                 .AddScoped<ITelegramSaveMessageService, TelegramSaveMessageService>();
+
+            builder.Services
+                .AddScoped<ITelegramChatAdminService, TelegramChatAdminService>()
+                .AddScoped<IGroupChatService, GroupChatService>()
+                .AddScoped<IGroupChatLinkFlowService, GroupChatLinkFlowService>()
+                .AddScoped<IGroupChatCardService, GroupChatCardService>();
 
             builder.Services
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()

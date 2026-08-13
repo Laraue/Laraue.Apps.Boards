@@ -79,4 +79,67 @@
     <data name="OpenMiniApp" xml:space="preserve">
         <value>Запустить приложение</value>
     </data>
+    <data name="LinkChooseOrganization" xml:space="preserve">
+        <value>Выберите организацию, с которой связать этот чат:</value>
+    </data>
+    <data name="LinkChooseSpace" xml:space="preserve">
+        <value>Выберите пространство в {0}:</value>
+    </data>
+    <data name="LinkChooseDestinationDepth" xml:space="preserve">
+        <value>Как карточки из этого чата должны попадать в {0}?</value>
+    </data>
+    <data name="LinkUseBacklog" xml:space="preserve">
+        <value>📥 Использовать бэклог (по умолчанию)</value>
+    </data>
+    <data name="LinkChooseEpicAndStatus" xml:space="preserve">
+        <value>🗂 Выбрать эпик и статус</value>
+    </data>
+    <data name="LinkChooseEpic" xml:space="preserve">
+        <value>Выберите эпик:</value>
+    </data>
+    <data name="LinkChooseStatus" xml:space="preserve">
+        <value>Выберите статус в {0}:</value>
+    </data>
+    <data name="LinkBack" xml:space="preserve">
+        <value>⬅ Назад</value>
+    </data>
+    <data name="LinkOnlyAdmins" xml:space="preserve">
+        <value>Только администраторы чата могут связать этот чат с организацией. Попросите администратора выполнить /link.</value>
+    </data>
+    <data name="LinkAlreadyLinked" xml:space="preserve">
+        <value>Этот чат уже связан с
+{0}.</value>
+    </data>
+    <data name="LinkChangeLink" xml:space="preserve">
+        <value>🔄 Изменить связь</value>
+    </data>
+    <data name="LinkUnlinkButton" xml:space="preserve">
+        <value>❌ Отвязать</value>
+    </data>
+    <data name="LinkNoOrganizations" xml:space="preserve">
+        <value>У вас пока нет доступа ни к одной организации. Откройте @{0} в личном чате и создайте или присоединитесь к организации.</value>
+    </data>
+    <data name="LinkUnlinked" xml:space="preserve">
+        <value>Этот чат больше не связан ни с одной организацией или пространством.</value>
+    </data>
+    <data name="MentionReplyRequired" xml:space="preserve">
+        <value>Чтобы создать карточку, ответьте на сообщение, которое нужно превратить в карточку, и упомяните меня в этом ответе.</value>
+    </data>
+    <data name="MentionChatNotLinked" xml:space="preserve">
+        <value>Этот чат ещё не связан с организацией. Администратор может выполнить /link, чтобы настроить связь.</value>
+    </data>
+    <data name="MentionUnsupportedType" xml:space="preserve">
+        <value>Пока не умею превращать сообщения такого типа в карточки.</value>
+    </data>
+    <data name="CardCreated" xml:space="preserve">
+        <value>✅ Создано {0} в {1}
+"{2}"
+🔗 {3}</value>
+    </data>
+    <data name="LinkConfirmed" xml:space="preserve">
+        <value>✅ Этот чат теперь связан с
+{0}
+
+Ответьте на любое сообщение и упомяните меня (@{1}), чтобы превратить его в карточку.</value>
+    </data>
 </root>

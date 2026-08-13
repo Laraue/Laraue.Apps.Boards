@@ -29,7 +29,7 @@ public interface IEpicsService
         UpdateEpicRequest request,
         CancellationToken cancellationToken);
     
-    Task Delete(
+    Task<DeleteImpact> Delete(
         DeleteEpicRequest request,
         CancellationToken cancellationToken);
 }
@@ -189,21 +189,21 @@ public class EpicsService(
             cancellationToken);
     }
 
-    public async Task Delete(DeleteEpicRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteImpact> Delete(DeleteEpicRequest request, CancellationToken cancellationToken)
     {
         var epicsAccessLevel = await accessService
             .GetAccessLevelsByEpicId(
                 request.AuthData,
                 request.Id,
                 cancellationToken);
-        
+
         if (epicsAccessLevel is null)
             throw new NotFoundException($"Epic: {request.Id} is not found");
 
         if (!epicsAccessLevel.CanDeleteEpic)
             throw new ForbiddenException($"Epic: {request.Id} is not accessible");
-        
-        await coreEpicsService.Delete(
+
+        return await coreEpicsService.Delete(
             new DeleteRequest { Id = request.Id },
             cancellationToken);
     }

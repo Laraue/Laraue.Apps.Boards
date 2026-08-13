@@ -57,6 +57,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to ✅ Created {0} in {1}.
+        /// </summary>
+        internal static string CardCreated {
+            get {
+                return ResourceManager.GetString("CardCreated", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Category.
         /// </summary>
         internal static string Category {
@@ -110,6 +119,168 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
             }
         }
         
+        /// <summary>
+        ///   Looks up a localized string similar to This chat is already linked to.
+        /// </summary>
+        internal static string LinkAlreadyLinked {
+            get {
+                return ResourceManager.GetString("LinkAlreadyLinked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ⬅ Back.
+        /// </summary>
+        internal static string LinkBack {
+            get {
+                return ResourceManager.GetString("LinkBack", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🔄 Change link.
+        /// </summary>
+        internal static string LinkChangeLink {
+            get {
+                return ResourceManager.GetString("LinkChangeLink", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Choose an organization to link this chat to:.
+        /// </summary>
+        internal static string LinkChooseOrganization {
+            get {
+                return ResourceManager.GetString("LinkChooseOrganization", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to How should cards from this chat land in {0}?.
+        /// </summary>
+        internal static string LinkChooseDestinationDepth {
+            get {
+                return ResourceManager.GetString("LinkChooseDestinationDepth", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Choose an epic:.
+        /// </summary>
+        internal static string LinkChooseEpic {
+            get {
+                return ResourceManager.GetString("LinkChooseEpic", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🗂 Choose epic &amp; status.
+        /// </summary>
+        internal static string LinkChooseEpicAndStatus {
+            get {
+                return ResourceManager.GetString("LinkChooseEpicAndStatus", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Choose a space in {0}:.
+        /// </summary>
+        internal static string LinkChooseSpace {
+            get {
+                return ResourceManager.GetString("LinkChooseSpace", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Choose a status in {0}:.
+        /// </summary>
+        internal static string LinkChooseStatus {
+            get {
+                return ResourceManager.GetString("LinkChooseStatus", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ✅ This chat is now linked to.
+        /// </summary>
+        internal static string LinkConfirmed {
+            get {
+                return ResourceManager.GetString("LinkConfirmed", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to You don't have access to any organizations yet. Open @{0} in a private chat and create or join one first..
+        /// </summary>
+        internal static string LinkNoOrganizations {
+            get {
+                return ResourceManager.GetString("LinkNoOrganizations", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Only chat admins can link this chat to an organization. Ask an admin to run /link..
+        /// </summary>
+        internal static string LinkOnlyAdmins {
+            get {
+                return ResourceManager.GetString("LinkOnlyAdmins", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This chat is no longer linked to any organization or space..
+        /// </summary>
+        internal static string LinkUnlinked {
+            get {
+                return ResourceManager.GetString("LinkUnlinked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ❌ Unlink.
+        /// </summary>
+        internal static string LinkUnlinkButton {
+            get {
+                return ResourceManager.GetString("LinkUnlinkButton", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This chat isn't linked to an organization yet. An admin can run /link to set it up..
+        /// </summary>
+        internal static string MentionChatNotLinked {
+            get {
+                return ResourceManager.GetString("MentionChatNotLinked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to To create a card, reply to the message you want to turn into an issue and mention me in that reply..
+        /// </summary>
+        internal static string MentionReplyRequired {
+            get {
+                return ResourceManager.GetString("MentionReplyRequired", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to I can't turn this message type into a card yet..
+        /// </summary>
+        internal static string MentionUnsupportedType {
+            get {
+                return ResourceManager.GetString("MentionUnsupportedType", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 📥 Use backlog (default).
+        /// </summary>
+        internal static string LinkUseBacklog {
+            get {
+                return ResourceManager.GetString("LinkUseBacklog", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>

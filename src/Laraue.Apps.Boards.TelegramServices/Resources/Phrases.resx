@@ -79,4 +79,67 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="OpenMiniApp" xml:space="preserve">
         <value>Open Message Board</value>
     </data>
+    <data name="LinkChooseOrganization" xml:space="preserve">
+        <value>Choose an organization to link this chat to:</value>
+    </data>
+    <data name="LinkChooseSpace" xml:space="preserve">
+        <value>Choose a space in {0}:</value>
+    </data>
+    <data name="LinkChooseDestinationDepth" xml:space="preserve">
+        <value>How should cards from this chat land in {0}?</value>
+    </data>
+    <data name="LinkUseBacklog" xml:space="preserve">
+        <value>📥 Use backlog (default)</value>
+    </data>
+    <data name="LinkChooseEpicAndStatus" xml:space="preserve">
+        <value>🗂 Choose epic &amp; status</value>
+    </data>
+    <data name="LinkChooseEpic" xml:space="preserve">
+        <value>Choose an epic:</value>
+    </data>
+    <data name="LinkChooseStatus" xml:space="preserve">
+        <value>Choose a status in {0}:</value>
+    </data>
+    <data name="LinkBack" xml:space="preserve">
+        <value>⬅ Back</value>
+    </data>
+    <data name="LinkOnlyAdmins" xml:space="preserve">
+        <value>Only chat admins can link this chat to an organization. Ask an admin to run /link.</value>
+    </data>
+    <data name="LinkAlreadyLinked" xml:space="preserve">
+        <value>This chat is already linked to
+{0}.</value>
+    </data>
+    <data name="LinkChangeLink" xml:space="preserve">
+        <value>🔄 Change link</value>
+    </data>
+    <data name="LinkUnlinkButton" xml:space="preserve">
+        <value>❌ Unlink</value>
+    </data>
+    <data name="LinkNoOrganizations" xml:space="preserve">
+        <value>You don't have access to any organizations yet. Open @{0} in a private chat and create or join one first.</value>
+    </data>
+    <data name="LinkUnlinked" xml:space="preserve">
+        <value>This chat is no longer linked to any organization or space.</value>
+    </data>
+    <data name="MentionReplyRequired" xml:space="preserve">
+        <value>To create a card, reply to the message you want to turn into an issue and mention me in that reply.</value>
+    </data>
+    <data name="MentionChatNotLinked" xml:space="preserve">
+        <value>This chat isn't linked to an organization yet. An admin can run /link to set it up.</value>
+    </data>
+    <data name="MentionUnsupportedType" xml:space="preserve">
+        <value>I can't turn this message type into a card yet.</value>
+    </data>
+    <data name="CardCreated" xml:space="preserve">
+        <value>✅ Created {0} in {1}
+"{2}"
+🔗 {3}</value>
+    </data>
+    <data name="LinkConfirmed" xml:space="preserve">
+        <value>✅ This chat is now linked to
+{0}
+
+Reply to any message and mention me (@{1}) to turn it into a card.</value>
+    </data>
 </root>

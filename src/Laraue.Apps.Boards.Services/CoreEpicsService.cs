@@ -23,7 +23,7 @@ public interface ICoreEpicsService
         ChangeStatusesOrderRequest request,
         CancellationToken cancellationToken);
     
-    Task Delete(
+    Task<DeleteImpact> Delete(
         DeleteRequest request,
         CancellationToken cancellationToken);
     
@@ -112,7 +112,7 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task Delete(DeleteRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteImpact> Delete(DeleteRequest request, CancellationToken cancellationToken)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -122,22 +122,28 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
             .Select(o => o.Epics!.First(y => y.IsDefault))
             .Select(e => new
             {
-                EpicId = e.Id, 
+                EpicId = e.Id,
                 NewStatusId = (long?)e.Statuses!.OrderBy(o => o.SortOrder).FirstOrDefault()!.Id, // Status should be taken from FE in future iterations
             })
             .FirstOrDefaultAsyncEF(cancellationToken);
-        
+
         if (defaultEpic is null)
             throw new NotFoundException($"Backlog for space with Epic:{request.Id} is not found");
-            
+
         if (defaultEpic.EpicId == request.Id)
             throw new ForbiddenException("Default Epic can not be deleted");
-        
+
+        var affectedLinkedChats = await context.LinkedTelegramChats
+            .Where(x => x.EpicId == request.Id)
+            .CountAsync(cancellationToken);
+
         await context.Epics
             .Where(c => c.Id == request.Id)
             .DeleteAsync(cancellationToken);
-        
+
         await transaction.CommitAsync(cancellationToken);
+
+        return new DeleteImpact(affectedLinkedChats);
     }
 
     public Task Update(

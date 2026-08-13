@@ -26,7 +26,7 @@ public class StatusesController(IStatusesService statusesService)
     }
     
     [HttpDelete("{id:long}")]
-    public Task Delete(
+    public Task<DeleteImpact> Delete(
         long id,
         CancellationToken cancellationToken)
     {

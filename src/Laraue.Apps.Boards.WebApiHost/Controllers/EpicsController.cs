@@ -68,7 +68,7 @@ public class EpicsController(IEpicsService categoriesService)
     
     
     [HttpDelete("{id:long}")]
-    public Task Delete(
+    public Task<Laraue.Apps.Boards.Services.DeleteImpact> Delete(
         long id,
         CancellationToken cancellationToken = default)
     {
