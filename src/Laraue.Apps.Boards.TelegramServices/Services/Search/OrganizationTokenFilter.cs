@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Microsoft.Extensions.Options;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InlineQueryResults;
 
@@ -13,7 +14,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 /// shortcut — or errors immediately if literally nothing matches even by prefix, since a
 /// zero-match prefix can never become non-zero by typing more of the same prefix.
 /// </summary>
-public sealed class OrganizationTokenFilter : IQueryTokenFilter
+public sealed class OrganizationTokenFilter(IOptions<AppOptions> options) : IQueryTokenFilter
 {
     public string Key => "org";
 
@@ -74,7 +75,7 @@ public sealed class OrganizationTokenFilter : IQueryTokenFilter
         return Task.FromResult(BuildPicker(context, value, showWildcardHint: true));
     }
 
-    private static TokenResolution BuildPicker(FilterContext context, string value, bool showWildcardHint)
+    private TokenResolution BuildPicker(FilterContext context, string value, bool showWildcardHint)
     {
         var results = context.ReadableOrganizations
             .Select(o =>
@@ -90,6 +91,7 @@ public sealed class OrganizationTokenFilter : IQueryTokenFilter
                         ParseMode = ParseMode.MarkdownV2
                     })
                 {
+                    ThumbnailUrl = options.Value.Icons.Organization,
                     Description = $"org:{o.Slug} — apply this filter"
                 };
             })
@@ -110,6 +112,7 @@ public sealed class OrganizationTokenFilter : IQueryTokenFilter
                     ParseMode = ParseMode.MarkdownV2
                 })
             {
+                ThumbnailUrl = options.Value.Icons.Hint,
                 Description = value.Length == 0
                     ? "Type an organization's key to filter the list"
                     : $"Add \"{TokenSyntax.WildcardSuffix}\" to search all matches now, or finish typing the exact key"

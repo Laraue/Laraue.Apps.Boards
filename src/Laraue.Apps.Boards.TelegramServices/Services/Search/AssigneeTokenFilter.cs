@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InlineQueryResults;
 
@@ -12,7 +13,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 /// (<see cref="FilterContext.EffectiveSpaceIds"/>) — not just org membership, since a user
 /// might have only a direct per-space grant without org-wide read access.
 /// </summary>
-public sealed class AssigneeTokenFilter : IQueryTokenFilter
+public sealed class AssigneeTokenFilter(IOptions<AppOptions> options) : IQueryTokenFilter
 {
     private readonly record struct UserCandidate(Guid Id, string Username);
 
@@ -81,7 +82,7 @@ public sealed class AssigneeTokenFilter : IQueryTokenFilter
         return BuildPicker(context, candidates, value, showWildcardHint: true);
     }
 
-    private static TokenResolution BuildPicker(
+    private TokenResolution BuildPicker(
         FilterContext context,
         IReadOnlyList<UserCandidate> candidates,
         string value,
@@ -98,6 +99,7 @@ public sealed class AssigneeTokenFilter : IQueryTokenFilter
                 ParseMode = ParseMode.MarkdownV2
             })
         {
+            ThumbnailUrl = options.Value.Icons.User,
             Description = "assignee:me — issues assigned to you"
         });
 
@@ -120,6 +122,7 @@ public sealed class AssigneeTokenFilter : IQueryTokenFilter
                         ParseMode = ParseMode.MarkdownV2
                     })
                 {
+                    ThumbnailUrl = options.Value.Icons.User,
                     Description = $"assignee:{u.Username} — apply this filter"
                 };
             }));
@@ -138,6 +141,7 @@ public sealed class AssigneeTokenFilter : IQueryTokenFilter
                     ParseMode = ParseMode.MarkdownV2
                 })
             {
+                ThumbnailUrl = options.Value.Icons.Hint,
                 Description = value.Length == 0
                     ? "Type a username to filter the list"
                     : $"Add \"{TokenSyntax.WildcardSuffix}\" to search all matches now, or finish typing the exact username"

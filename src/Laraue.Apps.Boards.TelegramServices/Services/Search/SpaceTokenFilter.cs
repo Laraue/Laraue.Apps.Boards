@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Microsoft.Extensions.Options;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InlineQueryResults;
 
@@ -9,7 +10,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 /// token already narrowed the search earlier in the same query, matching/browsing are scoped
 /// to spaces within that organization only.
 /// </summary>
-public sealed class SpaceTokenFilter : IQueryTokenFilter
+public sealed class SpaceTokenFilter(IOptions<AppOptions> options) : IQueryTokenFilter
 {
     public string Key => "space";
 
@@ -78,7 +79,7 @@ public sealed class SpaceTokenFilter : IQueryTokenFilter
             : context.ReadableSpaces)
         .ToList();
 
-    private static TokenResolution BuildPicker(IReadOnlyList<SpaceInfo> candidates, string value, bool showWildcardHint)
+    private TokenResolution BuildPicker(IReadOnlyList<SpaceInfo> candidates, string value, bool showWildcardHint)
     {
         var results = candidates
             .Select(s =>
@@ -94,6 +95,7 @@ public sealed class SpaceTokenFilter : IQueryTokenFilter
                         ParseMode = ParseMode.MarkdownV2
                     })
                 {
+                    ThumbnailUrl = options.Value.Icons.Space,
                     Description = $"space:{s.Key} — apply this filter"
                 };
             })
@@ -114,6 +116,7 @@ public sealed class SpaceTokenFilter : IQueryTokenFilter
                     ParseMode = ParseMode.MarkdownV2
                 })
             {
+                ThumbnailUrl = options.Value.Icons.Hint,
                 Description = value.Length == 0
                     ? "Type a space's key to filter the list"
                     : $"Add \"{TokenSyntax.WildcardSuffix}\" to search all matches now, or finish typing the exact key"

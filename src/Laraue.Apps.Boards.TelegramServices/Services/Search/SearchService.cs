@@ -29,8 +29,6 @@ public class SearchService(
 {
     private const int FragmentContextChars = 70;
 
-    private string IssueThumbnailUrl => $"{options.Value.IssueTelegramIconUrl}";
-
     public async Task HandleInlineSearchQuery(SearchRequest request, CancellationToken ct)
     {
         var readableSpaceIds = await GetReadableSpaceIdsAsync(request, ct);
@@ -257,7 +255,7 @@ public class SearchService(
                     // Without this, Telegram falls back to a grey placeholder tile with just
                     // the first letter of the title — setting a real icon here is what makes
                     // the mobile results list show an actual image instead.
-                    ThumbnailUrl = IssueThumbnailUrl,
+                    ThumbnailUrl = options.Value.Icons.Issue,
                     ReplyMarkup = new InlineKeyboardMarkup(
                         InlineKeyboardButton.WithUrl("🔗 Open issue", issueUrl))
                 });
