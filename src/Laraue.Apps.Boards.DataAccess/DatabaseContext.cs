@@ -171,5 +171,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasIndex(x => new { x.EntityId, x.EntityType })
                 .IsDescending(false, true);
         });
+        
+        modelBuilder.Entity<LinkedTelegramChat>(entity =>
+        {
+            entity
+                .HasIndex(x => x.ExternalChatId)
+                .IsUnique();
+        });
     }
 }
