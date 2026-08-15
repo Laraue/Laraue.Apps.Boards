@@ -1,11 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-
 <root>
-    <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
-        <xsd:element name="root" msdata:IsDataSet="true">
-            
-        </xsd:element>
-    </xsd:schema>
     <resheader name="resmimetype">
         <value>text/microsoft-resx</value>
     </resheader>
@@ -78,5 +71,8 @@
     </data>
     <data name="OpenMiniApp" xml:space="preserve">
         <value>Запустить приложение</value>
+    </data>
+    <data name="Help" xml:space="preserve">
+        <value>📖 Документация: https://laraue.com/ru/blog/documentation/laraue-boards</value>
     </data>
 </root>

@@ -41,7 +41,7 @@ public static class WebApplicationBuilderExtensions
                 .AddEfCoreUpdatesQueue<DatabaseContext>()
                 .AddTelegramMiddleware<HandleExceptionsMiddleware>()
                 .AddTelegramMiddleware<AutoCallbackResponseMiddleware>()
-                .AddTelegramMiddleware<HandleAllMessagesMiddleware>()
+                .AddTelegramMiddleware<HandlePrivateMessagesMiddleware>()
                 .AddTelegramRequestLocalization<LocalizationProvider>()
                 .Configure<TelegramRequestLocalizationOptions>(opt =>
                 {

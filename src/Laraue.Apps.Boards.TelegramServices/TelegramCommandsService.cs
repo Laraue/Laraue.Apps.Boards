@@ -1,5 +1,4 @@
-﻿using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.TelegramServices.Resources;
+﻿using Laraue.Apps.Boards.TelegramServices.Resources;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -10,6 +9,10 @@ namespace Laraue.Apps.Boards.TelegramServices;
 public interface ITelegramCommandsService
 {
     Task HandleStart(
+        ReplyData replyData,
+        CancellationToken cancellationToken);
+    
+    Task HandleHelp(
         ReplyData replyData,
         CancellationToken cancellationToken);
 }
@@ -39,6 +42,14 @@ public class TelegramCommandsService(
             {
                 IsDisabled = true,
             },
+            cancellationToken: cancellationToken);
+    }
+
+    public Task HandleHelp(ReplyData replyData, CancellationToken cancellationToken)
+    {
+        return client.SendMessage(
+            replyData.TelegramId,
+            Phrases.Help,
             cancellationToken: cancellationToken);
     }
 }

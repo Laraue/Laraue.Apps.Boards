@@ -79,4 +79,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="OpenMiniApp" xml:space="preserve">
         <value>Open Message Board</value>
     </data>
+    <data name="Help" xml:space="preserve">
+        <value>📖 Docs: https://laraue.com/blog/documentation/laraue-boards</value>
+    </data>
 </root>

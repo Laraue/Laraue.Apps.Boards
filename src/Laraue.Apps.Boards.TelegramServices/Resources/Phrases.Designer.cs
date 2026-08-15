@@ -8,6 +8,9 @@
 //------------------------------------------------------------------------------
 
 namespace Laraue.Apps.Boards.TelegramServices.Resources {
+    using System;
+    
+    
     /// <summary>
     ///   A strongly-typed resource class, for looking up localized strings, etc.
     /// </summary>
@@ -111,6 +114,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to 📖 Docs: https://laraue.com/blog/documentation/laraue-boards.
+        /// </summary>
+        internal static string Help {
+            get {
+                return ResourceManager.GetString("Help", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {
@@ -176,11 +188,18 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         /// <summary>
         ///   Looks up a localized string similar to 👋 Hey! I&apos;m Message Board Bot.
         ///
-        ///I help you turn important Telegram messages into organized Kanban boards. Message me or forward a message and I&apos;ll add it to your Board.
+        ///I turn your Telegram messages into an organized Kanban board. Send or forward me a message, and I&apos;ll add it as a card.
         ///
-        ///You can create boards, use full-text search, and much more. And never get lost in your notes again.
+        ///How it works:
+        ///1. Send or forward a message
+        ///2. 👍 = added to your board
+        ///3. Edit the message and I&apos;ll react with ❤ and update the card (deleting the message won&apos;t delete the card)
         ///
-        ///Tap the button below to open your board 👇.
+        ///📖 Docs: https://laraue.com/blog/documentation/laraue-boards
+        ///
+        ///🔍 Search from any chat: type @msgboard_bot followed by your search, right in the message field.
+        ///
+        ///Full-tex [rest of string was truncated]&quot;;.
         /// </summary>
         internal static string Start {
             get {

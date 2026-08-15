@@ -11,7 +11,7 @@ using Services_File = Laraue.Apps.Boards.Services.File;
 
 namespace Laraue.Apps.Boards.TelegramHost;
 
-public class HandleAllMessagesMiddleware(
+public class HandlePrivateMessagesMiddleware(
     RequestContext context,
     ITelegramMessageService telegramMessageService,
     ITelegramBotClient botClient)
@@ -33,17 +33,13 @@ public class HandleAllMessagesMiddleware(
         {
             var message = context.Update.Message ?? context.Update.EditedMessage;
             
-            if (message!.ViaBot is not null)
-            {
-                // This message was produced by the user picking an inline query result
-                // (@yourbot ...), not typed directly — Telegram sets ViaBot for those.
-                // Nothing to save here; the search flow already handled it when it built
-                // the InlineQueryResult in the first place.
-                context.SetExecutedRoute(
-                    new ExecutedRouteInfo("HandleAllMessagesMiddleware", "ViaBot message"));
-                
+            // We don't process group messages here.
+            if (message!.Chat.Type != ChatType.Private)
                 return;
-            }
+            
+            // This message was produced by the user picking an inline query result
+            if (message.ViaBot is not null)
+                return;
             
             var text = message.Text;
 
@@ -57,9 +53,7 @@ public class HandleAllMessagesMiddleware(
             };
 
             if (request is not null)
-            {
                 await telegramMessageService.HandleSaveMessage(request, ct);
-            }
             else
             {
                 await botClient.SendMessage(
