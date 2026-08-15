@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
@@ -33,5 +34,15 @@ public abstract class TelegramIntegrationTest
     {
         Id = 1,
         Username = "test_user",
+    };
+    
+    protected static Chat PrivateChat => new()
+    {
+        Type = ChatType.Private,
+    };
+    
+    protected static Chat GroupChat => new()
+    {
+        Type = ChatType.Group,
     };
 }

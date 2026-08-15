@@ -27,6 +27,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 },
                 Id = 1,
                 Text = "Test message",
+                Chat = PrivateChat,
             }
         });
 
@@ -55,6 +56,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 From = DefaultUser,
                 Id = 1,
                 Text = "Test message",
+                Chat = PrivateChat,
             }
         });
 
@@ -71,6 +73,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 From = DefaultUser,
                 Id = 1,
                 Text = "Edited Test message",
+                Chat = PrivateChat,
             }
         });
         
@@ -102,6 +105,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                         FileUniqueId = "fileUniqueId1",
                     }
                 ],
+                Chat = PrivateChat,
             },
         });
 
@@ -145,6 +149,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                     }
                 ],
                 Caption = "Caption",
+                Chat = PrivateChat,
             }
         });
         
@@ -186,6 +191,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                         FileUniqueId = "filePreviewUniqueId1",
                     }
                 },
+                Chat = PrivateChat,
             },
         });
 
@@ -225,6 +231,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                         FileUniqueId = "filePreviewUniqueId2",
                     }
                 },
+                Chat = PrivateChat,
             }
         });
         
@@ -266,6 +273,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 },
                 MediaGroupId = "777",
                 Caption = "Caption1",
+                Chat = PrivateChat,
             },
         });
         
@@ -289,6 +297,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                     }
                 ],
                 MediaGroupId = "777",
+                Chat = PrivateChat,
             },
         });
 
@@ -351,6 +360,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                     }
                 },
                 Caption = "UpdatedCaption",
+                Chat = PrivateChat,
             },
         });
         
@@ -1104,6 +1114,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 Id = 1,
                 Text = "Picked from inline search",
                 ViaBot = new User { Id = 999, Username = "some_bot" },
+                Chat = PrivateChat,
             }
         });
 

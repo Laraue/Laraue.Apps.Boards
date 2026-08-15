@@ -39,7 +39,13 @@ public class HandlePrivateMessagesMiddleware(
             
             // This message was produced by the user picking an inline query result
             if (message.ViaBot is not null)
+            {
+                context.SetExecutedRoute(
+                    new ExecutedRouteInfo(
+                        nameof(HandlePrivateMessagesMiddleware),
+                        "ViaBot message skipped"));
                 return;
+            }
             
             var text = message.Text;
 
