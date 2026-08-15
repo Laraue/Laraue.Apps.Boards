@@ -2,14 +2,10 @@
 
 public static class TelegramRoutes
 {
-    public const string Category = "c/{id}";
-    public const string UpdateMessageCategory = "m/sc";
-    public const string UpdateMessageStatus = "m/ss";
+    public const string LinkCommand = "/link";
+    public const string UnlinkCommand = "/unlink";
     
-    public const string Categories = "/categories";
-    public const string CreateCategoryFromMessage = "ccfm";
-    public const string CreateStatusFromMessage = "csfm";
-    
-    public const string UpdateMessageText = "m/ut";
-    public const string Message = "m";
+    public const string ChangeLink = "/link/change";
+    public const string Unlink = "/link/unlink";
+    public const string LinkOrganization = "/link/org";
 }

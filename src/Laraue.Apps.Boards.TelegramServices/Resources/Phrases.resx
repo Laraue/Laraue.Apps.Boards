@@ -82,4 +82,22 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="Help" xml:space="preserve">
         <value>📖 Docs: https://laraue.com/blog/documentation/laraue-boards</value>
     </data>
+    <data name="LinkChangeLink" xml:space="preserve">
+        <value>Change link</value>
+    </data>
+    <data name="LinkUnlink" xml:space="preserve">
+        <value>Unlink</value>
+    </data>
+    <data name="LinkAlreadyLinked" xml:space="preserve">
+        <value>Already linked</value>
+    </data>
+    <data name="LinkRequireAdmin" xml:space="preserve">
+        <value>User should be group admin</value>
+    </data>
+    <data name="LinkNoOrganizations" xml:space="preserve">
+        <value>No organizations available</value>
+    </data>
+    <data name="LinkChooseOrganization" xml:space="preserve">
+        <value>Choose organization</value>
+    </data>
 </root>

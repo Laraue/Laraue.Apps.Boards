@@ -123,6 +123,60 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Already linked.
+        /// </summary>
+        internal static string LinkAlreadyLinked {
+            get {
+                return ResourceManager.GetString("LinkAlreadyLinked", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Change link.
+        /// </summary>
+        internal static string LinkChangeLink {
+            get {
+                return ResourceManager.GetString("LinkChangeLink", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Choose organization.
+        /// </summary>
+        internal static string LinkChooseOrganization {
+            get {
+                return ResourceManager.GetString("LinkChooseOrganization", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to No organizations available.
+        /// </summary>
+        internal static string LinkNoOrganizations {
+            get {
+                return ResourceManager.GetString("LinkNoOrganizations", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to User should be group admin.
+        /// </summary>
+        internal static string LinkRequireAdmin {
+            get {
+                return ResourceManager.GetString("LinkRequireAdmin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unlink.
+        /// </summary>
+        internal static string LinkUnlink {
+            get {
+                return ResourceManager.GetString("LinkUnlink", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {

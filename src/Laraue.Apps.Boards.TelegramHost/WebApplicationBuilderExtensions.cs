@@ -75,7 +75,9 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<IQueryTokenFilter, SpaceTokenFilter>();
 
             builder.Services
-                .AddScoped<IGroupChatService, GroupChatService>();
+                .AddScoped<IGroupChatService, GroupChatService>()
+                .AddScoped<IGroupChatLinkService, GroupChatLinkService>()
+                .AddScoped<IGroupChatAdminService, GroupChatAdminService>();
             
             builder.Services.AddControllers();
 

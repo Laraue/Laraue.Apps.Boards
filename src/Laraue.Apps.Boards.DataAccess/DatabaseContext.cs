@@ -37,6 +37,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<TelegramFile> TelegramFiles { get; init; }
     public DbSet<TelegramMessage> TelegramMessages { get; init; }
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
+    public DbSet<LinkedTelegramChat> LinkedTelegramChats { get; init; }
     
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
