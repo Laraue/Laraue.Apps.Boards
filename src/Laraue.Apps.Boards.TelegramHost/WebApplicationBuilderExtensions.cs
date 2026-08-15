@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices;
+using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Telegram.NET.Authentication.Extensions;
@@ -42,6 +43,7 @@ public static class WebApplicationBuilderExtensions
                 .AddTelegramMiddleware<HandleExceptionsMiddleware>()
                 .AddTelegramMiddleware<AutoCallbackResponseMiddleware>()
                 .AddTelegramMiddleware<HandlePrivateMessagesMiddleware>()
+                .AddTelegramMiddleware<HandleGroupMessageMiddleware>()
                 .AddTelegramRequestLocalization<LocalizationProvider>()
                 .Configure<TelegramRequestLocalizationOptions>(opt =>
                 {
@@ -71,6 +73,9 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<IQueryTokenFilter, OrganizationTokenFilter>()
                 .AddSingleton<IQueryTokenFilter, IssueKeyTokenFilter>()
                 .AddSingleton<IQueryTokenFilter, SpaceTokenFilter>();
+
+            builder.Services
+                .AddScoped<IGroupChatService, GroupChatService>();
             
             builder.Services.AddControllers();
 
