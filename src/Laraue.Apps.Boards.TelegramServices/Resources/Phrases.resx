@@ -100,4 +100,10 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkChooseOrganization" xml:space="preserve">
         <value>Choose organization</value>
     </data>
+    <data name="LinkCancel" xml:space="preserve">
+        <value>✖ Cancel</value>
+    </data>
+    <data name="LinkChooseSpace" xml:space="preserve">
+        <value>Choose a space in {0}:</value>
+    </data>
 </root>

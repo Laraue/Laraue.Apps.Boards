@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Laraue.Telegram.NET.Core.Routing;
 using LinqToDB.EntityFrameworkCore;
@@ -12,20 +13,28 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 public interface IGroupChatLinkService
 {
     Task HandleLinkCommand(
-        Guid userId,
         Message message,
+        Guid userId,
+        CancellationToken cancellationToken);
+    
+    Task HandleOrganizationSelected(
+        CallbackQuery query,
+        Guid userId,
+        long organizationId,
         CancellationToken cancellationToken);
 }
 
 public class GroupChatLinkService(
     IGroupChatAdminService chatAdminService,
     ITelegramBotClient client,
-    DatabaseContext context)
+    DatabaseContext context,
+    IOrganizationAccessService organizationAccessService,
+    IAccessService accessService)
     : IGroupChatLinkService
 {
     public async Task HandleLinkCommand(
-        Guid userId,
         Message message,
+        Guid userId,
         CancellationToken cancellationToken)
     {
         var chatId = message.Chat.Id;
@@ -60,14 +69,84 @@ public class GroupChatLinkService(
 
         await SendOrganizationPicker(chatId, userId, cancellationToken);
     }
+
+    public async Task HandleOrganizationSelected(
+        CallbackQuery query,
+        Guid userId,
+        long organizationId,
+        CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+
+        if (!await IsAllowedToLink(chatId, query, userId, organizationId, cancellationToken))
+            return;
+
+        var organization = await context.Organizations
+            .Select(x => new { x.Name })
+            .FirstAsyncEF(cancellationToken);
+        
+        var spaces = await accessService.GetAvailableSpaces(
+            new OrganizationAuthData { UserId = userId, OrganizationId = organizationId },
+            x => x
+                .Select(y => new { y.Id, y.Name })
+                .ToListAsyncEF(cancellationToken),
+            cancellationToken);
+
+        var buttons = spaces
+            .Select(space => new[]
+            {
+                new CallbackRoutePath(TelegramRoutes.LinkSpace)
+                    .WithPathParameter("id", space.Id.ToString())
+                    .ToInlineKeyboardButton($"📋 {space.Name}")
+            })
+            .Append([new CallbackRoutePath(TelegramRoutes.CloseCallbackWindow)
+                .ToInlineKeyboardButton(Phrases.LinkCancel)]);
+
+        await client.EditMessageText(
+            chatId,
+            query.Message.MessageId,
+            string.Format(Phrases.LinkChooseSpace, organization.Name),
+            replyMarkup: new InlineKeyboardMarkup(buttons),
+            cancellationToken: cancellationToken);
+    }
     
+    private async Task<bool> IsAllowedToLink(
+        ChatId chatId,
+        CallbackQuery callbackQuery,
+        Guid userId,
+        long orgId,
+        CancellationToken cancellationToken)
+    {
+        if (!await chatAdminService.IsAdmin(chatId, callbackQuery.From.Id, cancellationToken))
+        {
+            await client.AnswerCallbackQuery(
+                callbackQuery.Id,
+                Phrases.LinkRequireAdmin,
+                cancellationToken: cancellationToken);
+            
+            return false;
+        }
+
+        if (!await CanLinkToOrganization(userId, orgId, cancellationToken))
+        {
+            await client.AnswerCallbackQuery(
+                callbackQuery.Id,
+                Phrases.LinkRequireAdmin,
+                cancellationToken: cancellationToken);
+            
+            return false;
+        }
+
+        return true;
+    }
+
     private async Task SendOrganizationPicker(
         ChatId chatId,
         Guid userId,
         CancellationToken cancellationToken,
         int? editMessageId = null)
     {
-        var organizations = await GetLinkableOrganizations(userId, cancellationToken);
+        var organizations = await GetLinkableOrganizationsQuery(userId, cancellationToken);
 
         string text;
         InlineKeyboardMarkup? markup;
@@ -85,7 +164,7 @@ public class GroupChatLinkService(
                 .Select(org => new[]
                 {
                     new CallbackRoutePath(TelegramRoutes.LinkOrganization)
-                        .WithQueryParameter("id", org.Id)
+                        .WithPathParameter("id", org.Id.ToString())
                         .ToInlineKeyboardButton($"🏢 {org.Name}")
                 }));
         }
@@ -127,13 +206,24 @@ public class GroupChatLinkService(
             cancellationToken: cancellationToken);
     }
     
-    private Task<List<OrganizationOption>> GetLinkableOrganizations(Guid userId, CancellationToken cancellationToken)
+    private Task<List<OrganizationOption>> GetLinkableOrganizationsQuery(
+        Guid userId,
+        CancellationToken cancellationToken)
     {
-        return context.Organizations
-            .Where(o => o.Users!.Any(u => u.UserId == userId && u.AdminAccessLevel.HasFlag(AdminAccessLevel.LinkChats)))
-            .OrderBy(o => o.Name)
-            .Select(o => new OrganizationOption(o.Id, o.Name))
-            .ToListAsyncEF(cancellationToken);
+        return organizationAccessService.GetOrganizations(
+            userId,
+            query => query
+                .Where(x => x.AdminAccessLevel.HasFlag(AdminAccessLevel.LinkChats))
+                .Select(o => new OrganizationOption(o.Id, o.Organization!.Name))
+                .ToListAsyncEF(cancellationToken));
+    }
+
+    private Task<bool> CanLinkToOrganization(Guid userId, long organizationId, CancellationToken cancellationToken)
+    {
+        return organizationAccessService.GetOrganizations(
+            userId,
+            query => query
+                .AnyAsyncEF(x => x.Id == organizationId, cancellationToken));
     }
     
     private record OrganizationOption(long Id, string Name);

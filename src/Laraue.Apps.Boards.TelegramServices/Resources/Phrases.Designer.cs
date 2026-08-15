@@ -132,6 +132,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to ✖ Cancel.
+        /// </summary>
+        internal static string LinkCancel {
+            get {
+                return ResourceManager.GetString("LinkCancel", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Change link.
         /// </summary>
         internal static string LinkChangeLink {
@@ -146,6 +155,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         internal static string LinkChooseOrganization {
             get {
                 return ResourceManager.GetString("LinkChooseOrganization", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Choose a space in {0}:.
+        /// </summary>
+        internal static string LinkChooseSpace {
+            get {
+                return ResourceManager.GetString("LinkChooseSpace", resourceCulture);
             }
         }
         
