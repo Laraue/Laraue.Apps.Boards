@@ -17,6 +17,15 @@ public class GroupChatController(IGroupChatLinkService linkFlowService) : Telegr
             requestContext.UserId,
             cancellationToken);
     }
+    
+    [TelegramCallbackRoute(TelegramRoutes.LinkCommand)]
+    public Task HandleBackToSelectOrganization(RequestContext requestContext, CancellationToken cancellationToken) // TODO - change pattern? Ambigious
+    {
+        return linkFlowService.HandleBackToOrganizations(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            cancellationToken);
+    }
 
     [TelegramCallbackRoute(TelegramRoutes.LinkOrganization)]
     public Task HandleOrganizationSelected(

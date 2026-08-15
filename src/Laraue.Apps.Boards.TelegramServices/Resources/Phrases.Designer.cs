@@ -132,6 +132,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to ← Back.
+        /// </summary>
+        internal static string LinkBack {
+            get {
+                return ResourceManager.GetString("LinkBack", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to ✖ Cancel.
         /// </summary>
         internal static string LinkCancel {

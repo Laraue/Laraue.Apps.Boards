@@ -106,4 +106,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkChooseSpace" xml:space="preserve">
         <value>Choose a space in {0}:</value>
     </data>
+    <data name="LinkBack" xml:space="preserve">
+        <value>← Back</value>
+    </data>
 </root>
