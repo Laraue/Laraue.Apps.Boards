@@ -112,4 +112,13 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkChooseEpic" xml:space="preserve">
         <value>Choose an epic in {0}:</value>
     </data>
+    <data name="LinkConfirmed" xml:space="preserve">
+        <value>✅ This chat is now linked to
+{0}
+
+Reply to any message and mention me (@{1}) to turn it into a card.</value>
+    </data>
+    <data name="LinkChooseStatus" xml:space="preserve">
+        <value>Choose a status in {0}:</value>
+    </data>
 </root>

@@ -1,7 +1,10 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
+using Laraue.Core.DataAccess.EFCore.Extensions;
+using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Telegram.NET.Core.Routing;
 using LinqToDB.EntityFrameworkCore;
 using Telegram.Bot;
@@ -46,7 +49,8 @@ public class GroupChatLinkService(
     ITelegramBotClient client,
     DatabaseContext context,
     IOrganizationAccessService organizationAccessService,
-    IAccessService accessService)
+    IAccessService accessService,
+    IDateTimeProvider dateTimeProvider)
     : IGroupChatLinkService
 {
     public async Task HandleLinkCommand(
@@ -135,7 +139,12 @@ public class GroupChatLinkService(
 
         var space = await context.Spaces
             .Where(x => x.Id == spaceId)
-            .Select(x => new { x.OrganizationId, SpaceName = x.Name, OrganizationName = x.Organization!.Name })
+            .Select(x => new
+            {
+                x.OrganizationId,
+                x.Name,
+                OrganizationName = x.Organization!.Name
+            })
             .SingleAsyncEF(cancellationToken);
         
         if (!await IsAllowedToLink(query, userId, space.OrganizationId, cancellationToken))
@@ -151,7 +160,7 @@ public class GroupChatLinkService(
         var buttons = epics
             .Select(e =>
             {
-                var epicIcon = e.IsDefault ? "📋" : "⭐";
+                var epicIcon = e.IsDefault ? "✅" : "📋";
                 
                 return new[]
                 {
@@ -167,14 +176,137 @@ public class GroupChatLinkService(
         await client.EditMessageText(
             chatId,
             query.Message.MessageId,
-            string.Format(Phrases.LinkChooseEpic, $"{space.OrganizationName} → {space.SpaceName}"),
+            string.Format(Phrases.LinkChooseEpic, $"{space.OrganizationName} → {space.Name}"),
             replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken);
     }
 
-    public Task HandleEpicSelected(CallbackQuery query, Guid userId, long epicId, CancellationToken cancellationToken)
+    public async Task HandleEpicSelected(
+        CallbackQuery query,
+        Guid userId,
+        long epicId,
+        CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var chatId = query.Message!.Chat.Id;
+        var epic = await context.Epics
+            .Where(x => x.Id == epicId)
+            .Select(x => new
+            {
+                OrganizationName = x.Space!.Organization!.Name,
+                x.Space!.OrganizationId,
+                SpaceName = x.Space.Name,
+                SpaceId = x.Space.Id,
+                x.IsDefault,
+                x.Name,
+            })
+            .SingleAsyncEF(cancellationToken);
+        
+        if (!await IsAllowedToLink(query, userId, epic.OrganizationId, cancellationToken))
+            return;
+        
+        var statuses = await context.Statuses
+            .Where(x => x.EpicId == epicId)
+            .OrderBy(x => x.Id)
+            .Select(x => new { x.Id, x.Name })
+            .ToListAsyncEF(cancellationToken);
+
+
+        // Handle backlog case
+        if (epic.IsDefault)
+        {
+            var status = statuses.First();
+            
+            await LinkToStatus(
+                chatId,
+                query.Message.Chat.Title,
+                status.Id,
+                userId, 
+                cancellationToken);
+
+            await SendLinkConfirmed(
+                chatId,
+                query.Message.MessageId,
+                new LinkedChatDto
+                {
+                    OrganizationName = epic.OrganizationName,
+                    SpaceName = epic.SpaceName,
+                    EpicName = epic.Name,
+                    StatusName = null,
+                },
+                cancellationToken);
+
+            return;
+        }
+        
+        var buttons = statuses
+            .Select(status => new[]
+            {
+                new CallbackRoutePath(TelegramRoutes.LinkStatus)
+                    .WithQueryParameter("id", status.Id.ToString())
+                    .ToInlineKeyboardButton($"✅ {status.Name}")
+            })
+            .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkSpace)
+                .WithPathParameter("id", epic.SpaceId.ToString()))
+            .AddCancelButton();
+        
+        await client.EditMessageText(
+            chatId,
+            query.Message.MessageId,
+            string.Format(Phrases.LinkChooseStatus, $"{epic.OrganizationName} → {epic.SpaceName} -> {epic.Name}"),
+            replyMarkup: new InlineKeyboardMarkup(buttons),
+            cancellationToken: cancellationToken);
+    }
+    
+    private async Task<LinkedChatDto> LinkToStatus(
+        long externalChatId,
+        string? chatTitle,
+        long statusId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var statusData = await context.Statuses
+            .Where(s => s.Id == statusId)
+            .Select(s => new LinkedChatDto
+            {
+                StatusName = s.Name,
+                EpicName = s.Epic!.Name,
+                SpaceName = s.Epic.Space!.Name,
+                OrganizationName = s.Epic.Space.Organization!.Name,
+            })
+            .FirstOrThrowNotFoundEFAsync($"Status {statusId} not found", cancellationToken);
+
+        var chat = await context.LinkedTelegramChats
+            .FirstOrDefaultAsyncEF(x => x.ExternalChatId == externalChatId, cancellationToken);
+
+        if (chat is null)
+        {
+            chat = new LinkedTelegramChat { ExternalChatId = externalChatId };
+            context.Add(chat);
+        }
+
+        chat.Title = chatTitle;
+        chat.StatusId = statusId;
+        chat.OwnerId = userId;
+        chat.LinkedAt = dateTimeProvider.UtcNow;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        return statusData;
+    }
+    
+    private async Task SendLinkConfirmed(
+        ChatId chatId,
+        int messageId,
+        LinkedChatDto destination,
+        CancellationToken cancellationToken)
+    {
+        var bot = await client.GetMe(cancellationToken);
+
+        await client.EditMessageText(
+            chatId,
+            messageId,
+            string.Format(Phrases.LinkConfirmed, destination, bot.Username),
+            cancellationToken: cancellationToken);
     }
 
     private Task<LinkedChatDto?> GetLinkedChat(long chatId, CancellationToken cancellationToken)

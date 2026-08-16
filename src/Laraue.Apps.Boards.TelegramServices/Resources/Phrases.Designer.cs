@@ -186,6 +186,27 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Choose a status in {0}:.
+        /// </summary>
+        internal static string LinkChooseStatus {
+            get {
+                return ResourceManager.GetString("LinkChooseStatus", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ✅ This chat is now linked to
+        ///{0}
+        ///
+        ///Reply to any message and mention me (@{1}) to turn it into a card..
+        /// </summary>
+        internal static string LinkConfirmed {
+            get {
+                return ResourceManager.GetString("LinkConfirmed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to No organizations available.
         /// </summary>
         internal static string LinkNoOrganizations {
