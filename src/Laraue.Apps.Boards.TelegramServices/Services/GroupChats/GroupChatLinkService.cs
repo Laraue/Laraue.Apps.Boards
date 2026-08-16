@@ -27,6 +27,12 @@ public interface IGroupChatLinkService
         CallbackQuery query,
         Guid userId,
         CancellationToken cancellationToken);
+    
+    Task HandleSpaceSelected(
+        CallbackQuery query,
+        Guid userId,
+        long spaceId,
+        CancellationToken cancellationToken);
 }
 
 public class GroupChatLinkService(
@@ -43,9 +49,7 @@ public class GroupChatLinkService(
         CancellationToken cancellationToken)
     {
         var chatId = message.Chat.Id;
-        var userTelegramId = message.From!.Id;
-        
-        if (!await EnsureIsGroupAdmin(chatId, userTelegramId, cancellationToken))
+        if (!await EnsureUserIsGroupAdmin(message, cancellationToken))
             return;
 
         var linkedChat = await GetLinkedChat(chatId, cancellationToken);
@@ -66,10 +70,11 @@ public class GroupChatLinkService(
     {
         var chatId = query.Message!.Chat.Id;
 
-        if (!await IsAllowedToLink(chatId, query, userId, organizationId, cancellationToken))
+        if (!await IsAllowedToLink(query, userId, organizationId, cancellationToken))
             return;
 
         var organization = await context.Organizations
+            .Where(x => x.Id == organizationId)
             .Select(x => new { x.Name })
             .FirstAsyncEF(cancellationToken);
         
@@ -103,10 +108,9 @@ public class GroupChatLinkService(
     public async Task HandleBackToOrganizations(CallbackQuery query, Guid userId, CancellationToken cancellationToken)
     {
         var chatId = query.Message!.Chat.Id;
-        var userTelegramId = query.From.Id;
         var editedMessageId = query.Message.MessageId;
         
-        if (!await EnsureIsGroupAdmin(chatId, userTelegramId, cancellationToken))
+        if (!await EnsureUserIsGroupAdmin(query, cancellationToken))
             return;
 
         var linkedChat = await GetLinkedChat(chatId, cancellationToken);
@@ -117,6 +121,11 @@ public class GroupChatLinkService(
         }
 
         await SendOrganizationPicker(chatId, userId, editedMessageId, cancellationToken);
+    }
+
+    public Task HandleSpaceSelected(CallbackQuery query, Guid userId, long spaceId, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
     }
 
     private Task<LinkedChatDto?> GetLinkedChat(long chatId, CancellationToken cancellationToken)
@@ -133,9 +142,14 @@ public class GroupChatLinkService(
             .SingleOrDefaultAsyncEF(cancellationToken);
     }
 
-    private async Task<bool> EnsureIsGroupAdmin(ChatId chatId, long telegramUserId, CancellationToken cancellationToken)
+    private async Task<bool> EnsureUserIsGroupAdmin(
+        Message message,
+        CancellationToken cancellationToken)
     {
-        if (await chatAdminService.IsAdmin(chatId, telegramUserId, cancellationToken))
+        var chatId = message.Chat.Id;
+        var userTelegramId = message.From!.Id;
+        
+        if (await chatAdminService.IsAdmin(chatId, userTelegramId, cancellationToken))
             return true;
         
         await client.SendMessage(
@@ -146,34 +160,51 @@ public class GroupChatLinkService(
         return false;
     }
 
-    private async Task<bool> IsAllowedToLink(
-        ChatId chatId,
+    private async Task<bool> EnsureUserIsGroupAdmin(
         CallbackQuery callbackQuery,
-        Guid userId,
-        long orgId,
         CancellationToken cancellationToken)
     {
-        if (!await chatAdminService.IsAdmin(chatId, callbackQuery.From.Id, cancellationToken))
-        {
-            await client.AnswerCallbackQuery(
-                callbackQuery.Id,
-                Phrases.LinkRequireAdmin,
-                cancellationToken: cancellationToken);
-            
-            return false;
-        }
+        var chatId = callbackQuery.Message!.Chat.Id;
+        var userTelegramId = callbackQuery.From.Id;
+        
+        if (await chatAdminService.IsAdmin(chatId, userTelegramId, cancellationToken))
+            return true;
+        
+        await client.AnswerCallbackQuery(
+            callbackQuery.Id,
+            Phrases.LinkRequireAdmin,
+            cancellationToken: cancellationToken);
+        
+        return false;
+    }
 
-        if (!await CanLinkToOrganization(userId, orgId, cancellationToken))
-        {
-            await client.AnswerCallbackQuery(
-                callbackQuery.Id,
-                Phrases.LinkRequireAdmin,
-                cancellationToken: cancellationToken);
+    private async Task<bool> EnsureUserCanLinkOrganization(
+        Guid userId,
+        long organizationId,
+        CallbackQuery callbackQuery,
+        CancellationToken cancellationToken)
+    {
+        if (await CanLinkToOrganization(userId, organizationId, cancellationToken))
+            return true;
+        
+        await client.AnswerCallbackQuery(
+            callbackQuery.Id,
+            Phrases.LinkRequireAdmin,
+            cancellationToken: cancellationToken);
             
-            return false;
-        }
+        return false;
+    }
 
-        return true;
+    private async Task<bool> IsAllowedToLink(
+        CallbackQuery query,
+        Guid userId,
+        long organizationId,
+        CancellationToken cancellationToken)
+    {
+        if (!await EnsureUserIsGroupAdmin(query, cancellationToken))
+            return false;
+
+        return await EnsureUserCanLinkOrganization(userId, organizationId, query, cancellationToken);
     }
 
     private async Task SendOrganizationPicker(

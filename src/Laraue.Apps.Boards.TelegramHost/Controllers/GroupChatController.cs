@@ -39,4 +39,17 @@ public class GroupChatController(IGroupChatLinkService linkFlowService) : Telegr
             id,
             cancellationToken);
     }
+    
+    [TelegramCallbackRoute(TelegramRoutes.LinkSpace)]
+    public Task HandleSpaceSelected(
+        RequestContext requestContext,
+        [FromPath] long id,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleSpaceSelected(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            id,
+            cancellationToken);
+    }
 }
