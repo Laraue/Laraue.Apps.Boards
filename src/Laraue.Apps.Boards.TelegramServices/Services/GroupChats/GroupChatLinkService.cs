@@ -78,14 +78,7 @@ public class GroupChatLinkService(
         if (!await EnsureUserIsGroupAdmin(message, cancellationToken))
             return;
 
-        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
-        if (linkedChat is not null)
-        {
-            await SendAlreadyLinkedMenu(chatId, linkedChat, null, cancellationToken);
-            return;
-        }
-
-        await SendOrganizationPicker(chatId, userId, null, cancellationToken);
+        await ShowLinkEntryPoint(chatId, userId, null, cancellationToken);
     }
 
     public async Task HandleUnlinkCommand(Message message, Guid userId, CancellationToken cancellationToken)
@@ -97,7 +90,7 @@ public class GroupChatLinkService(
         var linkedChat = await GetLinkedChat(chatId, cancellationToken);
         if (linkedChat is null)
         {
-            // TODO - say something?
+            await client.SendMessage(chatId, Phrases.LinkNotLinked, cancellationToken: cancellationToken);
             return;
         }
 
@@ -119,11 +112,17 @@ public class GroupChatLinkService(
         if (!await IsAllowedToLink(query, userId, organizationId, cancellationToken))
             return;
 
-        var organization = await context.Organizations
-            .Where(x => x.Id == organizationId)
-            .Select(x => new { x.Name })
-            .FirstAsyncEF(cancellationToken);
-        
+        var organization = await LoadOrAnswerNotFound(
+            query,
+            () => context.Organizations
+                .Where(x => x.Id == organizationId)
+                .Select(x => new { x.Name })
+                .FirstOrDefaultAsyncEF(cancellationToken),
+            cancellationToken);
+
+        if (organization is null)
+            return;
+
         var spaces = await accessService.GetAvailableSpaces(
             new OrganizationAuthData { UserId = userId, OrganizationId = organizationId },
             x => x
@@ -155,34 +154,33 @@ public class GroupChatLinkService(
     {
         var chatId = query.Message!.Chat.Id;
         var editedMessageId = query.Message.MessageId;
-        
+
         if (!await EnsureUserIsGroupAdmin(query, cancellationToken))
             return;
 
-        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
-        if (linkedChat is not null)
-        {
-            await SendAlreadyLinkedMenu(chatId, linkedChat, editedMessageId, cancellationToken);
-            return;
-        }
-
-        await SendOrganizationPicker(chatId, userId, editedMessageId, cancellationToken);
+        await ShowLinkEntryPoint(chatId, userId, editedMessageId, cancellationToken);
     }
 
     public async Task HandleSpaceSelected(CallbackQuery query, Guid userId, long spaceId, CancellationToken cancellationToken)
     {
         var chatId = query.Message!.Chat.Id;
 
-        var space = await context.Spaces
-            .Where(x => x.Id == spaceId)
-            .Select(x => new
-            {
-                x.OrganizationId,
-                x.Name,
-                OrganizationName = x.Organization!.Name
-            })
-            .SingleAsyncEF(cancellationToken);
-        
+        var space = await LoadOrAnswerNotFound(
+            query,
+            () => context.Spaces
+                .Where(x => x.Id == spaceId)
+                .Select(x => new
+                {
+                    x.OrganizationId,
+                    x.Name,
+                    OrganizationName = x.Organization!.Name
+                })
+                .SingleOrDefaultAsyncEF(cancellationToken),
+            cancellationToken);
+
+        if (space is null)
+            return;
+
         if (!await IsAllowedToLink(query, userId, space.OrganizationId, cancellationToken))
             return;
         
@@ -224,33 +222,45 @@ public class GroupChatLinkService(
         CancellationToken cancellationToken)
     {
         var chatId = query.Message!.Chat.Id;
-        var epic = await context.Epics
-            .Where(x => x.Id == epicId)
-            .Select(x => new
-            {
-                OrganizationName = x.Space!.Organization!.Name,
-                x.Space!.OrganizationId,
-                SpaceName = x.Space.Name,
-                SpaceId = x.Space.Id,
-                x.IsDefault,
-                x.Name,
-            })
-            .SingleAsyncEF(cancellationToken);
-        
+        var epic = await LoadOrAnswerNotFound(
+            query,
+            () => context.Epics
+                .Where(x => x.Id == epicId)
+                .Select(x => new
+                {
+                    OrganizationName = x.Space!.Organization!.Name,
+                    x.Space!.OrganizationId,
+                    SpaceName = x.Space.Name,
+                    SpaceId = x.Space.Id,
+                    x.IsDefault,
+                    x.Name,
+                })
+                .SingleOrDefaultAsyncEF(cancellationToken),
+            cancellationToken);
+
+        if (epic is null)
+            return;
+
         if (!await IsAllowedToLink(query, userId, epic.OrganizationId, cancellationToken))
             return;
-        
+
         var statuses = await context.Statuses
             .Where(x => x.EpicId == epicId)
             .OrderBy(x => x.Id)
             .Select(x => new { x.Id, x.Name })
             .ToListAsyncEF(cancellationToken);
-        
+
         // Handle backlog case
         if (epic.IsDefault)
         {
-            var status = statuses.First();
-            
+            var status = await LoadOrAnswerNotFound(
+                query,
+                () => Task.FromResult(statuses.FirstOrDefault()),
+                cancellationToken);
+
+            if (status is null)
+                return;
+
             await LinkToStatus(
                 chatId,
                 query.Message.Chat.Title,
@@ -299,20 +309,26 @@ public class GroupChatLinkService(
         CancellationToken cancellationToken)
     {
         var chatId = query.Message!.Chat.Id;
-        var status = await context.Statuses
-            .Where(x => x.Id == statusId)
-            .Select(x => new
-            {
-                OrganizationName = x.Epic!.Space!.Organization!.Name,
-                x.Epic.Space!.OrganizationId,
-                SpaceName = x.Epic.Space.Name,
-                SpaceId = x.Epic.Space.Id,
-                EpicName = x.Epic.Name,
-                x.Name,
-                x.Id,
-            })
-            .SingleAsyncEF(cancellationToken); // TODO - in all such cases response with status not exists or was deleted. Avoid unhandled exceptions in TG handlers
-        
+        var status = await LoadOrAnswerNotFound(
+            query,
+            () => context.Statuses
+                .Where(x => x.Id == statusId)
+                .Select(x => new
+                {
+                    OrganizationName = x.Epic!.Space!.Organization!.Name,
+                    x.Epic.Space!.OrganizationId,
+                    SpaceName = x.Epic.Space.Name,
+                    SpaceId = x.Epic.Space.Id,
+                    EpicName = x.Epic.Name,
+                    x.Name,
+                    x.Id,
+                })
+                .SingleOrDefaultAsyncEF(cancellationToken),
+            cancellationToken);
+
+        if (status is null)
+            return;
+
         if (!await IsAllowedToLink(query, userId, status.OrganizationId, cancellationToken))
             return;
         
@@ -339,17 +355,21 @@ public class GroupChatLinkService(
     public async Task HandleUnlink(CallbackQuery query, Guid userId, CancellationToken cancellationToken)
     {
         var chatId = query.Message!.Chat.Id;
-        var linkedChat = await context.LinkedTelegramChats
-            .Where(x => x.ExternalChatId == chatId)
-            .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
-            .FirstOrDefaultAsyncEF(cancellationToken);
-        
+        var linkedChat = await LoadOrAnswerNotFound(
+            query,
+            () => context.LinkedTelegramChats
+                .Where(x => x.ExternalChatId == chatId)
+                .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
+                .FirstOrDefaultAsyncEF(cancellationToken),
+            cancellationToken);
+
         if (linkedChat is null)
-            return; // TODO - answer here
-        
+            return;
+
+        // IsAllowedToLink already answers the callback query (admin/access error) before returning false.
         if (!await IsAllowedToLink(query, userId, linkedChat.OrganizationId, cancellationToken))
-            return;  // TODO - answer here
-        
+            return;
+
         await context.LinkedTelegramChats
             .Where(x => x.ExternalChatId == chatId)
             .ExecuteDeleteAsync(cancellationToken);
@@ -467,6 +487,34 @@ public class GroupChatLinkService(
         return false;
     }
 
+    private Task AnswerItemNotFound(CallbackQuery query, CancellationToken cancellationToken)
+    {
+        return client.AnswerCallbackQuery(
+            query.Id,
+            Phrases.LinkItemNotFound,
+            showAlert: true,
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="loader"/> and, if it yields nothing (e.g. the entity was deleted
+    /// between rendering the picker and the user tapping the button), answers the callback
+    /// query with a "not found" notice instead of letting the caller crash on a missing row.
+    /// </summary>
+    private async Task<T?> LoadOrAnswerNotFound<T>(
+        CallbackQuery query,
+        Func<Task<T?>> loader,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        var result = await loader();
+
+        if (result is null)
+            await AnswerItemNotFound(query, cancellationToken);
+
+        return result;
+    }
+
     private async Task<bool> IsAllowedToLink(
         CallbackQuery query,
         Guid userId,
@@ -477,6 +525,26 @@ public class GroupChatLinkService(
             return false;
 
         return await EnsureUserCanLinkOrganization(userId, organizationId, query, cancellationToken);
+    }
+
+    /// <summary>
+    /// Shows the "already linked" menu if the chat is linked, otherwise the organization
+    /// picker. Shared entry point for /link and the "Back" callback.
+    /// </summary>
+    private async Task ShowLinkEntryPoint(
+        long chatId,
+        Guid userId,
+        int? editMessageId,
+        CancellationToken cancellationToken)
+    {
+        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
+        if (linkedChat is not null)
+        {
+            await SendAlreadyLinkedMenu(chatId, linkedChat, editMessageId, cancellationToken);
+            return;
+        }
+
+        await SendOrganizationPicker(chatId, userId, editMessageId, cancellationToken);
     }
 
     private async Task SendOrganizationPicker(
@@ -499,7 +567,7 @@ public class GroupChatLinkService(
         else
         {
             text = Phrases.LinkChooseOrganization;
-            
+
             var organizationButtons = organizations
                 .Select(org => new[]
                 {
@@ -512,26 +580,10 @@ public class GroupChatLinkService(
             markup = new InlineKeyboardMarkup(allButtons);
         }
 
-        if (editMessageId is not null)
-        {
-            await client.EditMessageText(
-                chatId,
-                editMessageId.Value,
-                text,
-                replyMarkup: markup,
-                cancellationToken: cancellationToken);
-
-            return;
-        }
-
-        await client.SendMessage(
-            chatId,
-            text,
-            replyMarkup: markup,
-            cancellationToken: cancellationToken);
+        await SendOrEdit(chatId, editMessageId, text, markup, cancellationToken);
     }
-    
-    private async Task SendAlreadyLinkedMenu(
+
+    private Task SendAlreadyLinkedMenu(
         ChatId chatId,
         LinkedChatDto linkedChat,
         int? editMessageId,
@@ -541,24 +593,36 @@ public class GroupChatLinkService(
         {
             new [] { new CallbackRoutePath(TelegramRoutes.Unlink).ToInlineKeyboardButton(Phrases.LinkUnlink) }
         }.AddCancelButton();
-        
+
         var markup = new InlineKeyboardMarkup(buttons);
 
         var text = string.Format(Phrases.LinkAlreadyLinked, linkedChat);
-        
+
+        return SendOrEdit(chatId, editMessageId, text, markup, cancellationToken);
+    }
+
+    /// <summary>
+    /// Edits <paramref name="editMessageId"/> in place if given, otherwise sends a new message.
+    /// Shared by every picker/menu step so each one only builds its text and keyboard.
+    /// </summary>
+    private Task SendOrEdit(
+        ChatId chatId,
+        int? editMessageId,
+        string text,
+        InlineKeyboardMarkup? markup,
+        CancellationToken cancellationToken)
+    {
         if (editMessageId is not null)
         {
-            await client.EditMessageText(
+            return client.EditMessageText(
                 chatId,
                 editMessageId.Value,
                 text,
                 replyMarkup: markup,
                 cancellationToken: cancellationToken);
-
-            return;
         }
-        
-        await client.SendMessage(
+
+        return client.SendMessage(
             chatId,
             text,
             replyMarkup: markup,
@@ -582,6 +646,7 @@ public class GroupChatLinkService(
         return organizationAccessService.GetOrganizations(
             userId,
             query => query
+                .Where(x => x.AdminAccessLevel.HasFlag(AdminAccessLevel.LinkChats))
                 .AnyAsyncEF(x => x.Id == organizationId, cancellationToken));
     }
     

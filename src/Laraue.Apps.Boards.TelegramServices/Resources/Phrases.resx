@@ -125,4 +125,10 @@ Reply to any message and mention me (@{1}) to turn it into a card.</value>
     <data name="LinkUnlinked" xml:space="preserve">
         <value>This chat is no longer linked to any organization or space.</value>
     </data>
+    <data name="LinkNotLinked" xml:space="preserve">
+        <value>This chat is not linked to any organization or space yet. Use /link to link it.</value>
+    </data>
+    <data name="LinkItemNotFound" xml:space="preserve">
+        <value>This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.</value>
+    </data>
 </root>

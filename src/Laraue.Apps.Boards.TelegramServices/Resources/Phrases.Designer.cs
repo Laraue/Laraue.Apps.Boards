@@ -242,7 +242,25 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
                 return ResourceManager.GetString("LinkUnlinked", resourceCulture);
             }
         }
-        
+
+        /// <summary>
+        ///   Looks up a localized string similar to This chat is not linked to any organization or space yet. Use /link to link it..
+        /// </summary>
+        internal static string LinkNotLinked {
+            get {
+                return ResourceManager.GetString("LinkNotLinked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link..
+        /// </summary>
+        internal static string LinkItemNotFound {
+            get {
+                return ResourceManager.GetString("LinkItemNotFound", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
