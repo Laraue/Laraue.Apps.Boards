@@ -65,4 +65,17 @@ public class GroupChatController(IGroupChatLinkService linkFlowService) : Telegr
             id,
             cancellationToken);
     }
+    
+    [TelegramCallbackRoute(TelegramRoutes.LinkStatus)]
+    public Task HandleStatusSelected(
+        RequestContext requestContext,
+        [FromPath] long id,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleStatusSelected(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            id,
+            cancellationToken);
+    }
 }

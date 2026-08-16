@@ -42,6 +42,12 @@ public interface IGroupChatLinkService
         Guid userId,
         long epicId,
         CancellationToken cancellationToken);
+    
+    Task HandleStatusSelected(
+        CallbackQuery query,
+        Guid userId,
+        long statusId,
+        CancellationToken cancellationToken);
 }
 
 public class GroupChatLinkService(
@@ -209,8 +215,7 @@ public class GroupChatLinkService(
             .OrderBy(x => x.Id)
             .Select(x => new { x.Id, x.Name })
             .ToListAsyncEF(cancellationToken);
-
-
+        
         // Handle backlog case
         if (epic.IsDefault)
         {
@@ -256,25 +261,58 @@ public class GroupChatLinkService(
             replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken);
     }
-    
-    private async Task<LinkedChatDto> LinkToStatus(
+
+    public async Task HandleStatusSelected(
+        CallbackQuery query,
+        Guid userId,
+        long statusId,
+        CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+        var status = await context.Statuses
+            .Where(x => x.Id == statusId)
+            .Select(x => new
+            {
+                OrganizationName = x.Epic!.Space!.Organization!.Name,
+                x.Epic.Space!.OrganizationId,
+                SpaceName = x.Epic.Space.Name,
+                SpaceId = x.Epic.Space.Id,
+                EpicName = x.Epic.Name,
+                x.Name,
+                x.Id,
+            })
+            .SingleAsyncEF(cancellationToken); // TODO - in all such cases response with status not exists or was deleted. Avoid unhandled exceptions in TG handlers
+        
+        if (!await IsAllowedToLink(query, userId, status.OrganizationId, cancellationToken))
+            return;
+        
+        await LinkToStatus(
+            chatId,
+            query.Message.Chat.Title,
+            status.Id,
+            userId, 
+            cancellationToken);
+
+        await SendLinkConfirmed(
+            chatId,
+            query.Message.MessageId,
+            new LinkedChatDto
+            {
+                OrganizationName = status.OrganizationName,
+                SpaceName = status.SpaceName,
+                EpicName = status.EpicName,
+                StatusName = status.Name,
+            },
+            cancellationToken);
+    }
+
+    private async Task LinkToStatus(
         long externalChatId,
         string? chatTitle,
         long statusId,
         Guid userId,
         CancellationToken cancellationToken)
     {
-        var statusData = await context.Statuses
-            .Where(s => s.Id == statusId)
-            .Select(s => new LinkedChatDto
-            {
-                StatusName = s.Name,
-                EpicName = s.Epic!.Name,
-                SpaceName = s.Epic.Space!.Name,
-                OrganizationName = s.Epic.Space.Organization!.Name,
-            })
-            .FirstOrThrowNotFoundEFAsync($"Status {statusId} not found", cancellationToken);
-
         var chat = await context.LinkedTelegramChats
             .FirstOrDefaultAsyncEF(x => x.ExternalChatId == externalChatId, cancellationToken);
 
@@ -290,8 +328,6 @@ public class GroupChatLinkService(
         chat.LinkedAt = dateTimeProvider.UtcNow;
 
         await context.SaveChangesAsync(cancellationToken);
-
-        return statusData;
     }
     
     private async Task SendLinkConfirmed(
