@@ -45,34 +45,17 @@ public class GroupChatLinkService(
         var chatId = message.Chat.Id;
         var userTelegramId = message.From!.Id;
         
-        if (!await chatAdminService.IsAdmin(chatId, userTelegramId, cancellationToken))
-        {
-            await client.SendMessage(
-                chatId,
-                Phrases.LinkRequireAdmin,
-                cancellationToken: cancellationToken);
-            
+        if (!await EnsureIsGroupAdmin(chatId, userTelegramId, cancellationToken))
             return;
-        }
 
-        var linkedChat = await context.LinkedTelegramChats
-            .Where(x => x.ExternalChatId == chatId)
-            .Select(x => new LinkedChatDto
-            {
-                EpicName = x.Status!.Epic!.Name,
-                StatusName = x.Status.Epic.IsDefault ? null : x.Status.Name,
-                SpaceName = x.Status.Epic.Space!.Name,
-                OrganizationName = x.Status.Epic.Space!.Organization!.Name,
-            })
-            .FirstOrDefaultAsyncEF(cancellationToken);
-
+        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
         if (linkedChat is not null)
         {
-            await SendAlreadyLinkedMenu(chatId, linkedChat, cancellationToken);
+            await SendAlreadyLinkedMenu(chatId, linkedChat, null, cancellationToken);
             return;
         }
 
-        await SendOrganizationPicker(chatId, userId, cancellationToken);
+        await SendOrganizationPicker(chatId, userId, null, cancellationToken);
     }
 
     public async Task HandleOrganizationSelected(
@@ -106,7 +89,7 @@ public class GroupChatLinkService(
             });
 
         var allButtons = spaceButtons
-            .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkCommand))
+            .AddBackButton(new CallbackRoutePath(TelegramRoutes.BackToLink))
             .AddCancelButton();
 
         await client.EditMessageText(
@@ -123,17 +106,22 @@ public class GroupChatLinkService(
         var userTelegramId = query.From.Id;
         var editedMessageId = query.Message.MessageId;
         
-        if (!await chatAdminService.IsAdmin(chatId, userTelegramId, cancellationToken)) // TODO - To separated method, repeated
+        if (!await EnsureIsGroupAdmin(chatId, userTelegramId, cancellationToken))
+            return;
+
+        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
+        if (linkedChat is not null)
         {
-            await client.SendMessage(
-                chatId,
-                Phrases.LinkRequireAdmin,
-                cancellationToken: cancellationToken);
-            
+            await SendAlreadyLinkedMenu(chatId, linkedChat, editedMessageId, cancellationToken);
             return;
         }
 
-        var linkedChat = await context.LinkedTelegramChats // TODO - To separated method, repeated
+        await SendOrganizationPicker(chatId, userId, editedMessageId, cancellationToken);
+    }
+
+    private Task<LinkedChatDto?> GetLinkedChat(long chatId, CancellationToken cancellationToken)
+    {
+        return context.LinkedTelegramChats
             .Where(x => x.ExternalChatId == chatId)
             .Select(x => new LinkedChatDto
             {
@@ -142,15 +130,20 @@ public class GroupChatLinkService(
                 SpaceName = x.Status.Epic.Space!.Name,
                 OrganizationName = x.Status.Epic.Space!.Organization!.Name,
             })
-            .FirstOrDefaultAsyncEF(cancellationToken);
+            .SingleOrDefaultAsyncEF(cancellationToken);
+    }
 
-        if (linkedChat is not null)
-        {
-            await SendAlreadyLinkedMenu(chatId, linkedChat, cancellationToken); // TODO - consume editedMessageId
-            return;
-        }
-
-        await SendOrganizationPicker(chatId, userId, cancellationToken, editedMessageId); // TODO - swap arguments
+    private async Task<bool> EnsureIsGroupAdmin(ChatId chatId, long telegramUserId, CancellationToken cancellationToken)
+    {
+        if (await chatAdminService.IsAdmin(chatId, telegramUserId, cancellationToken))
+            return true;
+        
+        await client.SendMessage(
+            chatId,
+            Phrases.LinkRequireAdmin,
+            cancellationToken: cancellationToken);
+            
+        return false;
     }
 
     private async Task<bool> IsAllowedToLink(
@@ -186,8 +179,8 @@ public class GroupChatLinkService(
     private async Task SendOrganizationPicker(
         ChatId chatId,
         Guid userId,
-        CancellationToken cancellationToken,
-        int? editMessageId = null)
+        int? editMessageId,
+        CancellationToken cancellationToken)
     {
         var organizations = await GetLinkableOrganizationsQuery(userId, cancellationToken);
 
@@ -238,6 +231,7 @@ public class GroupChatLinkService(
     private async Task SendAlreadyLinkedMenu(
         ChatId chatId,
         LinkedChatDto linkedChat,
+        int? editMessageId,
         CancellationToken cancellationToken)
     {
         var markup = new InlineKeyboardMarkup(
@@ -246,9 +240,23 @@ public class GroupChatLinkService(
             [new CallbackRoutePath(TelegramRoutes.Unlink).ToInlineKeyboardButton(Phrases.LinkUnlink)]
         ]);
 
+        var text = string.Format(Phrases.LinkAlreadyLinked, linkedChat);
+        
+        if (editMessageId is not null)
+        {
+            await client.EditMessageText(
+                chatId,
+                editMessageId.Value,
+                text,
+                replyMarkup: markup,
+                cancellationToken: cancellationToken);
+
+            return;
+        }
+        
         await client.SendMessage(
             chatId,
-            string.Format(Phrases.LinkAlreadyLinked, linkedChat),
+            text,
             replyMarkup: markup,
             cancellationToken: cancellationToken);
     }

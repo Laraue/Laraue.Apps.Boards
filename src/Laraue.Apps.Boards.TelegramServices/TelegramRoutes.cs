@@ -9,6 +9,7 @@ public static class TelegramRoutes
     public const string Unlink = "/link/unlink";
     public const string LinkOrganization = "/link/organization/{id}";
     public const string LinkSpace = "/link/space/{id}";
+    public const string BackToLink = "/link/back";
     
     public const string CloseCallbackWindow = "/close-callback";
 }
