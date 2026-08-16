@@ -123,7 +123,8 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Already linked.
+        ///   Looks up a localized string similar to This chat is already linked to
+        ///{0}.
         /// </summary>
         internal static string LinkAlreadyLinked {
             get {

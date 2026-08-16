@@ -89,7 +89,8 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>Unlink</value>
     </data>
     <data name="LinkAlreadyLinked" xml:space="preserve">
-        <value>Already linked</value>
+        <value>This chat is already linked to
+{0}</value>
     </data>
     <data name="LinkRequireAdmin" xml:space="preserve">
         <value>User should be group admin</value>

@@ -20,6 +20,11 @@ public interface IGroupChatLinkService
         Guid userId,
         CancellationToken cancellationToken);
     
+    Task HandleUnlinkCommand(
+        Message message,
+        Guid userId,
+        CancellationToken cancellationToken);
+    
     Task HandleOrganizationSelected(
         CallbackQuery query,
         Guid userId,
@@ -81,6 +86,26 @@ public class GroupChatLinkService(
         }
 
         await SendOrganizationPicker(chatId, userId, null, cancellationToken);
+    }
+
+    public async Task HandleUnlinkCommand(Message message, Guid userId, CancellationToken cancellationToken)
+    {
+        var chatId = message.Chat.Id;
+        if (!await EnsureUserIsGroupAdmin(message, cancellationToken))
+            return;
+        
+        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
+        if (linkedChat is null)
+        {
+            // TODO - say something?
+            return;
+        }
+
+        await context.LinkedTelegramChats
+            .Where(x => x.ExternalChatId == chatId)
+            .ExecuteDeleteAsync(cancellationToken);
+        
+        await client.SendMessage(chatId, Phrases.LinkUnlinked, cancellationToken: cancellationToken);
     }
 
     public async Task HandleOrganizationSelected(
@@ -512,11 +537,12 @@ public class GroupChatLinkService(
         int? editMessageId,
         CancellationToken cancellationToken)
     {
-        var markup = new InlineKeyboardMarkup(
-        [
-            [new CallbackRoutePath(TelegramRoutes.ChangeLink).ToInlineKeyboardButton(Phrases.LinkChangeLink)],
-            [new CallbackRoutePath(TelegramRoutes.Unlink).ToInlineKeyboardButton(Phrases.LinkUnlink)]
-        ]);
+        var buttons = new []
+        {
+            new [] { new CallbackRoutePath(TelegramRoutes.Unlink).ToInlineKeyboardButton(Phrases.LinkUnlink) }
+        }.AddCancelButton();
+        
+        var markup = new InlineKeyboardMarkup(buttons);
 
         var text = string.Format(Phrases.LinkAlreadyLinked, linkedChat);
         

@@ -18,6 +18,15 @@ public class LinkGroupController(IGroupChatLinkService linkFlowService) : Telegr
             cancellationToken);
     }
     
+    [TelegramMessageRoute(TelegramRoutes.UnlinkCommand, ChatType.Group, ChatType.Supergroup)]
+    public Task HandleUnlink(RequestContext requestContext, CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleUnlinkCommand(
+            requestContext.Update.Message!,
+            requestContext.UserId,
+            cancellationToken);
+    }
+    
     [TelegramCallbackRoute(TelegramRoutes.BackToLink)]
     public Task HandleBackToLink(RequestContext requestContext, CancellationToken cancellationToken)
     {
