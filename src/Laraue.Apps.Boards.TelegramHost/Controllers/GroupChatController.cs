@@ -52,4 +52,17 @@ public class GroupChatController(IGroupChatLinkService linkFlowService) : Telegr
             id,
             cancellationToken);
     }
+    
+    [TelegramCallbackRoute(TelegramRoutes.LinkEpic)]
+    public Task HandleEpicSelected(
+        RequestContext requestContext,
+        [FromPath] long id,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleEpicSelected(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            id,
+            cancellationToken);
+    }
 }

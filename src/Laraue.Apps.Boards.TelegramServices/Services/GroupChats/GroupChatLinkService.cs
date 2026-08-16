@@ -33,6 +33,12 @@ public interface IGroupChatLinkService
         Guid userId,
         long spaceId,
         CancellationToken cancellationToken);
+    
+    Task HandleEpicSelected(
+        CallbackQuery query,
+        Guid userId,
+        long epicId,
+        CancellationToken cancellationToken);
 }
 
 public class GroupChatLinkService(
@@ -90,7 +96,7 @@ public class GroupChatLinkService(
             {
                 new CallbackRoutePath(TelegramRoutes.LinkSpace)
                     .WithPathParameter("id", space.Id.ToString())
-                    .ToInlineKeyboardButton($"📋 {space.Name}")
+                    .ToInlineKeyboardButton($"🗂️ {space.Name}")
             });
 
         var allButtons = spaceButtons
@@ -123,7 +129,50 @@ public class GroupChatLinkService(
         await SendOrganizationPicker(chatId, userId, editedMessageId, cancellationToken);
     }
 
-    public Task HandleSpaceSelected(CallbackQuery query, Guid userId, long spaceId, CancellationToken cancellationToken)
+    public async Task HandleSpaceSelected(CallbackQuery query, Guid userId, long spaceId, CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+
+        var space = await context.Spaces
+            .Where(x => x.Id == spaceId)
+            .Select(x => new { x.OrganizationId, SpaceName = x.Name, OrganizationName = x.Organization!.Name })
+            .SingleAsyncEF(cancellationToken);
+        
+        if (!await IsAllowedToLink(query, userId, space.OrganizationId, cancellationToken))
+            return;
+        
+        var epics = await context.Epics
+            .Where(x => x.SpaceId == spaceId)
+            .OrderByDescending(x => x.IsDefault)
+            .ThenBy(x => x.Id)
+            .Select(x => new { x.Id, x.Name, x.IsDefault })
+            .ToListAsyncEF(cancellationToken);
+
+        var buttons = epics
+            .Select(e =>
+            {
+                var epicIcon = e.IsDefault ? "📋" : "⭐";
+                
+                return new[]
+                {
+                    new CallbackRoutePath(TelegramRoutes.LinkEpic)
+                        .WithPathParameter("id", e.Id.ToString())
+                        .ToInlineKeyboardButton($"{epicIcon} {e.Name}")
+                };
+            })
+            .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkOrganization)
+                .WithPathParameter("id", space.OrganizationId.ToString()))
+            .AddCancelButton();
+
+        await client.EditMessageText(
+            chatId,
+            query.Message.MessageId,
+            string.Format(Phrases.LinkChooseEpic, $"{space.OrganizationName} → {space.SpaceName}"),
+            replyMarkup: new InlineKeyboardMarkup(buttons),
+            cancellationToken: cancellationToken);
+    }
+
+    public Task HandleEpicSelected(CallbackQuery query, Guid userId, long epicId, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }

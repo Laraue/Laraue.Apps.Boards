@@ -98,7 +98,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>No organizations available</value>
     </data>
     <data name="LinkChooseOrganization" xml:space="preserve">
-        <value>Choose organization</value>
+        <value>Choose organization:</value>
     </data>
     <data name="LinkCancel" xml:space="preserve">
         <value>✖ Cancel</value>
@@ -108,5 +108,8 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     </data>
     <data name="LinkBack" xml:space="preserve">
         <value>← Back</value>
+    </data>
+    <data name="LinkChooseEpic" xml:space="preserve">
+        <value>Choose an epic in {0}:</value>
     </data>
 </root>

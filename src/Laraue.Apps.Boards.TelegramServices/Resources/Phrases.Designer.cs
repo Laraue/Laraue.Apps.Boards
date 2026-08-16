@@ -159,7 +159,16 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Choose organization.
+        ///   Looks up a localized string similar to Choose an epic in {0}:.
+        /// </summary>
+        internal static string LinkChooseEpic {
+            get {
+                return ResourceManager.GetString("LinkChooseEpic", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Choose organization:.
         /// </summary>
         internal static string LinkChooseOrganization {
             get {
