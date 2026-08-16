@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramHost;
+using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,7 +18,7 @@ public abstract class TelegramIntegrationTest
         var builder = WebApplication.CreateBuilder();
 
         builder.Configuration.AddJsonFile("appsettings.json");
-            
+
         builder
             .AddTelegramOptions("Telegram")
             .AddApplicationServices()
@@ -26,21 +27,37 @@ public abstract class TelegramIntegrationTest
         var fileStorageMock = new Mock<IFileStorage>();
 
         builder.Services.AddSingleton(fileStorageMock.Object);
-        
+
+        // Registered last to override the real implementation, which would otherwise hit
+        // Telegram's GetChatMember API. AdminUser/MemberUser pick the outcome per test.
+        builder.Services.AddScoped<IGroupChatAdminService, FakeGroupChatAdminService>();
+
         return new AppTelegramTestHost(builder.Services);
     }
-    
+
     protected static User DefaultUser => new()
     {
         Id = 1,
         Username = "test_user",
     };
-    
+
+    protected static User AdminUser => new()
+    {
+        Id = FakeGroupChatAdminService.AdminTelegramUserId,
+        Username = "admin_user",
+    };
+
+    protected static User MemberUser => new()
+    {
+        Id = FakeGroupChatAdminService.MemberTelegramUserId,
+        Username = "member_user",
+    };
+
     protected static Chat PrivateChat => new()
     {
         Type = ChatType.Private,
     };
-    
+
     protected static Chat GroupChat => new()
     {
         Type = ChatType.Group,

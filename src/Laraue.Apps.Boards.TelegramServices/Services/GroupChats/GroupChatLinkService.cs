@@ -637,7 +637,7 @@ public class GroupChatLinkService(
             userId,
             query => query
                 .Where(x => x.AdminAccessLevel.HasFlag(AdminAccessLevel.LinkChats))
-                .Select(o => new OrganizationOption(o.Id, o.Organization!.Name))
+                .Select(o => new OrganizationOption(o.OrganizationId, o.Organization!.Name))
                 .ToListAsyncEF(cancellationToken));
     }
 
@@ -647,7 +647,7 @@ public class GroupChatLinkService(
             userId,
             query => query
                 .Where(x => x.AdminAccessLevel.HasFlag(AdminAccessLevel.LinkChats))
-                .AnyAsyncEF(x => x.Id == organizationId, cancellationToken));
+                .AnyAsyncEF(x => x.OrganizationId == organizationId, cancellationToken));
     }
     
     private record OrganizationOption(long Id, string Name);

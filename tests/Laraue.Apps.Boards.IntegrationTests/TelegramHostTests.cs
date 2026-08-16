@@ -5,12 +5,125 @@ using Microsoft.EntityFrameworkCore;
 using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.InlineQueryResults;
+using Telegram.Bot.Types.ReplyMarkups;
 using User = Telegram.Bot.Types.User;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
 public class TelegramHostTests : TelegramIntegrationTest
 {
+    [Fact]
+    public async Task HandleLink_ShouldRejectNonAdmin_WhenUserIsNotGroupAdmin()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        // Non-admin must be rejected with the "admin required" notice, never reaching the
+        // organization picker.
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("User should be group admin", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldShowOrganizationPicker_WhenAdminAndNoExistingLink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        // Non-personal organization owner gets AdminAccessLevel.All, which includes the
+        // LinkChats flag the picker filters on — see OrganizationDefaults.GetNewOrganizationEntity.
+        var organization = await testScope.InitializeOrganization(userId);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
+        var rows = markup.InlineKeyboard.ToList();
+
+        // One row per linkable organization, plus the trailing Cancel row.
+        Assert.Equal(2, rows.Count);
+        var orgButton = Assert.Single(rows[0]);
+        Assert.Equal($"🏢 {organization.Name}", orgButton.Text);
+        Assert.Equal($"/link/organization/{organization.Id}", orgButton.CallbackData);
+
+        var cancelButton = Assert.Single(rows[1]);
+        Assert.Equal("✖ Cancel", cancelButton.Text);
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldShowAlreadyLinkedMenu_WhenChatAlreadyLinked()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = GroupChat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        // Repeating /link on an already-linked chat must show the already-linked menu, not
+        // the organization picker. The default epic is the backlog, so its status is omitted
+        // from the destination string.
+        var space = organization.GetSpace(0);
+        var epic = organization.GetEpic(0, 0);
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(
+            $"This chat is already linked to\r\n{organization.Name} → {space.Name} → {epic.Name}",
+            request.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
+        var rows = markup.InlineKeyboard.ToList();
+
+        Assert.Equal(2, rows.Count);
+        var unlinkButton = Assert.Single(rows[0]);
+        Assert.Equal("Unlink", unlinkButton.Text);
+        Assert.Equal("/link/unlink", unlinkButton.CallbackData);
+
+        var cancelButton = Assert.Single(rows[1]);
+        Assert.Equal("✖ Cancel", cancelButton.Text);
+    }
+
     [Fact]
     public async Task NewMessage_ShouldInitializeUser_Always()
     {
