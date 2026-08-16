@@ -121,4 +121,7 @@ Reply to any message and mention me (@{1}) to turn it into a card.</value>
     <data name="LinkChooseStatus" xml:space="preserve">
         <value>Choose a status in {0}:</value>
     </data>
+    <data name="LinkUnlinked" xml:space="preserve">
+        <value>This chat is no longer linked to any organization or space.</value>
+    </data>
 </root>

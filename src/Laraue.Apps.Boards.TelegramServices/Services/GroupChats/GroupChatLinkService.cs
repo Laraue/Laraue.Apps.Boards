@@ -3,10 +3,10 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
-using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Telegram.NET.Core.Routing;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -47,6 +47,11 @@ public interface IGroupChatLinkService
         CallbackQuery query,
         Guid userId,
         long statusId,
+        CancellationToken cancellationToken);
+    
+    Task HandleUnlink(
+        CallbackQuery query,
+        Guid userId,
         CancellationToken cancellationToken);
 }
 
@@ -247,7 +252,7 @@ public class GroupChatLinkService(
             .Select(status => new[]
             {
                 new CallbackRoutePath(TelegramRoutes.LinkStatus)
-                    .WithQueryParameter("id", status.Id.ToString())
+                    .WithPathParameter("id", status.Id.ToString())
                     .ToInlineKeyboardButton($"✅ {status.Name}")
             })
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkSpace)
@@ -304,6 +309,31 @@ public class GroupChatLinkService(
                 StatusName = status.Name,
             },
             cancellationToken);
+    }
+
+    public async Task HandleUnlink(CallbackQuery query, Guid userId, CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+        var linkedChat = await context.LinkedTelegramChats
+            .Where(x => x.ExternalChatId == chatId)
+            .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+        
+        if (linkedChat is null)
+            return; // TODO - answer here
+        
+        if (!await IsAllowedToLink(query, userId, linkedChat.OrganizationId, cancellationToken))
+            return;  // TODO - answer here
+        
+        await context.LinkedTelegramChats
+            .Where(x => x.ExternalChatId == chatId)
+            .ExecuteDeleteAsync(cancellationToken);
+        
+        await client.EditMessageText(
+            chatId,
+            query.Message.MessageId,
+            Phrases.LinkUnlinked,
+            cancellationToken: cancellationToken);
     }
 
     private async Task LinkToStatus(

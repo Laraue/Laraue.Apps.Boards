@@ -7,7 +7,7 @@ using Telegram.Bot.Types.Enums;
 
 namespace Laraue.Apps.Boards.TelegramHost.Controllers;
 
-public class GroupChatController(IGroupChatLinkService linkFlowService) : TelegramController
+public class LinkGroupController(IGroupChatLinkService linkFlowService) : TelegramController
 {
     [TelegramMessageRoute(TelegramRoutes.LinkCommand, ChatType.Group, ChatType.Supergroup)]
     public Task HandleLink(RequestContext requestContext, CancellationToken cancellationToken)
@@ -76,6 +76,15 @@ public class GroupChatController(IGroupChatLinkService linkFlowService) : Telegr
             requestContext.Update.CallbackQuery!,
             requestContext.UserId,
             id,
+            cancellationToken);
+    }
+
+    [TelegramCallbackRoute(TelegramRoutes.Unlink)]
+    public Task HandleUnlinkCallback(RequestContext requestContext, CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleUnlink(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
             cancellationToken);
     }
 }
