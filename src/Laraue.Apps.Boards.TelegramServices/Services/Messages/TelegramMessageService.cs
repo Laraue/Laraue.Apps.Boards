@@ -11,7 +11,8 @@ public class TelegramMessageService(
 {
     public async Task HandleSaveMessage(
         SaveMessageTelegramRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool notifyWhenNotLinked = true)
     {
         GetOrCreateMessageResult result;
         try
@@ -20,10 +21,14 @@ public class TelegramMessageService(
         }
         catch (ChatNotLinkedException)
         {
-            await client.SendMessage(
-                request.ExternalUserId,
-                Phrases.LinkNotLinked,
-                cancellationToken: cancellationToken);
+            if (notifyWhenNotLinked)
+            {
+                await client.SendMessage(
+                    request.ExternalChatId,
+                    Phrases.LinkNotLinked,
+                    cancellationToken: cancellationToken);
+            }
+
             return;
         }
 
@@ -41,7 +46,7 @@ public class TelegramMessageService(
         CancellationToken ct)
     {
         await client.SetMessageReaction(
-            request.ExternalUserId,
+            request.ExternalChatId,
             request.ExternalMessageId,
             reaction is not null
                 ? [new ReactionTypeEmoji { Emoji = reaction }]

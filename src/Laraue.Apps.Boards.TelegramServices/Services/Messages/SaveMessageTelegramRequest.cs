@@ -6,7 +6,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 public abstract class SaveMessageTelegramRequest
 {
     public required string? From { get; set; }
-    public required long ExternalUserId { get; set; }
+    public required long ExternalChatId { get; set; }
     public required int ExternalMessageId { get; set; }
     public required Guid UserId { get; set; }
     public required string? Text { get; set; }

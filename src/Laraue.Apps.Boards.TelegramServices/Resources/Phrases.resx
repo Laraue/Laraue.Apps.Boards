@@ -18,6 +18,9 @@
     <resheader name="writer">
         <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
     </resheader>
+    <data name="MessageTypeIsNotAvailable" xml:space="preserve">
+        <value>The message of type "{0}" is not supported yet and will not be added to the board.</value>
+    </data>
     <data name="YourCategories" xml:space="preserve">
         <value>Your Categories</value>
     </data>

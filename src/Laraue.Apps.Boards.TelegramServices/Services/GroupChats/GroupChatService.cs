@@ -1,5 +1,6 @@
-﻿using Laraue.Telegram.NET.Core.Extensions;
-using Laraue.Telegram.NET.Core.Utils;
+using Laraue.Apps.Boards.TelegramServices.Resources;
+using Laraue.Apps.Boards.TelegramServices.Services.Messages;
+using Laraue.Telegram.NET.Abstractions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -18,21 +19,34 @@ public interface IGroupChatService
     Task HandleGroupMessage(Message message, CancellationToken cancellationToken);
 }
 
-public class GroupChatService(ITelegramBotClient client) : IGroupChatService
+public class GroupChatService(
+    RequestContext requestContext,
+    ITelegramMessageService telegramMessageService,
+    ITelegramBotClient client)
+    : IGroupChatService
 {
-    public async Task HandleGroupMessage(Message message, CancellationToken cancellationToken)
+    public Task HandleGroupMessage(Message message, CancellationToken cancellationToken)
     {
-        var messageBuilder = new TelegramMessageBuilder()
-            .Append("Group message received");
-        
-        await client.SendTextMessageAsync(
-            message.Chat.Id,
-            messageBuilder,
-            replyParameters: new ReplyParameters
-            {
-                AllowSendingWithoutReply = true,
-                MessageId = message.Id
-            },
-            cancellationToken: cancellationToken);
+        // This message was produced by the user picking an inline query result.
+        if (message.ViaBot is not null)
+            return Task.CompletedTask;
+
+        var request = SaveMessageTelegramRequestFactory.Create(message, requestContext.UserId, message.Chat.Id);
+
+        if (request is null)
+        {
+            return client.SendMessage(
+                message.Chat.Id,
+                string.Format(Phrases.MessageTypeIsNotAvailable, message.Type),
+                cancellationToken: cancellationToken);
+        }
+
+        // Most groups the bot is added to are never linked - stay silent there instead of
+        // nagging every message (unlike private chats, which are always linked from
+        // registration, so the same notice there signals something actually broke).
+        return telegramMessageService.HandleSaveMessage(
+            request,
+            cancellationToken,
+            notifyWhenNotLinked: false);
     }
 }

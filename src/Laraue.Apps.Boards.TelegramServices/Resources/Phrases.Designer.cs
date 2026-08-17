@@ -401,6 +401,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to The message of type "{0}" is not supported yet and will not be added to the board..
+        /// </summary>
+        internal static string MessageTypeIsNotAvailable {
+            get {
+                return ResourceManager.GetString("MessageTypeIsNotAvailable", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Your Categories.
         /// </summary>
         internal static string YourCategories {
