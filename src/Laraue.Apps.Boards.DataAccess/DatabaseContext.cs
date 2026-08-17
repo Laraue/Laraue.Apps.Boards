@@ -178,7 +178,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => x.ExternalChatId)
                 .IsUnique();
-            
+
             entity.HasIndex(x => x.LinkedAt);
             entity.HasIndex(x => x.UnlinkedAt);
         });

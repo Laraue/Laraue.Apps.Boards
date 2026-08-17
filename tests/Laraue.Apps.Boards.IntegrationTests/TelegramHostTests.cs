@@ -160,13 +160,20 @@ public class TelegramHostTests : TelegramIntegrationTest
             $"/link/organization/{organization.Id}");
 
         // GetAvailableSpaces returns every space the user can see in the organization, so the
-        // pre-existing default space is listed alongside the one added for this test.
-        organizationSelected.CheckMessage(string.Format("Choose a space in {0}:", organization.Name));
-        organizationSelected.CheckButtonsSequentially(b => b
-            .HasButtonsRow([new ButtonAssert($"🗂️ {defaultSpace.Name}", $"/link/space/{defaultSpace.Id}")])
-            .HasButtonsRow([new ButtonAssert($"🗂️ {space.Name}", $"/link/space/{space.Id}")])
-            .HasButtonsRow([new ButtonAssert("← Back", "/link/back")])
-            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+        // pre-existing default space is listed alongside the one added for this test. It has
+        // no ORDER BY, so — like InlineSearch_ShouldResolveSpaceToken_ForAllCases elsewhere in
+        // this file — match the two space rows by content rather than assuming a position.
+        organizationSelected.CheckMessage($"Choose a space in {organization.Name}:");
+        var spaceMarkup = Assert.IsType<InlineKeyboardMarkup>(organizationSelected.ReplyMarkup);
+        var spaceRows = spaceMarkup.InlineKeyboard.ToList();
+        Assert.Equal(4, spaceRows.Count);
+        var spaceButtons = spaceRows.Take(2).Select(Assert.Single).ToList();
+        Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {defaultSpace.Name}" && btn.CallbackData == $"/link/space/{defaultSpace.Id}");
+        Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {space.Name}" && btn.CallbackData == $"/link/space/{space.Id}");
+        Assert.Equal("← Back", Assert.Single(spaceRows[2]).Text);
+        Assert.Equal("/link/back", Assert.Single(spaceRows[2]).CallbackData);
+        Assert.Equal("✖ Cancel", Assert.Single(spaceRows[3]).Text);
+        Assert.Equal("/close-callback", Assert.Single(spaceRows[3]).CallbackData);
 
         var spaceSelected = await host.SendCallbackAsync(
             AdminUser,
@@ -176,7 +183,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         // Epics are ordered default-first (see HandleSpaceSelected), so the auto backlog
         // epic's row precedes the explicitly-added one.
-        spaceSelected.CheckMessage(string.Format("Choose an epic in {0}:", $"{organization.Name} → {space.Name}"));
+        spaceSelected.CheckMessage($"Choose an epic in {organization.Name} → {space.Name}:");
         spaceSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert($"✅ {backlogEpic.Name}", $"/link/epic/{backlogEpic.Id}")])
             .HasButtonsRow([new ButtonAssert($"📋 {epic.Name}", $"/link/epic/{epic.Id}")])
@@ -189,9 +196,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             messageId,
             $"/link/epic/{epic.Id}");
 
-        epicSelected.CheckMessage(string.Format(
-            "Choose a status in {0}:",
-            $"{organization.Name} → {space.Name} -> {epic.Name}"));
+        epicSelected.CheckMessage($"Choose a status in {organization.Name} → {space.Name} -> {epic.Name}:");
         epicSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert($"✅ {status.Name}", $"/link/status/{status.Id}")])
             .HasButtonsRow([new ButtonAssert("← Back", $"/link/space/{space.Id}")])
@@ -395,7 +400,7 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task HandleUnlinkCommand_ShouldDeleteLink_WhenChatIsLinked()
+    public async Task HandleUnlinkCommand_ShouldSoftDeleteLink_WhenChatIsLinked()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -427,13 +432,17 @@ public class TelegramHostTests : TelegramIntegrationTest
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal("This chat is no longer linked to any organization or space.", request.Text);
 
+        // The row is kept — not deleted — so a future card referencing it stays valid; only
+        // UnlinkedAt marks the link as no longer active.
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
-        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(GroupChat.Id, linkedChat.ExternalChatId);
+        Assert.NotNull(linkedChat.UnlinkedAt);
     }
 
     [Fact]
-    public async Task HandleUnlinkCallback_ShouldDeleteLink_WhenAuthorized()
+    public async Task HandleUnlinkCallback_ShouldSoftDeleteLink_WhenAuthorized()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -469,7 +478,46 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
-        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(chat.Id, linkedChat.ExternalChatId);
+        Assert.NotNull(linkedChat.UnlinkedAt);
+    }
+
+    [Fact]
+    public async Task LinkFlow_ShouldReuseAndReactivateSameRow_WhenRelinkingAfterUnlink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            LinkedAt = DateTime.UtcNow,
+            UnlinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // Re-linking a previously-unlinked chat mutates that same row back to active — there's
+        // only ever one LinkedTelegramChats row per external chat.
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/status/{status.Id}");
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(chat.Id, linkedChat.ExternalChatId);
+        Assert.Null(linkedChat.UnlinkedAt);
     }
 
     [Fact]

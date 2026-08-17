@@ -95,9 +95,11 @@ public class GroupChatLinkService(
         }
 
         await context.LinkedTelegramChats
-            .Where(x => x.ExternalChatId == chatId)
-            .ExecuteDeleteAsync(cancellationToken);
-        
+            .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(x => x.UnlinkedAt, dateTimeProvider.UtcNow),
+                cancellationToken);
+
         await client.SendMessage(chatId, Phrases.LinkUnlinked, cancellationToken: cancellationToken);
     }
 
@@ -358,7 +360,7 @@ public class GroupChatLinkService(
         var linkedChat = await LoadOrAnswerNotFound(
             query,
             () => context.LinkedTelegramChats
-                .Where(x => x.ExternalChatId == chatId)
+                .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
                 .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
                 .FirstOrDefaultAsyncEF(cancellationToken),
             cancellationToken);
@@ -371,9 +373,11 @@ public class GroupChatLinkService(
             return;
 
         await context.LinkedTelegramChats
-            .Where(x => x.ExternalChatId == chatId)
-            .ExecuteDeleteAsync(cancellationToken);
-        
+            .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(x => x.UnlinkedAt, dateTimeProvider.UtcNow),
+                cancellationToken);
+
         await client.EditMessageText(
             chatId,
             query.Message.MessageId,
@@ -401,6 +405,7 @@ public class GroupChatLinkService(
         chat.StatusId = statusId;
         chat.OwnerId = userId;
         chat.LinkedAt = dateTimeProvider.UtcNow;
+        chat.UnlinkedAt = null;
 
         await context.SaveChangesAsync(cancellationToken);
     }
@@ -423,7 +428,7 @@ public class GroupChatLinkService(
     private Task<LinkedChatDto?> GetLinkedChat(long chatId, CancellationToken cancellationToken)
     {
         return context.LinkedTelegramChats
-            .Where(x => x.ExternalChatId == chatId)
+            .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
             .Select(x => new LinkedChatDto
             {
                 EpicName = x.Status!.Epic!.Name,
