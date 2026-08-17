@@ -117,7 +117,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>✅ This chat is now linked to
 {0}
 
-Reply to any message and mention me (@{1}) to turn it into a card.</value>
+{1}</value>
     </data>
     <data name="LinkChooseStatus" xml:space="preserve">
         <value>Choose a status in {0}:</value>
@@ -130,5 +130,20 @@ Reply to any message and mention me (@{1}) to turn it into a card.</value>
     </data>
     <data name="LinkItemNotFound" xml:space="preserve">
         <value>This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.</value>
+    </data>
+    <data name="LinkChooseSaveMode" xml:space="preserve">
+        <value>Choose how the bot should save messages in {0}:</value>
+    </data>
+    <data name="SaveModeEachMessage" xml:space="preserve">
+        <value>💬 Every message</value>
+    </data>
+    <data name="SaveModeBotMentioned" xml:space="preserve">
+        <value>✋ Only via /save</value>
+    </data>
+    <data name="SaveModeInstructionsEachMessage" xml:space="preserve">
+        <value>Every message sent here will be added as a card. Nice for solo use, when different chats are linked to different destinations.</value>
+    </data>
+    <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
+        <value>Reply to a message and send /save to turn it into a card. Nice for company chats with a lot of discussion, where you only sometimes need to create a card from a message.</value>
     </data>
 </root>

@@ -208,18 +208,36 @@ public class TelegramHostTests : TelegramIntegrationTest
             messageId,
             $"/link/status/{status.Id}");
 
-        Assert.Contains(organization.Name, statusSelected.Text);
-        Assert.Contains(space.Name, statusSelected.Text);
-        Assert.Contains(epic.Name, statusSelected.Text);
-        Assert.Contains(status.Name, statusSelected.Text);
+        // Nothing is persisted yet — status selection leads to a save-mode picker, not an
+        // immediate link.
+        statusSelected.CheckMessage($"Choose how the bot should save messages in {organization.Name} → {space.Name} → {epic.Name}:");
+        statusSelected.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/{status.Id}/0")])
+            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+
+        var saveModeSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/save-mode/{status.Id}/1");
+
+        Assert.Contains(organization.Name, saveModeSelected.Text);
+        Assert.Contains(space.Name, saveModeSelected.Text);
+        Assert.Contains(epic.Name, saveModeSelected.Text);
+        Assert.Contains(status.Name, saveModeSelected.Text);
+        Assert.Contains("Reply to a message and send /save to turn it into a card.", saveModeSelected.Text);
+
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
         Assert.Equal(chatId, linkedChat.ExternalChatId);
         Assert.Equal(status.Id, linkedChat.StatusId);
         Assert.Equal(userId, linkedChat.OwnerId);
         Assert.Equal("Test Group", linkedChat.Title);
+        Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
         Assert.NotNull(linkedChat.LinkedAt);
     }
 
@@ -246,16 +264,29 @@ public class TelegramHostTests : TelegramIntegrationTest
             messageId,
             $"/link/epic/{epic.Id}");
 
-        // Selecting the default/backlog epic links straight to its sole status instead of
-        // showing a status picker.
+        // Selecting the default/backlog epic skips straight to the save-mode picker for its
+        // sole status instead of showing a status picker.
         Assert.Contains(organization.Name, epicSelected.Text);
         Assert.Contains(space.Name, epicSelected.Text);
         Assert.Contains(epic.Name, epicSelected.Text);
+        epicSelected.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/{status.Id}/0")])
+            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+
+        var saveModeSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/save-mode/{status.Id}/0");
+
+        Assert.Contains("Every message sent here will be added as a card.", saveModeSelected.Text);
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
         Assert.Equal(status.Id, linkedChat.StatusId);
+        Assert.Equal(SaveMode.EachMessage, linkedChat.SaveMode);
     }
 
     [Fact]
@@ -377,6 +408,35 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal(
             "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.",
             request.Text);
+    }
+
+    [Fact]
+    public async Task HandleSaveModeSelected_ShouldAnswerNotFound_WhenStatusWasDeleted()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/save-mode/999999/0",
+            }
+        });
+
+        var request = host.Requests().First<AnswerCallbackQueryRequest>();
+        Assert.True(request.ShowAlert);
+        Assert.Equal(
+            "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.",
+            request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
     }
 
     [Fact]
@@ -506,12 +566,19 @@ public class TelegramHostTests : TelegramIntegrationTest
         await testScope.Database.SaveChangesAsync();
 
         // Re-linking a previously-unlinked chat mutates that same row back to active — there's
-        // only ever one LinkedTelegramChats row per external chat.
+        // only ever one LinkedTelegramChats row per external chat. Status selection now leads
+        // to a save-mode picker rather than linking immediately, so drive both steps.
         await host.SendCallbackAsync(
             AdminUser,
             chat,
             42,
             $"/link/status/{status.Id}");
+
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/save-mode/{status.Id}/0");
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();

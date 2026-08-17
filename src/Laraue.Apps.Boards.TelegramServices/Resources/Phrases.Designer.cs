@@ -262,6 +262,51 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Choose how the bot should save messages in {0}:.
+        /// </summary>
+        internal static string LinkChooseSaveMode {
+            get {
+                return ResourceManager.GetString("LinkChooseSaveMode", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 💬 Every message.
+        /// </summary>
+        internal static string SaveModeEachMessage {
+            get {
+                return ResourceManager.GetString("SaveModeEachMessage", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ✋ Only via /save.
+        /// </summary>
+        internal static string SaveModeBotMentioned {
+            get {
+                return ResourceManager.GetString("SaveModeBotMentioned", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Every message sent here will be added as a card. Nice for solo use, when different chats are linked to different destinations..
+        /// </summary>
+        internal static string SaveModeInstructionsEachMessage {
+            get {
+                return ResourceManager.GetString("SaveModeInstructionsEachMessage", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Reply to a message and send /save to turn it into a card. Nice for company chats with a lot of discussion, where you only sometimes need to create a card from a message..
+        /// </summary>
+        internal static string SaveModeInstructionsBotMentioned {
+            get {
+                return ResourceManager.GetString("SaveModeInstructionsBotMentioned", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {

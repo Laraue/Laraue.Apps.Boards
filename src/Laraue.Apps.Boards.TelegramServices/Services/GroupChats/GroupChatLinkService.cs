@@ -53,7 +53,14 @@ public interface IGroupChatLinkService
         Guid userId,
         long statusId,
         CancellationToken cancellationToken);
-    
+
+    Task HandleSaveModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        long statusId,
+        SaveMode saveMode,
+        CancellationToken cancellationToken);
+
     Task HandleUnlink(
         CallbackQuery query,
         Guid userId,
@@ -87,8 +94,8 @@ public class GroupChatLinkService(
         if (!await EnsureUserIsGroupAdmin(message, cancellationToken))
             return;
         
-        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
-        if (linkedChat is null)
+        var destination = await GetActiveDestination(chatId, cancellationToken);
+        if (destination is null)
         {
             await client.SendMessage(chatId, Phrases.LinkNotLinked, cancellationToken: cancellationToken);
             return;
@@ -263,23 +270,11 @@ public class GroupChatLinkService(
             if (status is null)
                 return;
 
-            await LinkToStatus(
-                chatId,
-                query.Message.Chat.Title,
-                status.Id,
-                userId, 
-                cancellationToken);
-
-            await SendLinkConfirmed(
+            await SendSaveModePicker(
                 chatId,
                 query.Message.MessageId,
-                new LinkedChatDto
-                {
-                    OrganizationName = epic.OrganizationName,
-                    SpaceName = epic.SpaceName,
-                    EpicName = epic.Name,
-                    StatusName = null,
-                },
+                status.Id,
+                $"{epic.OrganizationName} → {epic.SpaceName} → {epic.Name}",
                 cancellationToken);
 
             return;
@@ -311,47 +306,53 @@ public class GroupChatLinkService(
         CancellationToken cancellationToken)
     {
         var chatId = query.Message!.Chat.Id;
-        var status = await LoadOrAnswerNotFound(
+        var destination = await LoadOrAnswerNotFound(
             query,
-            () => context.Statuses
-                .Where(x => x.Id == statusId)
-                .Select(x => new
-                {
-                    OrganizationName = x.Epic!.Space!.Organization!.Name,
-                    x.Epic.Space!.OrganizationId,
-                    SpaceName = x.Epic.Space.Name,
-                    SpaceId = x.Epic.Space.Id,
-                    EpicName = x.Epic.Name,
-                    x.Name,
-                    x.Id,
-                })
-                .SingleOrDefaultAsyncEF(cancellationToken),
+            () => LoadDestinationByStatusId(statusId, cancellationToken),
             cancellationToken);
 
-        if (status is null)
+        if (destination is null)
             return;
 
-        if (!await IsAllowedToLink(query, userId, status.OrganizationId, cancellationToken))
+        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
             return;
-        
+
+        await SendSaveModePicker(
+            chatId,
+            query.Message.MessageId,
+            destination.StatusId,
+            $"{destination.OrganizationName} → {destination.SpaceName} → {destination.EpicName}",
+            cancellationToken);
+    }
+
+    public async Task HandleSaveModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        long statusId,
+        SaveMode saveMode,
+        CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+        var destination = await LoadOrAnswerNotFound(
+            query,
+            () => LoadDestinationByStatusId(statusId, cancellationToken),
+            cancellationToken);
+
+        if (destination is null)
+            return;
+
+        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
+            return;
+
         await LinkToStatus(
             chatId,
             query.Message.Chat.Title,
-            status.Id,
-            userId, 
+            destination.StatusId,
+            userId,
+            saveMode,
             cancellationToken);
 
-        await SendLinkConfirmed(
-            chatId,
-            query.Message.MessageId,
-            new LinkedChatDto
-            {
-                OrganizationName = status.OrganizationName,
-                SpaceName = status.SpaceName,
-                EpicName = status.EpicName,
-                StatusName = status.Name,
-            },
-            cancellationToken);
+        await SendLinkConfirmed(chatId, query.Message.MessageId, destination, saveMode, cancellationToken);
     }
 
     public async Task HandleUnlink(CallbackQuery query, Guid userId, CancellationToken cancellationToken)
@@ -390,6 +391,7 @@ public class GroupChatLinkService(
         string? chatTitle,
         long statusId,
         Guid userId,
+        SaveMode saveMode,
         CancellationToken cancellationToken)
     {
         var chat = await context.LinkedTelegramChats
@@ -404,34 +406,94 @@ public class GroupChatLinkService(
         chat.Title = chatTitle;
         chat.StatusId = statusId;
         chat.OwnerId = userId;
+        chat.SaveMode = saveMode;
         chat.LinkedAt = dateTimeProvider.UtcNow;
         chat.UnlinkedAt = null;
 
         await context.SaveChangesAsync(cancellationToken);
     }
-    
-    private async Task SendLinkConfirmed(
+
+    private Task SendLinkConfirmed(
         ChatId chatId,
         int messageId,
-        LinkedChatDto destination,
+        LinkDestination destination,
+        SaveMode saveMode,
         CancellationToken cancellationToken)
     {
-        var bot = await client.GetMe(cancellationToken);
+        var instructions = saveMode switch
+        {
+            SaveMode.EachMessage => Phrases.SaveModeInstructionsEachMessage,
+            SaveMode.BotMentionedMessages => Phrases.SaveModeInstructionsBotMentioned,
+            _ => throw new ArgumentOutOfRangeException(nameof(saveMode), saveMode, null),
+        };
 
-        await client.EditMessageText(
+        return client.EditMessageText(
             chatId,
             messageId,
-            string.Format(Phrases.LinkConfirmed, destination, bot.Username),
+            string.Format(Phrases.LinkConfirmed, destination, instructions),
             cancellationToken: cancellationToken);
     }
 
-    private Task<LinkedChatDto?> GetLinkedChat(long chatId, CancellationToken cancellationToken)
+    private Task SendSaveModePicker(
+        ChatId chatId,
+        int messageId,
+        long statusId,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        // Path parameters are bound via JSON deserialization, so the mode has to travel as its
+        // numeric underlying value — an unquoted enum name isn't valid JSON.
+        var buttons = new[]
+        {
+            new[]
+            {
+                new CallbackRoutePath(TelegramRoutes.LinkSaveMode)
+                    .WithPathParameter("statusId", statusId.ToString())
+                    .WithPathParameter("mode", ((int)SaveMode.EachMessage).ToString())
+                    .ToInlineKeyboardButton(Phrases.SaveModeEachMessage)
+            },
+            new[]
+            {
+                new CallbackRoutePath(TelegramRoutes.LinkSaveMode)
+                    .WithPathParameter("statusId", statusId.ToString())
+                    .WithPathParameter("mode", ((int)SaveMode.BotMentionedMessages).ToString())
+                    .ToInlineKeyboardButton(Phrases.SaveModeBotMentioned)
+            },
+        }.AddCancelButton();
+
+        return client.EditMessageText(
+            chatId,
+            messageId,
+            string.Format(Phrases.LinkChooseSaveMode, destination),
+            replyMarkup: new InlineKeyboardMarkup(buttons),
+            cancellationToken: cancellationToken);
+    }
+
+    private Task<LinkDestination?> LoadDestinationByStatusId(long statusId, CancellationToken cancellationToken)
+    {
+        return context.Statuses
+            .Where(x => x.Id == statusId)
+            .Select(x => new LinkDestination
+            {
+                OrganizationId = x.Epic!.Space!.OrganizationId,
+                StatusId = x.Id,
+                OrganizationName = x.Epic.Space.Organization!.Name,
+                SpaceName = x.Epic.Space.Name,
+                EpicName = x.Epic.Name,
+                StatusName = x.Epic.IsDefault ? null : x.Name,
+            })
+            .SingleOrDefaultAsyncEF(cancellationToken);
+    }
+
+    private Task<LinkDestination?> GetActiveDestination(long chatId, CancellationToken cancellationToken)
     {
         return context.LinkedTelegramChats
             .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
-            .Select(x => new LinkedChatDto
+            .Select(x => new LinkDestination
             {
-                EpicName = x.Status!.Epic!.Name,
+                OrganizationId = x.Status!.Epic!.Space!.OrganizationId,
+                StatusId = x.Status.Id,
+                EpicName = x.Status.Epic.Name,
                 StatusName = x.Status.Epic.IsDefault ? null : x.Status.Name,
                 SpaceName = x.Status.Epic.Space!.Name,
                 OrganizationName = x.Status.Epic.Space!.Organization!.Name,
@@ -542,10 +604,10 @@ public class GroupChatLinkService(
         int? editMessageId,
         CancellationToken cancellationToken)
     {
-        var linkedChat = await GetLinkedChat(chatId, cancellationToken);
-        if (linkedChat is not null)
+        var destination = await GetActiveDestination(chatId, cancellationToken);
+        if (destination is not null)
         {
-            await SendAlreadyLinkedMenu(chatId, linkedChat, editMessageId, cancellationToken);
+            await SendAlreadyLinkedMenu(chatId, destination, editMessageId, cancellationToken);
             return;
         }
 
@@ -590,7 +652,7 @@ public class GroupChatLinkService(
 
     private Task SendAlreadyLinkedMenu(
         ChatId chatId,
-        LinkedChatDto linkedChat,
+        LinkDestination destination,
         int? editMessageId,
         CancellationToken cancellationToken)
     {
@@ -601,7 +663,7 @@ public class GroupChatLinkService(
 
         var markup = new InlineKeyboardMarkup(buttons);
 
-        var text = string.Format(Phrases.LinkAlreadyLinked, linkedChat);
+        var text = string.Format(Phrases.LinkAlreadyLinked, destination);
 
         return SendOrEdit(chatId, editMessageId, text, markup, cancellationToken);
     }
@@ -657,8 +719,10 @@ public class GroupChatLinkService(
     
     private record OrganizationOption(long Id, string Name);
 
-    private record LinkedChatDto
+    private record LinkDestination
     {
+        public required long OrganizationId { get; init; }
+        public required long StatusId { get; init; }
         public required string OrganizationName { get; init; }
         public required string SpaceName { get; init; }
         public required string EpicName { get; init; }

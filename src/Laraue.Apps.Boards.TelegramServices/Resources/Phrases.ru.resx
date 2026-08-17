@@ -110,7 +110,7 @@
         <value>✅ Этот чат теперь связан с
 {0}
 
-Ответьте на любое сообщение и упомяните меня (@{1}), чтобы превратить его в карточку.</value>
+{1}</value>
     </data>
     <data name="LinkChooseStatus" xml:space="preserve">
         <value>Выберите статус в {0}:</value>
@@ -123,5 +123,20 @@
     </data>
     <data name="LinkItemNotFound" xml:space="preserve">
         <value>Этот элемент больше не существует — возможно, он был переименован, перемещён или удалён. Пожалуйста, начните заново с /link.</value>
+    </data>
+    <data name="LinkChooseSaveMode" xml:space="preserve">
+        <value>Выберите, как бот должен сохранять сообщения в {0}:</value>
+    </data>
+    <data name="SaveModeEachMessage" xml:space="preserve">
+        <value>💬 Каждое сообщение</value>
+    </data>
+    <data name="SaveModeBotMentioned" xml:space="preserve">
+        <value>✋ Только через /save</value>
+    </data>
+    <data name="SaveModeInstructionsEachMessage" xml:space="preserve">
+        <value>Каждое отправленное сюда сообщение будет добавлено как карточка. Хорошо подходит для личного использования, когда разные чаты связаны с разными назначениями.</value>
+    </data>
+    <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
+        <value>Ответьте на сообщение и отправьте /save, чтобы превратить его в карточку. Хорошо подходит для чатов компании с активным обсуждением, где карточку нужно создавать только иногда.</value>
     </data>
 </root>

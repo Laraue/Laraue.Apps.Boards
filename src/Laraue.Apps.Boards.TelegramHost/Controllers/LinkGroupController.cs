@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.TelegramServices;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.TelegramServices;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Telegram.NET.Abstractions.Request;
 using Laraue.Telegram.NET.Core.Routing;
@@ -85,6 +86,21 @@ public class LinkGroupController(IGroupChatLinkService linkFlowService) : Telegr
             requestContext.Update.CallbackQuery!,
             requestContext.UserId,
             id,
+            cancellationToken);
+    }
+
+    [TelegramCallbackRoute(TelegramRoutes.LinkSaveMode)]
+    public Task HandleSaveModeSelected(
+        RequestContext requestContext,
+        [FromPath] long statusId,
+        [FromPath] SaveMode mode,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleSaveModeSelected(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            statusId,
+            mode,
             cancellationToken);
     }
 
