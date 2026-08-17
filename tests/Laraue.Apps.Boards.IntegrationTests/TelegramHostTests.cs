@@ -436,7 +436,12 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
-        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        // AdminUser's own registration auto-creates a LinkedTelegramChat for their private
+        // chat (unrelated to this test); assert specifically that the *group* chat being
+        // linked here got no row out of the not-found callback.
+        Assert.DoesNotContain(
+            await db.LinkedTelegramChats.ToListAsyncLinqToDB(),
+            x => x.ExternalChatId == chat.Id);
     }
 
     [Fact]
@@ -642,6 +647,88 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleLink_ShouldBypassGroupAdminCheck_WhenPrivateChat()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        // MemberUser is explicitly a non-admin per FakeGroupChatAdminService - in a group
+        // chat this would be rejected. A private chat is the user talking to the bot 1-on-1,
+        // so there is no separate "chat admin" to check; only the LinkChats organization
+        // permission (granted here via org ownership) applies.
+        var userId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var chat = new Chat { Id = MemberUser.Id, Type = ChatType.Private };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "/link",
+                Chat = chat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
+        var rows = markup.InlineKeyboard.ToList();
+        var orgButton = Assert.Single(rows[0]);
+        Assert.Equal($"🏢 {organization.Name}", orgButton.Text);
+        Assert.Equal($"/link/organization/{organization.Id}", orgButton.CallbackData);
+    }
+
+    [Fact]
+    public async Task PrivateLinkFlow_ShouldReactivateOwnChatRow_WhenRelinkingToNewStatus()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        // A private chat's id equals the user's own Telegram id - matches what registration
+        // (CoreUserService.CreateIfTelegramIdNotExists) would have used when auto-creating
+        // this row.
+        var chat = new Chat { Id = AdminUser.Id, Type = ChatType.Private };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+            UnlinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/status/{status.Id}");
+
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/save-mode/{status.Id}/1");
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(chat.Id, linkedChat.ExternalChatId);
+        Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
+        Assert.Null(linkedChat.UnlinkedAt);
+    }
+
+    [Fact]
     public async Task NewMessage_ShouldInitializeUser_Always()
     {
         using var host = GetTelegramTestHost();
@@ -672,8 +759,55 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userOrganization = Assert.Single(await db.Organizations.ToListAsyncLinqToDB());
         Assert.Equal("snake991", userOrganization.Slug);
         Assert.Equal(OrganizationType.Personal, userOrganization.Type);
+
+        // Registration must explicitly create a LinkedTelegramChat for the user's own private
+        // chat, reproducing the old implicit "save to personal org" behaviour but as an
+        // explicit, relinkable row.
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(777, linkedChat.ExternalChatId);
+        Assert.Equal(user.Id, linkedChat.OwnerId);
+        Assert.Equal(SaveMode.EachMessage, linkedChat.SaveMode);
+        Assert.NotNull(linkedChat.LinkedAt);
+        Assert.Null(linkedChat.UnlinkedAt);
+
+        var defaultStatus = await db.Statuses.SingleAsync(s =>
+            s.Epic!.IsDefault && s.Epic.Space!.IsDefault && s.Epic.Space.OrganizationId == userOrganization.Id);
+        Assert.Equal(defaultStatus.Id, linkedChat.StatusId);
     }
-    
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldNotifyChatNotLinked_WhenNoActiveLink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        // Pre-existing user seeded directly (bypassing registration, which would otherwise
+        // auto-create the link) so there is no LinkedTelegramChat row at all - simulates data
+        // from before this feature existed, or a chat whose link was removed.
+        var telegramUser = new User { Id = 999, Username = "no_link_user" };
+        await testScope.CreateUser(x => x.TelegramId = telegramUser.Id);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = telegramUser,
+                Id = 1,
+                Text = "Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(
+            "This chat is not linked to any organization or space yet. Use /link to link it.",
+            request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
     [Fact]
     public async Task HandleTextMessage_ShouldCreateAndEditIssue_Always()
     {
