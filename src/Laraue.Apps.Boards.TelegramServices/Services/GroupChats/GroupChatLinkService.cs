@@ -9,6 +9,7 @@ using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
@@ -501,21 +502,26 @@ public class GroupChatLinkService(
             .SingleOrDefaultAsyncEF(cancellationToken);
     }
 
+    // In a private chat the user is talking to the bot 1-on-1, so there is no separate "chat
+    // admin" concept to check - the user always controls their own chat.
     private async Task<bool> EnsureUserIsGroupAdmin(
         Message message,
         CancellationToken cancellationToken)
     {
         var chatId = message.Chat.Id;
         var userTelegramId = message.From!.Id;
-        
+
+        if (message.Chat.Type == ChatType.Private)
+            return true;
+
         if (await chatAdminService.IsAdmin(chatId, userTelegramId, cancellationToken))
             return true;
-        
+
         await client.SendMessage(
             chatId,
             Phrases.LinkRequireAdmin,
             cancellationToken: cancellationToken);
-            
+
         return false;
     }
 
@@ -525,15 +531,18 @@ public class GroupChatLinkService(
     {
         var chatId = callbackQuery.Message!.Chat.Id;
         var userTelegramId = callbackQuery.From.Id;
-        
+
+        if (callbackQuery.Message.Chat.Type == ChatType.Private)
+            return true;
+
         if (await chatAdminService.IsAdmin(chatId, userTelegramId, cancellationToken))
             return true;
-        
+
         await client.AnswerCallbackQuery(
             callbackQuery.Id,
             Phrases.LinkRequireAdmin,
             cancellationToken: cancellationToken);
-        
+
         return false;
     }
 

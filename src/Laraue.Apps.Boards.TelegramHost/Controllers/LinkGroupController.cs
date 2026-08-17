@@ -10,7 +10,7 @@ namespace Laraue.Apps.Boards.TelegramHost.Controllers;
 
 public class LinkGroupController(IGroupChatLinkService linkFlowService) : TelegramController
 {
-    [TelegramMessageRoute(TelegramRoutes.LinkCommand, ChatType.Group, ChatType.Supergroup)]
+    [TelegramMessageRoute(TelegramRoutes.LinkCommand, ChatType.Group, ChatType.Supergroup, ChatType.Private)]
     public Task HandleLink(RequestContext requestContext, CancellationToken cancellationToken)
     {
         return linkFlowService.HandleLinkCommand(
@@ -18,8 +18,8 @@ public class LinkGroupController(IGroupChatLinkService linkFlowService) : Telegr
             requestContext.UserId,
             cancellationToken);
     }
-    
-    [TelegramMessageRoute(TelegramRoutes.UnlinkCommand, ChatType.Group, ChatType.Supergroup)]
+
+    [TelegramMessageRoute(TelegramRoutes.UnlinkCommand, ChatType.Group, ChatType.Supergroup, ChatType.Private)]
     public Task HandleUnlink(RequestContext requestContext, CancellationToken cancellationToken)
     {
         return linkFlowService.HandleUnlinkCommand(

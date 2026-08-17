@@ -26,7 +26,10 @@ public class OrganizationDefaults
             CanUpdateIssues = true,
             CanDeleteIssues = true,
             AdminAccessLevel = isPersonal
-                ? AdminAccessLevel.UpdateOrganization | AdminAccessLevel.MassMove | AdminAccessLevel.ManageAttributes
+                ? AdminAccessLevel.UpdateOrganization
+                  | AdminAccessLevel.MassMove
+                  | AdminAccessLevel.ManageAttributes
+                  | AdminAccessLevel.LinkChats
                 : AdminAccessLevel.All,
             UserId = userId,
         };
