@@ -1,4 +1,5 @@
-﻿using Telegram.Bot;
+﻿using Laraue.Apps.Boards.TelegramServices.Resources;
+using Telegram.Bot;
 using Telegram.Bot.Types;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
@@ -12,9 +13,19 @@ public class TelegramMessageService(
         SaveMessageTelegramRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await saveMessageService.Save(
-            request,
-            cancellationToken);
+        GetOrCreateMessageResult result;
+        try
+        {
+            result = await saveMessageService.Save(request, cancellationToken);
+        }
+        catch (ChatNotLinkedException)
+        {
+            await client.SendMessage(
+                request.ExternalUserId,
+                Phrases.LinkNotLinked,
+                cancellationToken: cancellationToken);
+            return;
+        }
 
         // If message was created with that request then response,
         // otherwise it is the second, third etc. parts of message

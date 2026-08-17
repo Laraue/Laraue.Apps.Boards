@@ -12,12 +12,18 @@ public class TelegramMessage
     
     public long? TelegramMediaGroupId { get; init; }
     public TelegramMediaGroup? TelegramMediaGroup { get; set; }
-    
+
     /// <summary>
     /// Attachment id (exists for images / videos / files).
     /// </summary>
     public Guid? AttachmentId { get; set; }
     public Attachment? Attachment { get; set; }
+
+    /// <summary>
+    /// The chat link this message was saved through.
+    /// </summary>
+    public long? LinkedTelegramChatId { get; set; }
+    public LinkedTelegramChat? LinkedTelegramChat { get; set; }
     
     /// <summary>
     /// The card related to this message.

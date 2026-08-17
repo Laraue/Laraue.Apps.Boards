@@ -162,32 +162,37 @@ public class TelegramSaveMessageService(
             })
             .FirstOrDefaultAsyncEF(cancellationToken);
         
+        LinkedChatToSaveMessage? linkedChat = null;
+
         if (savedMessage is null)
         {
+            linkedChat = await GetLinkedChatToSaveMessage(request.ExternalUserId, cancellationToken);
+
             savedMessage = new TelegramMessage
             {
                 ExternalMessageId = request.ExternalMessageId,
                 ExternalChatId = request.ExternalUserId,
                 TelegramMediaGroupId = groupId,
+                LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
             };
 
             context.Add(savedMessage);
             await context.SaveChangesAsync(cancellationToken);
         }
-        
+
         var cardForMessageIsCreated = (firstGroupMessageData?.CardId).HasValue;
         if (!cardForMessageIsCreated)
         {
-            var statusId = await GetStatusIdToSaveMessage(request.UserId, cancellationToken);
+            linkedChat ??= await GetLinkedChatToSaveMessage(request.ExternalUserId, cancellationToken);
 
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-            
+
             var issueId = await coreIssuesService.Create(
                 request.UserId,
                 assigneeId: null,
                 request.Text,
                 request.SentAt,
-                statusId,
+                linkedChat.StatusId,
                 savedMessage.Id,
                 attributes: [],
                 newFiles: [],
@@ -256,7 +261,7 @@ public class TelegramSaveMessageService(
         // Message is not stored, save it // TODO - store only if it is the first message
         if (savedMessage?.IssueId is null)
         {
-            var statusId = await GetStatusIdToSaveMessage(request.UserId, cancellationToken);
+            var linkedChat = await GetLinkedChatToSaveMessage(request.ExternalUserId, cancellationToken);
 
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -267,10 +272,11 @@ public class TelegramSaveMessageService(
                 {
                     ExternalMessageId = request.ExternalMessageId,
                     ExternalChatId = request.ExternalUserId,
+                    LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
                 };
-                
+
                 context.Add(telegramMessage);
-                
+
                 await context.SaveChangesAsync(cancellationToken);
             }
 
@@ -280,7 +286,7 @@ public class TelegramSaveMessageService(
                 assigneeId: null,
                 request.Text,
                 request.SentAt,
-                statusId,
+                linkedChat.StatusId,
                 messageId,
                 attributes: [],
                 newFiles: [],
@@ -376,24 +382,14 @@ public class TelegramSaveMessageService(
                 cancellationToken);
     }
 
-    private async Task<long> GetStatusIdToSaveMessage(Guid userId, CancellationToken cancellationToken)
+    private async Task<LinkedChatToSaveMessage> GetLinkedChatToSaveMessage(long externalChatId, CancellationToken cancellationToken)
     {
-        var organizationData = await context.Organizations
-            .Where(o => o.Type == OrganizationType.Personal)
-            .Where(o => o.OwnerId == userId)
-            .Select(o => new { o.Id })
-            .FirstOrThrowNotFoundEFAsync($"Personal org is not defined for user: {userId}", cancellationToken);
-        
-        var statusData = await context.Statuses
-            .Where(s => 
-                s.Epic!.IsDefault
-                && s.Epic.Space!.IsDefault
-                && s.Epic.Space.OrganizationId == organizationData.Id)
-            .OrderBy(s => s.SortOrder)
-            .Select(s => new { s.Id })
-            .FirstOrThrowNotFoundEFAsync("Status to save TG message is not defined", cancellationToken);
-        
-        return statusData.Id;
+        var linkedChatData = await context.LinkedTelegramChats
+            .Where(x => x.ExternalChatId == externalChatId && x.UnlinkedAt == null)
+            .Select(x => new LinkedChatToSaveMessage { LinkedTelegramChatId = x.Id, StatusId = x.StatusId })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        return linkedChatData ?? throw new ChatNotLinkedException(externalChatId);
     }
     
     private async Task<long> GetOrCreateTelegramMediaGroupId(
@@ -430,4 +426,10 @@ public enum Result
 {
     MainMessageCreated,
     MainMessageUpdated,
+}
+
+internal class LinkedChatToSaveMessage
+{
+    public required long LinkedTelegramChatId { get; init; }
+    public required long StatusId { get; init; }
 }

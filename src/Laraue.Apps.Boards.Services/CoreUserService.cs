@@ -87,7 +87,19 @@ public class CoreUserService(DatabaseContext context, IDateTimeProvider dateTime
                 timestamp,
                 isPersonal: true);
 
+            var defaultStatus = organization.Spaces!.Single().Epics!.Single().Statuses!.Single();
+
             context.Organizations.Add(organization);
+            context.LinkedTelegramChats.Add(new LinkedTelegramChat
+            {
+                ExternalChatId = user.TelegramId,
+                Title = user.TelegramUserName ?? user.TelegramFirstName,
+                Status = defaultStatus,
+                OwnerId = user.Id,
+                SaveMode = SaveMode.EachMessage,
+                LinkedAt = timestamp,
+            });
+
             await context.SaveChangesAsync(cancellationToken);
         }
 
