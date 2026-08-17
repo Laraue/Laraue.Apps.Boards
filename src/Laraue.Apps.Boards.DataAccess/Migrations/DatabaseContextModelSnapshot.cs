@@ -1030,6 +1030,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("external_message_id");
 
+                    b.Property<long?>("LinkedTelegramChatId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("linked_telegram_chat_id");
+
                     b.Property<long?>("TelegramMediaGroupId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_media_group_id");
@@ -1039,6 +1043,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasIndex("AttachmentId")
                         .HasDatabaseName("ix_telegram_messages_attachment_id");
+
+                    b.HasIndex("LinkedTelegramChatId")
+                        .HasDatabaseName("ix_telegram_messages_linked_telegram_chat_id");
 
                     b.HasIndex("TelegramMediaGroupId")
                         .HasDatabaseName("ix_telegram_messages_telegram_media_group_id");
@@ -1607,12 +1614,19 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasForeignKey("AttachmentId")
                         .HasConstraintName("fk_telegram_messages_attachments_attachment_id");
 
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.LinkedTelegramChat", "LinkedTelegramChat")
+                        .WithMany()
+                        .HasForeignKey("LinkedTelegramChatId")
+                        .HasConstraintName("fk_telegram_messages_linked_telegram_chats_linked_telegram_cha");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramMediaGroup", "TelegramMediaGroup")
                         .WithMany()
                         .HasForeignKey("TelegramMediaGroupId")
                         .HasConstraintName("fk_telegram_messages_telegram_media_groups_telegram_media_grou");
 
                     b.Navigation("Attachment");
+
+                    b.Navigation("LinkedTelegramChat");
 
                     b.Navigation("TelegramMediaGroup");
                 });

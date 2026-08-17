@@ -10,5 +10,5 @@ public enum AdminAccessLevel : byte
     MassMove = 8,
     ManageAttributes = 16,
     LinkChats = 32,
-    All = Manage | UpdateOrganization | DeleteOrganization | MassMove | LinkChats,
+    All = Manage | UpdateOrganization | DeleteOrganization | MassMove | ManageAttributes | LinkChats,
 }
