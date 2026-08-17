@@ -10,7 +10,16 @@ public class TelegramBotClientMockFactory
     public static ITelegramBotClient GetInstance()
     {
         var botClientMock = new Mock<ITelegramBotClient>();
-        
+
+        botClientMock.Setup(x => x.SendRequest(It.IsAny<GetMeRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User
+            {
+                Id = 1,
+                IsBot = true,
+                FirstName = "Test Bot",
+                Username = "test_bot",
+            });
+
         botClientMock.Setup(x => x.SendRequest(It.IsAny<GetFileRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((GetFileRequest request, CancellationToken _) => new TGFile
             {
