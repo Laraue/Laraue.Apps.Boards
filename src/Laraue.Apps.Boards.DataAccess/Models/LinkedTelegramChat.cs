@@ -37,4 +37,31 @@ public class LinkedTelegramChat
     /// When the link was created.
     /// </summary>
     public DateTime? LinkedAt { get; set; }
+    
+    /// <summary>
+    /// When the link was removed.
+    /// </summary>
+    public DateTime? UnlinkedAt { get; set; }
+    
+    /// <summary>
+    /// Messages save mode.
+    /// </summary>
+    public SaveMode SaveMode { get; set; }
+}
+
+/// <summary>
+/// How the bot will react to chat messages.
+/// </summary>
+public enum SaveMode
+{
+    /// <summary>
+    /// Bot will save each message as new card.
+    /// Nice for personal chats where each message should become a card.
+    /// </summary>
+    EachMessage,
+    
+    /// <summary>
+    /// Bot will save only messages that was replied to the bot with command /save. 
+    /// </summary>
+    BotMentionedMessages,
 }

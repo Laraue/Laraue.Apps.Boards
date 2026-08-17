@@ -542,6 +542,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
 
+                    b.Property<int>("SaveMode")
+                        .HasColumnType("integer")
+                        .HasColumnName("save_mode");
+
                     b.Property<long>("StatusId")
                         .HasColumnType("bigint")
                         .HasColumnName("status_id");
@@ -551,6 +555,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("title");
 
+                    b.Property<DateTime?>("UnlinkedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("unlinked_at");
+
                     b.HasKey("Id")
                         .HasName("pk_linked_telegram_chats");
 
@@ -558,11 +566,17 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_linked_telegram_chats_external_chat_id");
 
+                    b.HasIndex("LinkedAt")
+                        .HasDatabaseName("ix_linked_telegram_chats_linked_at");
+
                     b.HasIndex("OwnerId")
                         .HasDatabaseName("ix_linked_telegram_chats_owner_id");
 
                     b.HasIndex("StatusId")
                         .HasDatabaseName("ix_linked_telegram_chats_status_id");
+
+                    b.HasIndex("UnlinkedAt")
+                        .HasDatabaseName("ix_linked_telegram_chats_unlinked_at");
 
                     b.ToTable("linked_telegram_chats", (string)null);
                 });
