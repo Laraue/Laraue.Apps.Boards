@@ -7,7 +7,7 @@ namespace Laraue.Apps.Boards.WebApiServices;
 
 public interface IUserOnboardingService
 {
-    Task<OnboardingStatus?> GetStatus(
+    Task<GetOnboardingStatusResponse> GetStatus(
         Guid userId,
         OnboardingId onboardingId,
         CancellationToken cancellationToken);
@@ -21,15 +21,17 @@ public interface IUserOnboardingService
 
 public class UserOnboardingService(DatabaseContext context) : IUserOnboardingService
 {
-    public Task<OnboardingStatus?> GetStatus(
+    public async Task<GetOnboardingStatusResponse> GetStatus(
         Guid userId,
         OnboardingId onboardingId,
         CancellationToken cancellationToken)
     {
-        return context.UserOnboardings
+        var status = await context.UserOnboardings
             .Where(x => x.UserId == userId && x.OnboardingId == onboardingId)
             .Select(x => (OnboardingStatus?)x.Status)
             .FirstOrDefaultAsyncEF(cancellationToken);
+
+        return new GetOnboardingStatusResponse { Status = status };
     }
 
     public async Task SetStatus(
@@ -63,5 +65,5 @@ public record SetOnboardingStatusRequest
 
 public record GetOnboardingStatusResponse
 {
-    public string? Status { get; init; }
+    public OnboardingStatus? Status { get; init; }
 }

@@ -7,7 +7,7 @@ public class UserOnboarding
     public OnboardingId OnboardingId { get; set; }
 
     public OnboardingStatus Status { get; set; }
-    public User User { get; set; } = null!;
+    public User? User { get; set; }
 }
 
 public enum OnboardingId

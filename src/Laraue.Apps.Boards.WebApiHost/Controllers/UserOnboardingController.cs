@@ -11,17 +11,14 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 public class UserOnboardingController(IUserOnboardingService service) : ControllerBase
 {
     [HttpGet("{onboardingId}")]
-    public async Task<GetOnboardingStatusResponse> GetStatus(
+    public Task<GetOnboardingStatusResponse> GetStatus(
         OnboardingId onboardingId,
         CancellationToken cancellationToken)
     {
-        return new GetOnboardingStatusResponse
-        {
-            Status = (await service.GetStatus(
-                HttpContext.User.GetId(),
-                onboardingId,
-                cancellationToken))?.ToString(),
-        };
+        return service.GetStatus(
+            HttpContext.User.GetId(),
+            onboardingId,
+            cancellationToken);
     }
 
     [HttpPut("{onboardingId}")]
