@@ -7,17 +7,6 @@ namespace Laraue.Apps.Boards.WebApiServices;
 
 public interface IUserService
 {
-    Task<OnboardingStatus?> GetOnboardingStatus(
-        Guid userId,
-        OnboardingId onboardingId,
-        CancellationToken cancellationToken = default);
-
-    Task SetOnboardingStatus(
-        Guid userId,
-        OnboardingId onboardingId,
-        OnboardingStatus status,
-        CancellationToken cancellationToken = default);
-
     Task UpdateEpicSortOrder(
         Guid userId,
         EpicSortOrder epicSortOrder,
@@ -30,23 +19,6 @@ public interface IUserService
 
 public class UserService(ICoreUserService coreService, DatabaseContext context) : IUserService
 {
-    public Task<OnboardingStatus?> GetOnboardingStatus(
-        Guid userId,
-        OnboardingId onboardingId,
-        CancellationToken cancellationToken = default)
-    {
-        return coreService.GetOnboardingStatus(userId, onboardingId, cancellationToken);
-    }
-
-    public Task SetOnboardingStatus(
-        Guid userId,
-        OnboardingId onboardingId,
-        OnboardingStatus status,
-        CancellationToken cancellationToken = default)
-    {
-        return coreService.SetOnboardingStatus(userId, onboardingId, status, cancellationToken);
-    }
-
     public Task UpdateEpicSortOrder(
         Guid userId,
         EpicSortOrder epicSortOrder,
@@ -103,14 +75,4 @@ public class UserDto
     public string? Initials { get; set; }
     public required string[] Palette { get; set; }
     public UserPreferencesResponse Preferences { get; set; } = new();
-}
-
-public record SetOnboardingStatusRequest
-{
-    public required OnboardingStatus Status { get; init; }
-}
-
-public record GetOnboardingStatusResponse
-{
-    public string? Status { get; init; }
 }
