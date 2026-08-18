@@ -10,6 +10,17 @@ namespace Laraue.Apps.Boards.Services;
 
 public interface ICoreUserService
 {
+    Task<OnboardingStatus?> GetOnboardingStatus(
+        Guid userId,
+        OnboardingId onboardingId,
+        CancellationToken cancellationToken);
+
+    Task SetOnboardingStatus(
+        Guid userId,
+        OnboardingId onboardingId,
+        OnboardingStatus status,
+        CancellationToken cancellationToken);
+
     Task UpdatePreferences(
         Guid userId,
         Action<UpdateSettersBuilder<UserPreferences>> updateSetters,
@@ -24,6 +35,40 @@ public interface ICoreUserService
 
 public class CoreUserService(DatabaseContext context, IDateTimeProvider dateTimeProvider) : ICoreUserService
 {
+    public Task<OnboardingStatus?> GetOnboardingStatus(
+        Guid userId,
+        OnboardingId onboardingId,
+        CancellationToken cancellationToken)
+    {
+        return context.UserOnboardings
+            .Where(x => x.UserId == userId && x.OnboardingId == onboardingId)
+            .Select(x => (OnboardingStatus?)x.Status)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+    }
+
+    public async Task SetOnboardingStatus(
+        Guid userId,
+        OnboardingId onboardingId,
+        OnboardingStatus status,
+        CancellationToken cancellationToken)
+    {
+        var onboarding = new UserOnboarding
+        {
+            UserId = userId,
+            OnboardingId = onboardingId,
+            Status = status,
+        };
+
+        await context.UserOnboardings
+            .Merge()
+            .Using([onboarding])
+            .On((target, source) =>
+                target.UserId == source.UserId && target.OnboardingId == source.OnboardingId)
+            .UpdateWhenMatched()
+            .InsertWhenNotMatched()
+            .MergeAsync(cancellationToken);
+    }
+
     public async Task UpdatePreferences(
         Guid userId,
         Action<UpdateSettersBuilder<UserPreferences>> updateSetters,
