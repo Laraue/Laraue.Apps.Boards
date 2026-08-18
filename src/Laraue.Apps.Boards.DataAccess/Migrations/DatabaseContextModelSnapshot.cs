@@ -1037,6 +1037,26 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOnboarding", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("OnboardingId")
+                        .HasColumnType("integer")
+                        .HasColumnName("onboarding_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("UserId", "OnboardingId")
+                        .HasName("pk_user_onboardings");
+
+                    b.ToTable("user_onboardings", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOrganizationPreferences", b =>
                 {
                     b.Property<long>("OrganizationId")
@@ -1605,6 +1625,18 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessage", b =>
                 {
                     b.Navigation("Issue");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOnboarding", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_onboardings_users_user_id");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.User", b =>
