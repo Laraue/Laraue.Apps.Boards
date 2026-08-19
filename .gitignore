@@ -240,3 +240,5 @@ _Pvt_Extensions
 .fake/
 
 .local-chromium
+# Local dev overrides - not meant to be shared/committed
+**/appsettings.Development.json
