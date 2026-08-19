@@ -136,9 +136,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         var space = organization.GetSpace(0);
         var epic = organization.GetEpic(0, 0);
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal(@$"This chat is already linked to
-{organization.Name} → {space.Name} → {epic.Name}",
-            request.Text);
+        Assert.Equal(
+            $"This chat is already linked to\n{organization.Name} → {space.Name} → {epic.Name}".ReplaceLineEndings("\n"),
+            request.Text.ReplaceLineEndings("\n"));
 
         var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
         var rows = markup.InlineKeyboard.ToList();
@@ -910,6 +910,32 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal("Reply to the message you want to save and send /save again.", request.Text);
+        // Group errors are ephemeral (Bot API 10.2's receiver_user_id) - only the sender should
+        // see them, not the whole chat.
+        Assert.Equal(AdminUser.Id, request.ReceiverUserId);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldNotSetReceiverUserId_WhenCommandFailsInPrivateChat()
+    {
+        using var host = GetTelegramTestHost();
+
+        // Ephemeral targeting only makes sense in groups - a private chat already has just the
+        // one user talking to the bot, so there's no one else to hide the reply from.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/save",
+                Chat = PrivateChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Reply to the message you want to save and send /save again.", request.Text);
+        Assert.Null(request.ReceiverUserId);
     }
 
     [Fact]
@@ -2795,6 +2821,9 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal("Reply to the message you want info about and send /info again.", request.Text);
+        // Group errors are ephemeral (Bot API 10.2's receiver_user_id) - only the sender should
+        // see them, not the whole chat.
+        Assert.Equal(AdminUser.Id, request.ReceiverUserId);
     }
 
     [Fact]
