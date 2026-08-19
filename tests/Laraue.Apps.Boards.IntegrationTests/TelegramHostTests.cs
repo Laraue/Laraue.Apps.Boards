@@ -75,6 +75,32 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleLink_ShouldShowOrganizationPicker_WhenCommandHasBotUsernameSuffix()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+
+        // Telegram appends "@botusername" to commands sent in groups with more than one bot -
+        // the route must still match, not just the bare "/link".
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/link@ai_saved_mesages_bot",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+    }
+
+    [Fact]
     public async Task HandleLink_ShouldShowAlreadyLinkedMenu_WhenChatAlreadyLinked()
     {
         using var host = GetTelegramTestHost();
@@ -751,6 +777,59 @@ public class TelegramHostTests : TelegramIntegrationTest
                 From = AdminUser,
                 Id = 6,
                 Text = "/save my note",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 5, Chat = chat },
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("my note\n---\nOriginal text", issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldStripBotMention_WhenCommandHasBotUsernameSuffix()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 782, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 5,
+                Text = "Original text",
+                Chat = chat,
+            }
+        });
+
+        // Telegram appends "@botusername" straight onto the command with no space - the
+        // mention must not leak into the note.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save@ai_saved_mesages_bot my note",
                 Chat = chat,
                 ReplyToMessage = new Message { Id = 5, Chat = chat },
             }
