@@ -47,6 +47,6 @@ public class GroupChatService(
         return telegramMessageService.HandleSaveMessage(
             request,
             cancellationToken,
-            notifyWhenNotLinked: false);
+            notifyOnFailure: false);
     }
 }

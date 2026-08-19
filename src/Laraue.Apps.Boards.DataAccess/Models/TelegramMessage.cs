@@ -1,4 +1,6 @@
-﻿namespace Laraue.Apps.Boards.DataAccess.Models;
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace Laraue.Apps.Boards.DataAccess.Models;
 
 public class TelegramMessage
 {
@@ -12,6 +14,14 @@ public class TelegramMessage
     
     public long? TelegramMediaGroupId { get; init; }
     public TelegramMediaGroup? TelegramMediaGroup { get; set; }
+
+    /// <summary>
+    /// The message's own text/caption as sent. Stored regardless of save mode so that /save can
+    /// build a card's content later - the Bot API has no way to fetch an arbitrary past
+    /// message's content, so this is the only place it can come from by then.
+    /// </summary>
+    [MaxLength(4096)]
+    public string? Text { get; set; }
 
     /// <summary>
     /// Attachment id (exists for images / videos / files).

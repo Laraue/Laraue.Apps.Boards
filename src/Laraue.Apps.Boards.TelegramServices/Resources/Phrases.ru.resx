@@ -124,6 +124,9 @@
     <data name="LinkNotLinked" xml:space="preserve">
         <value>Этот чат ещё не связан ни с одной организацией или пространством. Используйте /link, чтобы связать его.</value>
     </data>
+    <data name="IssueCreationForbidden" xml:space="preserve">
+        <value>Это действие недоступно — у вас нет прав на создание карточек здесь.</value>
+    </data>
     <data name="LinkItemNotFound" xml:space="preserve">
         <value>Этот элемент больше не существует — возможно, он был переименован, перемещён или удалён. Пожалуйста, начните заново с /link.</value>
     </data>
@@ -141,5 +144,20 @@
     </data>
     <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
         <value>Ответьте на сообщение и отправьте /save, чтобы превратить его в карточку. Хорошо подходит для чатов компании с активным обсуждением, где карточку нужно создавать только иногда.</value>
+    </data>
+    <data name="SaveNotAReply" xml:space="preserve">
+        <value>Ответьте на сообщение, которое нужно сохранить, и отправьте /save ещё раз.</value>
+    </data>
+    <data name="SaveNotNeededInAutoMode" xml:space="preserve">
+        <value>В этом чате каждое сообщение сохраняется автоматически, /save тут не нужен.</value>
+    </data>
+    <data name="SaveMessageNotTracked" xml:space="preserve">
+        <value>У меня нет этого сообщения — возможно, оно пришло до того, как чат был привязан.</value>
+    </data>
+    <data name="SaveAlreadySaved" xml:space="preserve">
+        <value>Это сообщение уже сохранено как карточка.</value>
+    </data>
+    <data name="SaveNothingToSave" xml:space="preserve">
+        <value>Нечего сохранять — в сообщении нет текста, и вы не добавили заметку, например: /save заметка.</value>
     </data>
 </root>

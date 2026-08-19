@@ -253,6 +253,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to This action is not available - you don&apos;t have permission to create cards here..
+        /// </summary>
+        internal static string IssueCreationForbidden {
+            get {
+                return ResourceManager.GetString("IssueCreationForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link..
         /// </summary>
         internal static string LinkItemNotFound {
@@ -303,6 +312,51 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         internal static string SaveModeInstructionsBotMentioned {
             get {
                 return ResourceManager.GetString("SaveModeInstructionsBotMentioned", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Reply to the message you want to save and send /save again..
+        /// </summary>
+        internal static string SaveNotAReply {
+            get {
+                return ResourceManager.GetString("SaveNotAReply", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This chat saves every message automatically, so /save isn&apos;t needed here..
+        /// </summary>
+        internal static string SaveNotNeededInAutoMode {
+            get {
+                return ResourceManager.GetString("SaveNotNeededInAutoMode", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to I don&apos;t have that message on record - it may have arrived before the chat was linked..
+        /// </summary>
+        internal static string SaveMessageNotTracked {
+            get {
+                return ResourceManager.GetString("SaveMessageNotTracked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to That message is already saved as a card..
+        /// </summary>
+        internal static string SaveAlreadySaved {
+            get {
+                return ResourceManager.GetString("SaveAlreadySaved", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to There&apos;s nothing to save - the message has no text and you didn&apos;t add a note, e.g. /save some note..
+        /// </summary>
+        internal static string SaveNothingToSave {
+            get {
+                return ResourceManager.GetString("SaveNothingToSave", resourceCulture);
             }
         }
 

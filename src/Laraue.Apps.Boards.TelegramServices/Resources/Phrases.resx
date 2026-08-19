@@ -131,6 +131,9 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkNotLinked" xml:space="preserve">
         <value>This chat is not linked to any organization or space yet. Use /link to link it.</value>
     </data>
+    <data name="IssueCreationForbidden" xml:space="preserve">
+        <value>This action is not available - you don't have permission to create cards here.</value>
+    </data>
     <data name="LinkItemNotFound" xml:space="preserve">
         <value>This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.</value>
     </data>
@@ -148,5 +151,20 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     </data>
     <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
         <value>Reply to a message and send /save to turn it into a card. Nice for company chats with a lot of discussion, where you only sometimes need to create a card from a message.</value>
+    </data>
+    <data name="SaveNotAReply" xml:space="preserve">
+        <value>Reply to the message you want to save and send /save again.</value>
+    </data>
+    <data name="SaveNotNeededInAutoMode" xml:space="preserve">
+        <value>This chat saves every message automatically, so /save isn't needed here.</value>
+    </data>
+    <data name="SaveMessageNotTracked" xml:space="preserve">
+        <value>I don't have that message on record - it may have arrived before the chat was linked.</value>
+    </data>
+    <data name="SaveAlreadySaved" xml:space="preserve">
+        <value>That message is already saved as a card.</value>
+    </data>
+    <data name="SaveNothingToSave" xml:space="preserve">
+        <value>There's nothing to save - the message has no text and you didn't add a note, e.g. /save some note.</value>
     </data>
 </root>

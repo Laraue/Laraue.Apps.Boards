@@ -12,7 +12,7 @@ public class TelegramMessageService(
     public async Task HandleSaveMessage(
         SaveMessageTelegramRequest request,
         CancellationToken cancellationToken,
-        bool notifyWhenNotLinked = true)
+        bool notifyOnFailure = true)
     {
         GetOrCreateMessageResult result;
         try
@@ -21,11 +21,23 @@ public class TelegramMessageService(
         }
         catch (ChatNotLinkedException)
         {
-            if (notifyWhenNotLinked)
+            if (notifyOnFailure)
             {
                 await client.SendMessage(
                     request.ExternalChatId,
                     Phrases.LinkNotLinked,
+                    cancellationToken: cancellationToken);
+            }
+
+            return;
+        }
+        catch (IssueCreationForbiddenException)
+        {
+            if (notifyOnFailure)
+            {
+                await client.SendMessage(
+                    request.ExternalChatId,
+                    Phrases.IssueCreationForbidden,
                     cancellationToken: cancellationToken);
             }
 
