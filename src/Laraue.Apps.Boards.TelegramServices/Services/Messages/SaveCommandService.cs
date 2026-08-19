@@ -26,7 +26,7 @@ public class SaveCommandService(
         // messages), so this also covers that case, not just "user didn't reply at all".
         if (repliedMessage is null)
         {
-            await client.SendMessage(message.Chat.Id, Phrases.SaveNotAReply, cancellationToken: cancellationToken);
+            await client.SendEphemeralNotice(message, Phrases.SaveNotAReply, cancellationToken);
             return;
         }
 
@@ -35,7 +35,7 @@ public class SaveCommandService(
         // "not on record" outcome below.
         if (repliedMessage.From?.IsBot == true)
         {
-            await client.SendMessage(message.Chat.Id, Phrases.SaveMessageFromBot, cancellationToken: cancellationToken);
+            await client.SendEphemeralNotice(message, Phrases.SaveMessageFromBot, cancellationToken);
             return;
         }
 
@@ -54,12 +54,12 @@ public class SaveCommandService(
         }
         catch (ChatNotLinkedException)
         {
-            await client.SendMessage(message.Chat.Id, Phrases.LinkNotLinked, cancellationToken: cancellationToken);
+            await client.SendEphemeralNotice(message, Phrases.LinkNotLinked, cancellationToken);
             return;
         }
         catch (IssueCreationForbiddenException)
         {
-            await client.SendMessage(message.Chat.Id, Phrases.IssueCreationForbidden, cancellationToken: cancellationToken);
+            await client.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
             return;
         }
 
@@ -81,15 +81,15 @@ public class SaveCommandService(
                 break;
 
             case SaveByReplyOutcome.NotNeededInAutoMode:
-                await client.SendMessage(message.Chat.Id, Phrases.SaveNotNeededInAutoMode, cancellationToken: cancellationToken);
+                await client.SendEphemeralNotice(message, Phrases.SaveNotNeededInAutoMode, cancellationToken);
                 break;
 
             case SaveByReplyOutcome.MessageNotTracked:
-                await client.SendMessage(message.Chat.Id, Phrases.SaveMessageNotTracked, cancellationToken: cancellationToken);
+                await client.SendEphemeralNotice(message, Phrases.SaveMessageNotTracked, cancellationToken);
                 break;
 
             case SaveByReplyOutcome.NothingToSave:
-                await client.SendMessage(message.Chat.Id, Phrases.SaveNothingToSave, cancellationToken: cancellationToken);
+                await client.SendEphemeralNotice(message, Phrases.SaveNothingToSave, cancellationToken);
                 break;
         }
     }
