@@ -2645,4 +2645,257 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal(0, request.CacheTime);
         Assert.Equal("no-spaces", Assert.Single(request.Results).Id);
     }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyWithCard_WhenMessageAlreadySaved()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 787, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        // /info is read-only - it must not create/change anything, unlike /save.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
+        Assert.Contains("Hello world", replyRequest.Text);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal("🔗 Open issue", button.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyNoCardYet_WhenMessageTrackedButNeverSaved()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 788, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This message hasn't been saved as a card yet - reply to it with /save first.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyMessageNotTracked_WhenReplyingToUntrackedMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 789, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("I don't have that message on record - it may have arrived before the chat was linked.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyNotAReply_WhenCommandHasNoReplyToMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 790, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/info",
+                Chat = chat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Reply to the message you want info about and send /info again.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyMessageFromBot_WhenReplyingToBotsOwnMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 791, Type = ChatType.Group };
+        var botUser = new User { Id = 998, IsBot = true, Username = "the_bot" };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat, From = botUser },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("That's my own message - reply to the original message you want info about instead.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyForbidden_WhenSenderLacksReadPermission()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // Org member with no read access at all - unlike the owner, who created/can see the card.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId));
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 792, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = ownerId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This action is not available - you don't have permission to view this card.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldRouteCorrectly_WhenCommandHasBotUsernameSuffix()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 793, Type = ChatType.Group };
+
+        // Telegram appends "@botusername" to commands sent in groups with more than one bot -
+        // the route must still match, not just the bare "/info".
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info@ai_saved_mesages_bot",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("I don't have that message on record - it may have arrived before the chat was linked.", request.Text);
+    }
 }

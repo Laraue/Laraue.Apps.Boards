@@ -5,6 +5,7 @@ public static class TelegramRoutes
     public const string LinkCommand = "/link(.*)";
     public const string UnlinkCommand = "/unlink(.*)";
     public const string SaveCommand = "/save(.*)";
+    public const string InfoCommand = "/info(.*)";
     
     public const string Unlink = "/link/unlink";
     public const string LinkOrganization = "/link/organization/{id}";

@@ -19,6 +19,10 @@ contain epics/statuses, epics contain issues ("cards"). Exposed via two surfaces
     lot of unrelated discussion.
   - Card creation is gated by `IAccessService` permission checks, not just by the chat being
     linked.
+  - `/info` — reply to a tracked message to get its card's preview/link back without changing
+    anything. Read-only counterpart to `/save`, mainly useful in `EachMessage` mode where saving
+    is silent (just a reaction) and there's otherwise no way to grab the link
+    (`TelegramSaveMessageService.GetInfoByReply`, `InfoCommandService`).
   - Inline search: typing `@bot query` in any Telegram chat searches issues across every space
     the user has read access to (`SearchService`, `src/.../TelegramServices/Services/Search`).
     The query is parsed into `key:value` filter tokens (assignee, organization, space, updated

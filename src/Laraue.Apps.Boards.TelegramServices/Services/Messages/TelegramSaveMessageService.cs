@@ -24,6 +24,15 @@ public interface ITelegramSaveMessageService
     Task<SaveByReplyResult> SaveByReply(
         SaveByReplyRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Read-only lookup for /info: returns the card already linked to a replied-to message (or
+    /// its whole album), if any - without creating or changing anything. Works regardless of
+    /// save mode.
+    /// </summary>
+    Task<InfoByReplyResult> GetInfoByReply(
+        InfoByReplyRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class TelegramSaveMessageService(
@@ -147,6 +156,55 @@ public class TelegramSaveMessageService(
         {
             Outcome = SaveByReplyOutcome.Saved,
             TelegramMessageId = cardMessage.Id,
+            IssueUrl = preview.Url,
+            IssuePreviewText = preview.Text,
+        };
+    }
+
+    public async Task<InfoByReplyResult> GetInfoByReply(
+        InfoByReplyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var repliedMessage = await context.TelegramMessages
+            .Where(x => x.ExternalMessageId == request.RepliedExternalMessageId)
+            .Where(x => x.ExternalChatId == request.ExternalChatId)
+            .Select(x => new { x.Id, x.TelegramMediaGroupId })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (repliedMessage is null)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.MessageNotTracked };
+
+        // Card content and attachments always live on a group's first message - see SaveByReply.
+        var groupQuery = repliedMessage.TelegramMediaGroupId is null
+            ? context.TelegramMessages.Where(x => x.Id == repliedMessage.Id)
+            : context.TelegramMessages.Where(x => x.TelegramMediaGroupId == repliedMessage.TelegramMediaGroupId);
+
+        var cardMessage = await groupQuery
+            .OrderBy(x => x.Id)
+            .Select(x => new { x.Id, IssueId = x.Issue != null ? (long?)x.Issue.Id : null })
+            .FirstAsyncEF(cancellationToken);
+
+        if (cardMessage.IssueId is null)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.NoCardYet };
+
+        // Permission is checked against the card's own epic, not the chat's current link state -
+        // a chat can be unlinked/relinked later, but the card and its access rules don't change.
+        var issueAccessData = await context.Issues
+            .Where(x => x.Id == cardMessage.IssueId)
+            .Select(x => new { x.Status!.EpicId, OrganizationId = x.Status.Epic!.Space!.OrganizationId })
+            .FirstAsyncEF(cancellationToken);
+
+        var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = request.UserId };
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, cancellationToken);
+
+        if (accessLevels?.CanRead != true)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
+
+        var preview = await GetIssuePreview(cardMessage.IssueId.Value, cancellationToken);
+
+        return new InfoByReplyResult
+        {
+            Outcome = InfoByReplyOutcome.Found,
             IssueUrl = preview.Url,
             IssuePreviewText = preview.Text,
         };
@@ -788,4 +846,40 @@ public enum SaveByReplyOutcome
 
     /// <summary>Neither the replied-to message nor the /save note had any content.</summary>
     NothingToSave,
+}
+
+public class InfoByReplyRequest
+{
+    public required long ExternalChatId { get; init; }
+    public required int RepliedExternalMessageId { get; init; }
+    public required Guid UserId { get; init; }
+}
+
+public class InfoByReplyResult
+{
+    public required InfoByReplyOutcome Outcome { get; init; }
+
+    /// <summary>Set when <see cref="Outcome"/> is <see cref="InfoByReplyOutcome.Found"/>.</summary>
+    public string? IssueUrl { get; init; }
+
+    /// <summary>
+    /// MarkdownV2 "📋 KEY · Org\n{content preview}" text, matching the inline search result
+    /// format. Set alongside <see cref="IssueUrl"/>.
+    /// </summary>
+    public string? IssuePreviewText { get; init; }
+}
+
+public enum InfoByReplyOutcome
+{
+    /// <summary>The replied-to message (or its group) already has a card.</summary>
+    Found,
+
+    /// <summary>The replied-to message is tracked but hasn't been turned into a card yet.</summary>
+    NoCardYet,
+
+    /// <summary>The replied-to message was never recorded by the bot.</summary>
+    MessageNotTracked,
+
+    /// <summary>The user doesn't have read access to the card's space.</summary>
+    Forbidden,
 }

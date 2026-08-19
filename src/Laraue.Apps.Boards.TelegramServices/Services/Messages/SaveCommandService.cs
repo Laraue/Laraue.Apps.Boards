@@ -1,8 +1,6 @@
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Telegram.Bot;
 using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
-using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
@@ -74,7 +72,7 @@ public class SaveCommandService(
             // needed, whether this is the first save or a repeat.
             case SaveByReplyOutcome.Saved:
             case SaveByReplyOutcome.AlreadySaved:
-                await SendIssueLinkReply(
+                await client.SendIssuePreviewReply(
                     message.Chat.Id,
                     repliedMessage.MessageId,
                     result.IssuePreviewText!,
@@ -94,31 +92,6 @@ public class SaveCommandService(
                 await client.SendMessage(message.Chat.Id, Phrases.SaveNothingToSave, cancellationToken: cancellationToken);
                 break;
         }
-    }
-
-    /// <summary>
-    /// Sends the same key/org/content-preview "card" shown for an inline search result, so
-    /// /save's confirmation and search results look the same.
-    /// </summary>
-    private Task SendIssueLinkReply(
-        long chatId,
-        int repliedMessageId,
-        string issuePreviewText,
-        string issueUrl,
-        CancellationToken cancellationToken)
-    {
-        return client.SendMessage(
-            chatId,
-            issuePreviewText,
-            parseMode: ParseMode.MarkdownV2,
-            replyParameters: new ReplyParameters
-            {
-                MessageId = repliedMessageId,
-                AllowSendingWithoutReply = true,
-            },
-            replyMarkup: new InlineKeyboardMarkup(
-                InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl)),
-            cancellationToken: cancellationToken);
     }
 
     /// <summary>

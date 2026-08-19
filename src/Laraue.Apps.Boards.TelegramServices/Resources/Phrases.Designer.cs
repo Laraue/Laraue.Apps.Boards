@@ -373,6 +373,51 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Reply to the message you want info about and send /info again..
+        /// </summary>
+        internal static string InfoNotAReply {
+            get {
+                return ResourceManager.GetString("InfoNotAReply", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to That&apos;s my own message - reply to the original message you want info about instead..
+        /// </summary>
+        internal static string InfoMessageFromBot {
+            get {
+                return ResourceManager.GetString("InfoMessageFromBot", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to I don&apos;t have that message on record - it may have arrived before the chat was linked..
+        /// </summary>
+        internal static string InfoMessageNotTracked {
+            get {
+                return ResourceManager.GetString("InfoMessageNotTracked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This message hasn&apos;t been saved as a card yet - reply to it with /save first..
+        /// </summary>
+        internal static string InfoNoCardYet {
+            get {
+                return ResourceManager.GetString("InfoNoCardYet", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This action is not available - you don&apos;t have permission to view this card..
+        /// </summary>
+        internal static string InfoForbidden {
+            get {
+                return ResourceManager.GetString("InfoForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {
