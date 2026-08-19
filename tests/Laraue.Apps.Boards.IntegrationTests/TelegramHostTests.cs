@@ -1354,6 +1354,70 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleGroupMessage_ShouldSkipSilently_WhenMessageTypeIsUnsupported()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 794, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // Unsupported message types (stickers, polls, etc.) are just silently skipped, even in
+        // a linked chat - no "not supported yet" notice.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Sticker = new Sticker { FileId = "stickerId1", FileUniqueId = "stickerUniqueId1" },
+                Chat = chat,
+            }
+        });
+
+        Assert.Empty(host.Requests().OfType<SendMessageRequest>());
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandlePrivateMessage_ShouldSkipSilently_WhenMessageTypeIsUnsupported()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Sticker = new Sticker { FileId = "stickerId1", FileUniqueId = "stickerUniqueId1" },
+                Chat = PrivateChat,
+            }
+        });
+
+        Assert.Empty(host.Requests().OfType<SendMessageRequest>());
+    }
+
+    [Fact]
     public async Task HandleSave_ShouldReplyForbidden_WhenSenderLacksCreateIssuePermission()
     {
         using var host = GetTelegramTestHost();

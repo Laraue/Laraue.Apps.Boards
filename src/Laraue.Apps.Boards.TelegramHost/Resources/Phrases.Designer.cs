@@ -55,14 +55,5 @@ namespace Laraue.Apps.Boards.TelegramHost.Resources {
                 resourceCulture = value;
             }
         }
-        
-        /// <summary>
-        ///   Looks up a localized string similar to The message of type &quot;{0}&quot; is not supported yet and will not be added to the board..
-        /// </summary>
-        internal static string MessageTypeIsNotAvailable {
-            get {
-                return ResourceManager.GetString("MessageTypeIsNotAvailable", resourceCulture);
-            }
-        }
     }
 }

@@ -1,17 +1,14 @@
-using Laraue.Apps.Boards.TelegramHost.Resources;
 using Laraue.Apps.Boards.TelegramServices;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
 using Laraue.Telegram.NET.Abstractions;
 using Laraue.Telegram.NET.Core.Extensions;
-using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
 
 namespace Laraue.Apps.Boards.TelegramHost;
 
 public class HandlePrivateMessagesMiddleware(
     RequestContext context,
-    ITelegramMessageService telegramMessageService,
-    ITelegramBotClient botClient)
+    ITelegramMessageService telegramMessageService)
     : ITelegramMiddleware
 {
     private static readonly UpdateType[] AllowedUpdates =
@@ -51,13 +48,6 @@ public class HandlePrivateMessagesMiddleware(
 
             if (request is not null)
                 await telegramMessageService.HandleSaveMessage(request, ct);
-            else
-            {
-                await botClient.SendMessage(
-                    externalChatId,
-                    string.Format(Phrases.MessageTypeIsNotAvailable, message.Type),
-                    cancellationToken: ct);
-            }
 
             context.SetExecutedRoute(
                 new ExecutedRouteInfo("HandleAllMessagesMiddleware", text));

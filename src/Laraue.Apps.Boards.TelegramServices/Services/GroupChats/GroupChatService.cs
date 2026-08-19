@@ -1,7 +1,5 @@
-using Laraue.Apps.Boards.TelegramServices.Resources;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
 using Laraue.Telegram.NET.Abstractions;
-using Telegram.Bot;
 using Telegram.Bot.Types;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
@@ -21,8 +19,7 @@ public interface IGroupChatService
 
 public class GroupChatService(
     RequestContext requestContext,
-    ITelegramMessageService telegramMessageService,
-    ITelegramBotClient client)
+    ITelegramMessageService telegramMessageService)
     : IGroupChatService
 {
     public Task HandleGroupMessage(Message message, CancellationToken cancellationToken)
@@ -33,17 +30,12 @@ public class GroupChatService(
 
         var request = SaveMessageTelegramRequestFactory.Create(message, requestContext.UserId, message.Chat.Id);
 
+        // Unsupported message types (stickers, polls, etc.) are just silently skipped.
         if (request is null)
-        {
-            return client.SendMessage(
-                message.Chat.Id,
-                string.Format(Phrases.MessageTypeIsNotAvailable, message.Type),
-                cancellationToken: cancellationToken);
-        }
+            return Task.CompletedTask;
 
         // Most groups the bot is added to are never linked - stay silent there instead of
-        // nagging every message (unlike private chats, which are always linked from
-        // registration, so the same notice there signals something actually broke).
+        // nagging every message.
         return telegramMessageService.HandleSaveMessage(
             request,
             cancellationToken,
