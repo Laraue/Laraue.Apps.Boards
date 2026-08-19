@@ -2,14 +2,18 @@
 
 public static class TelegramRoutes
 {
-    public const string Category = "c/{id}";
-    public const string UpdateMessageCategory = "m/sc";
-    public const string UpdateMessageStatus = "m/ss";
+    public const string LinkCommand = "/link(.*)";
+    public const string UnlinkCommand = "/unlink(.*)";
+    public const string SaveCommand = "/save(.*)";
+    public const string InfoCommand = "/info(.*)";
     
-    public const string Categories = "/categories";
-    public const string CreateCategoryFromMessage = "ccfm";
-    public const string CreateStatusFromMessage = "csfm";
+    public const string Unlink = "/link/unlink";
+    public const string LinkOrganization = "/link/organization/{id}";
+    public const string LinkSpace = "/link/space/{id}";
+    public const string LinkEpic = "/link/epic/{id}";
+    public const string LinkStatus = "/link/status/{id}";
+    public const string LinkSaveMode = "/link/save-mode/{statusId}/{mode}";
+    public const string BackToLink = "/link/back";
     
-    public const string UpdateMessageText = "m/ut";
-    public const string Message = "m";
+    public const string CloseCallbackWindow = "/close-callback";
 }

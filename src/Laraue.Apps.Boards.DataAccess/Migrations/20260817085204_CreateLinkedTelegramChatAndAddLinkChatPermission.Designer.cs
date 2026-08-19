@@ -3,6 +3,7 @@ using System;
 using Laraue.Apps.Boards.DataAccess;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    partial class DatabaseContextModelSnapshot : ModelSnapshot
+    [Migration("20260817085204_CreateLinkedTelegramChatAndAddLinkChatPermission")]
+    partial class CreateLinkedTelegramChatAndAddLinkChatPermission
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1030,38 +1033,15 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("external_message_id");
 
-                    b.Property<long?>("LinkedTelegramChatId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("linked_telegram_chat_id");
-
-                    b.Property<Guid?>("SenderId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("sender_id");
-
-                    b.Property<DateTime?>("SentAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("sent_at");
-
                     b.Property<long?>("TelegramMediaGroupId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_media_group_id");
-
-                    b.Property<string>("Text")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
-                        .HasColumnName("text");
 
                     b.HasKey("Id")
                         .HasName("pk_telegram_messages");
 
                     b.HasIndex("AttachmentId")
                         .HasDatabaseName("ix_telegram_messages_attachment_id");
-
-                    b.HasIndex("LinkedTelegramChatId")
-                        .HasDatabaseName("ix_telegram_messages_linked_telegram_chat_id");
-
-                    b.HasIndex("SenderId")
-                        .HasDatabaseName("ix_telegram_messages_sender_id");
 
                     b.HasIndex("TelegramMediaGroupId")
                         .HasDatabaseName("ix_telegram_messages_telegram_media_group_id");
@@ -1118,26 +1098,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasDatabaseName("ix_users_telegram_id");
 
                     b.ToTable("users", (string)null);
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOnboarding", b =>
-                {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.Property<int>("OnboardingId")
-                        .HasColumnType("integer")
-                        .HasColumnName("onboarding_id");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer")
-                        .HasColumnName("status");
-
-                    b.HasKey("UserId", "OnboardingId")
-                        .HasName("pk_user_onboardings");
-
-                    b.ToTable("user_onboardings", (string)null);
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOrganizationPreferences", b =>
@@ -1650,26 +1610,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasForeignKey("AttachmentId")
                         .HasConstraintName("fk_telegram_messages_attachments_attachment_id");
 
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.LinkedTelegramChat", "LinkedTelegramChat")
-                        .WithMany()
-                        .HasForeignKey("LinkedTelegramChatId")
-                        .HasConstraintName("fk_telegram_messages_linked_telegram_chats_linked_telegram_cha");
-
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Sender")
-                        .WithMany()
-                        .HasForeignKey("SenderId")
-                        .HasConstraintName("fk_telegram_messages_users_sender_id");
-
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.TelegramMediaGroup", "TelegramMediaGroup")
                         .WithMany()
                         .HasForeignKey("TelegramMediaGroupId")
                         .HasConstraintName("fk_telegram_messages_telegram_media_groups_telegram_media_grou");
 
                     b.Navigation("Attachment");
-
-                    b.Navigation("LinkedTelegramChat");
-
-                    b.Navigation("Sender");
 
                     b.Navigation("TelegramMediaGroup");
                 });
@@ -1741,18 +1687,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramMessage", b =>
                 {
                     b.Navigation("Issue");
-                });
-
-            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOnboarding", b =>
-                {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_onboardings_users_user_id");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.User", b =>

@@ -1,7 +1,8 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using System.Text;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
-using Laraue.Core.DataAccess.EFCore.Extensions;
+using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -14,12 +15,32 @@ public interface ITelegramSaveMessageService
     Task<GetOrCreateMessageResult> Save(
         SaveMessageTelegramRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Manually turns an already-recorded message into a card, in response to /save. Only
+    /// meaningful in <see cref="SaveMode.BotMentionedMessages"/> - <see cref="Save"/> already
+    /// creates cards immediately in <see cref="SaveMode.EachMessage"/>.
+    /// </summary>
+    Task<SaveByReplyResult> SaveByReply(
+        SaveByReplyRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Read-only lookup for /info: returns the card already linked to a replied-to message (or
+    /// its whole album), if any - without creating or changing anything. Works regardless of
+    /// save mode.
+    /// </summary>
+    Task<InfoByReplyResult> GetInfoByReply(
+        InfoByReplyRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class TelegramSaveMessageService(
     DatabaseContext context,
     ICoreFilesService coreFilesService,
     ICoreIssuesService coreIssuesService,
+    IAccessService accessService,
+    IIssueUrlBuilder issueUrlBuilder,
     IDateTimeProvider dateTimeProvider)
     : ITelegramSaveMessageService
 {
@@ -37,6 +58,184 @@ public class TelegramSaveMessageService(
                 SaveVideoEntity(saveVideoRequest, cancellationToken),
             _ => throw new NotImplementedException(request.GetType().Name)
         };
+    }
+
+    public async Task<SaveByReplyResult> SaveByReply(
+        SaveByReplyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var linkedChat = await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
+
+        if (linkedChat.SaveMode == SaveMode.EachMessage)
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NotNeededInAutoMode };
+
+        var repliedMessage = await context.TelegramMessages
+            .Where(x => x.ExternalMessageId == request.RepliedExternalMessageId)
+            .Where(x => x.ExternalChatId == request.ExternalChatId)
+            .Select(x => new { x.Id, x.TelegramMediaGroupId })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (repliedMessage is null)
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.MessageNotTracked };
+
+        // Card content and attachments always live on a group's first message - whether the
+        // user replied to that one specifically or another photo in the same album.
+        var groupQuery = repliedMessage.TelegramMediaGroupId is null
+            ? context.TelegramMessages.Where(x => x.Id == repliedMessage.Id)
+            : context.TelegramMessages.Where(x => x.TelegramMediaGroupId == repliedMessage.TelegramMediaGroupId);
+
+        var groupMessages = await groupQuery
+            .OrderBy(x => x.Id)
+            .Select(x => new { x.Id, x.Text, x.AttachmentId, IssueId = x.Issue != null ? (long?)x.Issue.Id : null })
+            .ToListAsyncEF(cancellationToken);
+
+        // repliedMessage.Id is always one of these rows (either the query above matched it
+        // directly, or it's a member of the group it's filtered by), so this can never be empty.
+        var cardMessage = groupMessages.First();
+
+        await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
+
+        var content = ComposeReplyContent(request.Note, cardMessage.Text);
+
+        if (cardMessage.IssueId is not null)
+        {
+            // Manual mode never syncs edits into an existing card on its own (see Save) - a
+            // repeat /save is the explicit trigger that pulls in whatever has changed since,
+            // both the text and any new attachments in the group.
+            if (content is not null)
+            {
+                await context.Issues
+                    .Where(x => x.Id == cardMessage.IssueId)
+                    .ExecuteUpdateAsync(upd => upd.SetProperty(x => x.Content, content), cancellationToken);
+            }
+
+            foreach (var groupMessage in groupMessages)
+            {
+                if (groupMessage.AttachmentId is not null)
+                    await LinkAttachmentToIssue(cardMessage.IssueId.Value, groupMessage.AttachmentId.Value, cancellationToken);
+            }
+
+            var existingPreview = await GetIssuePreview(cardMessage.IssueId.Value, cancellationToken);
+
+            return new SaveByReplyResult
+            {
+                Outcome = SaveByReplyOutcome.AlreadySaved,
+                TelegramMessageId = cardMessage.Id,
+                IssueUrl = existingPreview.Url,
+                IssuePreviewText = existingPreview.Text,
+            };
+        }
+
+        if (content is null)
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NothingToSave };
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var issueId = await coreIssuesService.Create(
+            request.UserId,
+            assigneeId: null,
+            content,
+            dateTimeProvider.UtcNow,
+            linkedChat.StatusId,
+            cardMessage.Id,
+            attributes: [],
+            newFiles: [],
+            cancellationToken);
+
+        foreach (var groupMessage in groupMessages)
+        {
+            if (groupMessage.AttachmentId is not null)
+                await LinkAttachmentToIssue(issueId, groupMessage.AttachmentId.Value, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        var preview = await GetIssuePreview(issueId, cancellationToken);
+
+        return new SaveByReplyResult
+        {
+            Outcome = SaveByReplyOutcome.Saved,
+            TelegramMessageId = cardMessage.Id,
+            IssueUrl = preview.Url,
+            IssuePreviewText = preview.Text,
+        };
+    }
+
+    public async Task<InfoByReplyResult> GetInfoByReply(
+        InfoByReplyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var repliedMessage = await context.TelegramMessages
+            .Where(x => x.ExternalMessageId == request.RepliedExternalMessageId)
+            .Where(x => x.ExternalChatId == request.ExternalChatId)
+            .Select(x => new { x.Id, x.TelegramMediaGroupId })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (repliedMessage is null)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.MessageNotTracked };
+
+        // Card content and attachments always live on a group's first message - see SaveByReply.
+        var groupQuery = repliedMessage.TelegramMediaGroupId is null
+            ? context.TelegramMessages.Where(x => x.Id == repliedMessage.Id)
+            : context.TelegramMessages.Where(x => x.TelegramMediaGroupId == repliedMessage.TelegramMediaGroupId);
+
+        var cardMessage = await groupQuery
+            .OrderBy(x => x.Id)
+            .Select(x => new { x.Id, IssueId = x.Issue != null ? (long?)x.Issue.Id : null })
+            .FirstAsyncEF(cancellationToken);
+
+        if (cardMessage.IssueId is null)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.NoCardYet };
+
+        // Permission is checked against the card's own epic, not the chat's current link state -
+        // a chat can be unlinked/relinked later, but the card and its access rules don't change.
+        var issueAccessData = await context.Issues
+            .Where(x => x.Id == cardMessage.IssueId)
+            .Select(x => new { x.Status!.EpicId, OrganizationId = x.Status.Epic!.Space!.OrganizationId })
+            .FirstAsyncEF(cancellationToken);
+
+        var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = request.UserId };
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, cancellationToken);
+
+        if (accessLevels?.CanRead != true)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
+
+        var preview = await GetIssuePreview(cardMessage.IssueId.Value, cancellationToken);
+
+        return new InfoByReplyResult
+        {
+            Outcome = InfoByReplyOutcome.Found,
+            IssueUrl = preview.Url,
+            IssuePreviewText = preview.Text,
+        };
+    }
+
+    /// <summary>
+    /// Combines the user's optional /save note with the linked message's own stored text
+    /// (a "---" Markdown rule between the two, when both are present).
+    /// </summary>
+    private static string? ComposeReplyContent(string? note, string? originalText)
+    {
+        note = note?.Trim();
+        originalText = originalText?.Trim();
+
+        var hasNote = !string.IsNullOrEmpty(note);
+        var hasOriginalText = !string.IsNullOrEmpty(originalText);
+
+        if (!hasNote && !hasOriginalText)
+            return null;
+
+        if (!hasNote)
+            return originalText;
+
+        if (!hasOriginalText)
+            return note;
+
+        return new StringBuilder()
+            .Append(note)
+            .Append("\n---\n")
+            .Append(originalText)
+            .ToString();
     }
 
 
@@ -140,7 +339,7 @@ public class TelegramSaveMessageService(
         // Try to find the message
         var savedMessage = await context.TelegramMessages
             .Where(x => x.ExternalMessageId == request.ExternalMessageId)
-            .Where(x => x.ExternalChatId == request.ExternalUserId)
+            .Where(x => x.ExternalChatId == request.ExternalChatId)
             .FirstOrDefaultAsync(cancellationToken);
         
         // When group id already stored in message - remain it as is. It can't change
@@ -162,76 +361,87 @@ public class TelegramSaveMessageService(
             })
             .FirstOrDefaultAsyncEF(cancellationToken);
         
+        LinkedChatToSaveMessage? linkedChat = null;
+
         if (savedMessage is null)
         {
+            linkedChat = await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
+
             savedMessage = new TelegramMessage
             {
                 ExternalMessageId = request.ExternalMessageId,
-                ExternalChatId = request.ExternalUserId,
+                ExternalChatId = request.ExternalChatId,
                 TelegramMediaGroupId = groupId,
+                LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
+                Text = request.Text?.Trim(),
+                SenderId = request.UserId,
+                SentAt = request.SentAt,
             };
 
             context.Add(savedMessage);
             await context.SaveChangesAsync(cancellationToken);
         }
-        
+        else
+        {
+            // Keep the stored text in sync with edits, even before any card exists - /save
+            // reads it later and the Bot API won't give us a second chance at it.
+            await context.TelegramMessages
+                .Where(x => x.Id == savedMessage.Id)
+                .ExecuteUpdateAsync(u => u.SetProperty(p => p.Text, request.Text != null ? request.Text.Trim() : null), cancellationToken);
+        }
+
+        // Record the attachment regardless of save mode - group members can arrive well before
+        // any card exists for the group, e.g. waiting for /save in BotMentionedMessages mode.
+        var attachmentId = await UpsertAttachment(savedMessage.Id, request.UserId, mediaInfo, cancellationToken);
+
+        linkedChat ??= await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
+
         var cardForMessageIsCreated = (firstGroupMessageData?.CardId).HasValue;
-        if (!cardForMessageIsCreated)
+        if (cardForMessageIsCreated)
         {
-            var statusId = await GetStatusIdToSaveMessage(request.UserId, cancellationToken);
+            // Auto-sync an edit into its card only in EachMessage mode - see the equivalent
+            // comment in SaveSingleMessageEntity.
+            if (linkedChat.SaveMode != SaveMode.EachMessage)
+                return Recorded(savedMessage.Id);
 
-            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-            
-            var issueId = await coreIssuesService.Create(
-                request.UserId,
-                assigneeId: null,
-                request.Text,
-                request.SentAt,
-                statusId,
-                savedMessage.Id,
-                attributes: [],
-                newFiles: [],
-                cancellationToken);
+            // The case when first message was deleted and text added to the second
+            if (request.Text is not null && firstGroupMessageData is not null)
+            {
+                // TODO - here we can detect and remove previous messages. But should we?
+                await context.Issues
+                    .Where(x => x.Id == firstGroupMessageData.CardId)
+                    .ExecuteUpdateAsync(upd => upd
+                            .SetProperty(x => x.Content, request.Text),
+                        cancellationToken);
 
-            await UpsertMediaInfo(savedMessage.Id, issueId, request.UserId, mediaInfo, cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            
-            return new GetOrCreateMessageResult
-            {
-                Result = Result.MainMessageUpdated,
-                TelegramMessageId = savedMessage.Id,
-            };
+                return new GetOrCreateMessageResult
+                {
+                    Result = Result.MainMessageUpdated,
+                    TelegramMessageId = savedMessage.Id,
+                };
+            }
+
+            if (attachmentId is not null)
+                await LinkAttachmentToIssue(firstGroupMessageData!.CardId!.Value, attachmentId.Value, cancellationToken);
+
+            return Recorded(savedMessage.Id);
         }
-        
-        // The case when first message was deleted and text added to the second
-        if (request.Text is not null && firstGroupMessageData is not null)
-        {
-            // TODO - here we can detect and remove previous messages. But should we?
-            await context.Issues
-                .Where(x => x.Id == firstGroupMessageData.CardId)
-                .ExecuteUpdateAsync(upd => upd
-                        .SetProperty(x => x.Content, request.Text),
-                    cancellationToken);
-                
-            return new GetOrCreateMessageResult
-            {
-                Result = Result.MainMessageUpdated,
-                TelegramMessageId = savedMessage.Id,
-            };
-        }
-        
-        await UpsertMediaInfo(
+
+        // Auto-save only happens in EachMessage mode - in BotMentionedMessages mode the group
+        // is recorded but stays card-less until the user replies to one of its messages with
+        // /save.
+        if (linkedChat.SaveMode != SaveMode.EachMessage)
+            return Recorded(savedMessage.Id);
+
+        await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
+
+        return await CreateCard(
+            request,
+            linkedChat,
             savedMessage.Id,
-            firstGroupMessageData!.CardId!.Value,
-            request.UserId,
-            mediaInfo,
+            attachmentId,
+            Result.MainMessageUpdated,
             cancellationToken);
-        
-        return new GetOrCreateMessageResult
-        {
-            Result = null,
-            TelegramMessageId = savedMessage.Id,
-        };
     }
     
     /// <summary>
@@ -245,75 +455,149 @@ public class TelegramSaveMessageService(
         // Try to find the message
         var savedMessage = await context.TelegramMessages
             .Where(x => x.ExternalMessageId == request.ExternalMessageId)
-            .Where(x => x.ExternalChatId == request.ExternalUserId)
+            .Where(x => x.ExternalChatId == request.ExternalChatId)
             .Select(x => new
             {
                 IssueId = x.Issue != null ? (long?)x.Issue.Id : null,
                 x.Id,
             })
             .FirstOrDefaultAsync(cancellationToken);
-        
-        // Message is not stored, save it // TODO - store only if it is the first message
-        if (savedMessage?.IssueId is null)
+
+        LinkedChatToSaveMessage? linkedChat = null;
+        long messageId;
+
+        if (savedMessage is null)
         {
-            var statusId = await GetStatusIdToSaveMessage(request.UserId, cancellationToken);
+            linkedChat = await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
 
-            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-            TelegramMessage? telegramMessage = null;
-            if (savedMessage is null)
+            var telegramMessage = new TelegramMessage
             {
-                telegramMessage = new TelegramMessage
-                {
-                    ExternalMessageId = request.ExternalMessageId,
-                    ExternalChatId = request.ExternalUserId,
-                };
-                
-                context.Add(telegramMessage);
-                
-                await context.SaveChangesAsync(cancellationToken);
-            }
+                ExternalMessageId = request.ExternalMessageId,
+                ExternalChatId = request.ExternalChatId,
+                LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
+                Text = request.Text?.Trim(),
+                SenderId = request.UserId,
+                SentAt = request.SentAt,
+            };
 
-            var messageId = savedMessage?.Id ?? telegramMessage?.Id ?? throw new InvalidOperationException();
-            var issueId = await coreIssuesService.Create(
-                request.UserId,
-                assigneeId: null,
-                request.Text,
-                request.SentAt,
-                statusId,
-                messageId,
-                attributes: [],
-                newFiles: [],
-                cancellationToken);
-            
-            await UpsertMediaInfo(messageId, issueId, request.UserId, mediaInfo, cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            context.Add(telegramMessage);
+            await context.SaveChangesAsync(cancellationToken);
+
+            messageId = telegramMessage.Id;
+        }
+        else
+        {
+            messageId = savedMessage.Id;
+
+            // Keep the stored text in sync with edits, even before any card exists - /save
+            // reads it later and the Bot API won't give us a second chance at it.
+            await context.TelegramMessages
+                .Where(x => x.Id == messageId)
+                .ExecuteUpdateAsync(u => u.SetProperty(p => p.Text, request.Text != null ? request.Text.Trim() : null), cancellationToken);
+        }
+
+        // Record the attachment regardless of save mode - a message can exist (and be edited)
+        // well before it becomes a card, e.g. waiting for /save in BotMentionedMessages mode.
+        var attachmentId = await UpsertAttachment(messageId, request.UserId, mediaInfo, cancellationToken);
+
+        linkedChat ??= await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
+
+        if (savedMessage?.IssueId is not null)
+        {
+            // Auto-sync an edit into its card only in EachMessage mode. In BotMentionedMessages
+            // mode the card was created deliberately via /save, so edits shouldn't silently
+            // overwrite it - the user has to /save again to pull in changes.
+            if (linkedChat.SaveMode != SaveMode.EachMessage)
+                return Recorded(savedMessage.Id);
+
+            await context.Issues
+                .Where(x => x.TelegramMessageId == savedMessage.Id)
+                .ExecuteUpdateAsync(upd => upd
+                    .SetProperty(x => x.Content, request.Text),
+                    cancellationToken);
+
+            if (attachmentId is not null)
+                await LinkAttachmentToIssue(savedMessage.IssueId.Value, attachmentId.Value, cancellationToken);
 
             return new GetOrCreateMessageResult
             {
-                Result = Result.MainMessageCreated,
-                TelegramMessageId = messageId
+                Result = Result.MainMessageUpdated,
+                TelegramMessageId = savedMessage.Id,
             };
         }
-        
-        await context.Issues
-            .Where(x => x.TelegramMessageId == savedMessage.Id)
-            .ExecuteUpdateAsync(upd => upd
-                .SetProperty(x => x.Content, request.Text),
-                cancellationToken);
-        
-        await UpsertMediaInfo(savedMessage.Id, savedMessage.IssueId.Value, request.UserId, mediaInfo, cancellationToken);
-        
+
+        // Auto-save only happens in EachMessage mode - in BotMentionedMessages mode the message
+        // is recorded but stays card-less until the user replies with /save.
+        if (linkedChat.SaveMode != SaveMode.EachMessage)
+            return Recorded(messageId);
+
+        await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
+
+        return await CreateCard(
+            request,
+            linkedChat,
+            messageId,
+            attachmentId,
+            Result.MainMessageCreated,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Turns a recorded message into a card: creates the <see cref="Issue"/> and links its
+    /// already-stored attachment (if any), atomically. Shared by the EachMessage auto-save
+    /// path for both single and grouped messages.
+    /// </summary>
+    private async Task<GetOrCreateMessageResult> CreateCard(
+        SaveMessageTelegramRequest request,
+        LinkedChatToSaveMessage linkedChat,
+        long telegramMessageId,
+        Guid? attachmentId,
+        Result result,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var issueId = await coreIssuesService.Create(
+            request.UserId,
+            assigneeId: null,
+            request.Text,
+            request.SentAt,
+            linkedChat.StatusId,
+            telegramMessageId,
+            attributes: [],
+            newFiles: [],
+            cancellationToken);
+
+        if (attachmentId is not null)
+            await LinkAttachmentToIssue(issueId, attachmentId.Value, cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
         return new GetOrCreateMessageResult
         {
-            Result = Result.MainMessageUpdated,
-            TelegramMessageId = savedMessage.Id,
+            Result = result,
+            TelegramMessageId = telegramMessageId,
         };
     }
 
-    private async Task UpsertMediaInfo(
+    /// <summary>
+    /// A message that's been persisted (and had its attachment recorded) but has no card yet -
+    /// either it's still waiting on /save in BotMentionedMessages mode, or its card already
+    /// exists and this update only touched the attachment.
+    /// </summary>
+    private static GetOrCreateMessageResult Recorded(long telegramMessageId) => new()
+    {
+        Result = null,
+        TelegramMessageId = telegramMessageId,
+    };
+
+    /// <summary>
+    /// Persists the raw <see cref="Attachment"/> for a message, independent of whether a card
+    /// exists for it yet. In BotMentionedMessages mode messages are recorded before any card
+    /// is created, so attachment storage can't be tied to issue creation the way it used to be.
+    /// </summary>
+    private async Task<Guid?> UpsertAttachment(
         long telegramMessageId,
-        long issueId,
         Guid ownerId,
         MediaInfo? mediaInfo,
         CancellationToken cancellationToken)
@@ -325,10 +609,10 @@ public class TelegramSaveMessageService(
                 .Where(x => x.Id == telegramMessageId)
                 .Select(x => x.Attachment)
                 .ExecuteDeleteAsync(cancellationToken);
-            
-            return;
+
+            return null;
         }
-        
+
         var attachmentData = await context.TelegramMessages
             .Where(x => x.Id == telegramMessageId)
             .Select(x => new
@@ -348,52 +632,124 @@ public class TelegramSaveMessageService(
                     .SetProperty(x => x.Type, mediaInfo.Type)
                     .SetProperty(x => x.CreatedAt, dateTimeProvider.UtcNow),
                     cancellationToken);
-            
-            return;
+
+            return attachmentData.AttachmentId;
         }
-        
-        // Media info is created in the message
-        var newEntity = new IssueAttachment
+
+        // Media info is created for the message
+        var attachment = new Attachment
         {
-            Attachment = new Attachment
-            {
-                FileId = mediaInfo.OriginalFileId,
-                Type = mediaInfo.Type,
-                PreviewFileId = mediaInfo.PreviewFileId,
-                CreatedAt = dateTimeProvider.UtcNow,
-                OwnerId = ownerId,
-            },
-            IssueId = issueId,
+            FileId = mediaInfo.OriginalFileId,
+            Type = mediaInfo.Type,
+            PreviewFileId = mediaInfo.PreviewFileId,
+            CreatedAt = dateTimeProvider.UtcNow,
+            OwnerId = ownerId,
         };
-        
-        context.Add(newEntity);
+
+        context.Add(attachment);
         await context.SaveChangesAsync(cancellationToken);
 
         await context.TelegramMessages
             .Where(x => x.Id == telegramMessageId)
             .ExecuteUpdateAsync(u => u
-                .SetProperty(p => p.AttachmentId, newEntity.AttachmentId),
+                .SetProperty(p => p.AttachmentId, attachment.Id),
                 cancellationToken);
+
+        return attachment.Id;
     }
 
-    private async Task<long> GetStatusIdToSaveMessage(Guid userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Attaches an already-stored <see cref="Attachment"/> to a card, the first time only. An
+    /// attachment is linked exactly once, at the moment it's first associated with a card -
+    /// matches the pre-existing behaviour where updating an attachment's file in place never
+    /// re-pointed it at a different issue (an attachment can only ever belong to one issue, per
+    /// the unique index on IssueAttachment.AttachmentId). Separate from
+    /// <see cref="UpsertAttachment"/> because a message's attachment can exist well before its
+    /// card does (BotMentionedMessages mode).
+    /// </summary>
+    private async Task LinkAttachmentToIssue(long issueId, Guid attachmentId, CancellationToken cancellationToken)
     {
-        var organizationData = await context.Organizations
-            .Where(o => o.Type == OrganizationType.Personal)
-            .Where(o => o.OwnerId == userId)
-            .Select(o => new { o.Id })
-            .FirstOrThrowNotFoundEFAsync($"Personal org is not defined for user: {userId}", cancellationToken);
-        
-        var statusData = await context.Statuses
-            .Where(s => 
-                s.Epic!.IsDefault
-                && s.Epic.Space!.IsDefault
-                && s.Epic.Space.OrganizationId == organizationData.Id)
-            .OrderBy(s => s.SortOrder)
-            .Select(s => new { s.Id })
-            .FirstOrThrowNotFoundEFAsync("Status to save TG message is not defined", cancellationToken);
-        
-        return statusData.Id;
+        var alreadyLinked = await context.IssueAttachments
+            .AnyAsyncEF(x => x.AttachmentId == attachmentId, cancellationToken);
+
+        if (alreadyLinked)
+            return;
+
+        context.Add(new IssueAttachment { IssueId = issueId, AttachmentId = attachmentId });
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<LinkedChatToSaveMessage> GetLinkedChatToSaveMessage(long externalChatId, CancellationToken cancellationToken)
+    {
+        var linkedChatData = await context.LinkedTelegramChats
+            .Where(x => x.ExternalChatId == externalChatId && x.UnlinkedAt == null)
+            .Select(x => new LinkedChatToSaveMessage
+            {
+                LinkedTelegramChatId = x.Id,
+                StatusId = x.StatusId,
+                EpicId = x.Status!.EpicId,
+                OrganizationId = x.Status.Epic!.Space!.OrganizationId,
+                SaveMode = x.SaveMode,
+            })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        return linkedChatData ?? throw new ChatNotLinkedException(externalChatId);
+    }
+
+    /// <summary>
+    /// Builds the same key/org/content-preview + link shown for an inline search result, so a
+    /// /save or /info reply looks like the same "card" wherever it's shown from.
+    /// </summary>
+    private async Task<(string Text, string Url)> GetIssuePreview(long issueId, CancellationToken cancellationToken)
+    {
+        var issueData = await context.Issues
+            .Where(x => x.Id == issueId)
+            .Select(x => new
+            {
+                Key = new IssueKey(x.IssueNumber!.Space!.Key, x.IssueNumber.Number),
+                OrganizationName = x.IssueNumber.Space.Organization!.Name,
+                OrganizationSlug = x.IssueNumber.Space.Organization!.Slug,
+                OrganizationSlugPostfix = x.IssueNumber.Space.Organization!.SlugPostfix,
+                x.Content,
+                ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
+                SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
+                    ? (x.TelegramMessage.Sender.TelegramUserName ?? x.TelegramMessage.Sender.TelegramFirstName)
+                    : null,
+                SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
+            })
+            .FirstAsyncEF(cancellationToken);
+
+        var url = issueUrlBuilder.Build(issueData.OrganizationSlug, issueData.OrganizationSlugPostfix, issueData.Key);
+
+        var fragment = ContentFragment.Extract(
+            issueData.Content ?? string.Empty,
+            searchText: string.Empty,
+            IssuePreviewFormatter.FragmentContextChars);
+
+        var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, issueData.SenderName, issueData.SentAt);
+
+        var text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" + fragment.ToMarkdownV2();
+        if (footer is not null)
+            text += "\n" + footer;
+
+        return (text, url);
+    }
+
+    /// <summary>
+    /// Guards issue creation: the chat being linked to an organization doesn't by itself grant
+    /// the person typing in it permission to create cards there.
+    /// </summary>
+    private async Task EnsureCanCreateIssue(
+        LinkedChatToSaveMessage linkedChat,
+        Guid userId,
+        long externalChatId,
+        CancellationToken cancellationToken)
+    {
+        var authData = new OrganizationAuthData { OrganizationId = linkedChat.OrganizationId, UserId = userId };
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, linkedChat.EpicId, cancellationToken);
+
+        if (accessLevels?.CanCreateIssue != true)
+            throw new IssueCreationForbiddenException(externalChatId);
     }
     
     private async Task<long> GetOrCreateTelegramMediaGroupId(
@@ -430,4 +786,100 @@ public enum Result
 {
     MainMessageCreated,
     MainMessageUpdated,
+}
+
+internal class LinkedChatToSaveMessage
+{
+    public required long LinkedTelegramChatId { get; init; }
+    public required long StatusId { get; init; }
+    public required long EpicId { get; init; }
+    public required long OrganizationId { get; init; }
+    public required SaveMode SaveMode { get; init; }
+}
+
+public class SaveByReplyRequest
+{
+    public required long ExternalChatId { get; init; }
+    public required int RepliedExternalMessageId { get; init; }
+    public required Guid UserId { get; init; }
+
+    /// <summary>
+    /// Extra text typed after /save, e.g. "/save this one" -&gt; "this one". Null when the
+    /// command was sent bare.
+    /// </summary>
+    public required string? Note { get; init; }
+}
+
+public class SaveByReplyResult
+{
+    public required SaveByReplyOutcome Outcome { get; init; }
+    public long? TelegramMessageId { get; init; }
+
+    /// <summary>
+    /// Set when <see cref="Outcome"/> is <see cref="SaveByReplyOutcome.Saved"/> or
+    /// <see cref="SaveByReplyOutcome.AlreadySaved"/> - both have a card to link to.
+    /// </summary>
+    public string? IssueUrl { get; init; }
+
+    /// <summary>
+    /// MarkdownV2 "📋 KEY · Org\n{content preview}" text, matching the inline search result
+    /// format. Set alongside <see cref="IssueUrl"/>.
+    /// </summary>
+    public string? IssuePreviewText { get; init; }
+}
+
+public enum SaveByReplyOutcome
+{
+    Saved,
+
+    /// <summary>The chat is in EachMessage mode, where /save has nothing to do.</summary>
+    NotNeededInAutoMode,
+
+    /// <summary>The replied-to message was never recorded by the bot.</summary>
+    MessageNotTracked,
+
+    /// <summary>
+    /// The replied-to message (or its group) already has a card - its content and any new
+    /// attachments were just re-synced from the current message state.
+    /// </summary>
+    AlreadySaved,
+
+    /// <summary>Neither the replied-to message nor the /save note had any content.</summary>
+    NothingToSave,
+}
+
+public class InfoByReplyRequest
+{
+    public required long ExternalChatId { get; init; }
+    public required int RepliedExternalMessageId { get; init; }
+    public required Guid UserId { get; init; }
+}
+
+public class InfoByReplyResult
+{
+    public required InfoByReplyOutcome Outcome { get; init; }
+
+    /// <summary>Set when <see cref="Outcome"/> is <see cref="InfoByReplyOutcome.Found"/>.</summary>
+    public string? IssueUrl { get; init; }
+
+    /// <summary>
+    /// MarkdownV2 "📋 KEY · Org\n{content preview}" text, matching the inline search result
+    /// format. Set alongside <see cref="IssueUrl"/>.
+    /// </summary>
+    public string? IssuePreviewText { get; init; }
+}
+
+public enum InfoByReplyOutcome
+{
+    /// <summary>The replied-to message (or its group) already has a card.</summary>
+    Found,
+
+    /// <summary>The replied-to message is tracked but hasn't been turned into a card yet.</summary>
+    NoCardYet,
+
+    /// <summary>The replied-to message was never recorded by the bot.</summary>
+    MessageNotTracked,
+
+    /// <summary>The user doesn't have read access to the card's space.</summary>
+    Forbidden,
 }

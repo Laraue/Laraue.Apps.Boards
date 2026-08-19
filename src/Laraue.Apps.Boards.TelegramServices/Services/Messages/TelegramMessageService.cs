@@ -1,4 +1,5 @@
-﻿using Telegram.Bot;
+﻿using Laraue.Apps.Boards.TelegramServices.Resources;
+using Telegram.Bot;
 using Telegram.Bot.Types;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
@@ -10,11 +11,38 @@ public class TelegramMessageService(
 {
     public async Task HandleSaveMessage(
         SaveMessageTelegramRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool notifyOnFailure = true)
     {
-        var result = await saveMessageService.Save(
-            request,
-            cancellationToken);
+        GetOrCreateMessageResult result;
+        try
+        {
+            result = await saveMessageService.Save(request, cancellationToken);
+        }
+        catch (ChatNotLinkedException)
+        {
+            if (notifyOnFailure)
+            {
+                await client.SendMessage(
+                    request.ExternalChatId,
+                    Phrases.LinkNotLinked,
+                    cancellationToken: cancellationToken);
+            }
+
+            return;
+        }
+        catch (IssueCreationForbiddenException)
+        {
+            if (notifyOnFailure)
+            {
+                await client.SendMessage(
+                    request.ExternalChatId,
+                    Phrases.IssueCreationForbidden,
+                    cancellationToken: cancellationToken);
+            }
+
+            return;
+        }
 
         // If message was created with that request then response,
         // otherwise it is the second, third etc. parts of message
@@ -30,7 +58,7 @@ public class TelegramMessageService(
         CancellationToken ct)
     {
         await client.SetMessageReaction(
-            request.ExternalUserId,
+            request.ExternalChatId,
             request.ExternalMessageId,
             reaction is not null
                 ? [new ReactionTypeEmoji { Emoji = reaction }]

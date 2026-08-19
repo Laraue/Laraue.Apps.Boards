@@ -123,6 +123,301 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to This chat is already linked to
+        ///{0}.
+        /// </summary>
+        internal static string LinkAlreadyLinked {
+            get {
+                return ResourceManager.GetString("LinkAlreadyLinked", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ← Back.
+        /// </summary>
+        internal static string LinkBack {
+            get {
+                return ResourceManager.GetString("LinkBack", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ✖ Cancel.
+        /// </summary>
+        internal static string LinkCancel {
+            get {
+                return ResourceManager.GetString("LinkCancel", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Change link.
+        /// </summary>
+        internal static string LinkChangeLink {
+            get {
+                return ResourceManager.GetString("LinkChangeLink", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Choose an epic in {0}:.
+        /// </summary>
+        internal static string LinkChooseEpic {
+            get {
+                return ResourceManager.GetString("LinkChooseEpic", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Choose organization:.
+        /// </summary>
+        internal static string LinkChooseOrganization {
+            get {
+                return ResourceManager.GetString("LinkChooseOrganization", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Choose a space in {0}:.
+        /// </summary>
+        internal static string LinkChooseSpace {
+            get {
+                return ResourceManager.GetString("LinkChooseSpace", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Choose a status in {0}:.
+        /// </summary>
+        internal static string LinkChooseStatus {
+            get {
+                return ResourceManager.GetString("LinkChooseStatus", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ✅ This chat is now linked to
+        ///{0}
+        ///
+        ///Reply to any message and mention me (@{1}) to turn it into a card..
+        /// </summary>
+        internal static string LinkConfirmed {
+            get {
+                return ResourceManager.GetString("LinkConfirmed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to No organizations available.
+        /// </summary>
+        internal static string LinkNoOrganizations {
+            get {
+                return ResourceManager.GetString("LinkNoOrganizations", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to User should be group admin.
+        /// </summary>
+        internal static string LinkRequireAdmin {
+            get {
+                return ResourceManager.GetString("LinkRequireAdmin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unlink.
+        /// </summary>
+        internal static string LinkUnlink {
+            get {
+                return ResourceManager.GetString("LinkUnlink", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to This chat is no longer linked to any organization or space..
+        /// </summary>
+        internal static string LinkUnlinked {
+            get {
+                return ResourceManager.GetString("LinkUnlinked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This chat is not linked to any organization or space yet. Use /link to link it..
+        /// </summary>
+        internal static string LinkNotLinked {
+            get {
+                return ResourceManager.GetString("LinkNotLinked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This action is not available - you don&apos;t have permission to create cards here..
+        /// </summary>
+        internal static string IssueCreationForbidden {
+            get {
+                return ResourceManager.GetString("IssueCreationForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link..
+        /// </summary>
+        internal static string LinkItemNotFound {
+            get {
+                return ResourceManager.GetString("LinkItemNotFound", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Choose how the bot should save messages in {0}:
+        ///
+        ///💬 Every message is great for solo chats.
+        ///✋ Only via /save works better for chats with different members..
+        /// </summary>
+        internal static string LinkChooseSaveMode {
+            get {
+                return ResourceManager.GetString("LinkChooseSaveMode", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 💬 Every message.
+        /// </summary>
+        internal static string SaveModeEachMessage {
+            get {
+                return ResourceManager.GetString("SaveModeEachMessage", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ✋ Only via /save.
+        /// </summary>
+        internal static string SaveModeBotMentioned {
+            get {
+                return ResourceManager.GetString("SaveModeBotMentioned", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Every message sent here will be added as a card. Nice for solo use, when different chats are linked to different destinations..
+        /// </summary>
+        internal static string SaveModeInstructionsEachMessage {
+            get {
+                return ResourceManager.GetString("SaveModeInstructionsEachMessage", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Reply to a message and send /save to turn it into a card. Nice for company chats with a lot of discussion, where you only sometimes need to create a card from a message..
+        /// </summary>
+        internal static string SaveModeInstructionsBotMentioned {
+            get {
+                return ResourceManager.GetString("SaveModeInstructionsBotMentioned", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Reply to the message you want to save and send /save again..
+        /// </summary>
+        internal static string SaveNotAReply {
+            get {
+                return ResourceManager.GetString("SaveNotAReply", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This chat saves every message automatically, so /save isn&apos;t needed here..
+        /// </summary>
+        internal static string SaveNotNeededInAutoMode {
+            get {
+                return ResourceManager.GetString("SaveNotNeededInAutoMode", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to I don&apos;t have that message on record - it may have arrived before the chat was linked..
+        /// </summary>
+        internal static string SaveMessageNotTracked {
+            get {
+                return ResourceManager.GetString("SaveMessageNotTracked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to That&apos;s my own message - reply to the original message you want to save instead..
+        /// </summary>
+        internal static string SaveMessageFromBot {
+            get {
+                return ResourceManager.GetString("SaveMessageFromBot", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to There&apos;s nothing to save - the message has no text and you didn&apos;t add a note, e.g. /save some note..
+        /// </summary>
+        internal static string SaveNothingToSave {
+            get {
+                return ResourceManager.GetString("SaveNothingToSave", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🔗 Open issue.
+        /// </summary>
+        internal static string OpenIssueButton {
+            get {
+                return ResourceManager.GetString("OpenIssueButton", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Reply to the message you want info about and send /info again..
+        /// </summary>
+        internal static string InfoNotAReply {
+            get {
+                return ResourceManager.GetString("InfoNotAReply", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to That&apos;s my own message - reply to the original message you want info about instead..
+        /// </summary>
+        internal static string InfoMessageFromBot {
+            get {
+                return ResourceManager.GetString("InfoMessageFromBot", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to I don&apos;t have that message on record - it may have arrived before the chat was linked..
+        /// </summary>
+        internal static string InfoMessageNotTracked {
+            get {
+                return ResourceManager.GetString("InfoMessageNotTracked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This message hasn&apos;t been saved as a card yet - reply to it with /save first..
+        /// </summary>
+        internal static string InfoNoCardYet {
+            get {
+                return ResourceManager.GetString("InfoNoCardYet", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This action is not available - you don&apos;t have permission to view this card..
+        /// </summary>
+        internal static string InfoForbidden {
+            get {
+                return ResourceManager.GetString("InfoForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {
@@ -216,6 +511,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
             }
         }
         
+        /// <summary>
+        ///   Looks up a localized string similar to The message of type "{0}" is not supported yet and will not be added to the board..
+        /// </summary>
+        internal static string MessageTypeIsNotAvailable {
+            get {
+                return ResourceManager.GetString("MessageTypeIsNotAvailable", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to Your Categories.
         /// </summary>

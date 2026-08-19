@@ -16,7 +16,7 @@
   </PropertyGroup>
   
   <PropertyGroup>
-    <LaraueTelegramNetVersion>4.7.1</LaraueTelegramNetVersion>
+    <LaraueTelegramNetVersion>4.9.0</LaraueTelegramNetVersion>
     <LaraueCoreDataAccessVersion>10.8.0</LaraueCoreDataAccessVersion>
     <LaraueCoreDateTimeVersion>10.0.0</LaraueCoreDateTimeVersion>
     <EfCoreVersion>10.0.0</EfCoreVersion>

@@ -1,16 +1,1472 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+using Laraue.Telegram.NET.Testing;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InlineQueryResults;
+using Telegram.Bot.Types.ReplyMarkups;
 using User = Telegram.Bot.Types.User;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
 public class TelegramHostTests : TelegramIntegrationTest
 {
+    [Fact]
+    public async Task HandleLink_ShouldRejectNonAdmin_WhenUserIsNotGroupAdmin()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        // Non-admin must be rejected with the "admin required" notice, never reaching the
+        // organization picker.
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("User should be group admin", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldShowOrganizationPicker_WhenAdminAndNoExistingLink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        // Non-personal organization owner gets AdminAccessLevel.All, which includes the
+        // LinkChats flag the picker filters on — see OrganizationDefaults.GetNewOrganizationEntity.
+        var organization = await testScope.InitializeOrganization(userId);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
+        var rows = markup.InlineKeyboard.ToList();
+
+        // One row per linkable organization, plus the trailing Cancel row.
+        Assert.Equal(2, rows.Count);
+        var orgButton = Assert.Single(rows[0]);
+        Assert.Equal($"🏢 {organization.Name}", orgButton.Text);
+        Assert.Equal($"/link/organization/{organization.Id}", orgButton.CallbackData);
+
+        var cancelButton = Assert.Single(rows[1]);
+        Assert.Equal("✖ Cancel", cancelButton.Text);
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldShowOrganizationPicker_WhenCommandHasBotUsernameSuffix()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+
+        // Telegram appends "@botusername" to commands sent in groups with more than one bot -
+        // the route must still match, not just the bare "/link".
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/link@ai_saved_mesages_bot",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldShowAlreadyLinkedMenu_WhenChatAlreadyLinked()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = GroupChat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        // Repeating /link on an already-linked chat must show the already-linked menu, not
+        // the organization picker. The default epic is the backlog, so its status is omitted
+        // from the destination string.
+        var space = organization.GetSpace(0);
+        var epic = organization.GetEpic(0, 0);
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(@$"This chat is already linked to
+{organization.Name} → {space.Name} → {epic.Name}",
+            request.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
+        var rows = markup.InlineKeyboard.ToList();
+
+        Assert.Equal(2, rows.Count);
+        var unlinkButton = Assert.Single(rows[0]);
+        Assert.Equal("Unlink", unlinkButton.Text);
+        Assert.Equal("/link/unlink", unlinkButton.CallbackData);
+
+        var cancelButton = Assert.Single(rows[1]);
+        Assert.Equal("✖ Cancel", cancelButton.Text);
+    }
+
+    [Fact]
+    public async Task LinkFlow_ShouldWalkOrgSpaceEpicStatus_AndPersistLink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        // Not calling AddStatus: any non-default space auto-seeds each of its epics with one
+        // status named "New" (see OrganizationDefaults.GetNewStatusEntity), so leaving Sprint
+        // 1's statuses unset keeps it at exactly that one status.
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, "AAA", s => s
+                .AddEpic(userId, e => e.WithName("Sprint 1"))));
+
+        var defaultSpace = organization.GetSpace(0);
+        var space = organization.GetSpace(1);
+        // A non-first space gets an auto-created default "Backlog" epic (index 0) in addition
+        // to whatever's added explicitly — see OrganizationInitializer.Initialize().
+        var backlogEpic = organization.GetEpic(1, 0);
+        var epic = organization.GetEpic(1, 1);
+        var status = organization.GetStatus(1, 1, 0);
+
+        const int messageId = 42;
+        const long chatId = 777;
+        var chat = new Chat { Id = chatId, Type = ChatType.Group, Title = "Test Group" };
+
+        var organizationSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/organization/{organization.Id}");
+
+        // GetAvailableSpaces returns every space the user can see in the organization, so the
+        // pre-existing default space is listed alongside the one added for this test. It has
+        // no ORDER BY, so — like InlineSearch_ShouldResolveSpaceToken_ForAllCases elsewhere in
+        // this file — match the two space rows by content rather than assuming a position.
+        organizationSelected.CheckMessage($"Choose a space in {organization.Name}:");
+        var spaceMarkup = Assert.IsType<InlineKeyboardMarkup>(organizationSelected.ReplyMarkup);
+        var spaceRows = spaceMarkup.InlineKeyboard.ToList();
+        Assert.Equal(4, spaceRows.Count);
+        var spaceButtons = spaceRows.Take(2).Select(Assert.Single).ToList();
+        Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {defaultSpace.Name}" && btn.CallbackData == $"/link/space/{defaultSpace.Id}");
+        Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {space.Name}" && btn.CallbackData == $"/link/space/{space.Id}");
+        Assert.Equal("← Back", Assert.Single(spaceRows[2]).Text);
+        Assert.Equal("/link/back", Assert.Single(spaceRows[2]).CallbackData);
+        Assert.Equal("✖ Cancel", Assert.Single(spaceRows[3]).Text);
+        Assert.Equal("/close-callback", Assert.Single(spaceRows[3]).CallbackData);
+
+        var spaceSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/space/{space.Id}");
+
+        // Epics are ordered default-first (see HandleSpaceSelected), so the auto backlog
+        // epic's row precedes the explicitly-added one.
+        spaceSelected.CheckMessage($"Choose an epic in {organization.Name} → {space.Name}:");
+        spaceSelected.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert($"📥 {backlogEpic.Name}", $"/link/epic/{backlogEpic.Id}")])
+            .HasButtonsRow([new ButtonAssert($"📋 {epic.Name}", $"/link/epic/{epic.Id}")])
+            .HasButtonsRow([new ButtonAssert("← Back", $"/link/organization/{organization.Id}")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+
+        var epicSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/epic/{epic.Id}");
+
+        epicSelected.CheckMessage($"Choose a status in {organization.Name} → {space.Name} -> {epic.Name}:");
+        epicSelected.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert($"🏷️ {status.Name}", $"/link/status/{status.Id}")])
+            .HasButtonsRow([new ButtonAssert("← Back", $"/link/space/{space.Id}")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+
+        var statusSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/status/{status.Id}");
+
+        // Nothing is persisted yet — status selection leads to a save-mode picker, not an
+        // immediate link.
+        Assert.Contains($"Choose how the bot should save messages in {organization.Name} → {space.Name} → {epic.Name}:", statusSelected.Text);
+        Assert.Contains("Every message is great for solo chats.", statusSelected.Text);
+        Assert.Contains("Only via /save works better for chats with different members.", statusSelected.Text);
+        statusSelected.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/{status.Id}/0")])
+            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+
+        var saveModeSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/save-mode/{status.Id}/1");
+
+        Assert.Contains(organization.Name, saveModeSelected.Text);
+        Assert.Contains(space.Name, saveModeSelected.Text);
+        Assert.Contains(epic.Name, saveModeSelected.Text);
+        Assert.Contains(status.Name, saveModeSelected.Text);
+        Assert.Contains("Reply to a message and send /save to turn it into a card.", saveModeSelected.Text);
+
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(chatId, linkedChat.ExternalChatId);
+        Assert.Equal(status.Id, linkedChat.StatusId);
+        Assert.Equal(userId, linkedChat.OwnerId);
+        Assert.Equal("Test Group", linkedChat.Title);
+        Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
+        Assert.NotNull(linkedChat.LinkedAt);
+    }
+
+    [Fact]
+    public async Task LinkFlow_ShouldSkipStatusStep_WhenEpicIsDefaultBacklog()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var space = organization.GetSpace(0);
+        var epic = organization.GetEpic(0, 0); // default/backlog epic
+        var status = organization.GetStatus(0, 0, 0);
+
+        const int messageId = 42;
+        const long chatId = 777;
+        var chat = new Chat { Id = chatId, Type = ChatType.Group };
+
+        var epicSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/epic/{epic.Id}");
+
+        // Selecting the default/backlog epic skips straight to the save-mode picker for its
+        // sole status instead of showing a status picker.
+        Assert.Contains(organization.Name, epicSelected.Text);
+        Assert.Contains(space.Name, epicSelected.Text);
+        Assert.Contains(epic.Name, epicSelected.Text);
+        epicSelected.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/{status.Id}/0")])
+            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+
+        var saveModeSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/save-mode/{status.Id}/0");
+
+        Assert.Contains("Every message sent here will be added as a card.", saveModeSelected.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(status.Id, linkedChat.StatusId);
+        Assert.Equal(SaveMode.EachMessage, linkedChat.SaveMode);
+    }
+
+    [Fact]
+    public async Task LinkFlow_ShouldRejectOrganizationCallback_WhenUserLacksLinkChatsPermission()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser();
+        var adminUserId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        // AdminUser is a Telegram group admin (per FakeGroupChatAdminService) but only has
+        // read access to this organization — not the LinkChats admin flag the org picker
+        // filters by. Regression test for a bug where the callback's organizationId route
+        // parameter wasn't checked against that same flag.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(adminUserId, b => b.SetGlobalAccessLevel(g => g.CanRead = true)));
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = $"/link/organization/{organization.Id}",
+            }
+        });
+
+        // The framework answers every handled callback a second time with a blank
+        // AnswerCallbackQuery to clear Telegram's loading spinner, so there are always two —
+        // take the first (ours).
+        var request = host.Requests().First<AnswerCallbackQueryRequest>();
+        Assert.Equal("User should be group admin", request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+    }
+
+    // Note: HandleOrganizationSelected checks IsAllowedToLink (which requires the org to
+    // exist and be linkable) before fetching the organization, so its own "not found" branch
+    // is unreachable through a stale/tampered id alone — that path is already covered by
+    // LinkFlow_ShouldRejectOrganizationCallback_WhenUserLacksLinkChatsPermission above. The
+    // other three steps fetch first, so their not-found branches are directly reachable below.
+
+    [Fact]
+    public async Task HandleSpaceSelected_ShouldAnswerNotFound_WhenSpaceWasDeleted()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/space/999999",
+            }
+        });
+
+        var request = host.Requests().First<AnswerCallbackQueryRequest>();
+        Assert.True(request.ShowAlert);
+        Assert.Equal(
+            "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.",
+            request.Text);
+    }
+
+    [Fact]
+    public async Task HandleEpicSelected_ShouldAnswerNotFound_WhenEpicWasDeleted()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/epic/999999",
+            }
+        });
+
+        var request = host.Requests().First<AnswerCallbackQueryRequest>();
+        Assert.True(request.ShowAlert);
+        Assert.Equal(
+            "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.",
+            request.Text);
+    }
+
+    [Fact]
+    public async Task HandleStatusSelected_ShouldAnswerNotFound_WhenStatusWasDeleted()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/status/999999",
+            }
+        });
+
+        var request = host.Requests().First<AnswerCallbackQueryRequest>();
+        Assert.True(request.ShowAlert);
+        Assert.Equal(
+            "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.",
+            request.Text);
+    }
+
+    [Fact]
+    public async Task HandleSaveModeSelected_ShouldAnswerNotFound_WhenStatusWasDeleted()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/save-mode/999999/0",
+            }
+        });
+
+        var request = host.Requests().First<AnswerCallbackQueryRequest>();
+        Assert.True(request.ShowAlert);
+        Assert.Equal(
+            "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.",
+            request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        // AdminUser's own registration auto-creates a LinkedTelegramChat for their private
+        // chat (unrelated to this test); assert specifically that the *group* chat being
+        // linked here got no row out of the not-found callback.
+        Assert.DoesNotContain(
+            await db.LinkedTelegramChats.ToListAsyncLinqToDB(),
+            x => x.ExternalChatId == chat.Id);
+    }
+
+    [Fact]
+    public async Task HandleUnlinkCommand_ShouldNotify_WhenChatIsNotLinked()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/unlink",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This chat is not linked to any organization or space yet. Use /link to link it.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleUnlinkCommand_ShouldSoftDeleteLink_WhenChatIsLinked()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = GroupChat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/unlink",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This chat is no longer linked to any organization or space.", request.Text);
+
+        // The row is kept — not deleted — so a future card referencing it stays valid; only
+        // UnlinkedAt marks the link as no longer active.
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(GroupChat.Id, linkedChat.ExternalChatId);
+        Assert.NotNull(linkedChat.UnlinkedAt);
+    }
+
+    [Fact]
+    public async Task HandleUnlinkCallback_ShouldSoftDeleteLink_WhenAuthorized()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/unlink",
+            }
+        });
+
+        var request = host.Requests().Single<EditMessageTextRequest>();
+        Assert.Equal("This chat is no longer linked to any organization or space.", request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(chat.Id, linkedChat.ExternalChatId);
+        Assert.NotNull(linkedChat.UnlinkedAt);
+    }
+
+    [Fact]
+    public async Task LinkFlow_ShouldReuseAndReactivateSameRow_WhenRelinkingAfterUnlink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            LinkedAt = DateTime.UtcNow,
+            UnlinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // Re-linking a previously-unlinked chat mutates that same row back to active — there's
+        // only ever one LinkedTelegramChats row per external chat. Status selection now leads
+        // to a save-mode picker rather than linking immediately, so drive both steps.
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/status/{status.Id}");
+
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/save-mode/{status.Id}/0");
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(chat.Id, linkedChat.ExternalChatId);
+        Assert.Null(linkedChat.UnlinkedAt);
+    }
+
+    [Fact]
+    public async Task HandleUnlinkCallback_ShouldAnswerNotFound_WhenLinkWasRemovedConcurrently()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/unlink",
+            }
+        });
+
+        var request = host.Requests().First<AnswerCallbackQueryRequest>();
+        Assert.True(request.ShowAlert);
+        Assert.Equal(
+            "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.",
+            request.Text);
+    }
+
+    [Fact]
+    public async Task HandleBackToOrganizations_ShouldEditToOrganizationPicker_WhenNotLinked()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 42, Chat = chat },
+                Data = "/link/back",
+            }
+        });
+
+        var request = host.Requests().Single<EditMessageTextRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+        request.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert($"🏢 {organization.Name}", $"/link/organization/{organization.Id}")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldCreateCardFromRepliedMessage_WhenBotMentionedModeAndBareCommand()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 777, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // Recorded, but BotMentionedMessages mode means no card yet.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 5,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 5, Chat = chat },
+            }
+        });
+
+        // /save replies with a link instead of a reaction - everyone in the chat already saw
+        // the command, so a bare emoji on the original message wouldn't be enough context.
+        var replyRequest = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(5, replyRequest.ReplyParameters!.MessageId);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal("🔗 Open issue", button.Text);
+
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("Hello world", issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldComposeNotePlusOriginalText_WhenSaveCommandHasTrailingContent()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 778, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 5,
+                Text = "Original text",
+                Chat = chat,
+            }
+        });
+
+        // The command must still route correctly with trailing free-text content attached.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save my note",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 5, Chat = chat },
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("my note\n---\nOriginal text", issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldStripBotMention_WhenCommandHasBotUsernameSuffix()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 782, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 5,
+                Text = "Original text",
+                Chat = chat,
+            }
+        });
+
+        // Telegram appends "@botusername" straight onto the command with no space - the
+        // mention must not leak into the note.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save@ai_saved_mesages_bot my note",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 5, Chat = chat },
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("my note\n---\nOriginal text", issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReplyNotNeeded_WhenChatIsInEachMessageMode()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 779, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 5,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 5, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This chat saves every message automatically, so /save isn't needed here.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReplyNotAReply_WhenCommandHasNoReplyToMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 780, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save",
+                Chat = chat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Reply to the message you want to save and send /save again.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReplyMessageFromBot_WhenReplyingToBotsOwnMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 781, Type = ChatType.Group };
+        var botUser = new User { Id = 999, IsBot = true, Username = "the_bot" };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 5, Chat = chat, From = botUser },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("That's my own message - reply to the original message you want to save instead.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldSaveWholeAlbum_WhenReplyingToAnyOfItsMessages()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 781, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // First album message carries the caption; the rest don't - matches how Telegram
+        // albums normally work (caption only shows on one photo).
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Caption = "Album caption",
+                MediaGroupId = "555",
+                Photo =
+                [
+                    new PhotoSize { FileId = "previewId1", FileUniqueId = "previewUniqueId1" },
+                    new PhotoSize { FileId = "fileId1", FileUniqueId = "fileUniqueId1" },
+                ],
+                Chat = chat,
+            },
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                MediaGroupId = "555",
+                Photo =
+                [
+                    new PhotoSize { FileId = "previewId2", FileUniqueId = "previewUniqueId2" },
+                    new PhotoSize { FileId = "fileId2", FileUniqueId = "fileUniqueId2" },
+                ],
+                Chat = chat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+
+        // Reply to the SECOND photo, not the first - content must still come from the first
+        // message, since that's where Telegram albums put the caption.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 3,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 2, Chat = chat },
+            }
+        });
+
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("Album caption", issue.Content);
+
+        var attachments = await db.IssueAttachments
+            .Where(x => x.IssueId == issue.Id)
+            .ToListAsyncLinqToDB();
+        Assert.Equal(2, attachments.Count);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReplyWithExistingLink_WhenMessageWasAlreadySaved()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 785, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        // First /save creates the card.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        // Second /save on the same message must not create a duplicate card - but should still
+        // point back to the one that already exists.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 3,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        // Both /save calls reply with just the key/org/content preview card - no extra status
+        // wording - so the second reply is only distinguishable by being the second one sent.
+        var replyRequests = host.Requests().OfType<SendMessageRequest>().ToList();
+        Assert.Equal(2, replyRequests.Count);
+        var secondReply = replyRequests[1];
+        Assert.Contains("Hello world", secondReply.Text);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(secondReply.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal("🔗 Open issue", button.Text);
+        Assert.NotEmpty(button.Url!);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldIncludeSourceFooter_WhenChatTitleAndSenderAreKnown()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x =>
+        {
+            x.TelegramId = AdminUser.Id;
+            x.TelegramUserName = AdminUser.Username;
+        });
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 786, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            Title = "Support chat",
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var replyRequest = Assert.Single(host.Requests().OfType<SendMessageRequest>());
+        Assert.Contains("💬 Support chat · admin\\_user ·", replyRequest.Text);
+    }
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldNotAutoUpdateCard_WhenEditedInBotMentionedMode()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 786, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Original text",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Original text", issue.Content);
+
+        // Editing the source message must not touch the card - unlike EachMessage mode, manual
+        // mode only syncs on an explicit /save.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Edited text",
+                Chat = chat,
+            }
+        });
+
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Original text", issue.Content);
+
+        var storedMessage = Assert.Single(await db.TelegramMessages.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Edited text", storedMessage.Text);
+
+        // A second /save picks up the edit.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 3,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Edited text", issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldNotTriggerCommand_WhenSaveAppearsMidMessage()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 782, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // "/save" mid-message must not be treated as the command - the route is anchored to
+        // the start of the text.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "please /save this later",
+                Chat = chat,
+            }
+        });
+
+        Assert.Empty(host.Requests().OfType<SendMessageRequest>());
+        Assert.Empty(host.Requests().OfType<SetMessageReactionRequest>());
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var message = Assert.Single(await db.TelegramMessages.ToListAsyncLinqToDB());
+        Assert.Equal("please /save this later", message.Text);
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldNotCreateIssue_WhenSenderLacksCreateIssuePermission()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // Read-only member: no CanCreateIssues, unlike the org owner every other test acts as.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true)));
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 783, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = ownerId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        // Groups fail silently (same as an unlinked chat) - no reaction, no message.
+        Assert.Empty(host.Requests().OfType<SendMessageRequest>());
+        Assert.Empty(host.Requests().OfType<SetMessageReactionRequest>());
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReplyForbidden_WhenSenderLacksCreateIssuePermission()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true)));
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 784, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = ownerId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        // /save is an explicit command, unlike passive message recording - it always replies,
+        // even in a group.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This action is not available - you don't have permission to create cards here.", request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldBypassGroupAdminCheck_WhenPrivateChat()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        // MemberUser is explicitly a non-admin per FakeGroupChatAdminService - in a group
+        // chat this would be rejected. A private chat is the user talking to the bot 1-on-1,
+        // so there is no separate "chat admin" to check; only the LinkChats organization
+        // permission (granted here via org ownership) applies.
+        var userId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var chat = new Chat { Id = MemberUser.Id, Type = ChatType.Private };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "/link",
+                Chat = chat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
+        var rows = markup.InlineKeyboard.ToList();
+        var orgButton = Assert.Single(rows[0]);
+        Assert.Equal($"🏢 {organization.Name}", orgButton.Text);
+        Assert.Equal($"/link/organization/{organization.Id}", orgButton.CallbackData);
+    }
+
+    [Fact]
+    public async Task PrivateLinkFlow_ShouldReactivateOwnChatRow_WhenRelinkingToNewStatus()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        // A private chat's id equals the user's own Telegram id - matches what registration
+        // (CoreUserService.CreateIfTelegramIdNotExists) would have used when auto-creating
+        // this row.
+        var chat = new Chat { Id = AdminUser.Id, Type = ChatType.Private };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+            UnlinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/status/{status.Id}");
+
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/save-mode/{status.Id}/1");
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(chat.Id, linkedChat.ExternalChatId);
+        Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
+        Assert.Null(linkedChat.UnlinkedAt);
+    }
+
     [Fact]
     public async Task NewMessage_ShouldInitializeUser_Always()
     {
@@ -42,8 +1498,55 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userOrganization = Assert.Single(await db.Organizations.ToListAsyncLinqToDB());
         Assert.Equal("snake991", userOrganization.Slug);
         Assert.Equal(OrganizationType.Personal, userOrganization.Type);
+
+        // Registration must explicitly create a LinkedTelegramChat for the user's own private
+        // chat, reproducing the old implicit "save to personal org" behaviour but as an
+        // explicit, relinkable row.
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+        Assert.Equal(777, linkedChat.ExternalChatId);
+        Assert.Equal(user.Id, linkedChat.OwnerId);
+        Assert.Equal(SaveMode.EachMessage, linkedChat.SaveMode);
+        Assert.NotNull(linkedChat.LinkedAt);
+        Assert.Null(linkedChat.UnlinkedAt);
+
+        var defaultStatus = await db.Statuses.SingleAsync(s =>
+            s.Epic!.IsDefault && s.Epic.Space!.IsDefault && s.Epic.Space.OrganizationId == userOrganization.Id);
+        Assert.Equal(defaultStatus.Id, linkedChat.StatusId);
     }
-    
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldNotifyChatNotLinked_WhenNoActiveLink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        // Pre-existing user seeded directly (bypassing registration, which would otherwise
+        // auto-create the link) so there is no LinkedTelegramChat row at all - simulates data
+        // from before this feature existed, or a chat whose link was removed.
+        var telegramUser = new User { Id = 999, Username = "no_link_user" };
+        await testScope.CreateUser(x => x.TelegramId = telegramUser.Id);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = telegramUser,
+                Id = 1,
+                Text = "Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(
+            "This chat is not linked to any organization or space yet. Use /link to link it.",
+            request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
     [Fact]
     public async Task HandleTextMessage_ShouldCreateAndEditIssue_Always()
     {
@@ -434,7 +1937,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        var missingRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var missingRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var missingResult = Assert.Single(missingRequest.Results);
         Assert.Equal("no-issues", missingResult.Id);
 
@@ -449,7 +1952,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        var invalidRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var invalidRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var invalidResult = Assert.Single(invalidRequest.Results);
         Assert.Equal("key-error", invalidResult.Id);
     }
@@ -504,7 +2007,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        var otherUserRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var otherUserRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var otherUserResult = Assert.Single(otherUserRequest.Results);
         Assert.Equal("SEC-1", otherUserResult.Id);
     }
@@ -545,7 +2048,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "org:SLUG" }
         });
 
-        var exactRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var exactRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var exactResult = Assert.Single(exactRequest.Results);
         Assert.Equal("DEF-1", exactResult.Id);
 
@@ -555,7 +2058,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "org:sl" }
         });
 
-        var prefixRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var prefixRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var prefixArticles = prefixRequest.Results.Cast<InlineQueryResultArticle>().ToList();
         Assert.Equal(2, prefixArticles.Count); // same full candidate list, now with the match marked
         var prefixOrgArticle = prefixArticles[0];
@@ -570,7 +2073,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "org:sl*" }
         });
 
-        var wildcardRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var wildcardRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var wildcardResult = Assert.Single(wildcardRequest.Results);
         Assert.Equal("DEF-1", wildcardResult.Id);
 
@@ -582,7 +2085,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "org:sl deploy" }
         });
 
-        var followedRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var followedRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var followedArticle = Assert.IsType<InlineQueryResultArticle>(Assert.Single(followedRequest.Results));
         Assert.Equal("no-issues", followedArticle.Id);
         Assert.Contains("\"sl\"", followedArticle.Description);
@@ -594,7 +2097,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "org:zzz" }
         });
 
-        var noMatchRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var noMatchRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("org-error", Assert.Single(noMatchRequest.Results).Id);
 
         // Zero-prefix-match, explicit wildcard — still Error, even though wildcard normally
@@ -604,7 +2107,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "org:zzz*" }
         });
 
-        var noMatchWildcardRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var noMatchWildcardRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("org-error", Assert.Single(noMatchWildcardRequest.Results).Id);
     }
 
@@ -662,7 +2165,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "space:AAA" }
         });
 
-        var exactRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var exactRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var exactResult = Assert.Single(exactRequest.Results);
         Assert.Equal("AAA-1", exactResult.Id);
 
@@ -673,7 +2176,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "space:A" }
         });
 
-        var prefixRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var prefixRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var prefixArticles = prefixRequest.Results.Cast<InlineQueryResultArticle>().ToList();
         Assert.Equal(5, prefixArticles.Count); // same full candidate list, now with matches marked
         var prefixById = prefixArticles.ToDictionary(r => r.Id);
@@ -694,7 +2197,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "space:A*" }
         });
 
-        var wildcardRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var wildcardRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var wildcardIds = wildcardRequest.Results.Select(r => r.Id).OrderBy(id => id).ToList();
         Assert.Equal(["AAA-1", "ABC-1"], wildcardIds);
 
@@ -704,7 +2207,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "space:A deploy" }
         });
 
-        var followedRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var followedRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var followedArticle = Assert.IsType<InlineQueryResultArticle>(Assert.Single(followedRequest.Results));
         Assert.Equal("no-issues", followedArticle.Id);
         Assert.Contains("\"A\"", followedArticle.Description);
@@ -716,7 +2219,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "space:QQQ" }
         });
 
-        var noMatchRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var noMatchRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("space-error", Assert.Single(noMatchRequest.Results).Id);
 
         // Zero-prefix-match, explicit wildcard — still Error.
@@ -725,7 +2228,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "space:QQQ*" }
         });
 
-        var noMatchWildcardRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var noMatchWildcardRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("space-error", Assert.Single(noMatchWildcardRequest.Results).Id);
     }
 
@@ -776,7 +2279,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:" }
         });
 
-        var pickerRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var pickerRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var pickerArticles = pickerRequest.Results.Cast<InlineQueryResultArticle>().ToList();
         // Pinned "me" always comes first, then candidates ordered by username
         // ("direct_user" < "me"), then the hint — this order is guaranteed by
@@ -801,7 +2304,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:direct_user" }
         });
 
-        var exactRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var exactRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("SEC-1", Assert.Single(exactRequest.Results).Id);
 
         // Non-exact, followed by another token — best-effort prefix, Applied. "blah" doesn't
@@ -812,7 +2315,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:direct blah" }
         });
 
-        var followedRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var followedRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var followedArticle = Assert.IsType<InlineQueryResultArticle>(Assert.Single(followedRequest.Results));
         Assert.Equal("no-issues", followedArticle.Id);
         Assert.Contains("direct", followedArticle.Description);
@@ -824,7 +2327,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:direct" }
         });
 
-        var prefixPickerRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var prefixPickerRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var prefixPickerArticles = prefixPickerRequest.Results.Cast<InlineQueryResultArticle>().ToList();
         Assert.Equal(4, prefixPickerArticles.Count); // same full candidate set, now with the match marked
         var prefixPickerPinnedMeArticle = prefixPickerArticles[0];
@@ -845,7 +2348,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:zzz" }
         });
 
-        var zeroRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var zeroRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("assignee-error", Assert.Single(zeroRequest.Results).Id);
 
         // Zero-match, explicit wildcard — still Error.
@@ -854,7 +2357,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:zzz*" }
         });
 
-        var zeroWildcardRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var zeroWildcardRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("assignee-error", Assert.Single(zeroWildcardRequest.Results).Id);
 
         // Sequential scoping: space: narrows the effective scope before assignee: runs, so the
@@ -864,7 +2367,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "space:SEC assignee:" }
         });
 
-        var scopedRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var scopedRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var scopedArticles = scopedRequest.Results.Cast<InlineQueryResultArticle>().ToList();
         // Pinned "me", the "me"-named user (org-wide access covers SEC too), and the hint —
         // that's every item; direct_user's grant is on DEF, not SEC, so it's correctly gone.
@@ -884,7 +2387,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee: space:SEC" }
         });
 
-        var unscopedOrderRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var unscopedOrderRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         var unscopedOrderArticles = unscopedOrderRequest.Results.Cast<InlineQueryResultArticle>().ToList();
         Assert.Equal(4, unscopedOrderArticles.Count); // same as the fully-unscoped picker above
         var unscopedOrderPinnedMeArticle = unscopedOrderArticles[0];
@@ -921,7 +2424,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "key:BRD" }
         });
 
-        var prefixRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var prefixRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("key-preview", Assert.Single(prefixRequest.Results).Id);
 
         // Still valid (dash typed, no digits yet), last token — still Preview.
@@ -930,7 +2433,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "key:BRD-" }
         });
 
-        var dashRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var dashRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("key-preview", Assert.Single(dashRequest.Results).Id);
 
         // Same incomplete shape, but followed by another token — the user has moved on, so
@@ -940,7 +2443,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "key:BRD- deploy" }
         });
 
-        var followedRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var followedRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("key-error", Assert.Single(followedRequest.Results).Id);
 
         // Complete with a single digit — still a valid, complete shape, applies immediately.
@@ -949,7 +2452,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "key:BRD-4" }
         });
 
-        var completeRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var completeRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("no-issues", Assert.Single(completeRequest.Results).Id);
     }
 
@@ -977,7 +2480,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "upd:>" }
         });
 
-        var operatorRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var operatorRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("upd-preview", Assert.Single(operatorRequest.Results).Id);
 
         // Still valid (digits typed, no unit yet), last token — Preview.
@@ -986,7 +2489,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "upd:7" }
         });
 
-        var digitsRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var digitsRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("upd-preview", Assert.Single(digitsRequest.Results).Id);
 
         // Same incomplete shape, followed by another token — Error, the user has moved on.
@@ -995,7 +2498,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "upd:7 deploy" }
         });
 
-        var followedRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var followedRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("upd-error", Assert.Single(followedRequest.Results).Id);
 
         // Already broken (invalid unit) — Error regardless of position.
@@ -1004,7 +2507,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "upd:7x" }
         });
 
-        var invalidUnitRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var invalidUnitRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("upd-error", Assert.Single(invalidUnitRequest.Results).Id);
 
         // Already broken (double operator) — Error.
@@ -1013,7 +2516,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "upd:>>7d" }
         });
 
-        var doubleOpRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var doubleOpRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("upd-error", Assert.Single(doubleOpRequest.Results).Id);
 
         // Complete shape — Applied immediately (no such issues exist, hence "no issues").
@@ -1022,7 +2525,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "upd:>7d" }
         });
 
-        var completeRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var completeRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("no-issues", Assert.Single(completeRequest.Results).Id);
     }
 
@@ -1060,7 +2563,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "upd:>6d" }
         });
 
-        var staleRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var staleRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("DEF-2", Assert.Single(staleRequest.Results).Id);
     }
 
@@ -1094,7 +2597,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             InlineQuery = new InlineQuery { From = DefaultUser, Query = "Something" }
         });
 
-        var freeTextRequest = host.Requests().Source.OfType<AnswerInlineQueryRequest>().Last();
+        var freeTextRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("no-issues", Assert.Single(freeTextRequest.Results).Id);
     }
 
@@ -1141,5 +2644,258 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.True(request.IsPersonal);
         Assert.Equal(0, request.CacheTime);
         Assert.Equal("no-spaces", Assert.Single(request.Results).Id);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyWithCard_WhenMessageAlreadySaved()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 787, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        // /info is read-only - it must not create/change anything, unlike /save.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
+        Assert.Contains("Hello world", replyRequest.Text);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal("🔗 Open issue", button.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyNoCardYet_WhenMessageTrackedButNeverSaved()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 788, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This message hasn't been saved as a card yet - reply to it with /save first.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyMessageNotTracked_WhenReplyingToUntrackedMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 789, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("I don't have that message on record - it may have arrived before the chat was linked.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyNotAReply_WhenCommandHasNoReplyToMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 790, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/info",
+                Chat = chat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Reply to the message you want info about and send /info again.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyMessageFromBot_WhenReplyingToBotsOwnMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 791, Type = ChatType.Group };
+        var botUser = new User { Id = 998, IsBot = true, Username = "the_bot" };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat, From = botUser },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("That's my own message - reply to the original message you want info about instead.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyForbidden_WhenSenderLacksReadPermission()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // Org member with no read access at all - unlike the owner, who created/can see the card.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId));
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 792, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = ownerId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This action is not available - you don't have permission to view this card.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldRouteCorrectly_WhenCommandHasBotUsernameSuffix()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 793, Type = ChatType.Group };
+
+        // Telegram appends "@botusername" to commands sent in groups with more than one bot -
+        // the route must still match, not just the bare "/info".
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info@ai_saved_mesages_bot",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("I don't have that message on record - it may have arrived before the chat was linked.", request.Text);
     }
 }

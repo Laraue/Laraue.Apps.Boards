@@ -11,6 +11,9 @@
     <resheader name="writer">
         <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
     </resheader>
+    <data name="MessageTypeIsNotAvailable" xml:space="preserve">
+        <value>Сообщение типа "{0}" пока не поддерживается и не будет добавлено на доску.</value>
+    </data>
     <data name="YourCategories" xml:space="preserve">
         <value>Ваши категории</value>
     </data>
@@ -74,5 +77,108 @@
     </data>
     <data name="Help" xml:space="preserve">
         <value>📖 Документация: https://laraue.com/ru/blog/documentation/laraue-boards</value>
+    </data>
+    <data name="LinkChangeLink" xml:space="preserve">
+        <value>Изменить связь</value>
+    </data>
+    <data name="LinkUnlink" xml:space="preserve">
+        <value>Отвязать</value>
+    </data>
+    <data name="LinkAlreadyLinked" xml:space="preserve">
+        <value>Этот чат уже связан с
+{0}</value>
+    </data>
+    <data name="LinkRequireAdmin" xml:space="preserve">
+        <value>Пользователь должен быть администратором группы</value>
+    </data>
+    <data name="LinkNoOrganizations" xml:space="preserve">
+        <value>Нет доступных организаций</value>
+    </data>
+    <data name="LinkChooseOrganization" xml:space="preserve">
+        <value>Выберите организацию:</value>
+    </data>
+    <data name="LinkCancel" xml:space="preserve">
+        <value>✖ Отмена</value>
+    </data>
+    <data name="LinkChooseSpace" xml:space="preserve">
+        <value>Выберите пространство в {0}:</value>
+    </data>
+    <data name="LinkBack" xml:space="preserve">
+        <value>← Назад</value>
+    </data>
+    <data name="LinkChooseEpic" xml:space="preserve">
+        <value>Выберите эпик в {0}:</value>
+    </data>
+    <data name="LinkConfirmed" xml:space="preserve">
+        <value>✅ Этот чат теперь связан с
+{0}
+
+{1}</value>
+    </data>
+    <data name="LinkChooseStatus" xml:space="preserve">
+        <value>Выберите статус в {0}:</value>
+    </data>
+    <data name="LinkUnlinked" xml:space="preserve">
+        <value>Этот чат больше не связан ни с одной организацией или пространством.</value>
+    </data>
+    <data name="LinkNotLinked" xml:space="preserve">
+        <value>Этот чат ещё не связан ни с одной организацией или пространством. Используйте /link, чтобы связать его.</value>
+    </data>
+    <data name="IssueCreationForbidden" xml:space="preserve">
+        <value>Это действие недоступно — у вас нет прав на создание карточек здесь.</value>
+    </data>
+    <data name="LinkItemNotFound" xml:space="preserve">
+        <value>Этот элемент больше не существует — возможно, он был переименован, перемещён или удалён. Пожалуйста, начните заново с /link.</value>
+    </data>
+    <data name="LinkChooseSaveMode" xml:space="preserve">
+        <value>Выберите, как бот должен сохранять сообщения в {0}:
+
+💬 Каждое сообщение хорошо подходит для одиночных чатов.
+✋ Только через /save лучше подходит для чатов с разными участниками.</value>
+    </data>
+    <data name="SaveModeEachMessage" xml:space="preserve">
+        <value>💬 Каждое сообщение</value>
+    </data>
+    <data name="SaveModeBotMentioned" xml:space="preserve">
+        <value>✋ Только через /save</value>
+    </data>
+    <data name="SaveModeInstructionsEachMessage" xml:space="preserve">
+        <value>Каждое отправленное сюда сообщение будет добавлено как карточка. Хорошо подходит для личного использования, когда разные чаты связаны с разными назначениями.</value>
+    </data>
+    <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
+        <value>Ответьте на сообщение и отправьте /save, чтобы превратить его в карточку. Хорошо подходит для чатов компании с активным обсуждением, где карточку нужно создавать только иногда.</value>
+    </data>
+    <data name="SaveNotAReply" xml:space="preserve">
+        <value>Ответьте на сообщение, которое нужно сохранить, и отправьте /save ещё раз.</value>
+    </data>
+    <data name="SaveNotNeededInAutoMode" xml:space="preserve">
+        <value>В этом чате каждое сообщение сохраняется автоматически, /save тут не нужен.</value>
+    </data>
+    <data name="SaveMessageNotTracked" xml:space="preserve">
+        <value>У меня нет этого сообщения — возможно, оно пришло до того, как чат был привязан.</value>
+    </data>
+    <data name="SaveMessageFromBot" xml:space="preserve">
+        <value>Это моё собственное сообщение — ответьте на исходное сообщение, которое нужно сохранить.</value>
+    </data>
+    <data name="SaveNothingToSave" xml:space="preserve">
+        <value>Нечего сохранять — в сообщении нет текста, и вы не добавили заметку, например: /save заметка.</value>
+    </data>
+    <data name="OpenIssueButton" xml:space="preserve">
+        <value>🔗 Открыть карточку</value>
+    </data>
+    <data name="InfoNotAReply" xml:space="preserve">
+        <value>Ответьте на сообщение, о котором нужна информация, и отправьте /info ещё раз.</value>
+    </data>
+    <data name="InfoMessageFromBot" xml:space="preserve">
+        <value>Это моё собственное сообщение — ответьте на исходное сообщение, о котором нужна информация.</value>
+    </data>
+    <data name="InfoMessageNotTracked" xml:space="preserve">
+        <value>У меня нет этого сообщения — возможно, оно пришло до того, как чат был привязан.</value>
+    </data>
+    <data name="InfoNoCardYet" xml:space="preserve">
+        <value>Это сообщение ещё не сохранено как карточка — сначала ответьте на него командой /save.</value>
+    </data>
+    <data name="InfoForbidden" xml:space="preserve">
+        <value>Это действие недоступно — у вас нет прав на просмотр этой карточки.</value>
     </data>
 </root>

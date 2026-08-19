@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.TelegramServices.Resources;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -24,11 +25,10 @@ public class SearchService(
     ILogger<SearchService> logger,
     ITokenFilterRegistry filterRegistry,
     IOptions<AppOptions> options,
+    IIssueUrlBuilder issueUrlBuilder,
     ITelegramBotClient botClient)
     : ISearchService
 {
-    private const int FragmentContextChars = 70;
-
     public async Task HandleInlineSearchQuery(SearchRequest request, CancellationToken ct)
     {
         var readableSpaceIds = await GetReadableSpaceIdsAsync(request, ct);
@@ -169,6 +169,11 @@ public class SearchService(
                 OrganizationName = x.Status.Epic.Space.Organization!.Name,
                 OrganizationSlug = x.Status.Epic.Space.Organization!.Slug,
                 OrganizationSlugPostfix = x.Status.Epic.Space.Organization!.SlugPostfix,
+                ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
+                SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
+                    ? (x.TelegramMessage.Sender.TelegramUserName ?? x.TelegramMessage.Sender.TelegramFirstName)
+                    : null,
+                SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
             .Take(5)
             .ToListAsyncLinqToDB(ct);
@@ -217,7 +222,7 @@ public class SearchService(
                 }
             }
 
-            var fragment = ContentFragment.Extract(normalizedContent, searchText, FragmentContextChars);
+            var fragment = ContentFragment.Extract(normalizedContent, searchText, IssuePreviewFormatter.FragmentContextChars);
 
             if (!string.IsNullOrWhiteSpace(searchText) && fragment.Match.Length == 0)
             {
@@ -232,15 +237,16 @@ public class SearchService(
                     issue.Key, searchText, normalizedContent.Length, normalizedContent[..snippetLength]);
             }
 
-            var orgKey = $"{issue.OrganizationSlug}-{issue.OrganizationSlugPostfix}";
-            var issueUrl = $"{options.Value.Url}/organizations/{orgKey}/issues/{issue.Key}";
+            var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
+            var footer = IssuePreviewFormatter.BuildSourceFooter(issue.ChatTitle, issue.SenderName, issue.SentAt);
 
             // The link lives on a button, not in the text — buttons render reliably regardless
             // of MarkdownV2 escaping, whereas an in-text [text](url) link depends on every
             // character around it being escaped exactly right or Telegram shows the raw syntax.
             var messageText =
-                $"📋 *{SearchTextFormatter.EscapeMarkdownV2(issue.Key.ToString())}* · {SearchTextFormatter.EscapeMarkdownV2(issue.OrganizationName)}\n" +
-                fragment.ToMarkdownV2();
+                IssuePreviewFormatter.BuildHeader(issue.Key, issue.OrganizationName) + "\n" +
+                fragment.ToMarkdownV2() +
+                (footer is not null ? "\n" + footer : string.Empty);
 
             result.Add(
                 new InlineQueryResultArticle(
@@ -257,7 +263,7 @@ public class SearchService(
                     // the mobile results list show an actual image instead.
                     ThumbnailUrl = options.Value.Icons.Issue,
                     ReplyMarkup = new InlineKeyboardMarkup(
-                        InlineKeyboardButton.WithUrl("🔗 Open issue", issueUrl))
+                        InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl))
                 });
         }
 

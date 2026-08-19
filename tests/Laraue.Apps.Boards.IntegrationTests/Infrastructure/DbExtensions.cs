@@ -28,6 +28,7 @@ public static class DbExtensions
         dbContext.Issues.ExecuteDelete();
         dbContext.TelegramMessages.ExecuteDelete();
         dbContext.Attachments.ExecuteDelete();
+        dbContext.LinkedTelegramChats.ExecuteDelete();
         dbContext.Users.ExecuteDelete();
         dbContext.TelegramMediaGroups.ExecuteDelete();
     }
