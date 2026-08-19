@@ -1,6 +1,8 @@
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
@@ -56,12 +58,19 @@ public class SaveCommandService(
 
         switch (result.Outcome)
         {
+            // /save is a deliberate, visible action everyone in the chat just watched happen -
+            // a reply with the link is more useful here than a reaction only the sender might
+            // notice. Reactions stay reserved for silent auto-save. The card itself (key, org,
+            // content preview) already makes clear something was saved - no extra status line
+            // needed, whether this is the first save or a repeat.
             case SaveByReplyOutcome.Saved:
-                await client.SetMessageReaction(
+            case SaveByReplyOutcome.AlreadySaved:
+                await SendIssueLinkReply(
                     message.Chat.Id,
                     repliedMessage.MessageId,
-                    [new ReactionTypeEmoji { Emoji = "👍" }],
-                    cancellationToken: cancellationToken);
+                    result.IssuePreviewText!,
+                    result.IssueUrl!,
+                    cancellationToken);
                 break;
 
             case SaveByReplyOutcome.NotNeededInAutoMode:
@@ -72,14 +81,35 @@ public class SaveCommandService(
                 await client.SendMessage(message.Chat.Id, Phrases.SaveMessageNotTracked, cancellationToken: cancellationToken);
                 break;
 
-            case SaveByReplyOutcome.AlreadySaved:
-                await client.SendMessage(message.Chat.Id, Phrases.SaveAlreadySaved, cancellationToken: cancellationToken);
-                break;
-
             case SaveByReplyOutcome.NothingToSave:
                 await client.SendMessage(message.Chat.Id, Phrases.SaveNothingToSave, cancellationToken: cancellationToken);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Sends the same key/org/content-preview "card" shown for an inline search result, so
+    /// /save's confirmation and search results look the same.
+    /// </summary>
+    private Task SendIssueLinkReply(
+        long chatId,
+        int repliedMessageId,
+        string issuePreviewText,
+        string issueUrl,
+        CancellationToken cancellationToken)
+    {
+        return client.SendMessage(
+            chatId,
+            issuePreviewText,
+            parseMode: ParseMode.MarkdownV2,
+            replyParameters: new ReplyParameters
+            {
+                MessageId = repliedMessageId,
+                AllowSendingWithoutReply = true,
+            },
+            replyMarkup: new InlineKeyboardMarkup(
+                InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl)),
+            cancellationToken: cancellationToken);
     }
 
     /// <summary>

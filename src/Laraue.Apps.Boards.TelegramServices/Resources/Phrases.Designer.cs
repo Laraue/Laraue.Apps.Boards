@@ -346,20 +346,20 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to That message is already saved as a card..
-        /// </summary>
-        internal static string SaveAlreadySaved {
-            get {
-                return ResourceManager.GetString("SaveAlreadySaved", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   Looks up a localized string similar to There&apos;s nothing to save - the message has no text and you didn&apos;t add a note, e.g. /save some note..
         /// </summary>
         internal static string SaveNothingToSave {
             get {
                 return ResourceManager.GetString("SaveNothingToSave", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🔗 Open issue.
+        /// </summary>
+        internal static string OpenIssueButton {
+            get {
+                return ResourceManager.GetString("OpenIssueButton", resourceCulture);
             }
         }
 

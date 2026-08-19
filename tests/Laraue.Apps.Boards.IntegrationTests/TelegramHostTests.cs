@@ -698,8 +698,13 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        var reactionRequest = host.Requests().Single<SetMessageReactionRequest>();
-        Assert.Equal(5, reactionRequest.MessageId);
+        // /save replies with a link instead of a reaction - everyone in the chat already saw
+        // the command, so a bare emoji on the original message wouldn't be enough context.
+        var replyRequest = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(5, replyRequest.ReplyParameters!.MessageId);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal("🔗 Open issue", button.Text);
 
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
         Assert.Equal("Hello world", issue.Content);
@@ -910,6 +915,168 @@ public class TelegramHostTests : TelegramIntegrationTest
             .Where(x => x.IssueId == issue.Id)
             .ToListAsyncLinqToDB();
         Assert.Equal(2, attachments.Count);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReplyWithExistingLink_WhenMessageWasAlreadySaved()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 785, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        // First /save creates the card.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        // Second /save on the same message must not create a duplicate card - but should still
+        // point back to the one that already exists.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 3,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        // Both /save calls reply with just the key/org/content preview card - no extra status
+        // wording - so the second reply is only distinguishable by being the second one sent.
+        var replyRequests = host.Requests().OfType<SendMessageRequest>().ToList();
+        Assert.Equal(2, replyRequests.Count);
+        var secondReply = replyRequests[1];
+        Assert.Contains("Hello world", secondReply.Text);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(secondReply.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal("🔗 Open issue", button.Text);
+        Assert.NotEmpty(button.Url!);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldNotAutoUpdateCard_WhenEditedInBotMentionedMode()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 786, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Original text",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Original text", issue.Content);
+
+        // Editing the source message must not touch the card - unlike EachMessage mode, manual
+        // mode only syncs on an explicit /save.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Edited text",
+                Chat = chat,
+            }
+        });
+
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Original text", issue.Content);
+
+        var storedMessage = Assert.Single(await db.TelegramMessages.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Edited text", storedMessage.Text);
+
+        // A second /save picks up the edit.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 3,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Edited text", issue.Content);
     }
 
     [Fact]

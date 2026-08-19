@@ -68,6 +68,7 @@ public static class WebApplicationBuilderExtensions
 
             builder.Services
                 .AddScoped<ISearchService, SearchService>()
+                .AddSingleton<IIssueUrlBuilder, IssueUrlBuilder>()
                 .AddSingleton<ITokenFilterRegistry, TokenFilterRegistry>()
                 .AddSingleton<IQueryTokenFilter, UpdatedTokenFilter>()
                 .AddSingleton<IQueryTokenFilter, AssigneeTokenFilter>()
