@@ -80,7 +80,8 @@ public static class WebApplicationBuilderExtensions
             builder.Services
                 .AddScoped<IGroupChatService, GroupChatService>()
                 .AddScoped<IGroupChatLinkService, GroupChatLinkService>()
-                .AddScoped<IGroupChatAdminService, GroupChatAdminService>();
+                .AddScoped<IGroupChatAdminService, GroupChatAdminService>()
+                .AddScoped<IChatMigrationService, ChatMigrationService>();
             
             builder.Services.AddControllers();
 

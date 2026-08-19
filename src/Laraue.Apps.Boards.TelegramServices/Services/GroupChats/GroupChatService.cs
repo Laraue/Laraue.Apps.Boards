@@ -19,24 +19,33 @@ public interface IGroupChatService
 
 public class GroupChatService(
     RequestContext requestContext,
-    ITelegramMessageService telegramMessageService)
+    ITelegramMessageService telegramMessageService,
+    IChatMigrationService chatMigrationService)
     : IGroupChatService
 {
-    public Task HandleGroupMessage(Message message, CancellationToken cancellationToken)
+    public async Task HandleGroupMessage(Message message, CancellationToken cancellationToken)
     {
+        // Telegram posts this service message in the old chat when it upgrades a basic group to
+        // a supergroup, announcing the new chat id.
+        if (message.MigrateToChatId is { } newChatId)
+        {
+            await chatMigrationService.HandleChatMigrated(message.Chat.Id, newChatId, cancellationToken);
+            return;
+        }
+
         // This message was produced by the user picking an inline query result.
         if (message.ViaBot is not null)
-            return Task.CompletedTask;
+            return;
 
         var request = SaveMessageTelegramRequestFactory.Create(message, requestContext.UserId, message.Chat.Id);
 
         // Unsupported message types (stickers, polls, etc.) are just silently skipped.
         if (request is null)
-            return Task.CompletedTask;
+            return;
 
         // Most groups the bot is added to are never linked - stay silent there instead of
         // nagging every message.
-        return telegramMessageService.HandleSaveMessage(
+        await telegramMessageService.HandleSaveMessage(
             request,
             cancellationToken,
             notifyOnFailure: false);

@@ -1418,6 +1418,65 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleGroupMessage_ShouldMigrateLinkedChat_WhenGroupIsUpgradedToSupergroup()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var oldChatId = 795L;
+        var newChatId = -1009876543210L;
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = oldChatId,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // Telegram posts this service message in the OLD chat, announcing the new supergroup id
+        // that replaces it - the same event that fires when e.g. enabling/disabling Topics
+        // triggers an automatic basic-group-to-supergroup upgrade.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                Id = 1,
+                Chat = new Chat { Id = oldChatId, Type = ChatType.Group },
+                MigrateToChatId = newChatId,
+            }
+        });
+
+        Assert.Empty(host.Requests().OfType<SendMessageRequest>());
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var linkedChat = Assert.Single(await db.LinkedTelegramChats.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal(newChatId, linkedChat.ExternalChatId);
+
+        // The link keeps working under the new id - auto-save picks up right where it left off.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "Hello from the supergroup",
+                Chat = new Chat { Id = newChatId, Type = ChatType.Supergroup },
+            }
+        });
+
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("Hello from the supergroup", issue.Content);
+    }
+
+    [Fact]
     public async Task HandleSave_ShouldReplyForbidden_WhenSenderLacksCreateIssuePermission()
     {
         using var host = GetTelegramTestHost();
