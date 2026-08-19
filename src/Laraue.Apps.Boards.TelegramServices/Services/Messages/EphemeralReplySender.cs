@@ -1,4 +1,5 @@
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -11,7 +12,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 /// </summary>
 public static class EphemeralReplySender
 {
-    public static Task SendEphemeralNotice(
+    public static async Task SendEphemeralNotice(
         this ITelegramBotClient client,
         Message triggeringMessage,
         string text,
@@ -23,10 +24,24 @@ public static class EphemeralReplySender
             ? triggeringMessage.From!.Id
             : (long?)null;
 
-        return client.SendMessage(
-            triggeringMessage.Chat.Id,
-            text,
-            receiverUserId: receiverUserId,
-            cancellationToken: cancellationToken);
+        try
+        {
+            await client.SendMessage(
+                triggeringMessage.Chat.Id,
+                text,
+                receiverUserId: receiverUserId,
+                cancellationToken: cancellationToken);
+        }
+        catch (ApiRequestException ex) when (receiverUserId is not null
+            && ex.Message.Contains("BOT_NOT_ADMIN", StringComparison.OrdinalIgnoreCase))
+        {
+            // Ephemeral messages require the bot to be an admin of the group - not every group
+            // grants that. Fall back to a normal, chat-visible reply so the command still gets
+            // an answer instead of silently failing.
+            await client.SendMessage(
+                triggeringMessage.Chat.Id,
+                text,
+                cancellationToken: cancellationToken);
+        }
     }
 }
