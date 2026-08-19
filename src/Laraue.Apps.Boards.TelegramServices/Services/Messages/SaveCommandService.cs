@@ -15,7 +15,8 @@ public interface ISaveCommandService
 
 public class SaveCommandService(
     ITelegramSaveMessageService saveMessageService,
-    ITelegramBotClient client)
+    ITelegramBotClient client,
+    IEphemeralReplySender ephemeralReplySender)
     : ISaveCommandService
 {
     public async Task HandleSaveCommand(Message message, Guid userId, CancellationToken cancellationToken)
@@ -26,7 +27,7 @@ public class SaveCommandService(
         // messages), so this also covers that case, not just "user didn't reply at all".
         if (repliedMessage is null)
         {
-            await client.SendEphemeralNotice(message, Phrases.SaveNotAReply, cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNotAReply, cancellationToken);
             return;
         }
 
@@ -35,7 +36,7 @@ public class SaveCommandService(
         // "not on record" outcome below.
         if (repliedMessage.From?.IsBot == true)
         {
-            await client.SendEphemeralNotice(message, Phrases.SaveMessageFromBot, cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveMessageFromBot, cancellationToken);
             return;
         }
 
@@ -54,12 +55,12 @@ public class SaveCommandService(
         }
         catch (ChatNotLinkedException)
         {
-            await client.SendEphemeralNotice(message, Phrases.LinkNotLinked, cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkNotLinked, cancellationToken);
             return;
         }
         catch (IssueCreationForbiddenException)
         {
-            await client.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
             return;
         }
 
@@ -81,15 +82,15 @@ public class SaveCommandService(
                 break;
 
             case SaveByReplyOutcome.NotNeededInAutoMode:
-                await client.SendEphemeralNotice(message, Phrases.SaveNotNeededInAutoMode, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNotNeededInAutoMode, cancellationToken);
                 break;
 
             case SaveByReplyOutcome.MessageNotTracked:
-                await client.SendEphemeralNotice(message, Phrases.SaveMessageNotTracked, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveMessageNotTracked, cancellationToken);
                 break;
 
             case SaveByReplyOutcome.NothingToSave:
-                await client.SendEphemeralNotice(message, Phrases.SaveNothingToSave, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNothingToSave, cancellationToken);
                 break;
         }
     }

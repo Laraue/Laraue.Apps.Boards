@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -5,18 +6,20 @@ using Telegram.Bot.Types.Enums;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
-/// <summary>
-/// Sends error/status replies to /save and /info visible only to whoever triggered the command,
-/// via Bot API 10.2's ephemeral messages (SendMessageRequest.ReceiverUserId) - so one person's
-/// mistyped command doesn't clutter the chat for everyone else.
-/// </summary>
-public static class EphemeralReplySender
+public interface IEphemeralReplySender
 {
-    public static async Task SendEphemeralNotice(
-        this ITelegramBotClient client,
-        Message triggeringMessage,
-        string text,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends an error/status reply to /save or /info visible only to whoever triggered the
+    /// command, via Bot API 10.2's ephemeral messages (SendMessageRequest.ReceiverUserId) - so
+    /// one person's mistyped command doesn't clutter the chat for everyone else.
+    /// </summary>
+    Task SendEphemeralNotice(Message triggeringMessage, string text, CancellationToken cancellationToken);
+}
+
+public class EphemeralReplySender(ITelegramBotClient client, ILogger<EphemeralReplySender> logger)
+    : IEphemeralReplySender
+{
+    public async Task SendEphemeralNotice(Message triggeringMessage, string text, CancellationToken cancellationToken)
     {
         // Ephemeral targeting only makes sense in groups - a private chat already has just the
         // one user talking to the bot.
@@ -32,12 +35,17 @@ public static class EphemeralReplySender
                 receiverUserId: receiverUserId,
                 cancellationToken: cancellationToken);
         }
-        catch (ApiRequestException ex) when (receiverUserId is not null
-            && ex.Message.Contains("BOT_NOT_ADMIN", StringComparison.OrdinalIgnoreCase))
+        catch (ApiRequestException ex) when (receiverUserId is not null)
         {
-            // Ephemeral messages require the bot to be an admin of the group - not every group
-            // grants that. Fall back to a normal, chat-visible reply so the command still gets
-            // an answer instead of silently failing.
+            // Telegram can reject an ephemeral send for reasons we can't fully enumerate (the
+            // bot not being a group admin is the one we've confirmed, there may be others tied
+            // to chat type/settings) - whatever the reason, fall back to a normal, chat-visible
+            // reply so the command still gets an answer instead of silently failing.
+            logger.LogWarning(
+                ex,
+                "Ephemeral message to chat {ChatId} failed, falling back to a public reply",
+                triggeringMessage.Chat.Id);
+
             await client.SendMessage(
                 triggeringMessage.Chat.Id,
                 text,

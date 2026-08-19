@@ -60,7 +60,8 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ITelegramCommandsService, TelegramCommandsService>()
                 .AddScoped<ITelegramSaveMessageService, TelegramSaveMessageService>()
                 .AddScoped<ISaveCommandService, SaveCommandService>()
-                .AddScoped<IInfoCommandService, InfoCommandService>();
+                .AddScoped<IInfoCommandService, InfoCommandService>()
+                .AddSingleton<IEphemeralReplySender, EphemeralReplySender>();
 
             builder.Services
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()

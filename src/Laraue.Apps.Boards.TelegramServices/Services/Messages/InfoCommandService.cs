@@ -16,7 +16,8 @@ public interface IInfoCommandService
 
 public class InfoCommandService(
     ITelegramSaveMessageService saveMessageService,
-    ITelegramBotClient client)
+    ITelegramBotClient client,
+    IEphemeralReplySender ephemeralReplySender)
     : IInfoCommandService
 {
     public async Task HandleInfoCommand(Message message, Guid userId, CancellationToken cancellationToken)
@@ -27,7 +28,7 @@ public class InfoCommandService(
         // messages), so this also covers that case, not just "user didn't reply at all".
         if (repliedMessage is null)
         {
-            await client.SendEphemeralNotice(message, Phrases.InfoNotAReply, cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InfoNotAReply, cancellationToken);
             return;
         }
 
@@ -35,7 +36,7 @@ public class InfoCommandService(
         // otherwise surface as the more confusing "not on record" outcome below.
         if (repliedMessage.From?.IsBot == true)
         {
-            await client.SendEphemeralNotice(message, Phrases.InfoMessageFromBot, cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InfoMessageFromBot, cancellationToken);
             return;
         }
 
@@ -60,15 +61,15 @@ public class InfoCommandService(
                 break;
 
             case InfoByReplyOutcome.NoCardYet:
-                await client.SendEphemeralNotice(message, Phrases.InfoNoCardYet, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InfoNoCardYet, cancellationToken);
                 break;
 
             case InfoByReplyOutcome.MessageNotTracked:
-                await client.SendEphemeralNotice(message, Phrases.InfoMessageNotTracked, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InfoMessageNotTracked, cancellationToken);
                 break;
 
             case InfoByReplyOutcome.Forbidden:
-                await client.SendEphemeralNotice(message, Phrases.InfoForbidden, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InfoForbidden, cancellationToken);
                 break;
         }
     }

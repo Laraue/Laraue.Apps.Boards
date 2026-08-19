@@ -109,6 +109,13 @@ Solution: `Laraue.Apps.Boards.sln`
   make, since only the caller knows the full scope of what needs to be atomic. A core service can
   require that it's called within an already-open transaction, but it doesn't manage the
   transaction's lifecycle.
+- **Extension methods must not take DI dependencies** (`ILogger`, a `DbContext`, an injected
+  service, etc.) beyond the type they extend. If a static method needs a dependency injected,
+  it isn't an extension anymore — make it a proper DI-registered service (interface + class)
+  instead. E.g. `EphemeralReplySender` is a real service (constructor-injects
+  `ITelegramBotClient`/`ILogger<T>`) rather than an extension on `ITelegramBotClient`, precisely
+  because it needs a logger; `IssuePreviewReplySender.SendIssuePreviewReply` stays a plain
+  extension because it only needs the `ITelegramBotClient` it's called on plus its own arguments.
 
 ## Workflow for new features
 
@@ -139,6 +146,9 @@ pile up a large diff they then have to review all at once.
   actions against that same setup, it can be more readable to call them in order within one test
   (e.g. "first /save creates the card, second /save on the same message returns the existing
   link") rather than duplicating the setup across several tests.
+- Don't assert on whether/what something logged (e.g. `Mock<ILogger>.Verify(...)`). It's rarely
+  worth the brittleness - assert on the actual observable behavior (what got sent, what changed
+  in the DB) instead.
 
 ## Database safety
 
@@ -157,6 +167,14 @@ pile up a large diff they then have to review all at once.
 `dotnet build` can fail with `MSB3026`/`MSB3027` file-lock errors if a `TelegramHost` (or other
 host) process is already running locally and holding the output DLLs open. Don't kill the process
 yourself — ask the user to stop it, then retry the build once they confirm.
+
+## Logging
+
+- Always use `ILogger<T>` (the generic, type-scoped interface), never the bare non-generic
+  `ILogger`, including on generic helper methods/extensions — e.g.
+  `SendEphemeralNotice<T>(..., ILogger<T> logger, ...)` rather than taking a plain `ILogger`
+  parameter. Keeps log category names meaningful instead of defaulting to whatever type happened
+  to resolve it.
 
 ## EF Core vs LinqToDB
 
