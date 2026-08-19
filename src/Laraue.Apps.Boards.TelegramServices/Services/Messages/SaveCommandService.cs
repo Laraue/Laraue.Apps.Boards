@@ -32,6 +32,15 @@ public class SaveCommandService(
             return;
         }
 
+        // The bot's own messages (card previews, error replies, etc.) are never recorded as
+        // TelegramMessage rows, so this would otherwise surface as the more confusing
+        // "not on record" outcome below.
+        if (repliedMessage.From?.IsBot == true)
+        {
+            await client.SendMessage(message.Chat.Id, Phrases.SaveMessageFromBot, cancellationToken: cancellationToken);
+            return;
+        }
+
         SaveByReplyResult result;
         try
         {

@@ -834,6 +834,30 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleSave_ShouldReplyMessageFromBot_WhenReplyingToBotsOwnMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 781, Type = ChatType.Group };
+        var botUser = new User { Id = 999, IsBot = true, Username = "the_bot" };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 5, Chat = chat, From = botUser },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("That's my own message - reply to the original message you want to save instead.", request.Text);
+    }
+
+    [Fact]
     public async Task HandleSave_ShouldSaveWholeAlbum_WhenReplyingToAnyOfItsMessages()
     {
         using var host = GetTelegramTestHost();

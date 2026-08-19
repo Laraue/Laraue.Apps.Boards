@@ -157,6 +157,9 @@
     <data name="SaveMessageNotTracked" xml:space="preserve">
         <value>У меня нет этого сообщения — возможно, оно пришло до того, как чат был привязан.</value>
     </data>
+    <data name="SaveMessageFromBot" xml:space="preserve">
+        <value>Это моё собственное сообщение — ответьте на исходное сообщение, которое нужно сохранить.</value>
+    </data>
     <data name="SaveNothingToSave" xml:space="preserve">
         <value>Нечего сохранять — в сообщении нет текста, и вы не добавили заметку, например: /save заметка.</value>
     </data>

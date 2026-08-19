@@ -164,6 +164,9 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="SaveMessageNotTracked" xml:space="preserve">
         <value>I don't have that message on record - it may have arrived before the chat was linked.</value>
     </data>
+    <data name="SaveMessageFromBot" xml:space="preserve">
+        <value>That's my own message - reply to the original message you want to save instead.</value>
+    </data>
     <data name="SaveNothingToSave" xml:space="preserve">
         <value>There's nothing to save - the message has no text and you didn't add a note, e.g. /save some note.</value>
     </data>

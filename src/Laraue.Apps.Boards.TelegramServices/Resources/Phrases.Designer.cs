@@ -346,6 +346,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to That&apos;s my own message - reply to the original message you want to save instead..
+        /// </summary>
+        internal static string SaveMessageFromBot {
+            get {
+                return ResourceManager.GetString("SaveMessageFromBot", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to There&apos;s nothing to save - the message has no text and you didn&apos;t add a note, e.g. /save some note..
         /// </summary>
         internal static string SaveNothingToSave {
