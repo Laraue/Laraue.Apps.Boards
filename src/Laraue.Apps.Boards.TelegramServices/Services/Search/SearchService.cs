@@ -169,6 +169,11 @@ public class SearchService(
                 OrganizationName = x.Status.Epic.Space.Organization!.Name,
                 OrganizationSlug = x.Status.Epic.Space.Organization!.Slug,
                 OrganizationSlugPostfix = x.Status.Epic.Space.Organization!.SlugPostfix,
+                ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
+                SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
+                    ? (x.TelegramMessage.Sender.TelegramUserName ?? x.TelegramMessage.Sender.TelegramFirstName)
+                    : null,
+                SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
             .Take(5)
             .ToListAsyncLinqToDB(ct);
@@ -233,13 +238,15 @@ public class SearchService(
             }
 
             var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
+            var footer = IssuePreviewFormatter.BuildSourceFooter(issue.ChatTitle, issue.SenderName, issue.SentAt);
 
             // The link lives on a button, not in the text — buttons render reliably regardless
             // of MarkdownV2 escaping, whereas an in-text [text](url) link depends on every
             // character around it being escaped exactly right or Telegram shows the raw syntax.
             var messageText =
                 IssuePreviewFormatter.BuildHeader(issue.Key, issue.OrganizationName) + "\n" +
-                fragment.ToMarkdownV2();
+                fragment.ToMarkdownV2() +
+                (footer is not null ? "\n" + footer : string.Empty);
 
             result.Add(
                 new InlineQueryResultArticle(

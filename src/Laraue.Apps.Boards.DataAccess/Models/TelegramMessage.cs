@@ -30,6 +30,18 @@ public class TelegramMessage
     public Attachment? Attachment { get; set; }
 
     /// <summary>
+    /// Who sent this message on Telegram. Captured once, when the message first arrives -
+    /// independent of whoever later runs /save, which can be a different person entirely.
+    /// </summary>
+    public Guid? SenderId { get; set; }
+    public User? Sender { get; set; }
+
+    /// <summary>
+    /// When this message was sent on Telegram (not when it was saved as a card).
+    /// </summary>
+    public DateTime? SentAt { get; set; }
+
+    /// <summary>
     /// The chat link this message was saved through.
     /// </summary>
     public long? LinkedTelegramChatId { get; set; }

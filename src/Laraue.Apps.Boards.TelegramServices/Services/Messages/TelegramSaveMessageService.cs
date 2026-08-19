@@ -175,7 +175,7 @@ public class TelegramSaveMessageService(
 
         return new StringBuilder()
             .Append(note)
-            .Append("\n\n---\n\n")
+            .Append("\n---\n")
             .Append(originalText)
             .ToString();
     }
@@ -316,6 +316,8 @@ public class TelegramSaveMessageService(
                 TelegramMediaGroupId = groupId,
                 LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
                 Text = request.Text?.Trim(),
+                SenderId = request.UserId,
+                SentAt = request.SentAt,
             };
 
             context.Add(savedMessage);
@@ -416,6 +418,8 @@ public class TelegramSaveMessageService(
                 ExternalChatId = request.ExternalChatId,
                 LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
                 Text = request.Text?.Trim(),
+                SenderId = request.UserId,
+                SentAt = request.SentAt,
             };
 
             context.Add(telegramMessage);
@@ -649,6 +653,11 @@ public class TelegramSaveMessageService(
                 OrganizationSlug = x.IssueNumber.Space.Organization!.Slug,
                 OrganizationSlugPostfix = x.IssueNumber.Space.Organization!.SlugPostfix,
                 x.Content,
+                ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
+                SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
+                    ? (x.TelegramMessage.Sender.TelegramUserName ?? x.TelegramMessage.Sender.TelegramFirstName)
+                    : null,
+                SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
             .FirstAsyncEF(cancellationToken);
 
@@ -659,7 +668,11 @@ public class TelegramSaveMessageService(
             searchText: string.Empty,
             IssuePreviewFormatter.FragmentContextChars);
 
+        var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, issueData.SenderName, issueData.SentAt);
+
         var text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" + fragment.ToMarkdownV2();
+        if (footer is not null)
+            text += "\n" + footer;
 
         return (text, url);
     }
