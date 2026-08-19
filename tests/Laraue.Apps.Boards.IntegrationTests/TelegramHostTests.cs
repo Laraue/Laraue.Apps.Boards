@@ -185,7 +185,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         // epic's row precedes the explicitly-added one.
         spaceSelected.CheckMessage($"Choose an epic in {organization.Name} → {space.Name}:");
         spaceSelected.CheckButtonsSequentially(b => b
-            .HasButtonsRow([new ButtonAssert($"✅ {backlogEpic.Name}", $"/link/epic/{backlogEpic.Id}")])
+            .HasButtonsRow([new ButtonAssert($"📥 {backlogEpic.Name}", $"/link/epic/{backlogEpic.Id}")])
             .HasButtonsRow([new ButtonAssert($"📋 {epic.Name}", $"/link/epic/{epic.Id}")])
             .HasButtonsRow([new ButtonAssert("← Back", $"/link/organization/{organization.Id}")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
@@ -198,7 +198,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         epicSelected.CheckMessage($"Choose a status in {organization.Name} → {space.Name} -> {epic.Name}:");
         epicSelected.CheckButtonsSequentially(b => b
-            .HasButtonsRow([new ButtonAssert($"✅ {status.Name}", $"/link/status/{status.Id}")])
+            .HasButtonsRow([new ButtonAssert($"🏷️ {status.Name}", $"/link/status/{status.Id}")])
             .HasButtonsRow([new ButtonAssert("← Back", $"/link/space/{space.Id}")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
@@ -210,7 +210,9 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         // Nothing is persisted yet — status selection leads to a save-mode picker, not an
         // immediate link.
-        statusSelected.CheckMessage($"Choose how the bot should save messages in {organization.Name} → {space.Name} → {epic.Name}:");
+        Assert.Contains($"Choose how the bot should save messages in {organization.Name} → {space.Name} → {epic.Name}:", statusSelected.Text);
+        Assert.Contains("Every message is great for solo chats.", statusSelected.Text);
+        Assert.Contains("Only via /save works better for chats with different members.", statusSelected.Text);
         statusSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/{status.Id}/0")])
             .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])

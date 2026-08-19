@@ -138,7 +138,10 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.</value>
     </data>
     <data name="LinkChooseSaveMode" xml:space="preserve">
-        <value>Choose how the bot should save messages in {0}:</value>
+        <value>Choose how the bot should save messages in {0}:
+
+💬 Every message is great for solo chats.
+✋ Only via /save works better for chats with different members.</value>
     </data>
     <data name="SaveModeEachMessage" xml:space="preserve">
         <value>💬 Every message</value>

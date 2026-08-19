@@ -204,7 +204,7 @@ public class GroupChatLinkService(
         var buttons = epics
             .Select(e =>
             {
-                var epicIcon = e.IsDefault ? "✅" : "📋";
+                var epicIcon = e.IsDefault ? "📥" : "📋";
                 
                 return new[]
                 {
@@ -286,7 +286,7 @@ public class GroupChatLinkService(
             {
                 new CallbackRoutePath(TelegramRoutes.LinkStatus)
                     .WithPathParameter("id", status.Id.ToString())
-                    .ToInlineKeyboardButton($"✅ {status.Name}")
+                    .ToInlineKeyboardButton($"🏷️ {status.Name}")
             })
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkSpace)
                 .WithPathParameter("id", epic.SpaceId.ToString()))

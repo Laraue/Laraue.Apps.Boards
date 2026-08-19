@@ -271,7 +271,10 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Choose how the bot should save messages in {0}:.
+        ///   Looks up a localized string similar to Choose how the bot should save messages in {0}:
+        ///
+        ///💬 Every message is great for solo chats.
+        ///✋ Only via /save works better for chats with different members..
         /// </summary>
         internal static string LinkChooseSaveMode {
             get {
