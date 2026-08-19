@@ -136,8 +136,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var space = organization.GetSpace(0);
         var epic = organization.GetEpic(0, 0);
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal(
-            $"This chat is already linked to\r\n{organization.Name} → {space.Name} → {epic.Name}",
+        Assert.Equal(@$"This chat is already linked to
+{organization.Name} → {space.Name} → {epic.Name}",
             request.Text);
 
         var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
