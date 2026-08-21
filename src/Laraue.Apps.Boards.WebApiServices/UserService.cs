@@ -48,16 +48,11 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
                 FirstName = x.TelegramFirstName,
                 LastName = x.TelegramLastName,
                 TelegramId = x.TelegramId,
+                Initials = x.Initials,
                 Palette = Palette.Colors
             })
             .FirstOrThrowNotFoundEFAsync("User is not found", cancellationToken);
 
-        var initials = new UserInitials(
-            user.Username,
-            user.FirstName,
-            user.LastName);
-
-        user.Initials = initials.Initials;
         user.Preferences = await coreService.GetPreferences(userId, cancellationToken);
         
         return user;

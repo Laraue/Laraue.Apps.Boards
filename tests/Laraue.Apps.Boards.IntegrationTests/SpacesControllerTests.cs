@@ -364,7 +364,7 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
             .Execute(x => x.GetSpaceMembers(spaceKey));
         
         Assert.Equal(2, members!.Length);
-        Assert.Equal(["aa", "bb"], members.Select(x => x.Initials).OrderBy(x => x));
+        Assert.Equal(["AA", "BB"], members.Select(x => x.Initials).OrderBy(x => x));
         Assert.Equal(["#111111", "#222222"], members.Select(x => x.Color).OrderBy(x => x));
     }
 }

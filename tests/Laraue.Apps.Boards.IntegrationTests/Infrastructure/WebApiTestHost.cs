@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiHost;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -75,7 +76,11 @@ public class WebApiTestHostScope : IDisposable
         };
         
         setupUser?.Invoke(user);
-        
+
+        var initials = new UserInitials(user.TelegramUserName, user.TelegramFirstName, user.TelegramLastName);
+        user.DisplayName = initials.DisplayName;
+        user.Initials = initials.Initials;
+
         Database.Users.Add(user);
         
         await Database.SaveChangesAsync();

@@ -524,9 +524,8 @@ public class IssuesService(
             {
                 Id = x.Id,
                 AssigneeId = x.AssigneeId,
-                AssigneeTelegramFirstName = x.Assignee!.TelegramFirstName,
-                AssigneeTelegramLastName = x.Assignee.TelegramLastName,
-                AssigneeTelegramUsername = x.Assignee.TelegramUserName,
+                AssigneeDisplayName = x.Assignee!.DisplayName,
+                AssigneeInitials = x.Assignee.Initials,
                 AssigneeColor = x.Assignee.Color,
                 Content = x.Content,
                 Time = x.CreatedAt,
@@ -535,10 +534,9 @@ public class IssuesService(
                 CategoryName = x.Status!.Epic!.Name,
                 StatusId = x.StatusId,
                 StatusName = x.Status!.Epic!.IsDefault ? null : x.Status!.Name,
-                TelegramFirstName = x.Owner!.TelegramFirstName,
-                TelegramLastName = x.Owner!.TelegramLastName,
+                OwnerDisplayName = x.Owner!.DisplayName,
+                OwnerInitials = x.Owner.Initials,
                 TelegramId = x.Owner.TelegramId,
-                TelegramUsername = x.Owner.TelegramUserName,
                 OwnerColor = x.Owner.Color,
                 CategoryColor = x.Status.Epic.Color,
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
@@ -550,16 +548,6 @@ public class IssuesService(
                 SpaceColor = x.Status.Epic.Space.Color,
             })
             .FirstAsyncEF(cancellationToken);
-
-        var owner = new UserInitials(
-            result.TelegramUsername,
-            result.TelegramFirstName,
-            result.TelegramLastName);
-        
-        var assignee = new UserInitials(
-            result.AssigneeTelegramUsername,
-            result.AssigneeTelegramFirstName,
-            result.AssigneeTelegramLastName);
 
         var attributeValues = await context.Attributes
             .Where(x => x.OrganizationId == result.OrganizationId)
@@ -596,15 +584,15 @@ public class IssuesService(
             Assignee = new UserDetails
             {
                 Color = result.AssigneeColor,
-                DisplayName = assignee.DisplayName,
-                Initials = assignee.Initials,
+                DisplayName = result.AssigneeDisplayName,
+                Initials = result.AssigneeInitials,
             },
             Content = result.Content,
             Owner = new UserDetails
             {
                 Color = result.OwnerColor,
-                DisplayName = owner.DisplayName,
-                Initials = owner.Initials,
+                DisplayName = result.OwnerDisplayName,
+                Initials = result.OwnerInitials,
             },
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
@@ -826,9 +814,8 @@ public class IssuesService(
                 x.CreatedAt,
                 x.UpdatedAt,
                 x.Owner!.Color,
-                x.Owner.TelegramFirstName,
-                x.Owner.TelegramLastName,
-                x.Owner.TelegramUserName,
+                x.Owner.DisplayName,
+                x.Owner.Initials,
                 CanModify = x.OwnerId == request.AuthData.UserId,
                 Attachments = x.Attachments
                     .Select(a => new AttachmentData
@@ -843,28 +830,20 @@ public class IssuesService(
             })
             .ShortPaginateEFAsync(request.Pagination, ct);
 
-        var result = commentsData.MapTo(item =>
+        var result = commentsData.MapTo(item => new CommentDto
         {
-            var userInitials = new UserInitials(
-                item.TelegramUserName,
-                item.TelegramFirstName,
-                item.TelegramLastName);
-
-            return new CommentDto
+            Id = item.Id,
+            Text = item.Text,
+            CreatedAt = item.CreatedAt,
+            UpdatedAt = item.UpdatedAt,
+            CanModify = item.CanModify,
+            Owner = new UserDetails
             {
-                Id = item.Id,
-                Text = item.Text,
-                CreatedAt = item.CreatedAt,
-                UpdatedAt = item.UpdatedAt,
-                CanModify = item.CanModify,
-                Owner = new UserDetails
-                {
-                    Color = item.Color,
-                    DisplayName = userInitials.DisplayName,
-                    Initials = userInitials.Initials,
-                },
-                Attachments = item.Attachments,
-            };
+                Color = item.Color,
+                DisplayName = item.DisplayName,
+                Initials = item.Initials,
+            },
+            Attachments = item.Attachments,
         });
 
         return result;
@@ -900,39 +879,33 @@ public class IssuesService(
                 x.EntityType,
                 x.Action,
                 x.Owner!.Color,
-                x.Owner.TelegramFirstName,
-                x.Owner.TelegramLastName,
-                x.Owner.TelegramUserName,
+                x.Owner.DisplayName,
+                x.Owner.Initials,
                 Items = x.Items!
                     .OrderBy(i => i.Id)
                     .ToArray(),
             })
             .ShortPaginateEFAsync(request.Pagination, ct);
-        
-        
+
+
         var changes = await MapHistoryChanges(
             updatesData.Data.ToDictionary(
                 x => x.Id,
                 x => x.Items),
             ct);
 
-        var result = updatesData.MapTo(x =>
+        var result = updatesData.MapTo(x => new IssueHistoryItem
         {
-            var userInitials = new UserInitials(x.TelegramUserName, x.TelegramFirstName, x.TelegramLastName);
-
-            return new IssueHistoryItem
+            CreatedAt = x.CreatedAt,
+            Owner = new UserDetails
             {
-                CreatedAt = x.CreatedAt,
-                Owner = new UserDetails
-                {
-                    Color = x.Color,
-                    DisplayName = userInitials.DisplayName,
-                    Initials = userInitials.Initials,
-                },
-                Changes = changes[x.Id],
-                EntityType = x.EntityType,
-                Action = x.Action,
-            };
+                Color = x.Color,
+                DisplayName = x.DisplayName,
+                Initials = x.Initials,
+            },
+            Changes = changes[x.Id],
+            EntityType = x.EntityType,
+            Action = x.Action,
         });
         
         return result;
@@ -1492,10 +1465,9 @@ public class IssuesService(
             Time = x.CreatedAt,
             EpicId = x.Status!.EpicId,
             StatusId = x.StatusId,
-            AssigneeTelegramFirstName = x.Assignee!.TelegramFirstName,
-            AssigneeTelegramLastName = x.Assignee!.TelegramLastName,
+            AssigneeDisplayName = x.Assignee!.DisplayName,
+            AssigneeInitials = x.Assignee.Initials,
             AssigneeTelegramId = x.Assignee.TelegramId,
-            AssigneeTelegramUsername = x.Assignee.TelegramUserName,
             AssigneeUserColor = x.Assignee.Color,
             Number = x.IssueNumber!.Number,
             SpaceKey = x.Status.Epic!.Space!.Key,
@@ -1505,19 +1477,14 @@ public class IssuesService(
     
     private static IssueListDto Map(IssueListDtoData source)
     {
-        var assigneeData = new UserInitials(
-            source.AssigneeTelegramUsername,
-            source.AssigneeTelegramFirstName,
-            source.AssigneeTelegramLastName);
-
         return new IssueListDto
         {
             Id = source.Id,
             StatusId = source.StatusId,
             Content = source.Content,
             EpicId = source.EpicId,
-            Assignee = assigneeData.DisplayName,
-            AssigneeInitial = assigneeData.Initials,
+            Assignee = source.AssigneeDisplayName,
+            AssigneeInitial = source.AssigneeInitials,
             Time = source.Time,
             AssigneeColor = source.AssigneeUserColor,
             Key = new IssueKey(source.SpaceKey, source.Number).ToString(),
@@ -1890,9 +1857,8 @@ public class IssueListDtoData
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
     public required long AssigneeTelegramId { get; set; }
-    public required string? AssigneeTelegramUsername { get; set; }
-    public required string? AssigneeTelegramFirstName { get; set; }
-    public required string? AssigneeTelegramLastName { get; set; }
+    public required string AssigneeDisplayName { get; set; }
+    public required string AssigneeInitials { get; set; }
     public required string? Content { get; set; }
     public required string AssigneeUserColor { get; set; }
     public required long EpicId { get; set; }
@@ -2172,16 +2138,14 @@ public class IssueDetailDtoData
 {
     public required long Id { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required string? AssigneeTelegramUsername { get; set; }
-    public required string? AssigneeTelegramFirstName { get; set; }
-    public required string? AssigneeTelegramLastName { get; set; }
+    public required string AssigneeDisplayName { get; set; }
+    public required string AssigneeInitials { get; set; }
     public required string AssigneeColor { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long TelegramId { get; set; }
-    public required string? TelegramUsername { get; set; }
-    public required string? TelegramFirstName { get; set; }
-    public required string? TelegramLastName { get; set; }
+    public required string OwnerDisplayName { get; set; }
+    public required string OwnerInitials { get; set; }
     public required string OwnerColor { get; set; }
     public required string? Content { get; set; }
     public required long CategoryId { get; set; }

@@ -11,7 +11,13 @@ public class User : ITelegramUser<Guid>
     public string? TelegramLanguageCode { get; set; }
     public string? TelegramLastName { get; set; }
     public string? TelegramFirstName { get; set; }
-    
+    // 129 = Telegram's 64-char first/last name limit twice, plus the joining space ("{firstName} {lastName}")
+    [MaxLength(129)]
+    public string DisplayName { get; set; } = string.Empty;
+
+    [MaxLength(2)]
+    public string Initials { get; set; } = string.Empty;
+
     [MaxLength(7)]
     public string Color { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
