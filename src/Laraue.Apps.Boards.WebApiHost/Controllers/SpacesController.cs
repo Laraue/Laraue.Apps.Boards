@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.WebApiServices;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.WebApiServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -80,11 +81,13 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
     [HttpGet("{key}/epics")]
     public Task<EpicListDto[]> GetSpaceEpics(
         string key,
-        CancellationToken cancellationToken = default) => 
+        [FromQuery] EpicStatus[]? statuses = null,
+        CancellationToken cancellationToken = default) =>
         epicsService.GetSpaceEpics(
             new GetEpicsRequest
             {
                 Key = key,
+                Statuses = statuses,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
             cancellationToken);

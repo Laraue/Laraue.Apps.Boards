@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -16,7 +17,11 @@ public interface IEpicsService
     Task<EpicDto> GetEpic(
         GetEpicRequest request,
         CancellationToken cancellationToken);
-    
+
+    Task ChangeStatus(
+        ChangeEpicStatusRequest request,
+        CancellationToken cancellationToken);
+
     Task ChangeStatusesOrder(
         ChangeStatusesOrderRequest request,
         CancellationToken cancellationToken);
@@ -53,6 +58,7 @@ public class EpicsService(
             request.AuthData,
             epics => epics
                 .Where(x => x.SpaceId == spaceId)
+                .Where(x => request.Statuses == null || ((IEnumerable<EpicStatus>)request.Statuses).Contains(x.Status))
                 .OrderBy(x => x.IsDefault ? 0 : 1)
                 .ThenBy(x => x.Name)
                 .Select(x => new EpicListDto
@@ -62,8 +68,31 @@ public class EpicsService(
                     Color = x.Color,
                     TouchedAt = x.TouchedAt,
                     IsDefault = x.IsDefault,
+                    Status = x.Status,
                 })
                 .ToArrayAsyncLinqToDB(cancellationToken),
+            cancellationToken);
+    }
+
+    public async Task ChangeStatus(
+        ChangeEpicStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        var epicsAccessLevel = await accessService
+            .GetAccessLevelsByEpicId(
+                request.AuthData,
+                request.Id,
+                cancellationToken);
+
+        if (epicsAccessLevel is null)
+            throw new NotFoundException($"Epic: {request.Id} is not found");
+
+        if (!epicsAccessLevel.CanUpdateEpic)
+            throw new ForbiddenException($"Epic: {request.Id} is not accessible");
+
+        await coreEpicsService.Update(
+            request.Id,
+            upd => upd.SetProperty(x => x.Status, request.Status),
             cancellationToken);
     }
 
@@ -89,6 +118,7 @@ public class EpicsService(
                         })
                         .ToArray(),
                     x.IsDefault,
+                    x.Status,
                 })
                 .FirstOrThrowNotFoundLinq2DbAsync($"Epic: {request.Id} is not found", cancellationToken),
             cancellationToken);
@@ -111,6 +141,7 @@ public class EpicsService(
             Statuses = epicData.Statuses,
             CanDelete = accessLevels.CanDeleteEpic,
             CanUpdate = accessLevels.CanUpdateEpic,
+            Status = epicData.Status,
         };
         
         return result;
@@ -216,6 +247,7 @@ public record EpicListDto
     public required string? Color { get; set; }
     public required DateTime TouchedAt { get; set; }
     public required bool IsDefault { get; set; }
+    public required EpicStatus Status { get; set; }
 }
 
 public record GetEpicRequest
@@ -234,6 +266,7 @@ public record EpicDto
     public required bool CanUpdateIssues { get; set; }
     public bool CanUpdate { get; set; }
     public bool CanDelete { get; set; }
+    public required EpicStatus Status { get; set; }
 }
 
 public class StatusDto
@@ -280,7 +313,7 @@ public record UpdateEpicRequest
 public record DeleteEpicRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
-    
+
     public long Id { get; set; }
 }
 
@@ -288,4 +321,18 @@ public record GetEpicsRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public required string Key { get; set; }
+
+    /// <summary>
+    /// Statuses to filter epics by. Null means no filtering.
+    /// </summary>
+    public EpicStatus[]? Statuses { get; set; }
+}
+
+public record ChangeEpicStatusRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+
+    public long Id { get; set; }
+
+    public required EpicStatus Status { get; set; }
 }

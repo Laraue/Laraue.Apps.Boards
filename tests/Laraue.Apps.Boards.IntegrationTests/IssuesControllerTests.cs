@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
@@ -590,7 +591,36 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("John 2", issueDto.Content);
         Assert.True(issueDto.CanEdit);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldSearchIssuesByEpicStatus_WhenEpicStatusesProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Backlog Issue"))
+                .AddSpace(userId, space => space
+                    .AddEpic(userId, e => e
+                        .WithStatus(EpicStatus.Done)
+                        .AddIssue(userId, 0, issue => issue.WithContent("Done Epic Issue")))));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    EpicStatuses = new[] { EpicStatus.Done },
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        var issueDto = Assert.Single(issuesResult.Data);
+        Assert.Equal("Done Epic Issue", issueDto.Content);
+    }
+
     [Fact]
     public async Task User_ShouldGetBoard_WhenIsOrganizationOwner()
     {

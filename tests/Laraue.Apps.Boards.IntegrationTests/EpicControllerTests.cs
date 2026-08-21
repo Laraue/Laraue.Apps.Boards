@@ -1,6 +1,8 @@
-﻿using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.Exceptions.Web;
 using LinqToDB.Async;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -122,8 +124,59 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
         Assert.False(epic.CanCreateIssues);
         Assert.False(epic.CanDeleteIssues);
         Assert.False(epic.CanUpdateIssues);
+        Assert.Equal(EpicStatus.New, epic.Status);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldChangeEpicStatusInOrganization_WhenHasDirectEditAccess()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(participatorId, builder => builder
+                .SetSpaceAccessLevel(0, x => x.CanUpdateEpics = true)));
+
+        var epicId = organization.GetEpic(0, 0).Id;
+
+        await _epicsController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.ChangeStatus(
+                epicId,
+                new ChangeEpicStatusRequest
+                {
+                    Status = EpicStatus.Active,
+                }));
+
+        var epic = await testScope.Database.Epics.FirstAsyncEF(x => x.Id == epicId);
+        Assert.Equal(EpicStatus.Active, epic.Status);
+    }
+
+    [Fact]
+    public async Task User_ShouldNotChangeEpicStatusInOrganization_WhenHasNoDirectEditAccess()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(participatorId, builder => builder
+                .SetGlobalAccessLevel(x => x.CanRead = true)));
+
+        var epicId = organization.GetEpic(0, 0).Id;
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _epicsController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.ChangeStatus(
+                epicId,
+                new ChangeEpicStatusRequest
+                {
+                    Status = EpicStatus.Done,
+                })));
+
+        var forbidden = ex.HasInnerException<ForbiddenException>();
+        Assert.Equal($"Epic: {epicId} is not accessible", forbidden.Message);
+    }
+
     [Fact]
     public async Task User_ShouldUpdateEpicInOrganization_WhenHasDirectEditAccess()
     {

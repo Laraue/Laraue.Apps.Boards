@@ -392,8 +392,9 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
     {
         var fullPath = controllerPath + (httpAttribute.Template is not null ? $"/{httpAttribute.Template}" : string.Empty);
 
-        if (boundArguments.Query.Any())
-            fullPath += "?" + string.Join("&", boundArguments.Query.Select(x => $"{x.Key}={x.Value}"));
+        var queryParts = boundArguments.Query.SelectMany(BuildQueryParameterParts).ToArray();
+        if (queryParts.Length > 0)
+            fullPath += "?" + string.Join("&", queryParts);
 
         foreach (var pathParameter in boundArguments.Path)
         {
@@ -402,6 +403,23 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
         }
 
         return fullPath;
+    }
+
+    /// <summary>
+    /// Turns a single bound query argument into one or more "key=value" parts, repeating the key
+    /// for each element when the value is an array/collection (matching ASP.NET Core's model
+    /// binding convention for e.g. <c>[FromQuery] EpicStatus[]</c>). Null values are omitted so a
+    /// default/omitted argument doesn't produce a query param at all.
+    /// </summary>
+    private static IEnumerable<string> BuildQueryParameterParts(KeyValuePair<string, object?> parameter)
+    {
+        if (parameter.Value is null)
+            return [];
+
+        if (parameter.Value is not string && parameter.Value is System.Collections.IEnumerable enumerable)
+            return enumerable.Cast<object?>().Select(v => $"{parameter.Key}={v}");
+
+        return [$"{parameter.Key}={parameter.Value}"];
     }
 
     /// <summary>
