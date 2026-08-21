@@ -35,6 +35,7 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()
                 .AddScoped<IAccessService, AccessService>()
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()
+                .AddScoped<ICoreIssueAttributesService, CoreIssueAttributesService>()
                 .AddScoped<IIssueHistoryService, IssueHistoryService>()
                 .AddSingleton<IOrganizationLogItemFactory, OrganizationLogItemFactory>()
                 .AddScoped<ICoreEpicsService, CoreEpicsService>()

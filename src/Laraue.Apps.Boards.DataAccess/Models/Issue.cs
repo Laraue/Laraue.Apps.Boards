@@ -51,6 +51,10 @@ public class Issue
     public IssueNumber? IssueNumber { get; set; }
     public List<IssueAttributeTextValue>? TextAttributes { get; set; }
     public List<IssueAttributeListValue>? ListAttributes { get; set; }
+    public List<IssueAttributeIntegerValue>? IntegerAttributes { get; set; }
+    public List<IssueAttributeDecimalValue>? DecimalAttributes { get; set; }
+    public List<IssueAttributeDateValue>? DateAttributes { get; set; }
+    public List<IssueAttributeDateTimeValue>? DateTimeAttributes { get; set; }
     public List<IssueAttachment>? IssueAttachments { get; set; }
     public List<IssueComment>? IssueComments { get; set; }
 }

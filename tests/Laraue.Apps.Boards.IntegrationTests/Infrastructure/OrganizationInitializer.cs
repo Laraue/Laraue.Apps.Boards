@@ -75,6 +75,34 @@ public class OrganizationInitializer(
         return this;
     }
 
+    public OrganizationInitializer AddIntegerAttribute(string name, string color = "#000000")
+    {
+        _attributes.Add(new IntegerTestAttribute(name, color));
+
+        return this;
+    }
+
+    public OrganizationInitializer AddDecimalAttribute(string name, string color = "#000000")
+    {
+        _attributes.Add(new DecimalTestAttribute(name, color));
+
+        return this;
+    }
+
+    public OrganizationInitializer AddDateAttribute(string name, string color = "#000000")
+    {
+        _attributes.Add(new DateTestAttribute(name, color));
+
+        return this;
+    }
+
+    public OrganizationInitializer AddDateTimeAttribute(string name, string color = "#000000")
+    {
+        _attributes.Add(new DateTimeTestAttribute(name, color));
+
+        return this;
+    }
+
     public async Task<Organization> Initialize()
     {
         var organization = OrganizationDefaults.GetNewOrganizationEntity(
@@ -173,7 +201,7 @@ public class OrganizationInitializer(
                             .Select(x => new IssueAttributeTextValue
                             {
                                 Attribute = x.entity.attribute,
-                                Text = x.pair.Value.ToString(),
+                                Value = x.pair.Value.ToString(),
                             })
                             .ToList();
                         
@@ -185,7 +213,43 @@ public class OrganizationInitializer(
                                 AttributeListValue = x.entity.attribute.AttributeListValues!.ElementAt((int)x.pair.Value),
                             })
                             .ToList();
-                        
+
+                        var integerAttributes = attributes
+                            .Where(x => x.entity.attribute.AttributeType == AttributeType.Integer)
+                            .Select(x => new IssueAttributeIntegerValue
+                            {
+                                Attribute = x.entity.attribute,
+                                Value = Convert.ToInt64(x.pair.Value),
+                            })
+                            .ToList();
+
+                        var decimalAttributes = attributes
+                            .Where(x => x.entity.attribute.AttributeType == AttributeType.Decimal)
+                            .Select(x => new IssueAttributeDecimalValue
+                            {
+                                Attribute = x.entity.attribute,
+                                Value = Convert.ToDecimal(x.pair.Value),
+                            })
+                            .ToList();
+
+                        var dateAttributes = attributes
+                            .Where(x => x.entity.attribute.AttributeType == AttributeType.Date)
+                            .Select(x => new IssueAttributeDateValue
+                            {
+                                Attribute = x.entity.attribute,
+                                Value = (DateOnly)x.pair.Value,
+                            })
+                            .ToList();
+
+                        var dateTimeAttributes = attributes
+                            .Where(x => x.entity.attribute.AttributeType == AttributeType.DateTime)
+                            .Select(x => new IssueAttributeDateTimeValue
+                            {
+                                Attribute = x.entity.attribute,
+                                Value = (DateTime)x.pair.Value,
+                            })
+                            .ToList();
+
                         statusForIssue.Issues.Add(new Issue
                         {
                             Content = issue.Content,
@@ -200,6 +264,10 @@ public class OrganizationInitializer(
                             },
                             TextAttributes = textAttributes,
                             ListAttributes = listAttributes,
+                            IntegerAttributes = integerAttributes,
+                            DecimalAttributes = decimalAttributes,
+                            DateAttributes = dateAttributes,
+                            DateTimeAttributes = dateTimeAttributes,
                             LexoRank = issue.LexoRank.ToString(),
                             IssueAttachments = issue.Attachments
                                 .Select(x => new IssueAttachment
@@ -461,6 +529,10 @@ public class OrganizationInitializer(
     public abstract record TestAttribute(AttributeType AttributeType, string Name, string Color);
     public record TextTestAttribute(string Name, string Color) : TestAttribute(AttributeType.Text, Name, Color);
     public record ListTestAttribute(string Name, string[] PossibleValues, string Color) : TestAttribute(AttributeType.List, Name, Color);
+    public record IntegerTestAttribute(string Name, string Color) : TestAttribute(AttributeType.Integer, Name, Color);
+    public record DecimalTestAttribute(string Name, string Color) : TestAttribute(AttributeType.Decimal, Name, Color);
+    public record DateTestAttribute(string Name, string Color) : TestAttribute(AttributeType.Date, Name, Color);
+    public record DateTimeTestAttribute(string Name, string Color) : TestAttribute(AttributeType.DateTime, Name, Color);
     
     public class EpicBuilder(Guid creatorId, DateTime timestamp)
     {

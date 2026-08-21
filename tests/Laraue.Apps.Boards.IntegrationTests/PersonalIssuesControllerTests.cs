@@ -75,7 +75,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var textAttribute = await testScope.Database.IssueAttributeTextValues.SingleAsyncEF();
         Assert.Equal(issue.Id, textAttribute.IssueId);
         Assert.Equal(noteAttribute.Id, textAttribute.AttributeId);
-        Assert.Equal("My note", textAttribute.Text);
+        Assert.Equal("My note", textAttribute.Value);
         
         var listAttribute = await testScope.Database.IssueAttributeListValues.SingleAsyncEF();
         Assert.Equal(issue.Id, listAttribute.IssueId);
@@ -190,7 +190,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var textAttribute = await testScope.Database.IssueAttributeTextValues.SingleAsyncEF();
         Assert.Equal(issue.Id, textAttribute.IssueId);
         Assert.Equal(noteAttribute.Id, textAttribute.AttributeId);
-        Assert.Equal("My note", textAttribute.Text);
+        Assert.Equal("My note", textAttribute.Value);
         
         var listAttribute = await testScope.Database.IssueAttributeListValues.SingleAsyncEF();
         Assert.Equal(issue.Id, listAttribute.IssueId);

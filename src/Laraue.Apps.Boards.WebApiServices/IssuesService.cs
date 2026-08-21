@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
@@ -1191,7 +1192,71 @@ public class IssuesService(
                         });
                     break;
                 }
-                    
+                case AttributeType.Integer:
+                {
+                    if (attribute is not IntegerAttributeValue integerAttributeValue)
+                    {
+                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be an integer attribute value");
+                        continue;
+                    }
+
+                    requests.Add(
+                        new SetIssueIntegerAttributeRequest
+                        {
+                            Id = integerAttributeValue.AttributeId,
+                            Value = integerAttributeValue.Value,
+                        });
+                    break;
+                }
+                case AttributeType.Decimal:
+                {
+                    if (attribute is not DecimalAttributeValue decimalAttributeValue)
+                    {
+                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a decimal attribute value");
+                        continue;
+                    }
+
+                    requests.Add(
+                        new SetIssueDecimalAttributeRequest
+                        {
+                            Id = decimalAttributeValue.AttributeId,
+                            Value = decimalAttributeValue.Value,
+                        });
+                    break;
+                }
+                case AttributeType.Date:
+                {
+                    if (attribute is not DateAttributeValue dateAttributeValue)
+                    {
+                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a date attribute value");
+                        continue;
+                    }
+
+                    requests.Add(
+                        new SetIssueDateAttributeRequest
+                        {
+                            Id = dateAttributeValue.AttributeId,
+                            Value = dateAttributeValue.Value,
+                        });
+                    break;
+                }
+                case AttributeType.DateTime:
+                {
+                    if (attribute is not DateTimeAttributeValue dateTimeAttributeValue)
+                    {
+                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a date-time attribute value");
+                        continue;
+                    }
+
+                    requests.Add(
+                        new SetIssueDateTimeAttributeRequest
+                        {
+                            Id = dateTimeAttributeValue.AttributeId,
+                            Value = dateTimeAttributeValue.Value,
+                        });
+                    break;
+                }
+
                 default:
                     throw new InvalidOperationException($"Attribute type {attributeType} is not supported");
             }
@@ -1284,18 +1349,10 @@ public class IssuesService(
         IEnumerable<long> issueIds,
         CancellationToken cancellationToken)
     {
-        var textValues = context.IssueAttributeTextValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .Select(x => new { x.AttributeId, x.IssueId, Value = x.Text });
-        
-        var listValues =  context.IssueAttributeListValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .Select(x => new { x.AttributeId, x.IssueId, Value = x.AttributeListValueId.ToString() });
+        var ids = issueIds as long[] ?? issueIds.ToArray();
 
-        var dbResult = await textValues
-            .Union(listValues)
-            .ToArrayAsyncEF(cancellationToken);
-        
+        var dbResult = await GetScalarAttributeDisplayValues(ids, cancellationToken);
+
         return dbResult
             .GroupBy(x => x.IssueId)
             .ToDictionary(
@@ -1303,6 +1360,57 @@ public class IssuesService(
                 x => x.ToDictionary(
                     y => y.AttributeId,
                     y => y.Value));
+    }
+
+    /// <summary>
+    /// Loads every attribute value (of any <see cref="AttributeType"/>) for the given issues as a
+    /// flat, opaque display string per (issue, attribute) pair. Each type is queried against its
+    /// own table (see <see cref="Laraue.Apps.Boards.DataAccess.Models.IIssueAttributeScalarValue{TValue}"/>)
+    /// and formatted client-side rather than via a single SQL UNION, since not every provider
+    /// reliably translates e.g. <c>decimal</c>/<c>DateTime</c> ToString() to SQL.
+    /// </summary>
+    private async Task<(long IssueId, long AttributeId, string Value)[]> GetScalarAttributeDisplayValues(
+        long[] issueIds,
+        CancellationToken cancellationToken)
+    {
+        var textValues = await context.IssueAttributeTextValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
+            .ToArrayAsyncEF(cancellationToken);
+
+        var listValues = await context.IssueAttributeListValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Select(x => new { x.IssueId, x.AttributeId, x.AttributeListValueId })
+            .ToArrayAsyncEF(cancellationToken);
+
+        var integerValues = await context.IssueAttributeIntegerValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
+            .ToArrayAsyncEF(cancellationToken);
+
+        var decimalValues = await context.IssueAttributeDecimalValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
+            .ToArrayAsyncEF(cancellationToken);
+
+        var dateValues = await context.IssueAttributeDateValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
+            .ToArrayAsyncEF(cancellationToken);
+
+        var dateTimeValues = await context.IssueAttributeDateTimeValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
+            .ToArrayAsyncEF(cancellationToken);
+
+        return textValues
+            .Select(x => (x.IssueId, x.AttributeId, x.Value))
+            .Concat(listValues.Select(x => (x.IssueId, x.AttributeId, Value: x.AttributeListValueId.ToString())))
+            .Concat(integerValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString(CultureInfo.InvariantCulture))))
+            .Concat(decimalValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("0.####", CultureInfo.InvariantCulture))))
+            .Concat(dateValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("O"))))
+            .Concat(dateTimeValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("O"))))
+            .ToArray();
     }
 
     private async Task<Dictionary<long, string>> GetIssueAttributeValues(
@@ -1320,16 +1428,40 @@ public class IssuesService(
 
         var textValues = await context.IssueAttributeTextValues
             .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.Attribute!.Color, x.IssueId, Value = x.Text })
+            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
             .ToArrayAsyncEF(ct);
-        
+
         var listValues = await context.IssueAttributeListValues
             .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
             .Select(x => new { x.Attribute!.Color, x.IssueId, x.AttributeListValue!.Value })
             .ToArrayAsyncEF(ct);
-        
+
+        var integerValues = await context.IssueAttributeIntegerValues
+            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
+            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
+            .ToArrayAsyncEF(ct);
+
+        var decimalValues = await context.IssueAttributeDecimalValues
+            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
+            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
+            .ToArrayAsyncEF(ct);
+
+        var dateValues = await context.IssueAttributeDateValues
+            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
+            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
+            .ToArrayAsyncEF(ct);
+
+        var dateTimeValues = await context.IssueAttributeDateTimeValues
+            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
+            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
+            .ToArrayAsyncEF(ct);
+
         var all = textValues
             .Union(listValues)
+            .Union(integerValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString(CultureInfo.InvariantCulture) }))
+            .Union(decimalValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString("0.####", CultureInfo.InvariantCulture) }))
+            .Union(dateValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString("O") }))
+            .Union(dateTimeValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString("O") }))
             .GroupBy(x => x.IssueId)
             .ToDictionary(x => x.Key);
 
@@ -1418,6 +1550,10 @@ public class IssuesService(
             {
                 AttributeType.Text => ApplyTextFilter(query, filter, errors),
                 AttributeType.List => ApplyEnumFilter(query, filter, errors),
+                AttributeType.Integer => ApplyIntegerFilter(query, filter, errors),
+                AttributeType.Decimal => ApplyDecimalFilter(query, filter, errors),
+                AttributeType.Date => ApplyDateFilter(query, filter, errors),
+                AttributeType.DateTime => ApplyDateTimeFilter(query, filter, errors),
                 _ => throw new InvalidOperationException($"Unsupported filter type '{filterType}'")
             };
         }
@@ -1455,7 +1591,7 @@ public class IssuesService(
             context.IssueAttributeTextValues,
             (i, a) => i.Id == a.IssueId
                       && a.AttributeId == filter.Key
-                      && a.Text.ILike(stringValue.SearchString.AsSearchable()),
+                      && a.Value.ILike(stringValue.SearchString.AsSearchable()),
             (i, a) => i);
     }
     
@@ -1478,7 +1614,99 @@ public class IssuesService(
             (i, a) => i.Id == a.IssueId && a.AttributeId == filter.Key && ((IEnumerable<long>)enumValue.Ids).Contains(a.AttributeListValueId),
             (i, a) => i);
     }
-    
+
+    private IQueryable<Issue> ApplyIntegerFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not IntegerAttributeFilterValue integerValue)
+        {
+            errors.Add(filter.Key, $"Integer filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (integerValue.Min is null && integerValue.Max is null)
+            return query;
+
+        return query.InnerJoin(
+            context.IssueAttributeIntegerValues,
+            (i, a) => i.Id == a.IssueId
+                      && a.AttributeId == filter.Key
+                      && (integerValue.Min == null || a.Value >= integerValue.Min)
+                      && (integerValue.Max == null || a.Value <= integerValue.Max),
+            (i, a) => i);
+    }
+
+    private IQueryable<Issue> ApplyDecimalFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not DecimalAttributeFilterValue decimalValue)
+        {
+            errors.Add(filter.Key, $"Decimal filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (decimalValue.Min is null && decimalValue.Max is null)
+            return query;
+
+        return query.InnerJoin(
+            context.IssueAttributeDecimalValues,
+            (i, a) => i.Id == a.IssueId
+                      && a.AttributeId == filter.Key
+                      && (decimalValue.Min == null || a.Value >= decimalValue.Min)
+                      && (decimalValue.Max == null || a.Value <= decimalValue.Max),
+            (i, a) => i);
+    }
+
+    private IQueryable<Issue> ApplyDateFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not DateAttributeFilterValue dateValue)
+        {
+            errors.Add(filter.Key, $"Date filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (dateValue.From is null && dateValue.To is null)
+            return query;
+
+        return query.InnerJoin(
+            context.IssueAttributeDateValues,
+            (i, a) => i.Id == a.IssueId
+                      && a.AttributeId == filter.Key
+                      && (dateValue.From == null || a.Value >= dateValue.From)
+                      && (dateValue.To == null || a.Value <= dateValue.To),
+            (i, a) => i);
+    }
+
+    private IQueryable<Issue> ApplyDateTimeFilter(
+        IQueryable<Issue> query,
+        KeyValuePair<long, AttributeFilterValue> filter,
+        Dictionary<long, string> errors)
+    {
+        if (filter.Value is not DateTimeAttributeFilterValue dateTimeValue)
+        {
+            errors.Add(filter.Key, $"DateTime filter object excepted for filter: '{filter.Key}'");
+            return query;
+        }
+
+        if (dateTimeValue.From is null && dateTimeValue.To is null)
+            return query;
+
+        return query.InnerJoin(
+            context.IssueAttributeDateTimeValues,
+            (i, a) => i.Id == a.IssueId
+                      && a.AttributeId == filter.Key
+                      && (dateTimeValue.From == null || a.Value >= dateTimeValue.From)
+                      && (dateTimeValue.To == null || a.Value <= dateTimeValue.To),
+            (i, a) => i);
+    }
+
     private Task<IQueryable<Issue>> ApplySorting(
         IQueryable<Issue> query,
         IHasSorting request,
@@ -1517,6 +1745,10 @@ public class IssuesService(
         {
             AttributeType.Text => ApplyTextSorting(query, sorting),
             AttributeType.List => ApplyEnumSorting(query, sorting),
+            AttributeType.Integer => ApplyIntegerSorting(query, sorting),
+            AttributeType.Decimal => ApplyDecimalSorting(query, sorting),
+            AttributeType.Date => ApplyDateSorting(query, sorting),
+            AttributeType.DateTime => ApplyDateTimeSorting(query, sorting),
             _ => throw new InvalidOperationException($"Sorting by '{attribute.AttributeType}' is not supported")
         };
     }
@@ -1530,7 +1762,7 @@ public class IssuesService(
                 context.IssueAttributeTextValues,
                 (issue, textValue) => issue.Id == textValue.IssueId && textValue.AttributeId == sorting.AttributeId,
                 (issue, textValue) => new { Issue = issue, TextValue = textValue })
-            .ApplySorting(a => a.TextValue.Text, sorting.Direction)
+            .ApplySorting(a => a.TextValue.Value, sorting.Direction)
             .Select(a => a.Issue);
     }
     
@@ -1544,6 +1776,58 @@ public class IssuesService(
                 (issue, listValue) => issue.Id == listValue.IssueId && listValue.AttributeId == sorting.AttributeId,
                 (issue, listValue) => new { Issue = issue, ListValue = listValue })
             .ApplySorting(a => a.ListValue.AttributeListValueId, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+
+    private IQueryable<Issue> ApplyIntegerSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeIntegerValues,
+                (issue, integerValue) => issue.Id == integerValue.IssueId && integerValue.AttributeId == sorting.AttributeId,
+                (issue, integerValue) => new { Issue = issue, IntegerValue = integerValue })
+            .ApplySorting(a => a.IntegerValue.Value, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+
+    private IQueryable<Issue> ApplyDecimalSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeDecimalValues,
+                (issue, decimalValue) => issue.Id == decimalValue.IssueId && decimalValue.AttributeId == sorting.AttributeId,
+                (issue, decimalValue) => new { Issue = issue, DecimalValue = decimalValue })
+            .ApplySorting(a => a.DecimalValue.Value, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+
+    private IQueryable<Issue> ApplyDateSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeDateValues,
+                (issue, dateValue) => issue.Id == dateValue.IssueId && dateValue.AttributeId == sorting.AttributeId,
+                (issue, dateValue) => new { Issue = issue, DateValue = dateValue })
+            .ApplySorting(a => a.DateValue.Value, sorting.Direction)
+            .Select(a => a.Issue);
+    }
+
+    private IQueryable<Issue> ApplyDateTimeSorting(
+        IQueryable<Issue> query,
+        ByAttributeIssueSorting sorting)
+    {
+        return query
+            .InnerJoin(
+                context.IssueAttributeDateTimeValues,
+                (issue, dateTimeValue) => issue.Id == dateTimeValue.IssueId && dateTimeValue.AttributeId == sorting.AttributeId,
+                (issue, dateTimeValue) => new { Issue = issue, DateTimeValue = dateTimeValue })
+            .ApplySorting(a => a.DateTimeValue.Value, sorting.Direction)
             .Select(a => a.Issue);
     }
 
@@ -1671,6 +1955,10 @@ public record CreateIssueRequest
 
 [JsonDerivedType(typeof(EnumAttributeValue), "enum")]
 [JsonDerivedType(typeof(StringAttributeValue), "string")]
+[JsonDerivedType(typeof(IntegerAttributeValue), "integer")]
+[JsonDerivedType(typeof(DecimalAttributeValue), "decimal")]
+[JsonDerivedType(typeof(DateAttributeValue), "date")]
+[JsonDerivedType(typeof(DateTimeAttributeValue), "datetime")]
 public abstract record AttributeValue
 {
     public required long AttributeId { get; set; }
@@ -1684,6 +1972,26 @@ public record EnumAttributeValue : AttributeValue
 public record StringAttributeValue : AttributeValue
 {
     public required string Value { get; set; }
+}
+
+public record IntegerAttributeValue : AttributeValue
+{
+    public required long Value { get; set; }
+}
+
+public record DecimalAttributeValue : AttributeValue
+{
+    public required decimal Value { get; set; }
+}
+
+public record DateAttributeValue : AttributeValue
+{
+    public required DateOnly Value { get; set; }
+}
+
+public record DateTimeAttributeValue : AttributeValue
+{
+    public required DateTime Value { get; set; }
 }
 
 public record UpdateIssueRequest
@@ -1712,6 +2020,10 @@ public interface IHasSorting
 
 [JsonDerivedType(typeof(StringAttributeFilterValue), "string")]
 [JsonDerivedType(typeof(EnumAttributeFilterValue), "enum")]
+[JsonDerivedType(typeof(IntegerAttributeFilterValue), "integer")]
+[JsonDerivedType(typeof(DecimalAttributeFilterValue), "decimal")]
+[JsonDerivedType(typeof(DateAttributeFilterValue), "date")]
+[JsonDerivedType(typeof(DateTimeAttributeFilterValue), "datetime")]
 public abstract record AttributeFilterValue
 {
 }
@@ -1730,6 +2042,58 @@ public record EnumAttributeFilterValue : AttributeFilterValue
     /// Enum identifiers to filter by.
     /// </summary>
     public required long[] Ids { get; set; }
+}
+
+public record IntegerAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// Inclusive lower bound. Null means no lower bound.
+    /// </summary>
+    public long? Min { get; set; }
+
+    /// <summary>
+    /// Inclusive upper bound. Null means no upper bound.
+    /// </summary>
+    public long? Max { get; set; }
+}
+
+public record DecimalAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// Inclusive lower bound. Null means no lower bound.
+    /// </summary>
+    public decimal? Min { get; set; }
+
+    /// <summary>
+    /// Inclusive upper bound. Null means no upper bound.
+    /// </summary>
+    public decimal? Max { get; set; }
+}
+
+public record DateAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// Inclusive lower bound. Null means no lower bound.
+    /// </summary>
+    public DateOnly? From { get; set; }
+
+    /// <summary>
+    /// Inclusive upper bound. Null means no upper bound.
+    /// </summary>
+    public DateOnly? To { get; set; }
+}
+
+public record DateTimeAttributeFilterValue : AttributeFilterValue
+{
+    /// <summary>
+    /// Inclusive lower bound. Null means no lower bound.
+    /// </summary>
+    public DateTime? From { get; set; }
+
+    /// <summary>
+    /// Inclusive upper bound. Null means no upper bound.
+    /// </summary>
+    public DateTime? To { get; set; }
 }
 
 public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting

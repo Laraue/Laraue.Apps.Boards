@@ -1,8 +1,6 @@
-﻿using System.ComponentModel.DataAnnotations;
-
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
-public class IssueAttributeTextValue : IIssueAttributeScalarValue<string>
+public class IssueAttributeIntegerValue : IIssueAttributeScalarValue<long>
 {
     public long IssueId { get; set; }
     public Issue? Issue { get; set; }
@@ -10,6 +8,5 @@ public class IssueAttributeTextValue : IIssueAttributeScalarValue<string>
     public long AttributeId { get; set; }
     public Attribute? Attribute { get; set; }
 
-    [MaxLength(255)]
-    public required string Value { get; set; }
+    public required long Value { get; set; }
 }
