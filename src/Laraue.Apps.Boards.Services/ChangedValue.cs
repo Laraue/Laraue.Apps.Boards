@@ -18,11 +18,13 @@ public readonly struct ChangedValue<T>
         IsSet = isSet;
     }
 
+    public static ChangedValue<T> Unset { get; } = new(default!, isSet: false);
+
+    public static ChangedValue<T> Of(T value) => new(value, isSet: true);
+
     public T Value => IsSet
         ? _value
         : throw new InvalidOperationException($"No {typeof(T).Name} value was set.");
 
     public T GetValueOrDefault(T fallback = default!) => IsSet ? _value : fallback;
-
-    public static implicit operator ChangedValue<T>(T value) => new(value, isSet: true);
 }

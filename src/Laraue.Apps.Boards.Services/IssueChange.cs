@@ -11,15 +11,16 @@ namespace Laraue.Apps.Boards.Services;
 /// </summary>
 public abstract class IssueChange<TSelf> where TSelf : IssueChange<TSelf>
 {
-    internal ChangedValue<string?> Content { get; private set; }
+    internal ChangedValue<string?> Content { get; private set; } = ChangedValue<string?>.Unset;
 
-    internal ChangedValue<Guid> AssigneeId { get; private set; }
+    internal ChangedValue<Guid> AssigneeId { get; private set; } = ChangedValue<Guid>.Unset;
 
     /// <summary>
     /// Unset means "don't touch attributes at all" (Telegram never sets this). Set to an empty
     /// list means "this issue should have no attributes" - clear whatever's there.
     /// </summary>
-    internal ChangedValue<IReadOnlyList<SetIssueAttributeRequest>> Attributes { get; private set; }
+    internal ChangedValue<IReadOnlyList<SetIssueAttributeRequest>> Attributes { get; private set; } =
+        ChangedValue<IReadOnlyList<SetIssueAttributeRequest>>.Unset;
 
     internal List<MediaInfo> NewAttachments { get; } = [];
 
@@ -27,19 +28,19 @@ public abstract class IssueChange<TSelf> where TSelf : IssueChange<TSelf>
 
     public TSelf SetContent(string? content)
     {
-        Content = content;
+        Content = ChangedValue<string?>.Of(content);
         return (TSelf)this;
     }
 
     public TSelf SetAssignee(Guid assigneeId)
     {
-        AssigneeId = assigneeId;
+        AssigneeId = ChangedValue<Guid>.Of(assigneeId);
         return (TSelf)this;
     }
 
     public TSelf SetAttributes(IEnumerable<SetIssueAttributeRequest> attributes)
     {
-        Attributes = attributes.ToList();
+        Attributes = ChangedValue<IReadOnlyList<SetIssueAttributeRequest>>.Of(attributes.ToList());
         return (TSelf)this;
     }
 
