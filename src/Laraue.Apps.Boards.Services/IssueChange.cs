@@ -1,4 +1,5 @@
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.AttributeRequests;
 
 namespace Laraue.Apps.Boards.Services;
 

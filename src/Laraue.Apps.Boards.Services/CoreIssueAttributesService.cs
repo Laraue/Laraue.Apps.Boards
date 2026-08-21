@@ -1,6 +1,7 @@
-using System.Globalization;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,10 @@ public interface ICoreIssueAttributesService
         CancellationToken cancellationToken);
 }
 
-public class CoreIssueAttributesService(DatabaseContext context) : ICoreIssueAttributesService
+public class CoreIssueAttributesService(
+    DatabaseContext context,
+    IEnumerable<IScalarAttributeUpdater> scalarAttributeUpdaters)
+    : ICoreIssueAttributesService
 {
     public async Task<OrganizationLogItem[]> UpdateAttributes(
         long issueId,
@@ -37,80 +41,14 @@ public class CoreIssueAttributesService(DatabaseContext context) : ICoreIssueAtt
             .Where(x => x.OrganizationId == organizationId)
             .ToDictionaryAsyncEF(x => x.Id, x => x.Name, cancellationToken);
 
-        changes.AddRange(
-            await UpdateScalarAttributes<IssueAttributeTextValue, string, SetIssueTextAttributeRequest>(
-                context.IssueAttributeTextValues,
-                issueId,
-                attributeNameById,
-                attributeRequests.OfType<SetIssueTextAttributeRequest>().ToArray(),
-                (issueIdValue, attributeId, value) => new IssueAttributeTextValue
-                {
-                    IssueId = issueIdValue,
-                    AttributeId = attributeId,
-                    Value = value,
-                },
-                value => value,
-                cancellationToken));
-
-        changes.AddRange(
-            await UpdateScalarAttributes<IssueAttributeIntegerValue, long, SetIssueIntegerAttributeRequest>(
-                context.IssueAttributeIntegerValues,
-                issueId,
-                attributeNameById,
-                attributeRequests.OfType<SetIssueIntegerAttributeRequest>().ToArray(),
-                (issueIdValue, attributeId, value) => new IssueAttributeIntegerValue
-                {
-                    IssueId = issueIdValue,
-                    AttributeId = attributeId,
-                    Value = value,
-                },
-                value => value.ToString(CultureInfo.InvariantCulture),
-                cancellationToken));
-
-        changes.AddRange(
-            await UpdateScalarAttributes<IssueAttributeDecimalValue, decimal, SetIssueDecimalAttributeRequest>(
-                context.IssueAttributeDecimalValues,
-                issueId,
-                attributeNameById,
-                attributeRequests.OfType<SetIssueDecimalAttributeRequest>().ToArray(),
-                (issueIdValue, attributeId, value) => new IssueAttributeDecimalValue
-                {
-                    IssueId = issueIdValue,
-                    AttributeId = attributeId,
-                    Value = value,
-                },
-                value => value.ToString("0.####", CultureInfo.InvariantCulture),
-                cancellationToken));
-
-        changes.AddRange(
-            await UpdateScalarAttributes<IssueAttributeDateValue, DateOnly, SetIssueDateAttributeRequest>(
-                context.IssueAttributeDateValues,
-                issueId,
-                attributeNameById,
-                attributeRequests.OfType<SetIssueDateAttributeRequest>().ToArray(),
-                (issueIdValue, attributeId, value) => new IssueAttributeDateValue
-                {
-                    IssueId = issueIdValue,
-                    AttributeId = attributeId,
-                    Value = value,
-                },
-                value => value.ToString("O"),
-                cancellationToken));
-
-        changes.AddRange(
-            await UpdateScalarAttributes<IssueAttributeDateTimeValue, DateTime, SetIssueDateTimeAttributeRequest>(
-                context.IssueAttributeDateTimeValues,
-                issueId,
-                attributeNameById,
-                attributeRequests.OfType<SetIssueDateTimeAttributeRequest>().ToArray(),
-                (issueIdValue, attributeId, value) => new IssueAttributeDateTimeValue
-                {
-                    IssueId = issueIdValue,
-                    AttributeId = attributeId,
-                    Value = value,
-                },
-                value => value.ToString("O"),
-                cancellationToken));
+        // One updater per scalar AttributeType (see AttributeUpdaters/), each registered in DI.
+        // IssueAttributeListValue resolves to a predefined option instead of storing a value of
+        // its own, so it isn't a good fit for this shape and keeps UpdateListAttributes below.
+        foreach (var updater in scalarAttributeUpdaters)
+        {
+            changes.AddRange(
+                await updater.Update(context, issueId, attributeNameById, attributeRequests, cancellationToken));
+        }
 
         changes.AddRange(
             await UpdateListAttributes(
@@ -252,145 +190,4 @@ public class CoreIssueAttributesService(DatabaseContext context) : ICoreIssueAtt
 
         return changes.ToArray();
     }
-
-    /// <summary>
-    /// Shared insert/update/delete + history-log logic for scalar attribute value types
-    /// (Text, Number, Date), which differ only in their storage entity/value type and how the
-    /// value is formatted for display. <see cref="IssueAttributeListValue"/> resolves to a
-    /// predefined option instead, so it keeps its own <see cref="UpdateListAttributes"/>.
-    /// </summary>
-    private async Task<OrganizationLogItem[]> UpdateScalarAttributes<TEntity, TValue, TRequest>(
-        DbSet<TEntity> dbSet,
-        long issueId,
-        Dictionary<long, string> attributeNameById,
-        TRequest[] attributeRequests,
-        Func<long, long, TValue, TEntity> createEntity,
-        Func<TValue, string> formatValue,
-        CancellationToken cancellationToken)
-        where TEntity : class, IIssueAttributeScalarValue<TValue>
-        where TRequest : ISetIssueScalarAttributeRequest<TValue>
-    {
-        var oldAttributes = (await dbSet
-                .Where(x => x.IssueId == issueId)
-                .Select(x => new { x.AttributeId, x.Value })
-                .ToArrayAsyncEF(cancellationToken))
-            .ToDictionary(x => x.AttributeId);
-
-        var changes = new List<OrganizationLogItem>();
-
-        if (attributeRequests.Length > 0)
-        {
-            foreach (var request in attributeRequests)
-            {
-                // Update old
-                if (oldAttributes.TryGetValue(request.Id, out var oldAttribute))
-                {
-                    if (EqualityComparer<TValue>.Default.Equals(oldAttribute.Value, request.Value))
-                        continue;
-
-                    var entity = createEntity(issueId, request.Id, request.Value);
-
-                    dbSet.Attach(entity);
-                    context.Entry(entity).State = EntityState.Modified;
-
-                    changes.Add(new OrganizationLogItem
-                    {
-                        NewDisplayValue = formatValue(request.Value),
-                        OldDisplayValue = formatValue(oldAttribute.Value),
-                        PropertyType = PropertyType.Attribute,
-                        PropertyName = attributeNameById[oldAttribute.AttributeId],
-                        ParentId = request.Id.ToString(),
-                    });
-                }
-                // Insert new
-                else
-                {
-                    dbSet.Add(createEntity(issueId, request.Id, request.Value));
-
-                    changes.Add(new OrganizationLogItem
-                    {
-                        NewDisplayValue = formatValue(request.Value),
-                        PropertyType = PropertyType.Attribute,
-                        PropertyName = attributeNameById[request.Id],
-                        ParentId = request.Id.ToString(),
-                    });
-                }
-            }
-
-            await context.SaveChangesAsync(cancellationToken);
-        }
-
-        // Drop old
-        var toDelete = oldAttributes
-            .ExceptBy(attributeRequests.Select(x => x.Id), x => x.Key)
-            .ToArray();
-
-        if (toDelete.Length != 0)
-            await dbSet
-                .Where(x => x.IssueId == issueId)
-                .Where(x => toDelete.Select(y => y.Key).Contains(x.AttributeId))
-                .ExecuteDeleteAsync(cancellationToken);
-
-        foreach (var deletable in toDelete)
-        {
-            changes.Add(new OrganizationLogItem
-            {
-                OldDisplayValue = formatValue(deletable.Value.Value),
-                PropertyType = PropertyType.Attribute,
-                PropertyName = attributeNameById[deletable.Key],
-                ParentId = deletable.Value.AttributeId.ToString(),
-            });
-        }
-
-        return changes.ToArray();
-    }
-}
-
-public abstract record SetIssueAttributeRequest
-{
-    /// <summary>
-    /// The attribute identifier <see cref="DataAccess.Models.Attribute.Id"/>.
-    /// </summary>
-    public long Id { get; set; }
-}
-
-/// <summary>
-/// Implemented by <see cref="SetIssueAttributeRequest"/> subtypes for scalar attribute types
-/// (Text, Integer, Decimal, Date, DateTime), so they can share
-/// <see cref="CoreIssueAttributesService.UpdateScalarAttributes{TEntity,TValue,TRequest}"/>.
-/// </summary>
-public interface ISetIssueScalarAttributeRequest<out TValue>
-{
-    long Id { get; }
-    TValue Value { get; }
-}
-
-public record SetIssueTextAttributeRequest : SetIssueAttributeRequest, ISetIssueScalarAttributeRequest<string>
-{
-    public required string Value { get; set; }
-}
-
-public record SetIssueIntegerAttributeRequest : SetIssueAttributeRequest, ISetIssueScalarAttributeRequest<long>
-{
-    public required long Value { get; set; }
-}
-
-public record SetIssueDecimalAttributeRequest : SetIssueAttributeRequest, ISetIssueScalarAttributeRequest<decimal>
-{
-    public required decimal Value { get; set; }
-}
-
-public record SetIssueDateAttributeRequest : SetIssueAttributeRequest, ISetIssueScalarAttributeRequest<DateOnly>
-{
-    public required DateOnly Value { get; set; }
-}
-
-public record SetIssueDateTimeAttributeRequest : SetIssueAttributeRequest, ISetIssueScalarAttributeRequest<DateTime>
-{
-    public required DateTime Value { get; set; }
-}
-
-public record SetIssueListAttributeRequest : SetIssueAttributeRequest
-{
-    public required long ListValueId { get; set; }
 }

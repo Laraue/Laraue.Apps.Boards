@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
