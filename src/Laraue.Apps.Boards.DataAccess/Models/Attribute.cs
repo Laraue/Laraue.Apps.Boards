@@ -27,4 +27,8 @@ public enum AttributeType
 {
     Text,
     List,
+    Integer,
+    Decimal,
+    Date,
+    DateTime,
 }

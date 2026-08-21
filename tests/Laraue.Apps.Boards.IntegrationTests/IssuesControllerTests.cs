@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
@@ -1116,5 +1117,290 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal("Note", noteAttributeChange.PropertyName);
         Assert.Equal("Ask mr. John", noteAttributeChange.OldValueName);
         Assert.Null(noteAttributeChange.NewValueName);
+    }
+
+    [Fact]
+    public async Task Update_ShouldLogDecimalAndDateTimeAttributeChanges_WhenAttributesChanged()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var oldDueDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var newDueDate = new DateTime(2026, 2, 2, 12, 30, 0, DateTimeKind.Utc);
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddDecimalAttribute("Points")
+                .AddDateTimeAttribute("Due")
+                .AddIssueToDefaultStatus(userId, builder => builder
+                    .WithAttributeValue(0, 5m)
+                    .WithAttributeValue(1, oldDueDate)
+                    .WithContent("Old")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var pointsAttribute = organization.Attributes![0];
+        var dueAttribute = organization.Attributes![1];
+
+        var updateIssueRequest = new UpdateIssueRequest
+        {
+            AssigneeId = userId,
+            Content = "Old",
+            AttributeValues =
+            [
+                new DecimalAttributeValue
+                {
+                    AttributeId = pointsAttribute.Id,
+                    Value = 8m,
+                },
+                new DateTimeAttributeValue
+                {
+                    AttributeId = dueAttribute.Id,
+                    Value = newDueDate,
+                },
+            ],
+        };
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, updateIssueRequest));
+
+        var request = new GetIssueHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 8,
+            }
+        };
+
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(issueData.Key!, request));
+
+        var issueChanged = Assert.Single(historyData!.Data);
+        Assert.Equal(2, issueChanged.Changes.Length);
+
+        var pointsChange = Assert.IsType<IssueHistoryPropertyChange>(issueChanged.Changes[0]);
+        var dueChange = Assert.IsType<IssueHistoryPropertyChange>(issueChanged.Changes[1]);
+
+        Assert.Equal("Points", pointsChange.PropertyName);
+        Assert.Equal("5", pointsChange.OldValueName);
+        Assert.Equal("8", pointsChange.NewValueName);
+
+        Assert.Equal("Due", dueChange.PropertyName);
+        Assert.Equal(oldDueDate.ToString("O"), dueChange.OldValueName);
+        Assert.Equal(newDueDate.ToString("O"), dueChange.NewValueName);
+
+        var issueDto = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssue(issueData.Key));
+
+        var pointsValue = Assert.Single(issueDto!.AttributeValues, x => x.Id == pointsAttribute.Id);
+        var dueValue = Assert.Single(issueDto.AttributeValues, x => x.Id == dueAttribute.Id);
+
+        Assert.Equal("8", pointsValue.Value);
+        Assert.Equal(newDueDate.ToString("O"), dueValue.Value);
+    }
+
+    [Fact]
+    public async Task Search_ShouldFilterIssuesByDecimalAttributeRange_WhenMinAndMaxProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddDecimalAttribute("Points")
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Low").WithAttributeValue(0, 1m))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Mid").WithAttributeValue(0, 5m))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("High").WithAttributeValue(0, 10m)));
+
+        var pointsAttribute = organization.Attributes![0];
+
+        var filters = new Dictionary<long, AttributeFilterValue>
+        {
+            [pointsAttribute.Id] = new DecimalAttributeFilterValue { Min = 3m, Max = 8m },
+        };
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Filters = filters,
+                }));
+
+        var issueDto = Assert.Single(issuesResult!.Data);
+        Assert.Equal("Mid", issueDto.Content);
+    }
+
+    [Fact]
+    public async Task Search_ShouldFilterIssuesByDateAttributeRange_WhenFromAndToProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddDateAttribute("Due")
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Early").WithAttributeValue(0, new DateOnly(2026, 1, 1)))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Middle").WithAttributeValue(0, new DateOnly(2026, 3, 1)))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Late").WithAttributeValue(0, new DateOnly(2026, 6, 1))));
+
+        var dueAttribute = organization.Attributes![0];
+
+        var filters = new Dictionary<long, AttributeFilterValue>
+        {
+            [dueAttribute.Id] = new DateAttributeFilterValue
+            {
+                From = new DateOnly(2026, 2, 1),
+                To = new DateOnly(2026, 4, 1),
+            },
+        };
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Filters = filters,
+                }));
+
+        var issueDto = Assert.Single(issuesResult!.Data);
+        Assert.Equal("Middle", issueDto.Content);
+    }
+
+    [Fact]
+    public async Task Search_ShouldFilterIssuesByDateTimeAttributeRange_WhenFromAndToProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddDateTimeAttribute("Due")
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Early").WithAttributeValue(0, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Middle").WithAttributeValue(0, new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc)))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Late").WithAttributeValue(0, new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc))));
+
+        var dueAttribute = organization.Attributes![0];
+
+        var filters = new Dictionary<long, AttributeFilterValue>
+        {
+            [dueAttribute.Id] = new DateTimeAttributeFilterValue
+            {
+                From = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+                To = new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
+            },
+        };
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Filters = filters,
+                }));
+
+        var issueDto = Assert.Single(issuesResult!.Data);
+        Assert.Equal("Middle", issueDto.Content);
+    }
+
+    [Fact]
+    public async Task Search_ShouldFilterIssuesByIntegerAttributeRange_WhenMinAndMaxProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddIntegerAttribute("Rank")
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Low").WithAttributeValue(0, 1L))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Mid").WithAttributeValue(0, 5L))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("High").WithAttributeValue(0, 10L)));
+
+        var rankAttribute = organization.Attributes![0];
+
+        var filters = new Dictionary<long, AttributeFilterValue>
+        {
+            [rankAttribute.Id] = new IntegerAttributeFilterValue { Min = 3, Max = 8 },
+        };
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Filters = filters,
+                }));
+
+        var issueDto = Assert.Single(issuesResult!.Data);
+        Assert.Equal("Mid", issueDto.Content);
+    }
+
+    [Fact]
+    public async Task Search_ShouldSortIssuesByScalarAttributes_WhenSortingProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddDecimalAttribute("Points")
+                .AddDateTimeAttribute("Due")
+                .AddIssueToDefaultStatus(userId, i => i
+                    .WithContent("C")
+                    .WithAttributeValue(0, 3m)
+                    .WithAttributeValue(1, new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc)))
+                .AddIssueToDefaultStatus(userId, i => i
+                    .WithContent("A")
+                    .WithAttributeValue(0, 1m)
+                    .WithAttributeValue(1, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)))
+                .AddIssueToDefaultStatus(userId, i => i
+                    .WithContent("B")
+                    .WithAttributeValue(0, 2m)
+                    .WithAttributeValue(1, new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc))));
+
+        var pointsAttribute = organization.Attributes![0];
+        var dueAttribute = organization.Attributes![1];
+
+        var byNumber = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Sorting = new ByAttributeIssueSorting
+                    {
+                        AttributeId = pointsAttribute.Id,
+                        Direction = SortingDirection.Ascending,
+                    },
+                }));
+
+        Assert.Equal(["A", "B", "C"], byNumber!.Data.Select(x => x.Content));
+
+        var byDate = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    Page = 0,
+                    PerPage = 10,
+                    Sorting = new ByAttributeIssueSorting
+                    {
+                        AttributeId = dueAttribute.Id,
+                        Direction = SortingDirection.Descending,
+                    },
+                }));
+
+        Assert.Equal(["C", "B", "A"], byDate!.Data.Select(x => x.Content));
     }
 }

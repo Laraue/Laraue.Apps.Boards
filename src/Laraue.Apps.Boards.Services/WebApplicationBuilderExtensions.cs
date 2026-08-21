@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DateTime.Services.Impl;
@@ -35,6 +36,8 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()
                 .AddScoped<IAccessService, AccessService>()
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()
+                .AddScoped<ICoreIssueAttributesService, CoreIssueAttributesService>()
+                .AddAttributeUpdaters()
                 .AddScoped<IIssueHistoryService, IssueHistoryService>()
                 .AddSingleton<IOrganizationLogItemFactory, OrganizationLogItemFactory>()
                 .AddScoped<ICoreEpicsService, CoreEpicsService>()
@@ -62,6 +65,24 @@ public static class WebApplicationBuilderExtensions
         private string? GetConnection(string connectionStringName)
         {
             return builder.Configuration.GetConnectionString(connectionStringName);
+        }
+    }
+
+    extension(IServiceCollection services)
+    {
+        /// <summary>
+        /// Registers one <see cref="IScalarAttributeUpdater"/> per scalar <see cref="Laraue.Apps.Boards.DataAccess.Models.AttributeType"/> -
+        /// see <c>AttributeUpdaters/</c>. Singleton since they're stateless (the <c>DatabaseContext</c>
+        /// they operate on is passed into <see cref="IScalarAttributeUpdater.Update"/> per call, not held).
+        /// </summary>
+        private IServiceCollection AddAttributeUpdaters()
+        {
+            return services
+                .AddSingleton<IScalarAttributeUpdater, TextAttributeUpdater>()
+                .AddSingleton<IScalarAttributeUpdater, IntegerAttributeUpdater>()
+                .AddSingleton<IScalarAttributeUpdater, DecimalAttributeUpdater>()
+                .AddSingleton<IScalarAttributeUpdater, DateAttributeUpdater>()
+                .AddSingleton<IScalarAttributeUpdater, DateTimeAttributeUpdater>();
         }
     }
 }

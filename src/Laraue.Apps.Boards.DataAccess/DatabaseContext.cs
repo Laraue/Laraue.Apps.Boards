@@ -44,6 +44,10 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
     public DbSet<IssueAttributeListValue> IssueAttributeListValues { get; set; }
     public DbSet<IssueAttributeTextValue> IssueAttributeTextValues { get; set; }
+    public DbSet<IssueAttributeIntegerValue> IssueAttributeIntegerValues { get; set; }
+    public DbSet<IssueAttributeDecimalValue> IssueAttributeDecimalValues { get; set; }
+    public DbSet<IssueAttributeDateValue> IssueAttributeDateValues { get; set; }
+    public DbSet<IssueAttributeDateTimeValue> IssueAttributeDateTimeValues { get; set; }
 
     public DbSet<Update> Updates { get; set; }
     public DbSet<FailedUpdate> FailedUpdates { get; set; }
@@ -85,7 +89,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             entity.HasKey(x => new { x.IssueId, x.AttributeId, });
             entity
-                .HasIndex(x => x.Text)
+                .HasIndex(x => x.Value)
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops");
         });
@@ -94,6 +98,31 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             entity.HasKey(x => new { x.IssueId, x.AttributeId });
             entity.HasIndex(x => x.AttributeListValueId);
+        });
+
+        modelBuilder.Entity<IssueAttributeIntegerValue>(entity =>
+        {
+            entity.HasKey(x => new { x.IssueId, x.AttributeId, });
+            entity.HasIndex(x => x.Value);
+        });
+
+        modelBuilder.Entity<IssueAttributeDecimalValue>(entity =>
+        {
+            entity.HasKey(x => new { x.IssueId, x.AttributeId, });
+            entity.Property(x => x.Value).HasPrecision(18, 4);
+            entity.HasIndex(x => x.Value);
+        });
+
+        modelBuilder.Entity<IssueAttributeDateValue>(entity =>
+        {
+            entity.HasKey(x => new { x.IssueId, x.AttributeId, });
+            entity.HasIndex(x => x.Value);
+        });
+
+        modelBuilder.Entity<IssueAttributeDateTimeValue>(entity =>
+        {
+            entity.HasKey(x => new { x.IssueId, x.AttributeId, });
+            entity.HasIndex(x => x.Value);
         });
         
         modelBuilder.Entity<Space>(entity =>
