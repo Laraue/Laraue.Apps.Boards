@@ -460,7 +460,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.NotNull(issueDto);
         Assert.Equal(userId, issueDto.AssigneeId);
         Assert.Equal("assignee", issueDto.Assignee.DisplayName);
-        Assert.Equal("as", issueDto.Assignee.Initials);
+        Assert.Equal("AS", issueDto.Assignee.Initials);
         Assert.Equal(space.Key, issueDto.SpaceKey);
         Assert.Equal(space.Name, issueDto.SpaceName);
     }

@@ -156,35 +156,16 @@ public class SpacesService(
             request.AuthData,
             spaceId,
             query => query
-                .Select(x => new
+                .Select(x => new SpaceMember
                 {
-                    x.UserId,
-                    x.User!.TelegramUserName,
-                    x.User.TelegramFirstName,
-                    x.User.TelegramLastName,
-                    x.User.Color,
+                    UserId = x.UserId,
+                    Initials = x.User!.Initials,
+                    DisplayName = x.User.DisplayName,
+                    Color = x.User.Color,
                 })
                 .ToArrayAsyncEF(cancellationToken));
 
-        var result = new List<SpaceMember>();
-        
-        foreach (var member in members)
-        {
-            var initials = new UserInitials(
-                member.TelegramUserName,
-                member.TelegramFirstName,
-                member.TelegramLastName);
-            
-            result.Add(new SpaceMember
-            {
-                UserId = member.UserId,
-                Initials = initials.Initials,
-                DisplayName = initials.DisplayName,
-                Color = member.Color,
-            });
-        }
-        
-        return result.ToArray();
+        return members;
     }
 }
 

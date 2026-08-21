@@ -177,7 +177,7 @@ public class CoreIssuesService(
             .Where(x => x.Id == assigneeId)
             .Select(x => new
             {
-                Initials = new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName),
+                x.DisplayName,
                 x.Color,
             })
             .FirstAsyncEF(cancellationToken);
@@ -185,7 +185,7 @@ public class CoreIssuesService(
         items.Add(
             logItemFactory.AssigneeChanged(
                 oldValue: null,
-                new IdName<Guid>(assigneeId, userData.Initials.DisplayName)));
+                new IdName<Guid>(assigneeId, userData.DisplayName)));
 
         if (request.Attributes.IsSet)
         {
@@ -270,7 +270,7 @@ public class CoreIssuesService(
                     x => x.Id,
                     x => new
                     {
-                        Initials = new UserInitials(x.TelegramFirstName, x.TelegramLastName, x.TelegramUserName),
+                        x.DisplayName,
                         x.Color,
                     },
                     cancellationToken);
@@ -278,8 +278,8 @@ public class CoreIssuesService(
             settersBuilder += builder => builder.SetProperty(x => x.AssigneeId, assigneeId);
 
             items.Add(logItemFactory.AssigneeChanged(
-                new IdName<Guid>(oldAssigneeId, usersData[oldAssigneeId].Initials.DisplayName),
-                new IdName<Guid>(assigneeId, usersData[assigneeId].Initials.DisplayName)));
+                new IdName<Guid>(oldAssigneeId, usersData[oldAssigneeId].DisplayName),
+                new IdName<Guid>(assigneeId, usersData[assigneeId].DisplayName)));
         }
 
         await context.Issues

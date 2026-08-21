@@ -369,40 +369,19 @@ public class OrganizationsService(
             query =>
             {
                 return query
-                    .Select(x => new
+                    .Select(x => new OrganizationMember
                     {
-                        x.User!.Color,
-                        FirstName = x.User.TelegramFirstName,
-                        LastName = x.User.TelegramLastName,
+                        Color = x.User!.Color,
+                        DisplayName = x.User.DisplayName,
+                        Initials = x.User.Initials,
                         OrganizationUserId = x.Id,
-                        Username = x.User.TelegramUserName,
                         IsOwner = x.Organization!.OwnerId == x.UserId,
-                        x.AdminAccessLevel,
+                        AdminAccessLevel = x.AdminAccessLevel,
                     })
                     .ToArrayAsyncEF(cancellationToken);
             });
 
-        var result = new List<OrganizationMember>();
-        
-        foreach (var item in data)
-        {
-            var initials = new UserInitials(
-                item.Username,
-                item.FirstName,
-                item.LastName);
-            
-            result.Add(new OrganizationMember
-            {
-                DisplayName = initials.DisplayName,
-                Initials = initials.Initials,
-                AdminAccessLevel = item.AdminAccessLevel,
-                Color = item.Color,
-                IsOwner = item.IsOwner,
-                OrganizationUserId = item.OrganizationUserId,
-            });
-        }
-        
-        return result.ToArray();
+        return data;
     }
 
     public async Task<string?> GetOrganizationJoinCode(GetOrganizationJoinCodeRequest request, CancellationToken cancellationToken)

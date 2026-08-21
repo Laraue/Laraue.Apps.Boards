@@ -20,12 +20,12 @@ public class UserInitials
             else if (firstName?.Length > 1)
             {
                 displayName = firstName;
-                initial = firstName[..1];
+                initial = firstName[..2];
             }
             else if (lastName?.Length > 1)
             {
                 displayName = lastName;
-                initial = lastName[..1];
+                initial = lastName[..2];
             }
             else
             {
@@ -33,18 +33,11 @@ public class UserInitials
                 initial = "UN";
             }
         }
-        
+
         DisplayName = displayName;
-        Initials = initial;
+        Initials = initial.ToUpperInvariant();
     }
 
     public string DisplayName { get; }
     public string Initials { get; }
-}
-
-public class UserInitialsSource
-{
-    public required string? Username { get; set; }
-    public required string? FirstName { get; set; }
-    public required string? LastName { get; set; }
 }

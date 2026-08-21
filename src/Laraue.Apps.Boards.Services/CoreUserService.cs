@@ -64,9 +64,13 @@ public class CoreUserService(DatabaseContext context, IDateTimeProvider dateTime
     public async Task<Guid> CreateIfTelegramIdNotExists(User user, CancellationToken cancellationToken)
     {
         var timestamp = dateTimeProvider.UtcNow;
-        
+
         user.Color = Palette.RandomColor();
         user.Id = Guid.NewGuid();
+
+        var initials = new UserInitials(user.TelegramUserName, user.TelegramFirstName, user.TelegramLastName);
+        user.DisplayName = initials.DisplayName;
+        user.Initials = initials.Initials;
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         
