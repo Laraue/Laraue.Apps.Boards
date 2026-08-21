@@ -1070,4 +1070,51 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Null(commentChange.OldContent);
         Assert.Equal("Comment 1", commentChange.NewContent);
     }
+
+    [Fact]
+    public async Task Update_ShouldClearAllAttributeValues_WhenAttributeValuesIsEmpty()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer
+                .AddTextAttribute("Note")
+                .AddIssueToDefaultStatus(userId, builder => builder
+                    .WithAttributeValue(0, "Ask mr. John")
+                    .WithContent("Old")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        var updateIssueRequest = new UpdateIssueRequest
+        {
+            AssigneeId = userId,
+            Content = "Old",
+            AttributeValues = [],
+        };
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, updateIssueRequest));
+
+        var request = new GetIssueHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 8,
+            }
+        };
+
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(issueData.Key!, request));
+
+        var issueChanged = Assert.Single(historyData!.Data);
+        var noteAttributeChange = Assert.IsType<IssueHistoryPropertyChange>(Assert.Single(issueChanged.Changes));
+
+        Assert.Equal("Note", noteAttributeChange.PropertyName);
+        Assert.Equal("Ask mr. John", noteAttributeChange.OldValueName);
+        Assert.Null(noteAttributeChange.NewValueName);
+    }
 }

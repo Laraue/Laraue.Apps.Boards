@@ -102,18 +102,19 @@ public class TelegramSaveMessageService(
             // Manual mode never syncs edits into an existing card on its own (see Save) - a
             // repeat /save is the explicit trigger that pulls in whatever has changed since,
             // both the text and any new attachments in the group.
-            if (content is not null)
-            {
-                await context.Issues
-                    .Where(x => x.Id == cardMessage.IssueId)
-                    .ExecuteUpdateAsync(upd => upd.SetProperty(x => x.Content, content), cancellationToken);
-            }
+            var update = new IssueUpdateRequest()
+                .LinkExistingAttachments(groupMessages
+                    .Where(x => x.AttachmentId is not null)
+                    .Select(x => x.AttachmentId!.Value));
 
-            foreach (var groupMessage in groupMessages)
-            {
-                if (groupMessage.AttachmentId is not null)
-                    await LinkAttachmentToIssue(cardMessage.IssueId.Value, groupMessage.AttachmentId.Value, cancellationToken);
-            }
+            if (content is not null)
+                update.SetContent(content);
+
+            await coreIssuesService.Update(
+                cardMessage.IssueId.Value,
+                request.UserId,
+                update,
+                cancellationToken);
 
             var existingPreview = await GetIssuePreview(cardMessage.IssueId.Value, cancellationToken);
 
@@ -131,22 +132,14 @@ public class TelegramSaveMessageService(
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueId = await coreIssuesService.Create(
-            request.UserId,
-            assigneeId: null,
-            content,
-            dateTimeProvider.UtcNow,
-            linkedChat.StatusId,
-            cardMessage.Id,
-            attributes: [],
-            newFiles: [],
-            cancellationToken);
+        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow)
+            .SetContent(content)
+            .SetTelegramMessageId(cardMessage.Id)
+            .LinkExistingAttachments(groupMessages
+                .Where(x => x.AttachmentId is not null)
+                .Select(x => x.AttachmentId!.Value));
 
-        foreach (var groupMessage in groupMessages)
-        {
-            if (groupMessage.AttachmentId is not null)
-                await LinkAttachmentToIssue(issueId, groupMessage.AttachmentId.Value, cancellationToken);
-        }
+        var issueId = await coreIssuesService.Create(request.UserId, issueCreate, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
 
@@ -405,26 +398,31 @@ public class TelegramSaveMessageService(
                 return Recorded(savedMessage.Id);
 
             // The case when first message was deleted and text added to the second
-            if (request.Text is not null && firstGroupMessageData is not null)
-            {
-                // TODO - here we can detect and remove previous messages. But should we?
-                await context.Issues
-                    .Where(x => x.Id == firstGroupMessageData.CardId)
-                    .ExecuteUpdateAsync(upd => upd
-                            .SetProperty(x => x.Content, request.Text),
-                        cancellationToken);
+            var contentChanged = request.Text is not null;
 
-                return new GetOrCreateMessageResult
+            if (contentChanged || attachmentId is not null)
+            {
+                var update = new IssueUpdateRequest();
+
+                if (contentChanged)
                 {
-                    Result = Result.MainMessageUpdated,
-                    TelegramMessageId = savedMessage.Id,
-                };
+                    // TODO - here we can detect and remove previous messages. But should we?
+                    update.SetContent(request.Text);
+                }
+
+                if (attachmentId is not null)
+                    update.LinkExistingAttachment(attachmentId.Value);
+
+                await coreIssuesService.Update(
+                    firstGroupMessageData!.CardId!.Value,
+                    request.UserId,
+                    update,
+                    cancellationToken);
             }
 
-            if (attachmentId is not null)
-                await LinkAttachmentToIssue(firstGroupMessageData!.CardId!.Value, attachmentId.Value, cancellationToken);
-
-            return Recorded(savedMessage.Id);
+            return contentChanged
+                ? new GetOrCreateMessageResult { Result = Result.MainMessageUpdated, TelegramMessageId = savedMessage.Id }
+                : Recorded(savedMessage.Id);
         }
 
         // Auto-save only happens in EachMessage mode - in BotMentionedMessages mode the group
@@ -510,14 +508,16 @@ public class TelegramSaveMessageService(
             if (linkedChat.SaveMode != SaveMode.EachMessage)
                 return Recorded(savedMessage.Id);
 
-            await context.Issues
-                .Where(x => x.TelegramMessageId == savedMessage.Id)
-                .ExecuteUpdateAsync(upd => upd
-                    .SetProperty(x => x.Content, request.Text),
-                    cancellationToken);
+            var update = new IssueUpdateRequest().SetContent(request.Text);
 
             if (attachmentId is not null)
-                await LinkAttachmentToIssue(savedMessage.IssueId.Value, attachmentId.Value, cancellationToken);
+                update.LinkExistingAttachment(attachmentId.Value);
+
+            await coreIssuesService.Update(
+                savedMessage.IssueId.Value,
+                request.UserId,
+                update,
+                cancellationToken);
 
             return new GetOrCreateMessageResult
             {
@@ -557,19 +557,14 @@ public class TelegramSaveMessageService(
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueId = await coreIssuesService.Create(
-            request.UserId,
-            assigneeId: null,
-            request.Text,
-            request.SentAt,
-            linkedChat.StatusId,
-            telegramMessageId,
-            attributes: [],
-            newFiles: [],
-            cancellationToken);
+        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, request.SentAt)
+            .SetContent(request.Text)
+            .SetTelegramMessageId(telegramMessageId);
 
         if (attachmentId is not null)
-            await LinkAttachmentToIssue(issueId, attachmentId.Value, cancellationToken);
+            issueCreate.LinkExistingAttachment(attachmentId.Value);
+
+        var issueId = await coreIssuesService.Create(request.UserId, issueCreate, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
 
@@ -656,27 +651,6 @@ public class TelegramSaveMessageService(
                 cancellationToken);
 
         return attachment.Id;
-    }
-
-    /// <summary>
-    /// Attaches an already-stored <see cref="Attachment"/> to a card, the first time only. An
-    /// attachment is linked exactly once, at the moment it's first associated with a card -
-    /// matches the pre-existing behaviour where updating an attachment's file in place never
-    /// re-pointed it at a different issue (an attachment can only ever belong to one issue, per
-    /// the unique index on IssueAttachment.AttachmentId). Separate from
-    /// <see cref="UpsertAttachment"/> because a message's attachment can exist well before its
-    /// card does (BotMentionedMessages mode).
-    /// </summary>
-    private async Task LinkAttachmentToIssue(long issueId, Guid attachmentId, CancellationToken cancellationToken)
-    {
-        var alreadyLinked = await context.IssueAttachments
-            .AnyAsyncEF(x => x.AttachmentId == attachmentId, cancellationToken);
-
-        if (alreadyLinked)
-            return;
-
-        context.Add(new IssueAttachment { IssueId = issueId, AttachmentId = attachmentId });
-        await context.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<LinkedChatToSaveMessage> GetLinkedChatToSaveMessage(long externalChatId, CancellationToken cancellationToken)

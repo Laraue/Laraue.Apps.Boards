@@ -184,3 +184,6 @@ yourself — ask the user to stop it, then retry the build once they confirm.
   etc., via `LinqToDB.EntityFrameworkCore`) only where EF Core's LINQ provider can't translate the
   query (or translates it inefficiently) and LinqToDB can. Don't reach for LinqToDB by default —
   it's the fallback, not the first choice.
+
+## Task flow
+- Create branch with pattern feature/task-number-task-description, like feature/BRD-120-add-assignee-api for new task

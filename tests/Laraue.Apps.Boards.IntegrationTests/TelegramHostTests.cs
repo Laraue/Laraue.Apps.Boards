@@ -1732,7 +1732,106 @@ public class TelegramHostTests : TelegramIntegrationTest
         issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
         Assert.Equal("Edited Test message", issue.Content);
     }
-    
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldRecordHistory_WhenContentEditedViaTelegram()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Edited Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        var logs = await db.OrganizationLogs
+            .Include(x => x.Items)
+            .Where(x => x.EntityId == issue.Id && x.EntityType == LogEntityType.Issue)
+            .OrderBy(x => x.CreatedAt)
+            .ToArrayAsyncLinqToDB();
+
+        // First log entry is issue creation; the edit should append a second, Update entry
+        // recording the content change - this used to be silently skipped for Telegram edits.
+        Assert.Equal(2, logs.Length);
+        var updateLog = logs[1];
+        Assert.Equal(LogAction.Update, updateLog.Action);
+        var contentItem = Assert.Single(updateLog.Items);
+        Assert.Equal(PropertyType.Content, contentItem.PropertyType);
+        Assert.Equal("Test message", contentItem.OldDisplayValue);
+        Assert.Equal("Edited Test message", contentItem.NewDisplayValue);
+    }
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldRecordAttachmentHistory_WhenAttachmentAddedViaTelegramEdit()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+
+        // Same content, but the edit now attaches a photo - only the attachment should be logged.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Photo =
+                [
+                    new PhotoSize { FileId = "filePreviewId1", FileUniqueId = "filePreviewUniqueId1" },
+                    new PhotoSize { FileId = "fileId1", FileUniqueId = "fileUniqueId1" },
+                ],
+                Caption = "Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        var updateLogs = await db.OrganizationLogs
+            .Include(x => x.Items)
+            .Where(x => x.EntityId == issue.Id && x.EntityType == LogEntityType.Issue && x.Action == LogAction.Update)
+            .OrderBy(x => x.CreatedAt)
+            .ToArrayAsyncLinqToDB();
+
+        var attachmentItem = updateLogs
+            .SelectMany(x => x.Items)
+            .Single(x => x.PropertyType == PropertyType.Attachment);
+
+        Assert.Null(attachmentItem.OldValueId);
+        Assert.NotNull(attachmentItem.NewValueId);
+    }
+
     [Fact]
     public async Task HandleImageMessage_ShouldCreateAndEditIssue_Always()
     {
