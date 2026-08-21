@@ -465,6 +465,9 @@ public class IssuesService(
                 if (request.EpicIds.Length > 0)
                     issues = issues.Where(x => ((IEnumerable<long>)request.EpicIds).Contains(x.Status!.EpicId));
 
+                if (request.EpicStatuses.Length > 0)
+                    issues = issues.Where(x => ((IEnumerable<EpicStatus>)request.EpicStatuses).Contains(x.Status!.Epic!.Status));
+
                 if (request.SpaceKeys.Length > 0)
                 {
                     var spaceIds = await context.Spaces
@@ -1733,6 +1736,7 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public long[] EpicIds { get; set; } = [];
+    public EpicStatus[] EpicStatuses { get; set; } = [];
     public string[] SpaceKeys { get; set; } = [];
     public string? SearchString { get; set; }
     public required int Page { get; init; }

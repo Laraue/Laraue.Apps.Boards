@@ -134,6 +134,7 @@ public class OrganizationInitializer(
                     TouchedAt = epic.Timestamp,
                     UserId = epic.CreatorId,
                     IsDefault = epic.IsDefault,
+                    Status = epic.Status,
                     Statuses = index == 0 ? new List<Status>() : new List<Status>
                     {
                         OrganizationDefaults.GetNewStatusEntity(),
@@ -468,12 +469,20 @@ public class OrganizationInitializer(
         public DateTime Timestamp { get; private set; }  = timestamp;
         public Guid CreatorId { get; private set; }  = creatorId;
         public bool IsDefault { get; private set; }
+        public EpicStatus Status { get; private set; } = EpicStatus.New;
         public List<StatusBuilder> Statuses  { get; private set; } = new ();
         public Dictionary<int, List<IssueBuilder>> Issues  { get; private set; } = new ();
-        
+
         public EpicBuilder WithName(string name)
         {
             EpicName = name;
+
+            return this;
+        }
+
+        public EpicBuilder WithStatus(EpicStatus status)
+        {
+            Status = status;
 
             return this;
         }

@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.DataAccess.Enums;
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
@@ -38,6 +39,8 @@ public class Epic
     public DateTime TouchedAt { get; set; }
     
     public bool IsDefault { get; set; }
+
+    public EpicStatus Status { get; set; }
 
     public IList<Status>? Statuses { get; set; }
 }

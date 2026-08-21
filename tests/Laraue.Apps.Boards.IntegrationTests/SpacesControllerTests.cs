@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -267,10 +268,72 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
         var epics = await _spacesController
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.GetSpaceEpics(spaceKey));
-        
+
         Assert.Equal(2, epics!.Length);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldReturnAllEpics_WhenStatusesFilterIsNull()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, s => s
+                .AddEpic(ownerId, e => e.WithName("In Progress Epic").WithStatus(EpicStatus.Active))
+                .AddEpic(ownerId, e => e.WithName("Done Epic").WithStatus(EpicStatus.Done))));
+
+        var spaceKey = organization.Spaces![1].Key;
+
+        var epics = await _spacesController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetSpaceEpics(spaceKey));
+
+        Assert.Equal(3, epics!.Length);
+    }
+
+    [Fact]
+    public async Task User_ShouldFilterEpicsByStatus_WhenSingleStatusProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, s => s
+                .AddEpic(ownerId, e => e.WithName("In Progress Epic").WithStatus(EpicStatus.Active))
+                .AddEpic(ownerId, e => e.WithName("Done Epic").WithStatus(EpicStatus.Done))));
+
+        var spaceKey = organization.Spaces![1].Key;
+
+        var epics = await _spacesController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetSpaceEpics(spaceKey, new[] { EpicStatus.Done }));
+
+        var epic = Assert.Single(epics!);
+        Assert.Equal("Done Epic", epic.Name);
+        Assert.Equal(EpicStatus.Done, epic.Status);
+    }
+
+    [Fact]
+    public async Task User_ShouldFilterEpicsByStatus_WhenMultipleStatusesProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, s => s
+                .AddEpic(ownerId, e => e.WithName("In Progress Epic").WithStatus(EpicStatus.Active))
+                .AddEpic(ownerId, e => e.WithName("Done Epic").WithStatus(EpicStatus.Done))));
+
+        var spaceKey = organization.Spaces![1].Key;
+
+        var epics = await _spacesController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            // The default "Backlog" epic is created with EpicStatus.New.
+            .Execute(x => x.GetSpaceEpics(spaceKey, new[] { EpicStatus.New, EpicStatus.Done }));
+
+        Assert.Equal(2, epics!.Length);
+        Assert.Contains(epics!, e => e.Name == "Backlog");
+        Assert.Contains(epics!, e => e.Name == "Done Epic");
+    }
+
     [Fact]
     public async Task User_ShouldViewSpaceMembers_Always()
     {

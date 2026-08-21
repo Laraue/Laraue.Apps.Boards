@@ -35,6 +35,21 @@ public class EpicsController(IEpicsService categoriesService)
             cancellationToken);
     }
     
+    [HttpPost("{id:long}/status")]
+    public Task ChangeStatus(
+        [FromRoute] long id,
+        [FromBody] ChangeEpicStatusRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return categoriesService.ChangeStatus(
+            request with
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
     [HttpPost("{id:long}/reorder-statuses")]
     public Task ChangeStatusesOrder(
         [FromRoute] long id,
