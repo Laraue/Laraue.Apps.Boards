@@ -11,27 +11,30 @@ namespace Laraue.Apps.Boards.Services;
 
 public interface ICoreIssuesService
 {
+    /// <summary>
+    /// Creates an issue owned by <paramref name="ownerId"/> from an <see cref="IssueCreateRequest"/>:
+    /// only status and creation time are mandatory on it, everything else (content, assignee,
+    /// attributes, attachments) is optional and applied via the shared
+    /// <see cref="IssueChange{TSelf}"/> setters - same shape as <see cref="Update"/>.
+    /// </summary>
     Task<long> Create(
         Guid ownerId,
-        Guid? assigneeId,
-        string? text,
-        DateTime createdAt,
-        long statusId,
-        long? telegramMessageId,
-        SetIssueAttributeRequest[] attributes,
-        MediaInfo[] newFiles,
+        IssueCreateRequest request,
         CancellationToken cancellationToken);
-    
+
+    /// <summary>
+    /// Applies a partial <see cref="IssueUpdateRequest"/> to an issue: only the properties that were
+    /// actually set on it are touched and logged to history. One method regardless of whether
+    /// the caller is doing a full Web API edit (content + assignee + attributes + attachments
+    /// all at once) or a narrow Telegram sync (content only, or linking one already-stored
+    /// attachment).
+    /// </summary>
     Task Update(
         long issueId,
         Guid updaterId,
-        string content,
-        Guid assigneeId,
-        SetIssueAttributeRequest[] attributes,
-        MediaInfo[] newFiles,
-        Guid[] deleteAttachmentIds,
+        IssueUpdateRequest request,
         CancellationToken cancellationToken);
-    
+
     Task Delete(
         long id,
         Guid deleterId,
@@ -81,24 +84,20 @@ public class CoreIssuesService(
     IDateTimeProvider dateTimeProvider,
     ISpaceCounterService spaceCounterService,
     IOrganizationConcurrencyControlService organizationConcurrencyControlService,
-    IIssueNumbersService issueNumbersService)
+    IIssueNumbersService issueNumbersService,
+    IIssueHistoryService historyService,
+    IOrganizationLogItemFactory logItemFactory)
     : ICoreIssuesService
 {
     public async Task<long> Create(
         Guid ownerId,
-        Guid? assigneeId,
-        string? text,
-        DateTime createdAt,
-        long statusId,
-        long? telegramMessageId,
-        SetIssueAttributeRequest[] attributes,
-        MediaInfo[] newFiles,
+        IssueCreateRequest request,
         CancellationToken cancellationToken)
     {
-        assigneeId ??= ownerId;
-        
+        var assigneeId = request.AssigneeId.GetValueOrDefault(ownerId);
+
         var issueData = await context.Statuses
-            .Where(x => x.Id == statusId)
+            .Where(x => x.Id == request.StatusId)
             .Select(x => new
             {
                 x.Epic!.SpaceId,
@@ -111,7 +110,7 @@ public class CoreIssuesService(
                 EpicName = x.Epic.Name,
             })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
-        
+
         LexoRank? issueLexoRank = null;
         await organizationConcurrencyControlService.ExecuteIssueRankRelatedOperation(
             issueData.OrganizationId,
@@ -122,7 +121,7 @@ public class CoreIssuesService(
                     .OrderByDescending(x => x.LexoRank)
                     .Select(x => x.LexoRank)
                     .FirstOrDefaultAsync(cancellationToken);
-                
+
                 LexoRank.TryParse(lastLexoRankString, out var lastLexoRank);
                 issueLexoRank = lastLexoRank is null ? LexoRank.Middle() : lastLexoRank.GenNext();
             },
@@ -130,50 +129,49 @@ public class CoreIssuesService(
 
         if (issueLexoRank == null)
             throw new InvalidOperationException("Lexo rank should be set here");
-        
+
+        var content = request.Content.GetValueOrDefault();
+
         var issue = new Issue
         {
-            Content = text,
+            Content = content,
             OwnerId = ownerId,
-            CreatedAt = createdAt,
-            UpdatedAt = createdAt,
-            TelegramMessageId = telegramMessageId,
-            StatusId = statusId,
-            AssigneeId = assigneeId.Value,
+            CreatedAt = request.CreatedAt,
+            UpdatedAt = request.CreatedAt,
+            TelegramMessageId = request.TelegramMessageId,
+            StatusId = request.StatusId,
+            AssigneeId = assigneeId,
             LexoRank = issueLexoRank.ToString(),
         };
-        
+
         var issueNumber = new IssueNumber
         {
             Number = await spaceCounterService.GetNextNumber(issueData.SpaceId, cancellationToken),
             Issue = issue,
             SpaceId = issueData.SpaceId,
         };
-        
+
         context.Add(issue);
         context.Add(issueNumber);
-        
+
         await context.SaveChangesAsync(cancellationToken);
-        
-        var change = new OrganizationLog
+
+        var items = new List<OrganizationLogItem>
         {
-            CreatedAt = createdAt,
-            EntityId = issue.Id,
-            EntityType = LogEntityType.Issue,
-            Action = LogAction.Create,
-            Items =
-            [
-                GetSpaceLogItem(old: null, @new: new IdName<long>(issueData.SpaceId, issueData.SpaceName)),
-                GetEpicLogItem(old: null, @new: new IdName<long>(issueData.EpicId, issueData.EpicName)),
-                GetStatusLogItem(old: null, @new: new IdName<long>(statusId, issueData.StatusName)),
-            ],
-            OrganizationId = issueData.OrganizationId,
-            OwnerId = ownerId,
+            logItemFactory.SpaceChanged(
+                oldValue: null,
+                new IdName<long>(issueData.SpaceId, issueData.SpaceName)),
+            logItemFactory.EpicChanged(
+                oldValue: null,
+                new IdName<long>(issueData.EpicId, issueData.EpicName)),
+            logItemFactory.StatusChanged(
+                oldValue: null,
+                new IdName<long>(request.StatusId, issueData.StatusName)),
         };
 
-        if (!string.IsNullOrEmpty(text))
-            change.Items.Add(GetContentLogItem(oldValue: null, newValue: text));
-        
+        if (!string.IsNullOrEmpty(content))
+            items.Add(logItemFactory.ContentChanged(oldValue: null, newValue: content));
+
         var userData = await context.Users
             .Where(x => x.Id == assigneeId)
             .Select(x => new
@@ -182,28 +180,57 @@ public class CoreIssuesService(
                 x.Color,
             })
             .FirstAsyncEF(cancellationToken);
-        
-        change.Items.Add(
-            GetAssigneeLogItem(old: null, new IdName<Guid>(assigneeId.Value, userData.Initials.DisplayName)));
-        
-        change.Items.AddRange(await UpdateAttributes(issue.Id, issueData.OrganizationId, attributes, cancellationToken));
-        change.Items.AddRange(await AttachIssueFiles(issue.Id, ownerId, newFiles, cancellationToken));
-        
-        context.Add(change);
-        await context.SaveChangesAsync(cancellationToken);
-        await TouchEpics([issueData.EpicId], createdAt, cancellationToken);
-        
+
+        items.Add(
+            logItemFactory.AssigneeChanged(
+                oldValue: null,
+                new IdName<Guid>(assigneeId, userData.Initials.DisplayName)));
+
+        if (request.Attributes.IsSet)
+        {
+            items.AddRange(await UpdateAttributes(
+                issue.Id,
+                issueData.OrganizationId,
+                request.Attributes.Value.ToArray(),
+                cancellationToken));
+        }
+
+        if (request.NewAttachments.Count != 0)
+        {
+            items.AddRange(await AttachIssueFiles(
+                issue.Id,
+                ownerId,
+                request.NewAttachments.ToArray(),
+                cancellationToken));
+        }
+
+        if (request.AttachmentIdsToLink.Count != 0)
+        {
+            items.AddRange(await LinkExistingAttachments(
+                issue.Id,
+                request.AttachmentIdsToLink,
+                cancellationToken));
+        }
+
+        await historyService.Record(
+            issue.Id,
+            LogEntityType.Issue,
+            LogAction.Create,
+            issueData.OrganizationId,
+            ownerId,
+            request.CreatedAt,
+            items,
+            cancellationToken);
+
+        await TouchEpics([issueData.EpicId], request.CreatedAt, cancellationToken);
+
         return issue.Id;
     }
 
     public async Task Update(
         long issueId,
         Guid updaterId,
-        string content,
-        Guid assigneeId,
-        SetIssueAttributeRequest[] attributes,
-        MediaInfo[] newFiles,
-        Guid[] deleteAttachmentIds,
+        IssueUpdateRequest request,
         CancellationToken cancellationToken)
     {
         var date = dateTimeProvider.UtcNow;
@@ -219,30 +246,23 @@ public class CoreIssuesService(
             })
             .FirstAsyncEF(cancellationToken);
 
-        var change = new OrganizationLog
-        {
-            CreatedAt = date,
-            EntityId = issueId,
-            EntityType = LogEntityType.Issue,
-            Items = [],
-            OrganizationId = issueData.OrganizationId,
-            OwnerId = updaterId,
-            Action = LogAction.Update,
-        };
+        var items = new List<OrganizationLogItem>();
 
         Action<UpdateSettersBuilder<Issue>> settersBuilder = builder
             => builder.SetProperty(x => x.UpdatedAt, date);
 
-        var oldContent = issueData.Content;
-        if (oldContent != content)
+        if (request.Content.IsSet && issueData.Content != request.Content.Value)
         {
-            settersBuilder += builder => builder.SetProperty(x => x.Content, content);
-            change.Items.Add(GetContentLogItem(oldContent, content));
+            var newContent = request.Content.Value;
+            settersBuilder += builder => builder.SetProperty(x => x.Content, newContent);
+            items.Add(logItemFactory.ContentChanged(issueData.Content, newContent));
         }
 
-        var oldAssigneeId = issueData.AssigneeId;
-        if (oldAssigneeId != assigneeId)
+        if (request.AssigneeId.IsSet && issueData.AssigneeId != request.AssigneeId.Value)
         {
+            var assigneeId = request.AssigneeId.Value;
+            var oldAssigneeId = issueData.AssigneeId;
+
             var usersData = await context.Users
                 .Where(x => x.Id == assigneeId || x.Id == oldAssigneeId)
                 .ToDictionaryAsyncEF(
@@ -253,33 +273,99 @@ public class CoreIssuesService(
                         x.Color,
                     },
                     cancellationToken);
-            
+
             settersBuilder += builder => builder.SetProperty(x => x.AssigneeId, assigneeId);
-            
-            change.Items.Add(new OrganizationLogItem
-            {
-                NewDisplayValue = usersData[assigneeId].Initials.DisplayName,
-                OldDisplayValue = usersData[oldAssigneeId].Initials.DisplayName,
-                NewValueId = assigneeId.ToString(),
-                OldValueId = issueData.AssigneeId.ToString(),
-                PropertyType = PropertyType.Assignee,
-            });
+
+            items.Add(logItemFactory.AssigneeChanged(
+                new IdName<Guid>(oldAssigneeId, usersData[oldAssigneeId].Initials.DisplayName),
+                new IdName<Guid>(assigneeId, usersData[assigneeId].Initials.DisplayName)));
         }
 
         await context.Issues
             .Where(x => x.Id == issueId)
             .ExecuteUpdateAsync(settersBuilder, cancellationToken);
-        
-        change.Items.AddRange(await AttachIssueFiles(issueId, updaterId, newFiles, cancellationToken));
-        change.Items.AddRange(await DetachIssueAttachments(issueId, deleteAttachmentIds, cancellationToken));
-        change.Items.AddRange(await UpdateAttributes(issueId, issueData.OrganizationId, attributes, cancellationToken));
 
-        if (change.Items.Count != 0)
+        if (request.NewAttachments.Count != 0)
         {
-            context.Add(change);
-            await context.SaveChangesAsync(cancellationToken);
-            await TouchEpics([issueData.EpicId], date, cancellationToken);
+            items.AddRange(await AttachIssueFiles(
+                issueId,
+                updaterId,
+                request.NewAttachments.ToArray(),
+                cancellationToken));
         }
+
+        if (request.AttachmentIdsToLink.Count != 0)
+        {
+            items.AddRange(await LinkExistingAttachments(
+                issueId,
+                request.AttachmentIdsToLink,
+                cancellationToken));
+        }
+
+        if (request.AttachmentIdsToUnlink.Count != 0)
+        {
+            items.AddRange(await DetachIssueAttachments(
+                issueId,
+                request.AttachmentIdsToUnlink,
+                cancellationToken));
+        }
+
+        if (request.Attributes.IsSet)
+        {
+            items.AddRange(await UpdateAttributes(
+                issueId,
+                issueData.OrganizationId,
+                request.Attributes.Value.ToArray(),
+                cancellationToken));
+        }
+
+        var recorded = await historyService.RecordIfChanged(
+            issueId,
+            LogEntityType.Issue,
+            LogAction.Update,
+            issueData.OrganizationId,
+            updaterId,
+            date,
+            items,
+            cancellationToken);
+
+        if (recorded)
+            await TouchEpics([issueData.EpicId], date, cancellationToken);
+    }
+
+    /// <summary>
+    /// Links any number of already-persisted attachments to an issue in one round trip - ids
+    /// already linked to any issue are silently skipped. Batched so a Telegram media group with
+    /// several attachments doesn't cost a query+insert per attachment.
+    /// </summary>
+    private async Task<OrganizationLogItem[]> LinkExistingAttachments(
+        long issueId,
+        IReadOnlyCollection<Guid> attachmentIds,
+        CancellationToken cancellationToken)
+    {
+        var alreadyLinkedIds = await context.IssueAttachments
+            .Where(x => attachmentIds.Contains(x.AttachmentId))
+            .Select(x => x.AttachmentId)
+            .ToArrayAsyncEF(cancellationToken);
+
+        var idsToLink = attachmentIds.Except(alreadyLinkedIds).ToArray();
+
+        if (idsToLink.Length == 0)
+            return [];
+
+        var attachmentsData = await context.Attachments
+            .Where(x => idsToLink.Contains(x.Id))
+            .Select(x => new { x.Id, x.PreviewFileId, x.File!.Name })
+            .ToArrayAsyncEF(cancellationToken);
+
+        context.AddRange(
+            attachmentsData.Select(x => new IssueAttachment { IssueId = issueId, AttachmentId = x.Id }));
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        return attachmentsData
+            .Select(x => logItemFactory.AttachmentAdded(x.PreviewFileId, x.Name))
+            .ToArray();
     }
 
     private async Task<OrganizationLogItem[]> UpdateAttributes(
@@ -549,17 +635,16 @@ public class CoreIssuesService(
             })
             .FirstAsyncEF(cancellationToken);
         
-        context.Add(new OrganizationLog
-        {
-            CreatedAt = dateTimeProvider.UtcNow,
-            EntityId = id,
-            EntityType = LogEntityType.Issue,
-            Action = LogAction.Delete,
-            OrganizationId = issueData.OrganizationId,
-            OwnerId = deleterId,
-        });
+        await historyService.Record(
+            id,
+            LogEntityType.Issue,
+            LogAction.Delete,
+            issueData.OrganizationId,
+            deleterId,
+            dateTimeProvider.UtcNow,
+            items: null,
+            cancellationToken);
 
-        await context.SaveChangesAsync(cancellationToken);
         await context.Issues
             .Where(x => x.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
@@ -608,32 +693,30 @@ public class CoreIssuesService(
         
         context.AddRange(attachments);
         await context.SaveChangesAsync(cancellationToken);
-        
-        var logEntity = new OrganizationLog
+
+        var items = new List<OrganizationLogItem>
         {
-            CreatedAt = dateTimeProvider.UtcNow,
-            OrganizationId = issueData.OrganizationId,
-            EntityId = issueComment.Id,
-            EntityType = LogEntityType.Comment,
-            Action = LogAction.Create,
-            OwnerId = ownerId,
-            Items =
-            [
-                GetContentLogItem(oldValue: null, newValue: comment),
-            ]
+            logItemFactory.ContentChanged(oldValue: null, newValue: comment),
         };
 
         foreach (var attachment in attachments)
         {
-            logEntity.Items.Add(
-                GetAttachmentAddedLogItem(
+            items.Add(
+                logItemFactory.AttachmentAdded(
                     attachment.Attachment!.PreviewFileId,
                     attachment.Attachment.File!.Name));
         }
 
-        context.OrganizationLogs.Add(logEntity);
-        await context.SaveChangesAsync(cancellationToken);
-        
+        await historyService.Record(
+            issueComment.Id,
+            LogEntityType.Comment,
+            LogAction.Create,
+            issueData.OrganizationId,
+            ownerId,
+            dateTimeProvider.UtcNow,
+            items,
+            cancellationToken);
+
         return issueComment.Id;
     }
 
@@ -657,16 +740,7 @@ public class CoreIssuesService(
             })
             .FirstAsyncEF(cancellationToken);
         
-        var logEntity = new OrganizationLog
-        {
-            CreatedAt = dateTimeProvider.UtcNow,
-            OrganizationId = commentData.OrganizationId,
-            EntityId = commentId,
-            EntityType = LogEntityType.Comment,
-            Action = LogAction.Update,
-            OwnerId = ownerId,
-            Items = [],
-        };
+        var items = new List<OrganizationLogItem>();
 
         if (commentData.Text != comment)
         {
@@ -675,10 +749,10 @@ public class CoreIssuesService(
                 .ExecuteUpdateAsync(u => u
                     .SetProperty(p => p.Text, _ => comment),
                     cancellationToken);
-            
-            logEntity.Items.Add(GetContentLogItem(commentData.Text, comment));
+
+            items.Add(logItemFactory.ContentChanged(commentData.Text, comment));
         }
-        
+
         var commentAttachments = new List<IssueCommentAttachment>();
         
         foreach (var mediaInfo in newFiles)
@@ -699,8 +773,8 @@ public class CoreIssuesService(
 
             foreach (var commentAttachment in commentAttachments)
             {
-                logEntity.Items.Add(
-                    GetAttachmentAddedLogItem(
+                items.Add(
+                    logItemFactory.AttachmentAdded(
                         commentAttachment.Attachment!.PreviewFileId,
                         commentAttachment.Attachment.File!.Name));
             }
@@ -718,25 +792,29 @@ public class CoreIssuesService(
                     x.Attachment.File!.Name,
                 })
                 .ToListAsyncEF(cancellationToken);
-        
+
             await context.Attachments
                 .Where(x => deletableAttachments.Select(a => a.AttachmentId).Contains(x.Id))
                 .ExecuteDeleteAsync(cancellationToken);
 
             foreach (var attachment in deletableAttachments)
             {
-                logEntity.Items.Add(
-                    GetAttachmentDeletedLogItem(
+                items.Add(
+                    logItemFactory.AttachmentRemoved(
                         attachment.PreviewFileId,
                         attachment.Name));
             }
         }
 
-        if (logEntity.Items.Count != 0)
-        {
-            context.Add(logEntity);
-            await context.SaveChangesAsync(cancellationToken);
-        }
+        await historyService.RecordIfChanged(
+            commentId,
+            LogEntityType.Comment,
+            LogAction.Update,
+            commentData.OrganizationId,
+            ownerId,
+            dateTimeProvider.UtcNow,
+            items,
+            cancellationToken);
     }
 
     public async Task DeleteComment(long id, Guid deleterId, CancellationToken cancellationToken)
@@ -762,19 +840,15 @@ public class CoreIssuesService(
             .Where(x => x.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
         
-        var logEntity = new OrganizationLog
-        {
-            CreatedAt = dateTimeProvider.UtcNow,
-            OrganizationId = commentData.OrganizationId,
-            EntityId = id,
-            EntityType = LogEntityType.Comment,
-            Action = LogAction.Delete,
-            OwnerId = deleterId,
-            Items = [],
-        };
-        
-        context.Add(logEntity);
-        await context.SaveChangesAsync(cancellationToken);
+        await historyService.Record(
+            id,
+            LogEntityType.Comment,
+            LogAction.Delete,
+            commentData.OrganizationId,
+            deleterId,
+            dateTimeProvider.UtcNow,
+            items: null,
+            cancellationToken);
     }
 
     public async Task UpdateIssuesOrder(
@@ -867,7 +941,7 @@ public class CoreIssuesService(
             if (issue.SpaceId != newStatusData.SpaceId)
             {
                 logEntry.Items.Add(
-                    GetSpaceLogItem(
+                    logItemFactory.SpaceChanged(
                         new IdName<long>(issue.SpaceId, issue.SpaceName),
                         new IdName<long>(newStatusData.SpaceId, newStatusData.SpaceName)));
             }
@@ -875,13 +949,13 @@ public class CoreIssuesService(
             if (issue.EpicId != newStatusData.EpicId)
             {
                 logEntry.Items.Add(
-                    GetEpicLogItem(
+                    logItemFactory.EpicChanged(
                         new IdName<long>(issue.EpicId, issue.EpicName),
                         new IdName<long>(newStatusData.EpicId, newStatusData.EpicName)));
             }
-            
+
             logEntry.Items.Add(
-                GetStatusLogItem(
+                logItemFactory.StatusChanged(
                     new IdName<long>(issue.StatusId, issue.StatusName),
                     new IdName<long>(newStatusId, newStatusData.StatusName)));
             
@@ -1002,81 +1076,8 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(cancellationToken);
 
         return mediaInfos
-            .Select(x => GetAttachmentAddedLogItem(x.OriginalFileId, x.FileName))
+            .Select(x => logItemFactory.AttachmentAdded(x.OriginalFileId, x.FileName))
             .ToArray();
-    }
-
-    private static OrganizationLogItem GetAttachmentAddedLogItem(Guid? previewFileId, string? fileName)
-    {
-        return new OrganizationLogItem
-        {
-            PropertyType = PropertyType.Attachment,
-            NewValueId = previewFileId.ToString(),
-            NewDisplayValue = fileName,
-        };
-    }
-
-    private static OrganizationLogItem GetAttachmentDeletedLogItem(Guid? previewFileId, string? fileName)
-    {
-        return new OrganizationLogItem
-        {
-            PropertyType = PropertyType.Attachment,
-            OldValueId = previewFileId.ToString(),
-            OldDisplayValue = fileName,
-        };
-    }
-
-    private static OrganizationLogItem GetEpicLogItem(IdName<long>? old, IdName<long>? @new)
-    {
-        return GetLogItem(PropertyType.Epic, old, @new);
-    }
-
-    private static OrganizationLogItem GetSpaceLogItem(IdName<long>? old, IdName<long>? @new)
-    {
-        return GetLogItem(PropertyType.Space, old, @new);
-    }
-
-    private static OrganizationLogItem GetStatusLogItem(IdName<long>? old, IdName<long>? @new)
-    {
-        return GetLogItem(PropertyType.Status, old, @new);
-    }
-
-    private static OrganizationLogItem GetAssigneeLogItem(IdName<Guid>? old, IdName<Guid>? @new)
-    {
-        return GetLogItem(PropertyType.Assignee, old, @new);
-    }
-    
-    private static OrganizationLogItem GetLogItem<T>(
-        PropertyType propertyType,
-        IdName<T>? oldValue,
-        IdName<T>? newValue) where T : struct
-    {
-        var item = new OrganizationLogItem
-        {
-            PropertyType = propertyType,
-            NewDisplayValue = newValue?.Name,
-            OldDisplayValue = oldValue?.Name,
-        };
-        
-        if (oldValue.HasValue)
-            item.OldValueId = oldValue.Value.Id.ToString();
-        
-        if (newValue.HasValue)
-            item.NewValueId = newValue.Value.Id.ToString();
-        
-        return item;
-    }
-
-    private record struct IdName<T>(T Id, string Name) where T : struct;
-    
-    private static OrganizationLogItem GetContentLogItem(string? oldValue, string? newValue)
-    {
-        return new OrganizationLogItem
-        {
-            NewDisplayValue = newValue,
-            OldDisplayValue = oldValue,
-            PropertyType = PropertyType.Content,
-        };
     }
 
     private async Task<OrganizationLogItem[]> DetachIssueAttachments(long issueId, IEnumerable<Guid> attachmentIds, CancellationToken cancellationToken)
@@ -1091,9 +1092,9 @@ public class CoreIssuesService(
         await context.Attachments
             .Where(x => attachments.Select(a => a.Id).Contains(x.Id))
             .ExecuteDeleteAsync(cancellationToken);
-        
+
         return attachments
-            .Select(x => GetAttachmentDeletedLogItem(x.PreviewFileId, x.Name))
+            .Select(x => logItemFactory.AttachmentRemoved(x.PreviewFileId, x.Name))
             .ToArray();
     }
 

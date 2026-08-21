@@ -349,17 +349,14 @@ public class IssuesService(
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
-        var id = await issuesService.Create(
-            request.AuthData.UserId,
-            request.AssigneeId,
-            request.Content,
-            dateTimeProvider.UtcNow,
-            request.StatusId,
-            telegramMessageId: null,
-            attributeUpdateRequests,
-            uploadedFiles,
-            ct);
-        
+        var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow)
+            .SetContent(request.Content)
+            .SetAssignee(request.AssigneeId)
+            .SetAttributes(attributeUpdateRequests)
+            .LinkNewAttachments(uploadedFiles);
+
+        var id = await issuesService.Create(request.AuthData.UserId, issueCreate, ct);
+
         await transaction.CommitAsync(ct);
 
         var issueKey = await context.Issues
@@ -402,16 +399,19 @@ public class IssuesService(
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
+        var issueUpdate = new IssueUpdateRequest()
+            .SetContent(request.Content)
+            .SetAssignee(request.AssigneeId)
+            .SetAttributes(attributeUpdateRequests)
+            .LinkNewAttachments(uploadedFiles)
+            .UnlinkAttachments(request.RemoveAttachmentIds);
+
         await issuesService.Update(
             issueId,
             request.AuthData.UserId,
-            request.Content,
-            request.AssigneeId,
-            attributeUpdateRequests,
-            uploadedFiles,
-            request.RemoveAttachmentIds,
+            issueUpdate,
             ct);
-        
+
         await transaction.CommitAsync(ct);
     }
 
