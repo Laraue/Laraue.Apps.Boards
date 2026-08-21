@@ -187,70 +187,16 @@ public class OrganizationInitializer(
                     statusForIssue.Issues ??= new List<Issue>();
                     foreach (var issue in issuesByStatusIndex.Value)
                     {
-                        var attributes = organization.Attributes
+                        var attributeValues = organization.Attributes
                             .Select((attribute, i) => (i, attribute))
                             .Join(
                                 issue.AttributeValues,
-                                attribute => attribute.i,
-                                attributeValue => attributeValue.Key,
-                                (entity, pair) => new { entity, pair })
+                                x => x.i,
+                                pair => pair.Key,
+                                (x, pair) => (x.attribute, pair.Value))
                             .ToArray();
 
-                        var textAttributes = attributes
-                            .Where(x => x.entity.attribute.AttributeType == AttributeType.Text)
-                            .Select(x => new IssueAttributeTextValue
-                            {
-                                Attribute = x.entity.attribute,
-                                Value = x.pair.Value.ToString(),
-                            })
-                            .ToList();
-                        
-                        var listAttributes = attributes
-                            .Where(x => x.entity.attribute.AttributeType == AttributeType.List)
-                            .Select(x => new IssueAttributeListValue
-                            {
-                                Attribute = x.entity.attribute,
-                                AttributeListValue = x.entity.attribute.AttributeListValues!.ElementAt((int)x.pair.Value),
-                            })
-                            .ToList();
-
-                        var integerAttributes = attributes
-                            .Where(x => x.entity.attribute.AttributeType == AttributeType.Integer)
-                            .Select(x => new IssueAttributeIntegerValue
-                            {
-                                Attribute = x.entity.attribute,
-                                Value = Convert.ToInt64(x.pair.Value),
-                            })
-                            .ToList();
-
-                        var decimalAttributes = attributes
-                            .Where(x => x.entity.attribute.AttributeType == AttributeType.Decimal)
-                            .Select(x => new IssueAttributeDecimalValue
-                            {
-                                Attribute = x.entity.attribute,
-                                Value = Convert.ToDecimal(x.pair.Value),
-                            })
-                            .ToList();
-
-                        var dateAttributes = attributes
-                            .Where(x => x.entity.attribute.AttributeType == AttributeType.Date)
-                            .Select(x => new IssueAttributeDateValue
-                            {
-                                Attribute = x.entity.attribute,
-                                Value = (DateOnly)x.pair.Value,
-                            })
-                            .ToList();
-
-                        var dateTimeAttributes = attributes
-                            .Where(x => x.entity.attribute.AttributeType == AttributeType.DateTime)
-                            .Select(x => new IssueAttributeDateTimeValue
-                            {
-                                Attribute = x.entity.attribute,
-                                Value = (DateTime)x.pair.Value,
-                            })
-                            .ToList();
-
-                        statusForIssue.Issues.Add(new Issue
+                        var newIssue = new Issue
                         {
                             Content = issue.Content,
                             OwnerId = issue.CreatorId,
@@ -262,12 +208,6 @@ public class OrganizationInitializer(
                                 Space = spaceEntity,
                                 Number = ++lastIssueNumber,
                             },
-                            TextAttributes = textAttributes,
-                            ListAttributes = listAttributes,
-                            IntegerAttributes = integerAttributes,
-                            DecimalAttributes = decimalAttributes,
-                            DateAttributes = dateAttributes,
-                            DateTimeAttributes = dateTimeAttributes,
                             LexoRank = issue.LexoRank.ToString(),
                             IssueAttachments = issue.Attachments
                                 .Select(x => new IssueAttachment
@@ -290,7 +230,11 @@ public class OrganizationInitializer(
                                         .ToList(),
                                 })
                                 .ToList(),
-                        });
+                        };
+
+                        AddAttributeValues(newIssue, attributeValues);
+
+                        statusForIssue.Issues.Add(newIssue);
                     }
                 }
 
@@ -338,6 +282,57 @@ public class OrganizationInitializer(
         }
         
         return organization;
+    }
+
+    /// <summary>
+    /// One adder per <see cref="AttributeType"/>, appending the raw <see cref="TestAttribute"/>
+    /// value onto the matching typed collection on <paramref name="issue"/> - keeps
+    /// <see cref="AddAttributeValues"/> from needing a type-specific branch per attribute type.
+    /// </summary>
+    private static readonly Dictionary<AttributeType, Action<Issue, Attribute, object>> AttributeValueAdders = new()
+    {
+        [AttributeType.Text] = (issue, attribute, value) =>
+            (issue.TextAttributes ??= new List<IssueAttributeTextValue>()).Add(new IssueAttributeTextValue
+            {
+                Attribute = attribute,
+                Value = value.ToString()!,
+            }),
+        [AttributeType.List] = (issue, attribute, value) =>
+            (issue.ListAttributes ??= new List<IssueAttributeListValue>()).Add(new IssueAttributeListValue
+            {
+                Attribute = attribute,
+                AttributeListValue = attribute.AttributeListValues!.ElementAt((int)value),
+            }),
+        [AttributeType.Integer] = (issue, attribute, value) =>
+            (issue.IntegerAttributes ??= new List<IssueAttributeIntegerValue>()).Add(new IssueAttributeIntegerValue
+            {
+                Attribute = attribute,
+                Value = Convert.ToInt64(value),
+            }),
+        [AttributeType.Decimal] = (issue, attribute, value) =>
+            (issue.DecimalAttributes ??= new List<IssueAttributeDecimalValue>()).Add(new IssueAttributeDecimalValue
+            {
+                Attribute = attribute,
+                Value = Convert.ToDecimal(value),
+            }),
+        [AttributeType.Date] = (issue, attribute, value) =>
+            (issue.DateAttributes ??= new List<IssueAttributeDateValue>()).Add(new IssueAttributeDateValue
+            {
+                Attribute = attribute,
+                Value = (DateOnly)value,
+            }),
+        [AttributeType.DateTime] = (issue, attribute, value) =>
+            (issue.DateTimeAttributes ??= new List<IssueAttributeDateTimeValue>()).Add(new IssueAttributeDateTimeValue
+            {
+                Attribute = attribute,
+                Value = (DateTime)value,
+            }),
+    };
+
+    private static void AddAttributeValues(Issue issue, IEnumerable<(Attribute Attribute, object Value)> attributeValues)
+    {
+        foreach (var (attribute, value) in attributeValues)
+            AttributeValueAdders[attribute.AttributeType](issue, attribute, value);
     }
 
     private static Attachment ToAttachment(AttachmentData data, Guid ownerId)
