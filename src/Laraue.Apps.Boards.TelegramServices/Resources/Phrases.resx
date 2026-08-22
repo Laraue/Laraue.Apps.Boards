@@ -152,6 +152,9 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
         <value>Reply to a message and send /save to turn it into a card. Nice for company chats with a lot of discussion, where you only sometimes need to create a card from a message.</value>
     </data>
+    <data name="SaveNotAReply" xml:space="preserve">
+        <value>Reply to the message you want to save and send /save again.</value>
+    </data>
     <data name="SaveNotNeededInAutoMode" xml:space="preserve">
         <value>This chat saves every message automatically, so /save isn't needed here.</value>
     </data>

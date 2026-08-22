@@ -319,6 +319,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Reply to the message you want to save and send /save again..
+        /// </summary>
+        internal static string SaveNotAReply {
+            get {
+                return ResourceManager.GetString("SaveNotAReply", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to This chat saves every message automatically, so /save isn&apos;t needed here..
         /// </summary>
         internal static string SaveNotNeededInAutoMode {

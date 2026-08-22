@@ -891,27 +891,25 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task HandleSave_ShouldReplyChatNotLinked_WhenNoReplyAndChatNotLinked()
+    public async Task HandleSave_ShouldReplyNotAReply_WhenCommandHasNoReplyToMessage()
     {
         using var host = GetTelegramTestHost();
 
         var chat = new Chat { Id = 780, Type = ChatType.Group };
 
-        // No reply and no linked chat - falls through to the standalone /save path, which then
-        // fails to resolve a linked chat, same as any other action against an unlinked chat.
         await host.SendUpdateAsync(new Update
         {
             Message = new Message
             {
                 From = AdminUser,
                 Id = 6,
-                Text = "/save some note",
+                Text = "/save",
                 Chat = chat,
             }
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("This chat is not linked to any organization or space yet. Use /link to link it.", request.Text);
+        Assert.Equal("Reply to the message you want to save and send /save again.", request.Text);
         // Group errors are ephemeral (Bot API 10.2's receiver_user_id) - only the sender should
         // see them, not the whole chat.
         Assert.Equal(AdminUser.Id, request.ReceiverUserId);
@@ -930,147 +928,14 @@ public class TelegramHostTests : TelegramIntegrationTest
             {
                 From = AdminUser,
                 Id = 1,
-                Text = "/save some note",
+                Text = "/save",
                 Chat = PrivateChat,
             }
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("This chat is not linked to any organization or space yet. Use /link to link it.", request.Text);
+        Assert.Equal("Reply to the message you want to save and send /save again.", request.Text);
         Assert.Null(request.ReceiverUserId);
-    }
-
-    [Fact]
-    public async Task HandleSave_ShouldCreateCardFromCommandText_WhenNoReplyAndNoteProvided()
-    {
-        using var host = GetTelegramTestHost();
-        var testScope = host.CreateTestScope();
-
-        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
-        var organization = await testScope.InitializeOrganization(userId);
-        var status = organization.GetStatus(0, 0, 0);
-
-        var chat = new Chat { Id = 797, Type = ChatType.Group };
-
-        testScope.Database.Add(new LinkedTelegramChat
-        {
-            ExternalChatId = chat.Id,
-            StatusId = status.Id,
-            OwnerId = userId,
-            SaveMode = SaveMode.BotMentionedMessages,
-            LinkedAt = DateTime.UtcNow,
-        });
-        await testScope.Database.SaveChangesAsync();
-
-        // No ReplyToMessage at all - the command's own text becomes the card content.
-        await host.SendUpdateAsync(new Update
-        {
-            Message = new Message
-            {
-                From = AdminUser,
-                Id = 1,
-                Text = "/save Quick capture note",
-                Chat = chat,
-            }
-        });
-
-        var replyRequest = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal(1, replyRequest.ReplyParameters!.MessageId);
-        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
-        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
-        Assert.Equal("🔗 Open issue", button.Text);
-
-        var scope = host.CreateScope();
-        var db = scope.GetDatabaseContext();
-        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("Quick capture note", issue.Content);
-    }
-
-    [Fact]
-    public async Task HandleSave_ShouldReplyNothingToSave_WhenNoReplyAndBareCommand()
-    {
-        using var host = GetTelegramTestHost();
-        var testScope = host.CreateTestScope();
-
-        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
-        var organization = await testScope.InitializeOrganization(userId);
-        var status = organization.GetStatus(0, 0, 0);
-
-        var chat = new Chat { Id = 798, Type = ChatType.Group };
-
-        testScope.Database.Add(new LinkedTelegramChat
-        {
-            ExternalChatId = chat.Id,
-            StatusId = status.Id,
-            OwnerId = userId,
-            SaveMode = SaveMode.BotMentionedMessages,
-            LinkedAt = DateTime.UtcNow,
-        });
-        await testScope.Database.SaveChangesAsync();
-
-        await host.SendUpdateAsync(new Update
-        {
-            Message = new Message
-            {
-                From = AdminUser,
-                Id = 1,
-                Text = "/save",
-                Chat = chat,
-            }
-        });
-
-        var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal(
-            "There's nothing to save - the message has no text and you didn't add a note, e.g. /save some note.",
-            request.Text);
-
-        var scope = host.CreateScope();
-        var db = scope.GetDatabaseContext();
-        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
-    }
-
-    [Fact]
-    public async Task HandleSave_ShouldReplyForbidden_WhenNoReplyAndSenderLacksCreateIssuePermission()
-    {
-        using var host = GetTelegramTestHost();
-        var testScope = host.CreateTestScope();
-
-        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
-        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
-        var organization = await testScope.InitializeOrganization(
-            ownerId,
-            o => o.AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true)));
-        var status = organization.GetStatus(0, 0, 0);
-
-        var chat = new Chat { Id = 796, Type = ChatType.Group };
-
-        testScope.Database.Add(new LinkedTelegramChat
-        {
-            ExternalChatId = chat.Id,
-            StatusId = status.Id,
-            OwnerId = ownerId,
-            SaveMode = SaveMode.BotMentionedMessages,
-            LinkedAt = DateTime.UtcNow,
-        });
-        await testScope.Database.SaveChangesAsync();
-
-        await host.SendUpdateAsync(new Update
-        {
-            Message = new Message
-            {
-                From = MemberUser,
-                Id = 1,
-                Text = "/save some note",
-                Chat = chat,
-            }
-        });
-
-        var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("This action is not available - you don't have permission to create cards here.", request.Text);
-
-        var scope = host.CreateScope();
-        var db = scope.GetDatabaseContext();
-        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
     }
 
     [Fact]

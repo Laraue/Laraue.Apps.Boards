@@ -24,11 +24,10 @@ public class SaveCommandService(
         var repliedMessage = message.ReplyToMessage;
 
         // Not every genuine reply carries reply_to_message (Telegram omits it for old enough
-        // messages), so a bare /save (no note either) also lands here, not just a deliberate
-        // standalone /save with a note.
+        // messages), so this also covers that case, not just "user didn't reply at all".
         if (repliedMessage is null)
         {
-            await HandleSaveWithoutReply(message, userId, cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNotAReply, cancellationToken);
             return;
         }
 
@@ -91,52 +90,6 @@ public class SaveCommandService(
                 break;
 
             case SaveByReplyOutcome.NothingToSave:
-                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNothingToSave, cancellationToken);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// A bare /save with no reply: creates a card directly from the command's own note text
-    /// instead of pulling content from a replied-to message.
-    /// </summary>
-    private async Task HandleSaveWithoutReply(Message message, Guid userId, CancellationToken cancellationToken)
-    {
-        SaveDirectResult result;
-        try
-        {
-            result = await saveMessageService.SaveDirect(
-                new SaveDirectRequest
-                {
-                    ExternalChatId = message.Chat.Id,
-                    UserId = userId,
-                    Note = ExtractNote(message.Text),
-                },
-                cancellationToken);
-        }
-        catch (ChatNotLinkedException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkNotLinked, cancellationToken);
-            return;
-        }
-        catch (IssueCreationForbiddenException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
-            return;
-        }
-
-        switch (result.Outcome)
-        {
-            case SaveDirectOutcome.Saved:
-                await client.SendIssuePreviewReply(
-                    message.Chat.Id,
-                    message.MessageId,
-                    result.IssuePreviewText!,
-                    result.IssueUrl!,
-                    cancellationToken);
-                break;
-
-            case SaveDirectOutcome.NothingToSave:
                 await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNothingToSave, cancellationToken);
                 break;
         }

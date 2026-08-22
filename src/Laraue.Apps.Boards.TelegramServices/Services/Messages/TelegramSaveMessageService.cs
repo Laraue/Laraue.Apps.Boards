@@ -26,14 +26,6 @@ public interface ITelegramSaveMessageService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Manually creates a card straight from a bare /save command's own text, when it wasn't
-    /// sent as a reply to anything - a quick-capture shortcut alongside <see cref="SaveByReply"/>.
-    /// </summary>
-    Task<SaveDirectResult> SaveDirect(
-        SaveDirectRequest request,
-        CancellationToken cancellationToken);
-
-    /// <summary>
     /// Read-only lookup for /info: returns the card already linked to a replied-to message (or
     /// its whole album), if any - without creating or changing anything. Works regardless of
     /// save mode.
@@ -174,37 +166,6 @@ public class TelegramSaveMessageService(
         {
             Outcome = SaveByReplyOutcome.Saved,
             TelegramMessageId = cardMessage.Id,
-            IssueUrl = preview.Url,
-            IssuePreviewText = preview.Text,
-        };
-    }
-
-    public async Task<SaveDirectResult> SaveDirect(
-        SaveDirectRequest request,
-        CancellationToken cancellationToken)
-    {
-        var linkedChat = await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
-
-        var content = request.Note?.Trim();
-        if (string.IsNullOrEmpty(content))
-            return new SaveDirectResult { Outcome = SaveDirectOutcome.NothingToSave };
-
-        await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow)
-            .SetContent(content);
-
-        var issueId = await coreIssuesService.Create(request.UserId, issueCreate, cancellationToken);
-
-        await transaction.CommitAsync(cancellationToken);
-
-        var preview = await GetIssuePreview(issueId, cancellationToken);
-
-        return new SaveDirectResult
-        {
-            Outcome = SaveDirectOutcome.Saved,
             IssueUrl = preview.Url,
             IssuePreviewText = preview.Text,
         };
@@ -959,40 +920,6 @@ public enum SaveByReplyOutcome
     AlreadySaved,
 
     /// <summary>Neither the replied-to message nor the /save note had any content.</summary>
-    NothingToSave,
-}
-
-public class SaveDirectRequest
-{
-    public required long ExternalChatId { get; init; }
-    public required Guid UserId { get; init; }
-
-    /// <summary>
-    /// Text typed after /save, e.g. "/save this one" -&gt; "this one". Becomes the card content
-    /// directly since there's no replied-to message to pull text from.
-    /// </summary>
-    public required string? Note { get; init; }
-}
-
-public class SaveDirectResult
-{
-    public required SaveDirectOutcome Outcome { get; init; }
-
-    /// <summary>Set when <see cref="Outcome"/> is <see cref="SaveDirectOutcome.Saved"/>.</summary>
-    public string? IssueUrl { get; init; }
-
-    /// <summary>
-    /// MarkdownV2 "📋 KEY · Org\n{content preview}" text, matching the inline search result
-    /// format. Set alongside <see cref="IssueUrl"/>.
-    /// </summary>
-    public string? IssuePreviewText { get; init; }
-}
-
-public enum SaveDirectOutcome
-{
-    Saved,
-
-    /// <summary>The bare /save command had no note text to save.</summary>
     NothingToSave,
 }
 
