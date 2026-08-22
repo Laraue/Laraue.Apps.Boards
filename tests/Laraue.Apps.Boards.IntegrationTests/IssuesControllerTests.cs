@@ -461,6 +461,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(userId, issueDto.AssigneeId);
         Assert.Equal("assignee", issueDto.Assignee.DisplayName);
         Assert.Equal("AS", issueDto.Assignee.Initials);
+        Assert.True(issueDto.Assignee.IsCurrentUser);
         Assert.Equal(space.Key, issueDto.SpaceKey);
         Assert.Equal(space.Name, issueDto.SpaceName);
     }
@@ -507,6 +508,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.GetIssue(issueData.Key));
         
         Assert.NotNull(issueDto);
+        Assert.False(issueDto.Assignee.IsCurrentUser);
     }
 
     [Fact]
