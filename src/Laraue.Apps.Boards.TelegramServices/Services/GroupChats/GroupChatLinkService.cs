@@ -72,7 +72,6 @@ public class GroupChatLinkService(
     IGroupChatAdminService chatAdminService,
     ITelegramBotClient client,
     DatabaseContext context,
-    IOrganizationAccessService organizationAccessService,
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider)
     : IGroupChatLinkService
@@ -709,7 +708,7 @@ public class GroupChatLinkService(
         Guid userId,
         CancellationToken cancellationToken)
     {
-        return organizationAccessService.GetOrganizations(
+        return accessService.GetOrganizations(
             userId,
             query => query
                 .Where(x => x.AdminAccessLevel.HasFlag(AdminAccessLevel.LinkChats))
@@ -719,7 +718,7 @@ public class GroupChatLinkService(
 
     private Task<bool> CanLinkToOrganization(Guid userId, long organizationId, CancellationToken cancellationToken)
     {
-        return organizationAccessService.GetOrganizations(
+        return accessService.GetOrganizations(
             userId,
             query => query
                 .Where(x => x.AdminAccessLevel.HasFlag(AdminAccessLevel.LinkChats))

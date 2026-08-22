@@ -1,5 +1,6 @@
 ﻿using System.Linq.Expressions;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using LinqToDB.EntityFrameworkCore;
@@ -8,6 +9,36 @@ namespace Laraue.Apps.Boards.Services;
 
 public interface IAccessService
 {
+    /// <summary>
+    /// Returns organizations the user is a member of.
+    /// </summary>
+    Task<T> GetOrganizations<T>(
+        Guid userId,
+        Func<IQueryable<OrganizationUser>, Task<T>> map);
+
+    /// <summary>
+    /// Returns members of the requested organization.
+    /// </summary>
+    Task<T> GetOrganizationMembers<T>(
+        long organizationId,
+        Func<IQueryable<OrganizationUser>, Task<T>> map);
+
+    /// <summary>
+    /// Returns whether the user has the requested organization-level admin access.
+    /// </summary>
+    Task<bool> HasAccess(
+        OrganizationAuthData authData,
+        AdminAccessLevel accessLevel,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns whether the user can create spaces in the requested organization.
+    /// </summary>
+    Task<bool> CanCreateSpaces(
+        long organizationId,
+        Guid userId,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Returns spaces available to read for the user.
     /// </summary>
@@ -98,6 +129,45 @@ public interface IAccessService
 
 public class AccessService(DatabaseContext context) : IAccessService
 {
+    public Task<T> GetOrganizations<T>(Guid userId, Func<IQueryable<OrganizationUser>, Task<T>> map)
+    {
+        var query = context.OrganizationUsers
+            .Where(x => x.UserId == userId);
+
+        return map(query);
+    }
+
+    public Task<T> GetOrganizationMembers<T>(long organizationId, Func<IQueryable<OrganizationUser>, Task<T>> map)
+    {
+        var query = context.OrganizationUsers
+            .Where(x => x.OrganizationId == organizationId);
+
+        return map(query);
+    }
+
+    public Task<bool> HasAccess(OrganizationAuthData authData, AdminAccessLevel accessLevel, CancellationToken cancellationToken)
+    {
+        return GetOrganizations(authData.UserId, organizationUsers =>
+        {
+            return organizationUsers
+                .Where(ou => ou.OrganizationId == authData.OrganizationId)
+                .AnyAsyncEF(ou => ou.AdminAccessLevel.HasFlag(accessLevel), cancellationToken);
+        });
+    }
+
+    public Task<bool> CanCreateSpaces(
+        long organizationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        return GetOrganizations(userId, organizationUsers =>
+        {
+            return organizationUsers
+                .Where(ou => ou.OrganizationId == organizationId)
+                .AnyAsyncEF(ou => ou.CanCreateSpaces, cancellationToken);
+        });
+    }
+
     public async Task<T> GetAvailableSpaces<T>(
         OrganizationAuthData authData,
         Func<IQueryable<Space>, Task<T>> map,

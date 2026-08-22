@@ -36,8 +36,7 @@ public interface ISpacesService
 
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
-    IAccessService accessService,
-    IOrganizationAccessService organizationAccessService)
+    IAccessService accessService)
     : ISpacesService
 {
     public async Task<SpaceListDto[]> GetSpaces(
@@ -83,10 +82,13 @@ public class SpacesService(
 
     public async Task<string> Create(CreateSpaceRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.CanCreateSpacesOrThrow(
+        var canCreateSpaces = await accessService.CanCreateSpaces(
             request.AuthData.OrganizationId,
             request.AuthData.UserId,
             cancellationToken);
+
+        if (!canCreateSpaces)
+            throw new NotFoundException($"Organization: {request.AuthData.OrganizationId} space creation is forbidden");
 
         return await coreSpacesService.Create(
             request.AuthData.OrganizationId,

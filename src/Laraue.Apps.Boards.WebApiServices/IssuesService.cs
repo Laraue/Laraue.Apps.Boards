@@ -90,7 +90,6 @@ public class IssuesService(
     ICoreIssuesService issuesService,
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
-    IOrganizationAccessService organizationAccessService,
     ICoreFilesService coreFilesService,
     ICoreSpacesService coreSpacesService)
     : IIssuesService
@@ -443,7 +442,7 @@ public class IssuesService(
         Guid userId,
         CancellationToken ct)
     {
-        var userExists = await organizationAccessService.GetOrganizationMembers(
+        var userExists = await accessService.GetOrganizationMembers(
             authData.OrganizationId,
             members =>
             {

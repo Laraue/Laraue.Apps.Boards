@@ -28,7 +28,6 @@ public interface IMovementService
 
 public class MovementService(
     ICoreMovementService movementService,
-    IOrganizationAccessService organizationAccessService,
     DatabaseContext context,
     IAccessService accessService,
     ICoreSpacesService spacesService)
@@ -43,11 +42,14 @@ public class MovementService(
             request.Key,
             cancellationToken);
 
-        await organizationAccessService.CanCreateSpacesOrThrow(
+        var canCreateSpaces = await accessService.CanCreateSpaces(
             request.NewOrganizationId,
             request.AuthData.UserId,
             cancellationToken);
-            
+
+        if (!canCreateSpaces)
+            throw new NotFoundException($"Organization: {request.NewOrganizationId} space creation is forbidden, cannot move space here");
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await movementService.MoveSpace(spaceId, request.NewOrganizationId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -153,14 +155,17 @@ public class MovementService(
         return $"Space is not exists: {spaceKey} or epic creation is forbidden";
     }
     
-    private Task HasMassMovePermissionOrThrow(
+    private async Task HasMassMovePermissionOrThrow(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        return organizationAccessService.HasAccessOrThrow(
+        var hasAccess = await accessService.HasAccess(
             authData,
             AdminAccessLevel.MassMove,
             cancellationToken);
+
+        if (!hasAccess)
+            throw new NotFoundException($"Organization: {authData.OrganizationId} mass move is forbidden");
     }
 }
 

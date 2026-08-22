@@ -265,7 +265,7 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
             .Execute(x => x.MoveEpic(moveRequest)));
         
         var notFound = ex.HasInnerException<NotFoundException>();
-        Assert.Equal($"Organization: {sourceOrganization.Id} is unavailable or permission: MassMove is missing", notFound.Message);
+        Assert.Equal($"Organization: {sourceOrganization.Id} mass move is forbidden", notFound.Message);
         
         ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
             .WithOrganizationAuthorization(sourceOrganization.Id, userCanNotMoveDueToEpicCreationInTargetMissing)

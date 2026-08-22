@@ -82,7 +82,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
             .Execute(x => x.Delete(organization.Id)));
 
         var forbidden = exception.HasInnerException<NotFoundException>();
-        Assert.Equal($"Organization: {organization.Id} is unavailable or permission: DeleteOrganization is missing", forbidden.Message);
+        Assert.Equal($"Organization: {organization.Id}. Deleting organization requires 'DeleteOrganization' admin access", forbidden.Message);
     }
     
     [Fact]
