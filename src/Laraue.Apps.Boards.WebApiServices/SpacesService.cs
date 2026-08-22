@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -67,7 +68,7 @@ public class SpacesService(
             cancellationToken);
         
         var spaceAccessLevel = await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
-            .OrThrowNotFound($"Space: {request.Key} is not found");
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.Key));
 
         return new SpaceDetailsDto
         {
@@ -104,8 +105,8 @@ public class SpacesService(
             cancellationToken);
         
         await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
-            .OrThrowNotFound($"Space: {request.OldKey} is not found")
-            .EnsureOrThrowForbidden(a => a.CanUpdateSpace, $"Space: {request.OldKey} is not accessible");
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.OldKey))
+            .EnsureOrThrowForbidden(a => a.CanUpdateSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.OldKey));
 
         await coreSpacesService.Update(
             spaceId,
@@ -124,8 +125,8 @@ public class SpacesService(
             cancellationToken);
         
         await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
-            .OrThrowNotFound($"Space: {request.Key} is not found")
-            .EnsureOrThrowForbidden(a => a.CanDeleteSpace, $"Space: {request.Key} is not accessible");
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.Key))
+            .EnsureOrThrowForbidden(a => a.CanDeleteSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.Key));
 
         await coreSpacesService.Delete(spaceId, cancellationToken);
     }

@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 
@@ -34,8 +35,8 @@ public class StatusesService(
         CancellationToken cancellationToken)
     {
         await accessService.GetAccessLevelsByEpicId(request.AuthData, request.EpicId, cancellationToken)
-            .OrThrowNotFound($"Epic: {request.EpicId} is not found")
-            .EnsureOrThrowForbidden(a => a.CanUpdateEpic, $"Epic: {request.EpicId} is not accessible");
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.EpicId))
+            .EnsureOrThrowForbidden(a => a.CanUpdateEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.EpicId));
 
         return await statusService.Create(
             new CreateMessageCategoryStatusRequest
@@ -55,7 +56,7 @@ public class StatusesService(
             cancellationToken);
         
         if (!canModify)
-            throw new NotFoundException($"Status: {request.Id} is not found");
+            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", request.Id));
 
         await statusService.Delete(
             new Boards.Services.DeleteStatusRequest
@@ -73,7 +74,7 @@ public class StatusesService(
             cancellationToken);
         
         if (!canModify)
-            throw new NotFoundException($"Status: {request.Id} is not found");
+            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", request.Id));
 
         await statusService.Update(
             request.Id,
