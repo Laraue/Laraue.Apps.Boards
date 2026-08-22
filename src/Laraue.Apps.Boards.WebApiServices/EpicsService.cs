@@ -78,17 +78,9 @@ public class EpicsService(
         ChangeEpicStatusRequest request,
         CancellationToken cancellationToken)
     {
-        var epicsAccessLevel = await accessService
-            .GetAccessLevelsByEpicId(
-                request.AuthData,
-                request.Id,
-                cancellationToken);
-
-        if (epicsAccessLevel is null)
-            throw new NotFoundException($"Epic: {request.Id} is not found");
-
-        if (!epicsAccessLevel.CanUpdateEpic)
-            throw new ForbiddenException($"Epic: {request.Id} is not accessible");
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+            .OrThrowNotFound($"Epic: {request.Id} is not found")
+            .EnsureOrThrowForbidden(a => a.CanUpdateEpic, $"Epic: {request.Id} is not accessible");
 
         await coreEpicsService.Update(
             request.Id,
@@ -123,13 +115,8 @@ public class EpicsService(
                 .FirstOrThrowNotFoundLinq2DbAsync($"Epic: {request.Id} is not found", cancellationToken),
             cancellationToken);
         
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(
-            request.AuthData,
-            request.Id,
-            cancellationToken);
-
-        if (accessLevels is null)
-            throw new NotFoundException($"Epic: {request.Id} is not found");
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+            .OrThrowNotFound($"Epic: {request.Id} is not found");
 
         var result = new EpicDto
         {
@@ -177,18 +164,10 @@ public class EpicsService(
         ChangeStatusesOrderRequest request,
         CancellationToken cancellationToken)
     {
-        var epicsAccessLevel = await accessService
-            .GetAccessLevelsByEpicId(
-                request.AuthData,
-                request.EpicId,
-                cancellationToken);
-        
-        if (epicsAccessLevel is null)
-            throw new NotFoundException($"Epic: {request.EpicId} is not found");
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.EpicId, cancellationToken)
+            .OrThrowNotFound($"Epic: {request.EpicId} is not found")
+            .EnsureOrThrowForbidden(a => a.CanUpdateEpic, $"Epic: {request.EpicId} is not accessible");
 
-        if (!epicsAccessLevel.CanUpdateEpic)
-            throw new ForbiddenException($"Epic: {request.EpicId} is not accessible");
-        
         await coreEpicsService.ChangeStatusesOrder(
             new Boards.Services.ChangeStatusesOrderRequest
             {
@@ -200,17 +179,9 @@ public class EpicsService(
 
     public async Task Update(UpdateEpicRequest request, CancellationToken cancellationToken)
     {
-        var epicsAccessLevel = await accessService
-            .GetAccessLevelsByEpicId(
-                request.AuthData,
-                request.Id,
-                cancellationToken);
-        
-        if (epicsAccessLevel is null)
-            throw new NotFoundException($"Epic: {request.Id} is not found");
-
-        if (!epicsAccessLevel.CanUpdateEpic)
-            throw new ForbiddenException($"Epic: {request.Id} is not accessible");
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+            .OrThrowNotFound($"Epic: {request.Id} is not found")
+            .EnsureOrThrowForbidden(a => a.CanUpdateEpic, $"Epic: {request.Id} is not accessible");
 
         await coreEpicsService.Update(
             request.Id,
@@ -222,18 +193,10 @@ public class EpicsService(
 
     public async Task Delete(DeleteEpicRequest request, CancellationToken cancellationToken)
     {
-        var epicsAccessLevel = await accessService
-            .GetAccessLevelsByEpicId(
-                request.AuthData,
-                request.Id,
-                cancellationToken);
-        
-        if (epicsAccessLevel is null)
-            throw new NotFoundException($"Epic: {request.Id} is not found");
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+            .OrThrowNotFound($"Epic: {request.Id} is not found")
+            .EnsureOrThrowForbidden(a => a.CanDeleteEpic, $"Epic: {request.Id} is not accessible");
 
-        if (!epicsAccessLevel.CanDeleteEpic)
-            throw new ForbiddenException($"Epic: {request.Id} is not accessible");
-        
         await coreEpicsService.Delete(
             new DeleteRequest { Id = request.Id },
             cancellationToken);

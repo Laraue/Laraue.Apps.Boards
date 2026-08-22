@@ -66,12 +66,9 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        var spaceAccessLevel = await accessService
-            .GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken);
-        
-        if (spaceAccessLevel is null)
-            throw new NotFoundException($"Space: {request.Key} is not found");
-        
+        var spaceAccessLevel = await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+            .OrThrowNotFound($"Space: {request.Key} is not found");
+
         return new SpaceDetailsDto
         {
             CanDelete = spaceAccessLevel.CanDeleteSpace,
@@ -106,16 +103,9 @@ public class SpacesService(
             request.OldKey,
             cancellationToken);
         
-        var accessLevel = await accessService.GetAccessLevelsBySpaceId(
-            request.AuthData,
-            spaceId,
-            cancellationToken);
-
-        if (accessLevel is null)
-            throw new NotFoundException($"Space: {request.OldKey} is not found");
-        
-        if (!accessLevel.CanUpdateSpace)
-            throw new ForbiddenException($"Space: {request.OldKey} is not accessible");
+        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+            .OrThrowNotFound($"Space: {request.OldKey} is not found")
+            .EnsureOrThrowForbidden(a => a.CanUpdateSpace, $"Space: {request.OldKey} is not accessible");
 
         await coreSpacesService.Update(
             spaceId,
@@ -133,17 +123,10 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        var accessLevel = await accessService.GetAccessLevelsBySpaceId(
-            request.AuthData,
-            spaceId,
-            cancellationToken);
+        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+            .OrThrowNotFound($"Space: {request.Key} is not found")
+            .EnsureOrThrowForbidden(a => a.CanDeleteSpace, $"Space: {request.Key} is not accessible");
 
-        if (accessLevel is null)
-            throw new NotFoundException($"Space: {request.Key} is not found");
-        
-        if (!accessLevel.CanDeleteSpace)
-            throw new ForbiddenException($"Space: {request.Key} is not accessible");
-        
         await coreSpacesService.Delete(spaceId, cancellationToken);
     }
 

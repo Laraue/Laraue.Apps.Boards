@@ -304,16 +304,9 @@ public class IssuesService(
     {
         var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, ct);
         
-        var accessLevel = await accessService.GetAccessLevelsByIssueId(
-            request.AuthData,
-            issueId,
-            ct);
-
-        if (accessLevel is null)
-            throw new NotFoundException($"Issue: {request.IssueKey} is not found");
-
-        if (!accessLevel.CanDeleteIssue)
-            throw new ForbiddenException($"Issue: {request.IssueKey} delete is forbidden");
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+            .OrThrowNotFound($"Issue: {request.IssueKey} is not found")
+            .EnsureOrThrowForbidden(a => a.CanDeleteIssue, $"Issue: {request.IssueKey} delete is forbidden");
 
         await issuesService.Delete(issueId, request.AuthData.UserId, ct);
     }
@@ -325,16 +318,9 @@ public class IssuesService(
             .Select(x => new { x.EpicId })
             .FirstOrThrowNotFoundEFAsync($"Status: {request.StatusId} is not found", ct);
         
-        var issuesAccessLevel = await accessService.GetAccessLevelsByEpicId(
-            request.AuthData,
-            validationData.EpicId,
-            ct);
-        
-        if (issuesAccessLevel is null)
-            throw new NotFoundException($"Status: {request.StatusId} is not found");
-        
-        if (!issuesAccessLevel.CanCreateIssue)
-            throw new NotFoundException($"Status: {request.StatusId} issue creation is forbidden");
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, validationData.EpicId, ct)
+            .OrThrowNotFound($"Status: {request.StatusId} is not found")
+            .EnsureOrThrowNotFound(a => a.CanCreateIssue, $"Status: {request.StatusId} issue creation is forbidden");
 
         if (FilesHasError(request.Files, out var error))
             throw new BadRequestException(nameof(request.Files), error);
@@ -375,16 +361,9 @@ public class IssuesService(
             request.IssueKey.GetValueOrDefault(),
             ct);
         
-        var accessLevels = await accessService.GetAccessLevelsByIssueId(
-            request.AuthData,
-            issueId,
-            ct);
-
-        if (accessLevels is null)
-            throw new NotFoundException($"Issue: {request.IssueKey} is not found");
-        
-        if (!accessLevels.CanUpdateIssue)
-            throw new ForbiddenException($"Issue: {request.IssueKey} update is forbidden");
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+            .OrThrowNotFound($"Issue: {request.IssueKey} is not found")
+            .EnsureOrThrowForbidden(a => a.CanUpdateIssue, $"Issue: {request.IssueKey} update is forbidden");
 
         if (FilesHasError(request.AddFiles, out var error))
             throw new BadRequestException(nameof(request.AddFiles), error);
@@ -509,13 +488,8 @@ public class IssuesService(
     {
         var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, cancellationToken);
         
-        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
-            request.AuthData,
-            issueId,
-            cancellationToken);
-
-        if (issueAccessLevels is null)
-            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, cancellationToken)
+            .OrThrowNotFound($"Issue: {request.IssueKey} is not found or not accessible");
 
         var result = await context.Issues
             .Where(x => x.Id == issueId)
@@ -794,13 +768,9 @@ public class IssuesService(
             new IssueKey(request.IssueKey),
             ct);
         
-        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
-            request.AuthData,
-            issueId,
-            ct);
-
-        if (issueAccessLevels is null || !issueAccessLevels.CanRead)
-            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+            .OrThrowNotFound($"Issue: {request.IssueKey} is not found or not accessible")
+            .EnsureOrThrowNotFound(a => a.CanRead, $"Issue: {request.IssueKey} is not found or not accessible");
 
         var commentsData = await context
             .IssueComments
@@ -857,14 +827,10 @@ public class IssuesService(
             new IssueKey(request.IssueKey),
             ct);
         
-        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(
-            request.AuthData,
-            issueId,
-            ct);
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+            .OrThrowNotFound($"Issue: {request.IssueKey} is not found or not accessible")
+            .EnsureOrThrowNotFound(a => a.CanRead, $"Issue: {request.IssueKey} is not found or not accessible");
 
-        if (issueAccessLevels is null || !issueAccessLevels.CanRead)
-            throw new NotFoundException($"Issue: {request.IssueKey} is not found or not accessible");
-        
         var updatesData = await context
             .OrganizationLogs
             .Where(x => 
@@ -1068,16 +1034,9 @@ public class IssuesService(
             issueKey,
             cancellationToken);
 
-        var accessLevels = await accessService.GetAccessLevelsByIssueId(
-            authData,
-            issueId,
-            cancellationToken);
-        
-        if (accessLevels is null)
-            throw new NotFoundException($"Issue: {issueKey} is not found or not accessible");
-        
-        if (!isAccessible(accessLevels))
-            throw new ForbiddenException($"Issue: {issueKey} is not available for this action");
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, cancellationToken)
+            .OrThrowNotFound($"Issue: {issueKey} is not found or not accessible")
+            .EnsureOrThrowForbidden(isAccessible, $"Issue: {issueKey} is not available for this action");
 
         return issueId;
     }

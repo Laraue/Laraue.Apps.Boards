@@ -33,17 +33,9 @@ public class StatusesService(
         CreateStatusRequest request,
         CancellationToken cancellationToken)
     {
-        var epicsAccessLevel = await accessService
-            .GetAccessLevelsByEpicId(
-                request.AuthData,
-                request.EpicId,
-                cancellationToken);
-        
-        if (epicsAccessLevel is null)
-            throw new NotFoundException($"Epic: {request.EpicId} is not found");
-
-        if (!epicsAccessLevel.CanUpdateEpic)
-            throw new ForbiddenException($"Epic: {request.EpicId} is not accessible");
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.EpicId, cancellationToken)
+            .OrThrowNotFound($"Epic: {request.EpicId} is not found")
+            .EnsureOrThrowForbidden(a => a.CanUpdateEpic, $"Epic: {request.EpicId} is not accessible");
 
         return await statusService.Create(
             new CreateMessageCategoryStatusRequest
