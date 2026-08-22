@@ -52,6 +52,14 @@ public class DeleteCommandService(
             return;
         }
 
+        // Commands are never recorded as content, so this would otherwise surface as the more
+        // confusing "not on record" outcome below.
+        if (repliedMessage.IsBotCommand())
+        {
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.ReplyTargetIsCommand, cancellationToken);
+            return;
+        }
+
         var result = await saveMessageService.GetDeleteConfirmation(
             new InfoByReplyRequest
             {

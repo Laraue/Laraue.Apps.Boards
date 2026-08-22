@@ -157,6 +157,9 @@
     <data name="SaveMessageFromBot" xml:space="preserve">
         <value>Это моё собственное сообщение — ответьте на исходное сообщение, которое нужно сохранить.</value>
     </data>
+    <data name="ReplyTargetIsCommand" xml:space="preserve">
+        <value>Это команда боту, а не сохранённое сообщение — ответьте на само сообщение.</value>
+    </data>
     <data name="SaveNothingToSave" xml:space="preserve">
         <value>Нечего сохранять — в сообщении нет текста, и вы не добавили заметку, например: /save заметка.</value>
     </data>

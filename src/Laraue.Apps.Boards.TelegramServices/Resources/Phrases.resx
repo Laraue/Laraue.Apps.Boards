@@ -164,6 +164,9 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="SaveMessageFromBot" xml:space="preserve">
         <value>That's my own message - reply to the original message you want to save instead.</value>
     </data>
+    <data name="ReplyTargetIsCommand" xml:space="preserve">
+        <value>That's a bot command, not a saved message - reply to the actual message instead.</value>
+    </data>
     <data name="SaveNothingToSave" xml:space="preserve">
         <value>There's nothing to save - the message has no text and you didn't add a note, e.g. /save some note.</value>
     </data>

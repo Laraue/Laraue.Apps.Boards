@@ -40,6 +40,14 @@ public class SaveCommandService(
             return;
         }
 
+        // Commands (e.g. a bare "/save" someone replies to) are never recorded as content, so
+        // this would otherwise surface as the more confusing "not on record" outcome below.
+        if (repliedMessage.IsBotCommand())
+        {
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.ReplyTargetIsCommand, cancellationToken);
+            return;
+        }
+
         SaveByReplyResult result;
         try
         {
