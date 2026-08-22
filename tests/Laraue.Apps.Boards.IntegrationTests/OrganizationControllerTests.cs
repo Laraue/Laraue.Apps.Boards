@@ -10,6 +10,7 @@ using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
@@ -822,5 +823,64 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.Equal(secondSpaceIssue.Key, historyItem.IssueKey);
         Assert.Equal(LogEntityType.Issue, historyItem.EntityType);
         Assert.Equal(LogAction.Update, historyItem.Action);
+    }
+
+    [Fact]
+    public async Task GetOrganizationHistory_ShouldOnlyIncludeEntriesInDateRange_WhenDateFromAndDateToProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Issue")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Updated 1",
+            }));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Updated 2",
+            }));
+
+        var logs = await testScope.Database.OrganizationLogs
+            .AsTracking()
+            .Where(x => x.OrganizationId == organization.Id)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+
+        var oldEntry = logs[0];
+        oldEntry.CreatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var recentEntry = logs[1];
+        recentEntry.CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        await testScope.Database.SaveChangesAsync();
+
+        var request = new GetOrganizationHistoryRequest
+        {
+            DateFrom = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        var historyItem = Assert.Single(historyData!.Data);
+        Assert.Equal(recentEntry.CreatedAt, historyItem.CreatedAt);
     }
 }

@@ -13,9 +13,9 @@ namespace Laraue.Apps.Boards.WebApiServices;
 public record GetOrganizationHistoryRequest : IPaginatedRequest
 {
     public OrganizationAuthData AuthData { get; set; }
-    public LogEntityType? EntityType { get; set; }
-    public LogAction? Action { get; set; }
     public Guid? OwnerId { get; set; }
+    public DateTime? DateFrom { get; set; }
+    public DateTime? DateTo { get; set; }
     public required PaginationData Pagination { get; set; }
 }
 
@@ -140,14 +140,14 @@ public class OrganizationHistoryService(
                 || (x.EntityType == LogEntityType.Comment
                     && context.IssueComments.Any(c => c.Id == x.EntityId && readableSpaceIds.Contains(c.Issue!.Status!.Epic!.SpaceId))));
 
-        if (request.EntityType is not null)
-            query = query.Where(x => x.EntityType == request.EntityType);
-
-        if (request.Action is not null)
-            query = query.Where(x => x.Action == request.Action);
-
         if (request.OwnerId is not null)
             query = query.Where(x => x.OwnerId == request.OwnerId);
+
+        if (request.DateFrom is not null)
+            query = query.Where(x => x.CreatedAt >= request.DateFrom);
+
+        if (request.DateTo is not null)
+            query = query.Where(x => x.CreatedAt <= request.DateTo);
 
         var updatesData = await query
             .OrderByDescending(x => x.Id)
