@@ -319,15 +319,6 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Reply to the message you want to save and send /save again..
-        /// </summary>
-        internal static string SaveNotAReply {
-            get {
-                return ResourceManager.GetString("SaveNotAReply", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   Looks up a localized string similar to This chat saves every message automatically, so /save isn&apos;t needed here..
         /// </summary>
         internal static string SaveNotNeededInAutoMode {
@@ -414,6 +405,53 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         internal static string InfoForbidden {
             get {
                 return ResourceManager.GetString("InfoForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Reply to the message whose card you want to delete and send /delete again..
+        /// </summary>
+        internal static string DeleteNotAReply {
+            get {
+                return ResourceManager.GetString("DeleteNotAReply", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This action is not available - you don&apos;t have permission to delete this card..
+        /// </summary>
+        internal static string DeleteForbidden {
+            get {
+                return ResourceManager.GetString("DeleteForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ⚠️ Delete this card?
+        ///
+        ///{0}.
+        /// </summary>
+        internal static string DeleteConfirmPrompt {
+            get {
+                return ResourceManager.GetString("DeleteConfirmPrompt", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🗑 Delete.
+        /// </summary>
+        internal static string DeleteConfirmButton {
+            get {
+                return ResourceManager.GetString("DeleteConfirmButton", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🗑 Card deleted..
+        /// </summary>
+        internal static string DeleteCommandDeleted {
+            get {
+                return ResourceManager.GetString("DeleteCommandDeleted", resourceCulture);
             }
         }
 

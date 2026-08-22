@@ -26,6 +26,14 @@ public interface ITelegramSaveMessageService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Manually creates a card straight from a bare /save command's own text, when it wasn't
+    /// sent as a reply to anything - a quick-capture shortcut alongside <see cref="SaveByReply"/>.
+    /// </summary>
+    Task<SaveDirectResult> SaveDirect(
+        SaveDirectRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Read-only lookup for /info: returns the card already linked to a replied-to message (or
     /// its whole album), if any - without creating or changing anything. Works regardless of
     /// save mode.
@@ -33,6 +41,23 @@ public interface ITelegramSaveMessageService
     Task<InfoByReplyResult> GetInfoByReply(
         InfoByReplyRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Read-only lookup for /delete: same card resolution as <see cref="GetInfoByReply"/>, but
+    /// the <see cref="InfoByReplyOutcome.Forbidden"/> check is against <c>CanDeleteIssue</c>
+    /// rather than <c>CanRead</c>. Doesn't delete anything by itself - see
+    /// <see cref="DeleteIssue"/>.
+    /// </summary>
+    Task<InfoByReplyResult> GetDeleteConfirmation(
+        InfoByReplyRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes the card after re-checking <c>CanDeleteIssue</c> (permissions can change between
+    /// the /delete prompt and the confirm tap). Returns false instead of deleting when the check
+    /// fails.
+    /// </summary>
+    Task<bool> DeleteIssue(long issueId, Guid userId, CancellationToken cancellationToken);
 }
 
 public class TelegramSaveMessageService(
@@ -154,18 +179,134 @@ public class TelegramSaveMessageService(
         };
     }
 
+    public async Task<SaveDirectResult> SaveDirect(
+        SaveDirectRequest request,
+        CancellationToken cancellationToken)
+    {
+        var linkedChat = await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
+
+        var content = request.Note?.Trim();
+        if (string.IsNullOrEmpty(content))
+            return new SaveDirectResult { Outcome = SaveDirectOutcome.NothingToSave };
+
+        await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow)
+            .SetContent(content);
+
+        var issueId = await coreIssuesService.Create(request.UserId, issueCreate, cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        var preview = await GetIssuePreview(issueId, cancellationToken);
+
+        return new SaveDirectResult
+        {
+            Outcome = SaveDirectOutcome.Saved,
+            IssueUrl = preview.Url,
+            IssuePreviewText = preview.Text,
+        };
+    }
+
     public async Task<InfoByReplyResult> GetInfoByReply(
         InfoByReplyRequest request,
         CancellationToken cancellationToken)
     {
+        var lookup = await ResolveCardLookup(
+            request.ExternalChatId,
+            request.RepliedExternalMessageId,
+            cancellationToken);
+
+        if (!lookup.Tracked)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.MessageNotTracked };
+
+        if (lookup.IssueId is null)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.NoCardYet };
+
+        // Permission is checked against the card's own epic, not the chat's current link state -
+        // a chat can be unlinked/relinked later, but the card and its access rules don't change.
+        var issueAccessData = await context.Issues
+            .Where(x => x.Id == lookup.IssueId)
+            .Select(x => new { x.Status!.EpicId, OrganizationId = x.Status.Epic!.Space!.OrganizationId })
+            .FirstAsyncEF(cancellationToken);
+
+        var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = request.UserId };
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, cancellationToken);
+
+        if (accessLevels?.CanRead != true)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
+
+        var preview = await GetIssuePreview(lookup.IssueId.Value, cancellationToken);
+
+        return new InfoByReplyResult
+        {
+            Outcome = InfoByReplyOutcome.Found,
+            IssueId = lookup.IssueId,
+            IssueUrl = preview.Url,
+            IssuePreviewText = preview.Text,
+        };
+    }
+
+    public async Task<InfoByReplyResult> GetDeleteConfirmation(
+        InfoByReplyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var lookup = await ResolveCardLookup(
+            request.ExternalChatId,
+            request.RepliedExternalMessageId,
+            cancellationToken);
+
+        if (!lookup.Tracked)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.MessageNotTracked };
+
+        if (lookup.IssueId is null)
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.NoCardYet };
+
+        var issueId = lookup.IssueId.Value;
+
+        if (!await CanDeleteIssue(issueId, request.UserId, cancellationToken))
+            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
+
+        var preview = await GetIssuePreview(issueId, cancellationToken);
+
+        return new InfoByReplyResult
+        {
+            Outcome = InfoByReplyOutcome.Found,
+            IssueId = issueId,
+            IssueUrl = preview.Url,
+            IssuePreviewText = preview.Text,
+        };
+    }
+
+    public async Task<bool> DeleteIssue(long issueId, Guid userId, CancellationToken cancellationToken)
+    {
+        if (!await CanDeleteIssue(issueId, userId, cancellationToken))
+            return false;
+
+        await coreIssuesService.Delete(issueId, userId, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the card (if any) linked to a replied-to message or its whole media group -
+    /// shared by <see cref="GetInfoByReply"/> and <see cref="GetDeleteConfirmation"/>, which only
+    /// differ in which permission they check afterwards.
+    /// </summary>
+    private async Task<CardLookupResult> ResolveCardLookup(
+        long externalChatId,
+        int repliedExternalMessageId,
+        CancellationToken cancellationToken)
+    {
         var repliedMessage = await context.TelegramMessages
-            .Where(x => x.ExternalMessageId == request.RepliedExternalMessageId)
-            .Where(x => x.ExternalChatId == request.ExternalChatId)
+            .Where(x => x.ExternalMessageId == repliedExternalMessageId)
+            .Where(x => x.ExternalChatId == externalChatId)
             .Select(x => new { x.Id, x.TelegramMediaGroupId })
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         if (repliedMessage is null)
-            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.MessageNotTracked };
+            return new CardLookupResult { Tracked = false };
 
         // Card content and attachments always live on a group's first message - see SaveByReply.
         var groupQuery = repliedMessage.TelegramMediaGroupId is null
@@ -177,30 +318,29 @@ public class TelegramSaveMessageService(
             .Select(x => new { x.Id, IssueId = x.Issue != null ? (long?)x.Issue.Id : null })
             .FirstAsyncEF(cancellationToken);
 
-        if (cardMessage.IssueId is null)
-            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.NoCardYet };
+        return new CardLookupResult { Tracked = true, IssueId = cardMessage.IssueId };
+    }
 
-        // Permission is checked against the card's own epic, not the chat's current link state -
-        // a chat can be unlinked/relinked later, but the card and its access rules don't change.
+    private async Task<bool> CanDeleteIssue(long issueId, Guid userId, CancellationToken cancellationToken)
+    {
         var issueAccessData = await context.Issues
-            .Where(x => x.Id == cardMessage.IssueId)
-            .Select(x => new { x.Status!.EpicId, OrganizationId = x.Status.Epic!.Space!.OrganizationId })
-            .FirstAsyncEF(cancellationToken);
+            .Where(x => x.Id == issueId)
+            .Select(x => new { OrganizationId = x.Status!.Epic!.Space!.OrganizationId })
+            .FirstOrDefaultAsyncEF(cancellationToken);
 
-        var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = request.UserId };
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, cancellationToken);
+        if (issueAccessData is null)
+            return false;
 
-        if (accessLevels?.CanRead != true)
-            return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
+        var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = userId };
+        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, cancellationToken);
 
-        var preview = await GetIssuePreview(cardMessage.IssueId.Value, cancellationToken);
+        return accessLevels?.CanDeleteIssue == true;
+    }
 
-        return new InfoByReplyResult
-        {
-            Outcome = InfoByReplyOutcome.Found,
-            IssueUrl = preview.Url,
-            IssuePreviewText = preview.Text,
-        };
+    private class CardLookupResult
+    {
+        public required bool Tracked { get; init; }
+        public long? IssueId { get; init; }
     }
 
     /// <summary>
@@ -822,6 +962,40 @@ public enum SaveByReplyOutcome
     NothingToSave,
 }
 
+public class SaveDirectRequest
+{
+    public required long ExternalChatId { get; init; }
+    public required Guid UserId { get; init; }
+
+    /// <summary>
+    /// Text typed after /save, e.g. "/save this one" -&gt; "this one". Becomes the card content
+    /// directly since there's no replied-to message to pull text from.
+    /// </summary>
+    public required string? Note { get; init; }
+}
+
+public class SaveDirectResult
+{
+    public required SaveDirectOutcome Outcome { get; init; }
+
+    /// <summary>Set when <see cref="Outcome"/> is <see cref="SaveDirectOutcome.Saved"/>.</summary>
+    public string? IssueUrl { get; init; }
+
+    /// <summary>
+    /// MarkdownV2 "📋 KEY · Org\n{content preview}" text, matching the inline search result
+    /// format. Set alongside <see cref="IssueUrl"/>.
+    /// </summary>
+    public string? IssuePreviewText { get; init; }
+}
+
+public enum SaveDirectOutcome
+{
+    Saved,
+
+    /// <summary>The bare /save command had no note text to save.</summary>
+    NothingToSave,
+}
+
 public class InfoByReplyRequest
 {
     public required long ExternalChatId { get; init; }
@@ -832,6 +1006,9 @@ public class InfoByReplyRequest
 public class InfoByReplyResult
 {
     public required InfoByReplyOutcome Outcome { get; init; }
+
+    /// <summary>Set when <see cref="Outcome"/> is <see cref="InfoByReplyOutcome.Found"/>.</summary>
+    public long? IssueId { get; init; }
 
     /// <summary>Set when <see cref="Outcome"/> is <see cref="InfoByReplyOutcome.Found"/>.</summary>
     public string? IssueUrl { get; init; }
