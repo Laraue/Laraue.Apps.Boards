@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 {
     private readonly Proxy<OrganizationsController> _organizationsController = host.Controller<OrganizationsController>();
     private readonly Proxy<SpacesController> _spacesController = host.Controller<SpacesController>();
+    private readonly Proxy<IssuesController> _issuesController = host.Controller<IssuesController>();
 
     [Fact]
     public async Task CreateOrganization_ShouldCreateNewOrganizationWithDefaults_Always()
@@ -766,5 +768,59 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
                     OrganizationId = organization.Id
                 })));
         Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetOrganizationHistory_ShouldOnlyIncludeReadableSpaces_WhenUserHasSpaceLevelAccessOnly()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddUser(participatorId, u => u
+                    .SetSpaceAccessLevel(1, x => x.CanRead = true))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Default space issue"))
+                .AddSpace(userId, space => space
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue.WithContent("Second space issue")))));
+
+        var defaultSpaceIssue = organization.GetIssueData(0, 0, 0, 0);
+        var secondSpaceIssue = organization.GetIssueData(1, 1, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(defaultSpaceIssue.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Default space issue updated",
+            }));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(secondSpaceIssue.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Second space issue updated",
+            }));
+
+        var request = new GetOrganizationHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        var historyItem = Assert.Single(historyData!.Data);
+        Assert.Equal(secondSpaceIssue.Key, historyItem.IssueKey);
+        Assert.Equal(LogEntityType.Issue, historyItem.EntityType);
+        Assert.Equal(LogAction.Update, historyItem.Action);
     }
 }

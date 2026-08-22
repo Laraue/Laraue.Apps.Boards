@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Telegram.NET.Abstractions.Request;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,6 +12,7 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/organizations")]
 public class OrganizationsController(
     IOrganizationsService organizationsService,
+    IOrganizationHistoryService organizationHistoryService,
     IWebHostEnvironment environment) : ControllerBase
 {
     [HttpPost]
@@ -204,6 +206,20 @@ public class OrganizationsController(
             new GetOrganizationRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
+    [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
+    [HttpPost("history")]
+    public Task<ShortPaginatedResult<OrganizationHistoryItem>> GetOrganizationHistory(
+        [FromBody] GetOrganizationHistoryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return organizationHistoryService.GetOrganizationHistory(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);
     }
