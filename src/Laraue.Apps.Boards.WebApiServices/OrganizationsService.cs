@@ -94,14 +94,14 @@ public class OrganizationsService(
     ICoreOrganizationsService coreOrganizationsService,
     DatabaseContext context,
     IAuthService authService,
-    IOrganizationAccessService organizationAccessService)
+    IAccessService accessService)
     : IOrganizationsService
 {
     public async Task<OrganizationListDto[]> GetOrganizations(
         GetOrganizationsRequest request,
         CancellationToken cancellationToken)
     {
-        var allOrganizations = await organizationAccessService.GetOrganizations(
+        var allOrganizations = await accessService.GetOrganizations(
             request.UserId,
             organizationUsers => organizationUsers
                 .OrderByDescending(x => x.Organization!.Type)
@@ -126,7 +126,7 @@ public class OrganizationsService(
 
     public async Task<OrganizationDto> GetOrganization(GetOrganizationRequest request, CancellationToken cancellationToken)
     {
-        var organization = await organizationAccessService.GetOrganizations(
+        var organization = await accessService.GetOrganizations(
             request.AuthData.UserId,
             organizations => organizations
                 .Where(o => o.OrganizationId == request.AuthData.OrganizationId)
@@ -164,13 +164,14 @@ public class OrganizationsService(
 
     public async Task Update(EditOrganizationRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             new OrganizationAuthData
             {
                 OrganizationId = request.Id,
                 UserId = request.UserId,
             },
             AdminAccessLevel.UpdateOrganization,
+            "Updating organization",
             cancellationToken);
 
         await coreOrganizationsService.Update(
@@ -184,15 +185,16 @@ public class OrganizationsService(
 
     public async Task Delete(DeleteOrganizationRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             new OrganizationAuthData
             {
                 OrganizationId = request.Id,
                 UserId = request.UserId,
             },
             AdminAccessLevel.DeleteOrganization,
+            "Deleting organization",
             cancellationToken);
-        
+
         await coreOrganizationsService.Delete(request.Id, cancellationToken);
     }
 
@@ -229,11 +231,12 @@ public class OrganizationsService(
 
     public async Task RevokeAccess(RevokeAccessRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.Manage,
+            "Revoking organization access",
             cancellationToken);
-        
+
         var userData = await context.OrganizationUsers
             .Where(x => x.Id == request.OrganizationUserId)
             .Select(x => new
@@ -252,9 +255,10 @@ public class OrganizationsService(
 
     public async Task<string> RegenerateJoinCode(RegenerateJoinCodeRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.Manage,
+            "Regenerating organization join code",
             cancellationToken);
 
         var newCode = StringGenerator.GenerateJoinCode();
@@ -269,17 +273,18 @@ public class OrganizationsService(
 
     public async Task SetUserPermissions(SetPermissionsRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.Manage,
+            "Setting user permissions",
             cancellationToken);
-        
+
         await context.OrganizationUsers
             .Where(x => x.Id == request.OrganizationUserId)
             .AnyOrThrowNotFoundEFAsync(
-                x => x.OrganizationId == request.AuthData.OrganizationId, 
+                x => x.OrganizationId == request.AuthData.OrganizationId,
                 $"OrganizationUser: {request.OrganizationUserId} is not found", cancellationToken);
-        
+
         // Check that passed spaces belongs to organization
         if (request.UserPermissions.Direct.Count > 0)
         {
@@ -326,17 +331,18 @@ public class OrganizationsService(
 
     public async Task<UserPermissions> GetUserPermissions(GetUserPermissionsRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.Manage,
+            "Reading user permissions",
             cancellationToken);
-        
+
         await context.OrganizationUsers
             .Where(x => x.Id == request.OrganizationUserId)
             .AnyOrThrowNotFoundEFAsync(
                 x => x.OrganizationId == request.AuthData.OrganizationId,
                 $"OrganizationUser: {request.OrganizationUserId} is not found", cancellationToken);
-        
+
         return await coreOrganizationsService.GetUserPermissions(
             request.OrganizationUserId,
             cancellationToken);
@@ -344,7 +350,7 @@ public class OrganizationsService(
 
     public async Task<string> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.GetOrganizations(
+        await accessService.GetOrganizations(
             request.UserId,
             organizations => organizations
                 .Where(o => o.UserId == request.UserId)
@@ -359,12 +365,13 @@ public class OrganizationsService(
         GetOrganizationMembersRequest request,
         CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.Manage,
+            "Listing organization members",
             cancellationToken);
-        
-        var data = await organizationAccessService.GetOrganizationMembers(
+
+        var data = await accessService.GetOrganizationMembers(
             request.AuthData.OrganizationId,
             query =>
             {
@@ -386,9 +393,10 @@ public class OrganizationsService(
 
     public async Task<string?> GetOrganizationJoinCode(GetOrganizationJoinCodeRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.Manage,
+            "Reading organization join code",
             cancellationToken);
 
         return await context.Organizations
@@ -401,9 +409,10 @@ public class OrganizationsService(
         GetPermittableEntitiesRequest request,
         CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.Manage,
+            "Listing permittable entities",
             cancellationToken);
 
         return await coreOrganizationsService.GetPermittableEntities(
@@ -413,9 +422,10 @@ public class OrganizationsService(
 
     public async Task<long> CreateAttribute(CreateAttributeRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.ManageAttributes,
+            "Creating organization attribute",
             cancellationToken);
 
         if (request is { Type: AttributeType.List, ListValues.Length: < 1 })
@@ -439,9 +449,10 @@ public class OrganizationsService(
 
     public async Task UpdateAttribute(UpdateAttributeRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.ManageAttributes,
+            "Updating organization attribute",
             cancellationToken);
 
         await EnsureAttributeExists(request.AuthData.OrganizationId, request.Id, cancellationToken);
@@ -488,9 +499,10 @@ public class OrganizationsService(
 
     public async Task DeleteAttribute(DeleteAttributeRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.HasAccessOrThrow(
+        await EnsureAdminAccess(
             request.AuthData,
             AdminAccessLevel.ManageAttributes,
+            "Deleting organization attribute",
             cancellationToken);
 
         await EnsureAttributeExists(request.AuthData.OrganizationId, request.Id, cancellationToken);
@@ -506,6 +518,19 @@ public class OrganizationsService(
 
         if (!attributeExists)
             throw new NotFoundException($"Attribute: {attributeId} is not found");
+    }
+
+    private async Task EnsureAdminAccess(
+        OrganizationAuthData authData,
+        AdminAccessLevel accessLevel,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        var hasAccess = await accessService.HasAccess(authData, accessLevel, cancellationToken);
+
+        if (!hasAccess)
+            throw new NotFoundException(
+                $"Organization: {authData.OrganizationId}. {action} requires '{accessLevel}' admin access");
     }
 }
 

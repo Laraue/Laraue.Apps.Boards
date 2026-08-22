@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -36,8 +37,7 @@ public interface ISpacesService
 
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
-    IAccessService accessService,
-    IOrganizationAccessService organizationAccessService)
+    IAccessService accessService)
     : ISpacesService
 {
     public async Task<SpaceListDto[]> GetSpaces(
@@ -67,12 +67,9 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        var spaceAccessLevel = await accessService
-            .GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken);
-        
-        if (spaceAccessLevel is null)
-            throw new NotFoundException($"Space: {request.Key} is not found");
-        
+        var spaceAccessLevel = await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.Key));
+
         return new SpaceDetailsDto
         {
             CanDelete = spaceAccessLevel.CanDeleteSpace,
@@ -83,10 +80,13 @@ public class SpacesService(
 
     public async Task<string> Create(CreateSpaceRequest request, CancellationToken cancellationToken)
     {
-        await organizationAccessService.CanCreateSpacesOrThrow(
+        var canCreateSpaces = await accessService.CanCreateSpaces(
             request.AuthData.OrganizationId,
             request.AuthData.UserId,
             cancellationToken);
+
+        if (!canCreateSpaces)
+            throw new NotFoundException($"Organization: {request.AuthData.OrganizationId} space creation is forbidden");
 
         return await coreSpacesService.Create(
             request.AuthData.OrganizationId,
@@ -104,16 +104,9 @@ public class SpacesService(
             request.OldKey,
             cancellationToken);
         
-        var accessLevel = await accessService.GetAccessLevelsBySpaceId(
-            request.AuthData,
-            spaceId,
-            cancellationToken);
-
-        if (accessLevel is null)
-            throw new NotFoundException($"Space: {request.OldKey} is not found");
-        
-        if (!accessLevel.CanUpdateSpace)
-            throw new ForbiddenException($"Space: {request.OldKey} is not accessible");
+        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.OldKey))
+            .EnsureOrThrowForbidden(a => a.CanUpdateSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.OldKey));
 
         await coreSpacesService.Update(
             spaceId,
@@ -131,17 +124,10 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        var accessLevel = await accessService.GetAccessLevelsBySpaceId(
-            request.AuthData,
-            spaceId,
-            cancellationToken);
+        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.Key))
+            .EnsureOrThrowForbidden(a => a.CanDeleteSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.Key));
 
-        if (accessLevel is null)
-            throw new NotFoundException($"Space: {request.Key} is not found");
-        
-        if (!accessLevel.CanDeleteSpace)
-            throw new ForbiddenException($"Space: {request.Key} is not accessible");
-        
         await coreSpacesService.Delete(spaceId, cancellationToken);
     }
 
