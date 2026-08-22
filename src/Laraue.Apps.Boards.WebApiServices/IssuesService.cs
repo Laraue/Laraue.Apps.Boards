@@ -555,11 +555,12 @@ public class IssuesService(
         {
             Id = result.Id,
             AssigneeId = result.AssigneeId,
-            Assignee = new UserDetails
+            Assignee = new IssueAssigneeDetails
             {
                 Color = result.AssigneeColor,
                 DisplayName = result.AssigneeDisplayName,
                 Initials = result.AssigneeInitials,
+                IsCurrentUser = result.AssigneeId == request.AuthData.UserId,
             },
             Content = result.Content,
             Owner = new UserDetails
@@ -2039,7 +2040,7 @@ public class IssueDetailDto
 {
     public required long Id { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required UserDetails Assignee { get; set; }
+    public required IssueAssigneeDetails Assignee { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required UserDetails Owner { get; set; }
@@ -2075,6 +2076,11 @@ public record UserDetails
     public required string Color { get; set; }
     public required string DisplayName { get; set; }
     public required string Initials { get; set; }
+}
+
+public record IssueAssigneeDetails : UserDetails
+{
+    public required bool IsCurrentUser { get; set; }
 }
 
 public record DetailIssueAttributeDto

@@ -148,6 +148,7 @@ public class SpacesService(
                     Initials = x.User!.Initials,
                     DisplayName = x.User.DisplayName,
                     Color = x.User.Color,
+                    IsCurrentUser = x.UserId == request.AuthData.UserId,
                 })
                 .ToArrayAsyncEF(cancellationToken));
 
@@ -235,4 +236,5 @@ public record SpaceMember
     public required string DisplayName { get; set; }
     public required string Initials { get; set; }
     public required string Color { get; set; }
+    public required bool IsCurrentUser { get; set; }
 }
