@@ -418,6 +418,53 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Reply to the message whose card you want to delete and send /delete again..
+        /// </summary>
+        internal static string DeleteNotAReply {
+            get {
+                return ResourceManager.GetString("DeleteNotAReply", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This action is not available - you don&apos;t have permission to delete this card..
+        /// </summary>
+        internal static string DeleteForbidden {
+            get {
+                return ResourceManager.GetString("DeleteForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ⚠️ Delete this card?
+        ///
+        ///{0}.
+        /// </summary>
+        internal static string DeleteConfirmPrompt {
+            get {
+                return ResourceManager.GetString("DeleteConfirmPrompt", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🗑 Delete.
+        /// </summary>
+        internal static string DeleteConfirmButton {
+            get {
+                return ResourceManager.GetString("DeleteConfirmButton", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🗑 Card deleted..
+        /// </summary>
+        internal static string DeleteCommandDeleted {
+            get {
+                return ResourceManager.GetString("DeleteCommandDeleted", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {

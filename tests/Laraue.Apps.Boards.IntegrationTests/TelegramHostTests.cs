@@ -3149,4 +3149,330 @@ public class TelegramHostTests : TelegramIntegrationTest
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal("I don't have that message on record - it may have arrived before the chat was linked.", request.Text);
     }
+
+    [Fact]
+    public async Task HandleDelete_ShouldPromptConfirmation_WhenReplyHasCard()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 800, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+
+        // /delete only prompts for confirmation - it must not delete anything by itself.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/delete",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var replyRequest = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(1, replyRequest.ReplyParameters!.MessageId);
+        Assert.Contains("Hello world", replyRequest.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
+        var rows = markup.InlineKeyboard.ToList();
+        var confirmButton = Assert.Single(rows[0]);
+        Assert.Equal("🗑 Delete", confirmButton.Text);
+        Assert.Equal($"/delete/confirm/{issue.Id}", confirmButton.CallbackData);
+
+        Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleDelete_ShouldReplyNotAReply_WhenCommandHasNoReplyToMessage()
+    {
+        using var host = GetTelegramTestHost();
+
+        var chat = new Chat { Id = 801, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/delete",
+                Chat = chat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Reply to the message whose card you want to delete and send /delete again.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleDelete_ShouldReplyNoCardYet_WhenRepliedMessageHasNoCard()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 802, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/delete",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This message hasn't been saved as a card yet - reply to it with /save first.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleDelete_ShouldReplyForbidden_WhenSenderLacksDeleteIssuePermission()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // Member can read but not delete - unlike the owner, who created the card.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true)));
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 803, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = ownerId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 2,
+                Text = "/delete",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This action is not available - you don't have permission to delete this card.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleDelete_ShouldDeleteIssue_WhenConfirmButtonTapped()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 804, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/delete",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var promptMessage = host.Requests().Single<SendMessageRequest>();
+        var markup = Assert.IsType<InlineKeyboardMarkup>(promptMessage.ReplyMarkup);
+        var confirmButton = Assert.Single(markup.InlineKeyboard.ToList()[0]);
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 3, Chat = chat },
+                Data = confirmButton.CallbackData,
+            }
+        });
+
+        var editRequest = host.Requests().Single<EditMessageTextRequest>();
+        Assert.Equal("🗑 Card deleted.", editRequest.Text);
+
+        Assert.Empty(await db.Issues.AsNoTracking().Where(x => x.Id == issue.Id).ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleDelete_ShouldKeepIssue_WhenCancelButtonTapped()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 805, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/delete",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var promptMessage = host.Requests().Single<SendMessageRequest>();
+        var markup = Assert.IsType<InlineKeyboardMarkup>(promptMessage.ReplyMarkup);
+        // Confirm is row 0, Cancel (added by AddCancelButton) is the last row.
+        var cancelButton = Assert.Single(markup.InlineKeyboard.ToList()[^1]);
+
+        // Cancel reuses the shared close-callback-window handler - it just deletes the prompt.
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = AdminUser,
+                Message = new Message { Id = 3, Chat = chat },
+                Data = cancelButton.CallbackData,
+            }
+        });
+
+        Assert.Single(await db.Issues.AsNoTracking().Where(x => x.Id == issue.Id).ToListAsyncLinqToDB());
+    }
 }

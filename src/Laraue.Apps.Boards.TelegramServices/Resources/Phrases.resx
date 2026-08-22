@@ -185,4 +185,21 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="InfoForbidden" xml:space="preserve">
         <value>This action is not available - you don't have permission to view this card.</value>
     </data>
+    <data name="DeleteNotAReply" xml:space="preserve">
+        <value>Reply to the message whose card you want to delete and send /delete again.</value>
+    </data>
+    <data name="DeleteForbidden" xml:space="preserve">
+        <value>This action is not available - you don't have permission to delete this card.</value>
+    </data>
+    <data name="DeleteConfirmPrompt" xml:space="preserve">
+        <value>⚠️ Delete this card?
+
+{0}</value>
+    </data>
+    <data name="DeleteConfirmButton" xml:space="preserve">
+        <value>🗑 Delete</value>
+    </data>
+    <data name="DeleteCommandDeleted" xml:space="preserve">
+        <value>🗑 Card deleted.</value>
+    </data>
 </root>

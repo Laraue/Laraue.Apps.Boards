@@ -178,4 +178,21 @@
     <data name="InfoForbidden" xml:space="preserve">
         <value>Это действие недоступно — у вас нет прав на просмотр этой карточки.</value>
     </data>
+    <data name="DeleteNotAReply" xml:space="preserve">
+        <value>Ответьте на сообщение, карточку которого нужно удалить, и отправьте /delete ещё раз.</value>
+    </data>
+    <data name="DeleteForbidden" xml:space="preserve">
+        <value>Это действие недоступно — у вас нет прав на удаление этой карточки.</value>
+    </data>
+    <data name="DeleteConfirmPrompt" xml:space="preserve">
+        <value>⚠️ Удалить эту карточку?
+
+{0}</value>
+    </data>
+    <data name="DeleteConfirmButton" xml:space="preserve">
+        <value>🗑 Удалить</value>
+    </data>
+    <data name="DeleteCommandDeleted" xml:space="preserve">
+        <value>🗑 Карточка удалена.</value>
+    </data>
 </root>
