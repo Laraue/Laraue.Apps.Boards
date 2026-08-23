@@ -206,6 +206,10 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             builder
                 .HasIndex(x => new { x.EntityId, x.EntityType })
                 .IsDescending(false, true);
+
+            builder
+                .HasIndex(x => new { x.OrganizationId, x.OwnerId, x.CreatedAt })
+                .IsDescending(false, false, true);
         });
         
         modelBuilder.Entity<LinkedTelegramChat>(entity =>
