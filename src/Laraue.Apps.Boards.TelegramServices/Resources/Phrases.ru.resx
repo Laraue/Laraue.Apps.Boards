@@ -198,4 +198,7 @@
     <data name="DeleteCommandDeleted" xml:space="preserve">
         <value>🗑 Карточка удалена.</value>
     </data>
+    <data name="AiSummarizationUnavailable" xml:space="preserve">
+        <value>ИИ-обработка временно недоступна — попробуйте /save, либо повторите /aisave позже.</value>
+    </data>
 </root>

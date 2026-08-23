@@ -24,5 +24,6 @@
     <EfCoreNamingConventionsVersion>10.0.1</EfCoreNamingConventionsVersion>
     <TelegramBotVersion>22.7.0</TelegramBotVersion>
     <MicrosoftJwtAuthenticationVersion>10.0.0</MicrosoftJwtAuthenticationVersion>
+    <MicrosoftExtensionsHttpVersion>10.0.0</MicrosoftExtensionsHttpVersion>
   </PropertyGroup>
 </Project>

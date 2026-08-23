@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -205,13 +206,13 @@ public class OrganizationsService(
             cancellationToken);
         
         if (organizationId == null)
-            throw new NotFoundException($"Organization code: {request.JoinCode} is not found");
-        
+            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Organization code", request.JoinCode));
+
         if (await coreOrganizationsService.HasMember(
             organizationId.Value,
             request.UserId,
             cancellationToken))
-            throw new NotAcceptableException("User is already member of this organization");
+            throw new NotAcceptableException(ErrorMessages.AlreadyOrganizationMember);
 
         await coreOrganizationsService.AddMember(
             organizationId.Value,
@@ -243,10 +244,10 @@ public class OrganizationsService(
             {
                 IsOwner = x.Organization!.OwnerId == x.UserId,
             })
-            .FirstOrThrowNotFoundEFAsync("User is not found in organization", cancellationToken);
+            .FirstOrThrowNotFoundEFAsync(ErrorMessages.UserNotFoundInOrganization, cancellationToken);
 
         if (userData.IsOwner)
-            throw new ForbiddenException("Owner access can't be revoked");
+            throw new ForbiddenException(ErrorMessages.OwnerAccessCannotBeRevoked);
 
         await context.OrganizationUsers
             .Where(x => x.Id == request.OrganizationUserId)
@@ -283,7 +284,7 @@ public class OrganizationsService(
             .Where(x => x.Id == request.OrganizationUserId)
             .AnyOrThrowNotFoundEFAsync(
                 x => x.OrganizationId == request.AuthData.OrganizationId,
-                $"OrganizationUser: {request.OrganizationUserId} is not found", cancellationToken);
+                string.Format(ErrorMessages.EntityNotFound, "OrganizationUser", request.OrganizationUserId), cancellationToken);
 
         // Check that passed spaces belongs to organization
         if (request.UserPermissions.Direct.Count > 0)
@@ -301,12 +302,12 @@ public class OrganizationsService(
             {
                 if (!permittableEntities.TryGetValue(directSpacePermission.Key, out var space))
                 {
-                    errors.Add($"Space: '{directSpacePermission.Key}'. Entity is not found");
+                    errors.Add(string.Format(ErrorMessages.SpaceDirectPermissionEntityNotFound, directSpacePermission.Key));
                     continue;
                 }
-                
+
                 if (space.Self.IsDefault && directSpacePermission.Value.CanDelete)
-                    errors.Add($"Space: '{directSpacePermission.Key}'. Attempt to add delete permission to Default space");
+                    errors.Add(string.Format(ErrorMessages.SpaceDeletePermissionOnDefaultForbidden, directSpacePermission.Key));
             }
 
             if (errors.Count != 0)
@@ -341,7 +342,7 @@ public class OrganizationsService(
             .Where(x => x.Id == request.OrganizationUserId)
             .AnyOrThrowNotFoundEFAsync(
                 x => x.OrganizationId == request.AuthData.OrganizationId,
-                $"OrganizationUser: {request.OrganizationUserId} is not found", cancellationToken);
+                string.Format(ErrorMessages.EntityNotFound, "OrganizationUser", request.OrganizationUserId), cancellationToken);
 
         return await coreOrganizationsService.GetUserPermissions(
             request.OrganizationUserId,
@@ -431,12 +432,12 @@ public class OrganizationsService(
         if (request is { Type: AttributeType.List, ListValues.Length: < 1 })
             throw new BadRequestException(
                 nameof(request.ListValues),
-                "At least one options required for list attribute");
-        
+                ErrorMessages.ListAttributeRequiresOptions);
+
         if (request is { Type: not AttributeType.List, ListValues.Length: > 0 })
             throw new BadRequestException(
                 nameof(request.ListValues),
-                "Options are required only for list attribute");
+                ErrorMessages.OnlyListAttributeHasOptions);
 
         return await coreOrganizationsService.CreateAttribute(
             request.AuthData.OrganizationId,
@@ -517,7 +518,7 @@ public class OrganizationsService(
             .AnyAsyncEF(x => x.OrganizationId == organizationId, cancellationToken);
 
         if (!attributeExists)
-            throw new NotFoundException($"Attribute: {attributeId} is not found");
+            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Attribute", attributeId));
     }
 
     private async Task EnsureAdminAccess(
@@ -530,7 +531,7 @@ public class OrganizationsService(
 
         if (!hasAccess)
             throw new NotFoundException(
-                $"Organization: {authData.OrganizationId}. {action} requires '{accessLevel}' admin access");
+                string.Format(ErrorMessages.AdminAccessRequired, authData.OrganizationId, action, accessLevel));
     }
 }
 

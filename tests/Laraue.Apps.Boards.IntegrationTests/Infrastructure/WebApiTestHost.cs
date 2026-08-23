@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.WebApiHost;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Moq;
 using User = Laraue.Apps.Boards.DataAccess.Models.User;
 
 namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
@@ -15,6 +17,13 @@ namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 public class WebApiTestHost
     : WebApplicationFactory<Program>
 {
+    /// <summary>
+    /// Shared for the whole test collection (see <see cref="WebApiTestHostScope"/>/IClassFixture
+    /// usage) - re-<c>Setup</c> it at the start of each test rather than relying on state left by
+    /// a previous test.
+    /// </summary>
+    public Mock<IAiContentSummarizer> AiContentSummarizerMock { get; } = new();
+
     protected override IHost CreateHost(IHostBuilder builder)
     {
         builder.ConfigureHostConfiguration(config =>
@@ -25,6 +34,7 @@ public class WebApiTestHost
         builder.ConfigureServices(services =>
         {
             services.AddSingleton(TelegramBotClientMockFactory.GetInstance());
+            services.AddSingleton(AiContentSummarizerMock.Object);
         });
 
         return base.CreateHost(builder);

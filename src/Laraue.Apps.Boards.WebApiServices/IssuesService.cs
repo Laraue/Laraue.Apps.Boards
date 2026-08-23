@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiServices.Resources;
@@ -19,6 +20,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -80,6 +82,10 @@ public interface IIssuesService
     Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
         GetIssueCommentsRequest request,
         CancellationToken ct);
+
+    Task<string> SummarizeContent(
+        SummarizeIssueContentRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class IssuesService(
@@ -88,7 +94,9 @@ public class IssuesService(
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
     ICoreFilesService coreFilesService,
-    ICoreSpacesService coreSpacesService)
+    ICoreSpacesService coreSpacesService,
+    IAiContentSummarizer aiContentSummarizer,
+    ILogger<IssuesService> logger)
     : IIssuesService
 {
     public async Task<BatchResult<IssueListDto>> GetIssues(
@@ -392,19 +400,32 @@ public class IssuesService(
         await transaction.CommitAsync(ct);
     }
 
+    public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+        }
+        catch (AiContentSummarizationException ex)
+        {
+            logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
+            throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
+        }
+    }
+
     private static bool FilesHasError(IEnumerable<IFormFile> files, [NotNullWhen(true)] out string? error)
     {
         foreach (var file in files)
         {
             if (file.Length > 3_000_000)
             {
-                error = "File size is limited to 3MB";
+                error = ErrorMessages.FileSizeLimited;
                 return true;
             }
 
             if (!SystemMimeTypes.Supported.Contains(file.ContentType))
             {
-                error = $"Supported mime types are: {string.Join(", ", SystemMimeTypes.Supported)}";
+                error = string.Format(ErrorMessages.UnsupportedMimeTypes, string.Join(", ", SystemMimeTypes.Supported));
                 return true;
             }
         }
@@ -428,7 +449,7 @@ public class IssuesService(
             });
         
         if (!userExists)
-            throw new NotFoundException($"User: {userId} is not belongs to organization");
+            throw new NotFoundException(string.Format(ErrorMessages.UserNotBelongsToOrganization, userId));
     }
     
     public async Task<ShortPaginatedResult<SearchIssueDto>> Search(
@@ -655,7 +676,7 @@ public class IssuesService(
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         if (comment?.OwnerId != request.AuthData.UserId)
-            throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to edit");
+            throw new ForbiddenException(string.Format(ErrorMessages.CommentNotAvailableToEdit, request.CommentId));
         
         if (FilesHasError(request.AddFiles, out var error))
             throw new BadRequestException(nameof(request.AddFiles), error);
@@ -686,7 +707,7 @@ public class IssuesService(
             .FirstOrDefaultAsyncEF(cancellationToken);
         
         if (entity?.OwnerId != request.AuthData.UserId)
-            throw new ForbiddenException($"Comment: {request.CommentId} is not exists or not available to delete");
+            throw new ForbiddenException(string.Format(ErrorMessages.CommentNotAvailableToDelete, request.CommentId));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await issuesService.DeleteComment(request.CommentId, request.AuthData.UserId, cancellationToken);
@@ -875,7 +896,7 @@ public class IssuesService(
         foreach (var attribute in uniqueValues)
         {
             if (!attributes.TryGetValue(attribute.AttributeId, out var attributeType))
-                attributeValidationErrors.Add($"Attribute: {attribute.AttributeId} is not found");
+                attributeValidationErrors.Add(string.Format(ErrorMessages.EntityNotFound, "Attribute", attribute.AttributeId));
 
             switch (attributeType)
             {
@@ -883,7 +904,7 @@ public class IssuesService(
                 {
                     if (attribute is not EnumAttributeValue enumAttributeValue)
                     {
-                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be an enum attribute value");
+                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeEnum, attribute.AttributeId));
                         continue;
                     }
                     
@@ -899,13 +920,13 @@ public class IssuesService(
                 {
                     if (attribute is not StringAttributeValue stringAttributeValue)
                     {
-                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a string attribute value");
+                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeString, attribute.AttributeId));
                         continue;
                     }
 
                     if (stringAttributeValue.Value.Length > 255)
                     {
-                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' value should be less or equal to 255 characters");
+                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeStringTooLong, attribute.AttributeId));
                         continue;
                     }
                     
@@ -921,7 +942,7 @@ public class IssuesService(
                 {
                     if (attribute is not IntegerAttributeValue integerAttributeValue)
                     {
-                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be an integer attribute value");
+                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeInteger, attribute.AttributeId));
                         continue;
                     }
 
@@ -937,7 +958,7 @@ public class IssuesService(
                 {
                     if (attribute is not DecimalAttributeValue decimalAttributeValue)
                     {
-                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a decimal attribute value");
+                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeDecimal, attribute.AttributeId));
                         continue;
                     }
 
@@ -953,7 +974,7 @@ public class IssuesService(
                 {
                     if (attribute is not DateAttributeValue dateAttributeValue)
                     {
-                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a date attribute value");
+                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeDate, attribute.AttributeId));
                         continue;
                     }
 
@@ -969,7 +990,7 @@ public class IssuesService(
                 {
                     if (attribute is not DateTimeAttributeValue dateTimeAttributeValue)
                     {
-                        attributeValidationErrors.Add($"Attribute '{attribute.AttributeId}' should be a date-time attribute value");
+                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeDateTime, attribute.AttributeId));
                         continue;
                     }
 
@@ -1261,7 +1282,7 @@ public class IssuesService(
         {
             if (!filterTypes.TryGetValue(filter.Key, out var filterType))
             {
-                errors.Add(filter.Key, $"Filter with id: '{filter.Key}' is not found");
+                errors.Add(filter.Key, string.Format(ErrorMessages.FilterNotFound, filter.Key));
                 continue;
             }
 
@@ -1299,7 +1320,7 @@ public class IssuesService(
     {
         if (filter.Value is not StringAttributeFilterValue stringValue)
         {
-            errors.Add(filter.Key, $"String filter object excepted for filter: '{filter.Key}'");
+            errors.Add(filter.Key, string.Format(ErrorMessages.StringFilterExpected, filter.Key));
             return query;
         }
 
@@ -1321,7 +1342,7 @@ public class IssuesService(
     {
         if (filter.Value is not EnumAttributeFilterValue enumValue)
         {
-            errors.Add(filter.Key, $"Enum filter object excepted for filter: '{filter.Key}'");
+            errors.Add(filter.Key, string.Format(ErrorMessages.EnumFilterExpected, filter.Key));
             return query;
         }
 
@@ -1341,7 +1362,7 @@ public class IssuesService(
     {
         if (filter.Value is not IntegerAttributeFilterValue integerValue)
         {
-            errors.Add(filter.Key, $"Integer filter object excepted for filter: '{filter.Key}'");
+            errors.Add(filter.Key, string.Format(ErrorMessages.IntegerFilterExpected, filter.Key));
             return query;
         }
 
@@ -1364,7 +1385,7 @@ public class IssuesService(
     {
         if (filter.Value is not DecimalAttributeFilterValue decimalValue)
         {
-            errors.Add(filter.Key, $"Decimal filter object excepted for filter: '{filter.Key}'");
+            errors.Add(filter.Key, string.Format(ErrorMessages.DecimalFilterExpected, filter.Key));
             return query;
         }
 
@@ -1387,7 +1408,7 @@ public class IssuesService(
     {
         if (filter.Value is not DateAttributeFilterValue dateValue)
         {
-            errors.Add(filter.Key, $"Date filter object excepted for filter: '{filter.Key}'");
+            errors.Add(filter.Key, string.Format(ErrorMessages.DateFilterExpected, filter.Key));
             return query;
         }
 
@@ -1410,7 +1431,7 @@ public class IssuesService(
     {
         if (filter.Value is not DateTimeAttributeFilterValue dateTimeValue)
         {
-            errors.Add(filter.Key, $"DateTime filter object excepted for filter: '{filter.Key}'");
+            errors.Add(filter.Key, string.Format(ErrorMessages.DateTimeFilterExpected, filter.Key));
             return query;
         }
 
@@ -1458,7 +1479,7 @@ public class IssuesService(
         if (attribute is null)
             throw new BadRequestException(
                 nameof(IHasSorting.Sorting),
-                $"Attribute: {sorting.AttributeId} is not found");
+                string.Format(ErrorMessages.EntityNotFound, "Attribute", sorting.AttributeId));
 
         return attribute.AttributeType switch
         {
@@ -1595,6 +1616,14 @@ public record GetBoardSummaryRequest
 {
     public OrganizationAuthData AuthData { get; set; }
     public required string SpaceKey { get; set; }
+}
+
+public record SummarizeIssueContentRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+
+    [MaxLength(4096)]
+    public required string Content { get; set; }
 }
 
 public record ColumnIssues

@@ -1,4 +1,6 @@
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.TelegramServices.Resources;
+using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -11,15 +13,32 @@ public interface ISaveCommandService
     /// Only meaningful in BotMentionedMessages mode.
     /// </summary>
     Task HandleSaveCommand(Message message, Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Handles /aisave: same as /save, but the content is run through AI summarization
+    /// (see <see cref="IAiContentSummarizer"/>) before being saved.
+    /// </summary>
+    Task HandleAiSaveCommand(Message message, Guid userId, CancellationToken cancellationToken);
 }
 
 public class SaveCommandService(
     ITelegramSaveMessageService saveMessageService,
     ITelegramBotClient client,
-    IEphemeralReplySender ephemeralReplySender)
+    IEphemeralReplySender ephemeralReplySender,
+    ILogger<SaveCommandService> logger)
     : ISaveCommandService
 {
-    public async Task HandleSaveCommand(Message message, Guid userId, CancellationToken cancellationToken)
+    public Task HandleSaveCommand(Message message, Guid userId, CancellationToken cancellationToken)
+    {
+        return HandleSaveCommand(message, userId, summarize: false, cancellationToken);
+    }
+
+    public Task HandleAiSaveCommand(Message message, Guid userId, CancellationToken cancellationToken)
+    {
+        return HandleSaveCommand(message, userId, summarize: true, cancellationToken);
+    }
+
+    private async Task HandleSaveCommand(Message message, Guid userId, bool summarize, CancellationToken cancellationToken)
     {
         var repliedMessage = message.ReplyToMessage;
 
@@ -58,6 +77,7 @@ public class SaveCommandService(
                     RepliedExternalMessageId = repliedMessage.MessageId,
                     UserId = userId,
                     Note = ExtractNote(message.Text),
+                    Summarize = summarize,
                 },
                 cancellationToken);
         }
@@ -69,6 +89,12 @@ public class SaveCommandService(
         catch (IssueCreationForbiddenException)
         {
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
+            return;
+        }
+        catch (AiContentSummarizationException ex)
+        {
+            logger.LogWarning(ex, "AI summarization failed for chat {ExternalChatId}", message.Chat.Id);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.AiSummarizationUnavailable, cancellationToken);
             return;
         }
 

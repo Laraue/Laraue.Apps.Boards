@@ -474,6 +474,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to AI summarization is temporarily unavailable - try /save instead, or try /aisave again later..
+        /// </summary>
+        internal static string AiSummarizationUnavailable {
+            get {
+                return ResourceManager.GetString("AiSummarizationUnavailable", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {

@@ -69,6 +69,312 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to AI summarization is temporarily unavailable, please try again later..
+        /// </summary>
+        internal static string AiSummarizationUnavailable {
+            get {
+                return ResourceManager.GetString("AiSummarizationUnavailable", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Organization: {0} space creation is forbidden, cannot move space here.
+        /// </summary>
+        internal static string SpaceCreationForbiddenCannotMove {
+            get {
+                return ResourceManager.GetString("SpaceCreationForbiddenCannotMove", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to User is already member of this organization.
+        /// </summary>
+        internal static string AlreadyOrganizationMember {
+            get {
+                return ResourceManager.GetString("AlreadyOrganizationMember", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Owner access can&apos;t be revoked.
+        /// </summary>
+        internal static string OwnerAccessCannotBeRevoked {
+            get {
+                return ResourceManager.GetString("OwnerAccessCannotBeRevoked", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to User is not found in organization.
+        /// </summary>
+        internal static string UserNotFoundInOrganization {
+            get {
+                return ResourceManager.GetString("UserNotFoundInOrganization", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Space: &apos;{0}&apos;. Entity is not found.
+        /// </summary>
+        internal static string SpaceDirectPermissionEntityNotFound {
+            get {
+                return ResourceManager.GetString("SpaceDirectPermissionEntityNotFound", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Space: &apos;{0}&apos;. Attempt to add delete permission to Default space.
+        /// </summary>
+        internal static string SpaceDeletePermissionOnDefaultForbidden {
+            get {
+                return ResourceManager.GetString("SpaceDeletePermissionOnDefaultForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to At least one options required for list attribute.
+        /// </summary>
+        internal static string ListAttributeRequiresOptions {
+            get {
+                return ResourceManager.GetString("ListAttributeRequiresOptions", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Options are required only for list attribute.
+        /// </summary>
+        internal static string OnlyListAttributeHasOptions {
+            get {
+                return ResourceManager.GetString("OnlyListAttributeHasOptions", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Organization: {0}. {1} requires &apos;{2}&apos; admin access.
+        /// </summary>
+        internal static string AdminAccessRequired {
+            get {
+                return ResourceManager.GetString("AdminAccessRequired", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Space is not exists: {0} in organization.
+        /// </summary>
+        internal static string SpaceNotExistsForMove {
+            get {
+                return ResourceManager.GetString("SpaceNotExistsForMove", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Epic is not exists: {0} in organization.
+        /// </summary>
+        internal static string EpicNotExistsForMove {
+            get {
+                return ResourceManager.GetString("EpicNotExistsForMove", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Source and destination space cannot be the same.
+        /// </summary>
+        internal static string SourceDestinationSpaceSame {
+            get {
+                return ResourceManager.GetString("SourceDestinationSpaceSame", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Space is not exists: {0} or epic creation is forbidden.
+        /// </summary>
+        internal static string SpaceNotExistsOrEpicCreationForbidden {
+            get {
+                return ResourceManager.GetString("SpaceNotExistsOrEpicCreationForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to File size is limited to 3MB.
+        /// </summary>
+        internal static string FileSizeLimited {
+            get {
+                return ResourceManager.GetString("FileSizeLimited", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Supported mime types are: {0}.
+        /// </summary>
+        internal static string UnsupportedMimeTypes {
+            get {
+                return ResourceManager.GetString("UnsupportedMimeTypes", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to User: {0} is not belongs to organization.
+        /// </summary>
+        internal static string UserNotBelongsToOrganization {
+            get {
+                return ResourceManager.GetString("UserNotBelongsToOrganization", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Comment: {0} is not exists or not available to edit.
+        /// </summary>
+        internal static string CommentNotAvailableToEdit {
+            get {
+                return ResourceManager.GetString("CommentNotAvailableToEdit", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Comment: {0} is not exists or not available to delete.
+        /// </summary>
+        internal static string CommentNotAvailableToDelete {
+            get {
+                return ResourceManager.GetString("CommentNotAvailableToDelete", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be an enum attribute value.
+        /// </summary>
+        internal static string AttributeShouldBeEnum {
+            get {
+                return ResourceManager.GetString("AttributeShouldBeEnum", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a string attribute value.
+        /// </summary>
+        internal static string AttributeShouldBeString {
+            get {
+                return ResourceManager.GetString("AttributeShouldBeString", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; value should be less or equal to 255 characters.
+        /// </summary>
+        internal static string AttributeStringTooLong {
+            get {
+                return ResourceManager.GetString("AttributeStringTooLong", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be an integer attribute value.
+        /// </summary>
+        internal static string AttributeShouldBeInteger {
+            get {
+                return ResourceManager.GetString("AttributeShouldBeInteger", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a decimal attribute value.
+        /// </summary>
+        internal static string AttributeShouldBeDecimal {
+            get {
+                return ResourceManager.GetString("AttributeShouldBeDecimal", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a date attribute value.
+        /// </summary>
+        internal static string AttributeShouldBeDate {
+            get {
+                return ResourceManager.GetString("AttributeShouldBeDate", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a date-time attribute value.
+        /// </summary>
+        internal static string AttributeShouldBeDateTime {
+            get {
+                return ResourceManager.GetString("AttributeShouldBeDateTime", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Filter with id: &apos;{0}&apos; is not found.
+        /// </summary>
+        internal static string FilterNotFound {
+            get {
+                return ResourceManager.GetString("FilterNotFound", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to String filter object excepted for filter: &apos;{0}&apos;.
+        /// </summary>
+        internal static string StringFilterExpected {
+            get {
+                return ResourceManager.GetString("StringFilterExpected", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Enum filter object excepted for filter: &apos;{0}&apos;.
+        /// </summary>
+        internal static string EnumFilterExpected {
+            get {
+                return ResourceManager.GetString("EnumFilterExpected", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Integer filter object excepted for filter: &apos;{0}&apos;.
+        /// </summary>
+        internal static string IntegerFilterExpected {
+            get {
+                return ResourceManager.GetString("IntegerFilterExpected", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Decimal filter object excepted for filter: &apos;{0}&apos;.
+        /// </summary>
+        internal static string DecimalFilterExpected {
+            get {
+                return ResourceManager.GetString("DecimalFilterExpected", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Date filter object excepted for filter: &apos;{0}&apos;.
+        /// </summary>
+        internal static string DateFilterExpected {
+            get {
+                return ResourceManager.GetString("DateFilterExpected", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to DateTime filter object excepted for filter: &apos;{0}&apos;.
+        /// </summary>
+        internal static string DateTimeFilterExpected {
+            get {
+                return ResourceManager.GetString("DateTimeFilterExpected", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Space: {0} is not exists.
+        /// </summary>
+        internal static string SpaceNotExists {
+            get {
+                return ResourceManager.GetString("SpaceNotExists", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to {0}: {1} is not accessible.
         /// </summary>
         internal static string EntityNotAccessible {

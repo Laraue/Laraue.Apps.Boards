@@ -226,6 +226,19 @@ public class IssuesController(
             cancellationToken);
     }
     
+    [HttpPost("summarize")]
+    public Task<string> Summarize(
+        [FromBody] SummarizeIssueContentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.SummarizeContent(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
     [HttpPost("{key}/history")]
     public Task<ShortPaginatedResult<OrganizationHistoryItem>> GetIssueHistory(
         string key,

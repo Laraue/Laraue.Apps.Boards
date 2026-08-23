@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -48,7 +49,7 @@ public class MovementService(
             cancellationToken);
 
         if (!canCreateSpaces)
-            throw new NotFoundException($"Organization: {request.NewOrganizationId} space creation is forbidden, cannot move space here");
+            throw new NotFoundException(string.Format(ErrorMessages.SpaceCreationForbiddenCannotMove, request.NewOrganizationId));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await movementService.MoveSpace(spaceId, request.NewOrganizationId, cancellationToken);
@@ -70,7 +71,7 @@ public class MovementService(
             cancellationToken);
 
         if (spaceId == newSpaceId)
-            throw new BadRequestException(nameof(request.NewSpaceKey), "Source and destination space cannot be the same");
+            throw new BadRequestException(nameof(request.NewSpaceKey), ErrorMessages.SourceDestinationSpaceSame);
 
         var sourceSpaceBelongsToCurrentOrganization = await context.Spaces
             .Where(x => x.Id == spaceId)
@@ -78,7 +79,7 @@ public class MovementService(
             .AnyAsyncEF(cancellationToken);
         
         if (!sourceSpaceBelongsToCurrentOrganization)
-            throw new ForbiddenException($"Space is not exists: {request.SourceSpaceKey} in organization");
+            throw new ForbiddenException(string.Format(ErrorMessages.SpaceNotExistsForMove, request.SourceSpaceKey));
 
         await CanCreateEpicsOrThrow(request.AuthData.UserId, request.NewSpaceKey, newSpaceId, cancellationToken);
 
@@ -97,7 +98,7 @@ public class MovementService(
             .AnyAsyncEF(cancellationToken);
         
         if (!sourceEpicBelongsToCurrentOrganization)
-            throw new ForbiddenException($"Epic is not exists: {request.SourceEpicId} in organization");
+            throw new ForbiddenException(string.Format(ErrorMessages.EpicNotExistsForMove, request.SourceEpicId));
         
         var newSpaceId = await spacesService.GetSpaceIdBySpaceKey(
             request.NewOrganizationId,
@@ -152,7 +153,7 @@ public class MovementService(
 
     private static string SpaceIsNotExistsError(string spaceKey)
     {
-        return $"Space is not exists: {spaceKey} or epic creation is forbidden";
+        return string.Format(ErrorMessages.SpaceNotExistsOrEpicCreationForbidden, spaceKey);
     }
     
     private async Task HasMassMovePermissionOrThrow(
@@ -165,7 +166,7 @@ public class MovementService(
             cancellationToken);
 
         if (!hasAccess)
-            throw new NotFoundException($"Organization: {authData.OrganizationId} mass move is forbidden");
+            throw new NotFoundException(string.Format(ErrorMessages.EntityActionForbidden, "Organization", authData.OrganizationId, "mass move"));
     }
 }
 
