@@ -10,7 +10,9 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 [ApiController]
 [Route("/api/issues")]
-public class IssuesController(IIssuesService issuesService) : ControllerBase
+public class IssuesController(
+    IIssuesService issuesService,
+    IOrganizationHistoryService organizationHistoryService) : ControllerBase
 {
     [HttpGet("by-status/{statusId:long}")]
     public Task<BatchResult<IssueListDto>> GetIssuesByStatus(
@@ -225,12 +227,12 @@ public class IssuesController(IIssuesService issuesService) : ControllerBase
     }
     
     [HttpPost("{key}/history")]
-    public Task<ShortPaginatedResult<IssueHistoryItem>> GetIssueHistory(
+    public Task<ShortPaginatedResult<OrganizationHistoryItem>> GetIssueHistory(
         string key,
         [FromBody] GetIssueHistoryRequest request,
         CancellationToken cancellationToken = default)
     {
-        return issuesService.GetIssueHistory(
+        return organizationHistoryService.GetIssueHistory(
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
