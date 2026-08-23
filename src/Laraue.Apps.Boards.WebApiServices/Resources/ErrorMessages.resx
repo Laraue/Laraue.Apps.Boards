@@ -30,4 +30,106 @@
     <data name="EntityActionForbidden" xml:space="preserve">
         <value>{0}: {1} {2} is forbidden</value>
     </data>
+    <data name="AiSummarizationUnavailable" xml:space="preserve">
+        <value>AI summarization is temporarily unavailable, please try again later.</value>
+    </data>
+    <data name="SpaceCreationForbiddenCannotMove" xml:space="preserve">
+        <value>Organization: {0} space creation is forbidden, cannot move space here</value>
+    </data>
+    <data name="AlreadyOrganizationMember" xml:space="preserve">
+        <value>User is already member of this organization</value>
+    </data>
+    <data name="OwnerAccessCannotBeRevoked" xml:space="preserve">
+        <value>Owner access can't be revoked</value>
+    </data>
+    <data name="UserNotFoundInOrganization" xml:space="preserve">
+        <value>User is not found in organization</value>
+    </data>
+    <data name="SpaceDirectPermissionEntityNotFound" xml:space="preserve">
+        <value>Space: '{0}'. Entity is not found</value>
+    </data>
+    <data name="SpaceDeletePermissionOnDefaultForbidden" xml:space="preserve">
+        <value>Space: '{0}'. Attempt to add delete permission to Default space</value>
+    </data>
+    <data name="ListAttributeRequiresOptions" xml:space="preserve">
+        <value>At least one options required for list attribute</value>
+    </data>
+    <data name="OnlyListAttributeHasOptions" xml:space="preserve">
+        <value>Options are required only for list attribute</value>
+    </data>
+    <data name="AdminAccessRequired" xml:space="preserve">
+        <value>Organization: {0}. {1} requires '{2}' admin access</value>
+    </data>
+    <data name="SpaceNotExistsForMove" xml:space="preserve">
+        <value>Space is not exists: {0} in organization</value>
+    </data>
+    <data name="EpicNotExistsForMove" xml:space="preserve">
+        <value>Epic is not exists: {0} in organization</value>
+    </data>
+    <data name="SourceDestinationSpaceSame" xml:space="preserve">
+        <value>Source and destination space cannot be the same</value>
+    </data>
+    <data name="SpaceNotExistsOrEpicCreationForbidden" xml:space="preserve">
+        <value>Space is not exists: {0} or epic creation is forbidden</value>
+    </data>
+    <data name="FileSizeLimited" xml:space="preserve">
+        <value>File size is limited to 3MB</value>
+    </data>
+    <data name="UnsupportedMimeTypes" xml:space="preserve">
+        <value>Supported mime types are: {0}</value>
+    </data>
+    <data name="UserNotBelongsToOrganization" xml:space="preserve">
+        <value>User: {0} is not belongs to organization</value>
+    </data>
+    <data name="CommentNotAvailableToEdit" xml:space="preserve">
+        <value>Comment: {0} is not exists or not available to edit</value>
+    </data>
+    <data name="CommentNotAvailableToDelete" xml:space="preserve">
+        <value>Comment: {0} is not exists or not available to delete</value>
+    </data>
+    <data name="AttributeShouldBeEnum" xml:space="preserve">
+        <value>Attribute '{0}' should be an enum attribute value</value>
+    </data>
+    <data name="AttributeShouldBeString" xml:space="preserve">
+        <value>Attribute '{0}' should be a string attribute value</value>
+    </data>
+    <data name="AttributeStringTooLong" xml:space="preserve">
+        <value>Attribute '{0}' value should be less or equal to 255 characters</value>
+    </data>
+    <data name="AttributeShouldBeInteger" xml:space="preserve">
+        <value>Attribute '{0}' should be an integer attribute value</value>
+    </data>
+    <data name="AttributeShouldBeDecimal" xml:space="preserve">
+        <value>Attribute '{0}' should be a decimal attribute value</value>
+    </data>
+    <data name="AttributeShouldBeDate" xml:space="preserve">
+        <value>Attribute '{0}' should be a date attribute value</value>
+    </data>
+    <data name="AttributeShouldBeDateTime" xml:space="preserve">
+        <value>Attribute '{0}' should be a date-time attribute value</value>
+    </data>
+    <data name="FilterNotFound" xml:space="preserve">
+        <value>Filter with id: '{0}' is not found</value>
+    </data>
+    <data name="StringFilterExpected" xml:space="preserve">
+        <value>String filter object excepted for filter: '{0}'</value>
+    </data>
+    <data name="EnumFilterExpected" xml:space="preserve">
+        <value>Enum filter object excepted for filter: '{0}'</value>
+    </data>
+    <data name="IntegerFilterExpected" xml:space="preserve">
+        <value>Integer filter object excepted for filter: '{0}'</value>
+    </data>
+    <data name="DecimalFilterExpected" xml:space="preserve">
+        <value>Decimal filter object excepted for filter: '{0}'</value>
+    </data>
+    <data name="DateFilterExpected" xml:space="preserve">
+        <value>Date filter object excepted for filter: '{0}'</value>
+    </data>
+    <data name="DateTimeFilterExpected" xml:space="preserve">
+        <value>DateTime filter object excepted for filter: '{0}'</value>
+    </data>
+    <data name="SpaceNotExists" xml:space="preserve">
+        <value>Space: {0} is not exists</value>
+    </data>
 </root>

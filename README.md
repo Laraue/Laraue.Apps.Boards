@@ -29,10 +29,10 @@ Check how to deal with the frontend in [Frontend Repository](https://github.com/
 ### AI content summarization (local dev)
 `appsettings.json`'s `AiSummarizer` section defaults to a local [Ollama](https://ollama.com/)
 instance, since Ollama exposes an OpenAI-compatible `/v1/chat/completions` endpoint and the
-summarizer talks to any OpenAI-compatible API. Install Ollama, then pull the tiny model
-referenced in config:
+summarizer talks to any OpenAI-compatible API. Install Ollama, then pull the model referenced
+in config:
 ```
-ollama pull qwen2.5:3b
+ollama pull gemma3:12b
 ```
 Ollama serves on `http://localhost:11434` by default once installed. On prod, override
 `AiSummarizer:BaseUrl`/`AiSummarizer:Model`/`AiSummarizer:ApiKey` to point at a real provider

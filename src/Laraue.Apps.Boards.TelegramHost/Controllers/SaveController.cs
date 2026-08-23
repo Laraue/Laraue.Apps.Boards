@@ -16,4 +16,13 @@ public class SaveController(ISaveCommandService saveCommandService) : TelegramCo
             requestContext.UserId,
             cancellationToken);
     }
+
+    [TelegramMessageRoute(TelegramRoutes.AiSaveCommand, ChatType.Group, ChatType.Supergroup, ChatType.Private)]
+    public Task HandleAiSave(RequestContext requestContext, CancellationToken cancellationToken)
+    {
+        return saveCommandService.HandleAiSaveCommand(
+            requestContext.Update.Message!,
+            requestContext.UserId,
+            cancellationToken);
+    }
 }

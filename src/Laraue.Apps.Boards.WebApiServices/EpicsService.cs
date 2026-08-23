@@ -150,7 +150,7 @@ public class EpicsService(
                 spaceId,
                 cancellationToken))
             throw new NotFoundException(
-                $"Space: {request.SpaceKey} is not exists");
+                string.Format(ErrorMessages.SpaceNotExists, request.SpaceKey));
         
         return await coreEpicsService.Create(
             spaceId,

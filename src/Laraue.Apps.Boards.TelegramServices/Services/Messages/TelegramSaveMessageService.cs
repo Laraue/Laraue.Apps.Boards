@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
@@ -58,7 +59,8 @@ public class TelegramSaveMessageService(
     ICoreIssuesService coreIssuesService,
     IAccessService accessService,
     IIssueUrlBuilder issueUrlBuilder,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAiContentSummarizer aiContentSummarizer)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -113,6 +115,9 @@ public class TelegramSaveMessageService(
         await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
 
         var content = ComposeReplyContent(request.Note, cardMessage.Text);
+
+        if (request.Summarize && content is not null)
+            content = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
 
         if (cardMessage.IssueId is not null)
         {
@@ -883,6 +888,12 @@ public class SaveByReplyRequest
     /// command was sent bare.
     /// </summary>
     public required string? Note { get; init; }
+
+    /// <summary>
+    /// Set by /aisave: runs the composed content through <see cref="IAiContentSummarizer"/>
+    /// before it's saved, instead of storing it verbatim.
+    /// </summary>
+    public bool Summarize { get; init; }
 }
 
 public class SaveByReplyResult

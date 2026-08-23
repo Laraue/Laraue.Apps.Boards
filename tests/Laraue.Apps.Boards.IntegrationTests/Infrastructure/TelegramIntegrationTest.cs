@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.TelegramHost;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Microsoft.AspNetCore.Builder;
@@ -31,6 +32,15 @@ public abstract class TelegramIntegrationTest
         // Registered last to override the real implementation, which would otherwise hit
         // Telegram's GetChatMember API. AdminUser/MemberUser pick the outcome per test.
         builder.Services.AddScoped<IGroupChatAdminService, FakeGroupChatAdminService>();
+
+        // Overrides the real HTTP-backed implementation, which would otherwise hit a real AI
+        // provider. Defaults to echoing the input back unchanged - /aisave tests should re-Setup
+        // it (via Mock.Get on the resolved instance) for their own expectations.
+        var aiContentSummarizerMock = new Mock<IAiContentSummarizer>();
+        aiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string notes, CancellationToken _) => notes);
+        builder.Services.AddSingleton(aiContentSummarizerMock.Object);
 
         return new AppTelegramTestHost(builder.Services);
     }

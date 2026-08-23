@@ -86,7 +86,7 @@ public class SpacesService(
             cancellationToken);
 
         if (!canCreateSpaces)
-            throw new NotFoundException($"Organization: {request.AuthData.OrganizationId} space creation is forbidden");
+            throw new NotFoundException(string.Format(ErrorMessages.EntityActionForbidden, "Organization", request.AuthData.OrganizationId, "space creation"));
 
         return await coreSpacesService.Create(
             request.AuthData.OrganizationId,
