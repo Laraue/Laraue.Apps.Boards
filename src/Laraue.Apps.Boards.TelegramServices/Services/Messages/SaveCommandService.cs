@@ -1,5 +1,6 @@
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.TelegramServices.Resources;
+using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -23,7 +24,8 @@ public interface ISaveCommandService
 public class SaveCommandService(
     ITelegramSaveMessageService saveMessageService,
     ITelegramBotClient client,
-    IEphemeralReplySender ephemeralReplySender)
+    IEphemeralReplySender ephemeralReplySender,
+    ILogger<SaveCommandService> logger)
     : ISaveCommandService
 {
     public Task HandleSaveCommand(Message message, Guid userId, CancellationToken cancellationToken)
@@ -89,8 +91,9 @@ public class SaveCommandService(
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
             return;
         }
-        catch (AiContentSummarizationException)
+        catch (AiContentSummarizationException ex)
         {
+            logger.LogWarning(ex, "AI summarization failed for chat {ExternalChatId}", message.Chat.Id);
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.AiSummarizationUnavailable, cancellationToken);
             return;
         }

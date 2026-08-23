@@ -20,6 +20,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -94,7 +95,8 @@ public class IssuesService(
     IDateTimeProvider dateTimeProvider,
     ICoreFilesService coreFilesService,
     ICoreSpacesService coreSpacesService,
-    IAiContentSummarizer aiContentSummarizer)
+    IAiContentSummarizer aiContentSummarizer,
+    ILogger<IssuesService> logger)
     : IIssuesService
 {
     public async Task<BatchResult<IssueListDto>> GetIssues(
@@ -404,8 +406,9 @@ public class IssuesService(
         {
             return await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
         }
-        catch (AiContentSummarizationException)
+        catch (AiContentSummarizationException ex)
         {
+            logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
             throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
         }
     }
