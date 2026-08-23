@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -9,6 +10,7 @@ using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -1404,5 +1406,53 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 }));
 
         Assert.Equal(["C", "B", "A"], byDate!.Data.Select(x => x.Content));
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldReturnBeautifiedContent_WhenAiSummarizerSucceeds()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        const string beautified = "Fix login bug\n---\n- Login fails on retry\n- Add logging";
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(
+                "fix login bug, fails on retry, need logs pls",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(beautified);
+
+        var result = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "fix login bug, fails on retry, need logs pls",
+                }));
+
+        Assert.Equal(beautified, result);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldReturn503_WhenAiSummarizerFails()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "notes",
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.ServiceUnavailable, ex.StatusCode);
     }
 }

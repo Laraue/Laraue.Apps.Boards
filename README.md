@@ -26,6 +26,18 @@ Services to call from TelegramApi
 ## Local run
 Check how to deal with the frontend in [Frontend Repository](https://github.com/win7user10/laraue-note-to-board)
 
+### AI content summarization (local dev)
+`appsettings.json`'s `AiSummarizer` section defaults to a local [Ollama](https://ollama.com/)
+instance, since Ollama exposes an OpenAI-compatible `/v1/chat/completions` endpoint and the
+summarizer talks to any OpenAI-compatible API. Install Ollama, then pull the tiny model
+referenced in config:
+```
+ollama pull qwen2.5:3b
+```
+Ollama serves on `http://localhost:11434` by default once installed. On prod, override
+`AiSummarizer:BaseUrl`/`AiSummarizer:Model`/`AiSummarizer:ApiKey` to point at a real provider
+(e.g. DeepSeek) instead.
+
 ### Create a new user for Test
 `POST: http://localhost:5200/api/test/user`
 ```json

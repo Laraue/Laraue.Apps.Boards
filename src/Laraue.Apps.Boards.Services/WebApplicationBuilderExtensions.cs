@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DateTime.Services.Impl;
@@ -7,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.Services;
 
@@ -57,6 +59,20 @@ public static class WebApplicationBuilderExtensions
             builder.Services.AddOptions<FileStorageOptions>();
             builder.Services.Configure<FileStorageOptions>(
                 builder.Configuration.GetSection(nameof(FileStorageOptions)));
+
+            builder.Services.AddOptions<AiSummarizerOptions>();
+            builder.Services.Configure<AiSummarizerOptions>(
+                builder.Configuration.GetSection("AiSummarizer"));
+
+            builder.Services
+                .AddHttpClient<IAiContentSummarizer, OpenAiCompatibleContentSummarizer>((sp, client) =>
+                {
+                    var aiOptions = sp.GetRequiredService<IOptions<AiSummarizerOptions>>().Value;
+                    client.BaseAddress = new Uri(aiOptions.BaseUrl);
+                    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                        "Bearer",
+                        aiOptions.ApiKey);
+                });
 
             return builder;
         }

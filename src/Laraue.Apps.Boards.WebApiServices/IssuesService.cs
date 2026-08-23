@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiServices.Resources;
@@ -80,6 +81,10 @@ public interface IIssuesService
     Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
         GetIssueCommentsRequest request,
         CancellationToken ct);
+
+    Task<string> SummarizeContent(
+        SummarizeIssueContentRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class IssuesService(
@@ -88,7 +93,8 @@ public class IssuesService(
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
     ICoreFilesService coreFilesService,
-    ICoreSpacesService coreSpacesService)
+    ICoreSpacesService coreSpacesService,
+    IAiContentSummarizer aiContentSummarizer)
     : IIssuesService
 {
     public async Task<BatchResult<IssueListDto>> GetIssues(
@@ -390,6 +396,18 @@ public class IssuesService(
             ct);
 
         await transaction.CommitAsync(ct);
+    }
+
+    public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+        }
+        catch (AiContentSummarizationException)
+        {
+            throw new AiSummarizationUnavailableException("AI summarization is temporarily unavailable, please try again later.");
+        }
     }
 
     private static bool FilesHasError(IEnumerable<IFormFile> files, [NotNullWhen(true)] out string? error)
@@ -1595,6 +1613,14 @@ public record GetBoardSummaryRequest
 {
     public OrganizationAuthData AuthData { get; set; }
     public required string SpaceKey { get; set; }
+}
+
+public record SummarizeIssueContentRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+
+    [MaxLength(4096)]
+    public required string Content { get; set; }
 }
 
 public record ColumnIssues
