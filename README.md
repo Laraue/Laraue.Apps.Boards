@@ -1,10 +1,8 @@
 # Laraue.Apps.Boards
 The repository contains backend for Task-management Jira-like system.
 
-## Interface examples
-<img width="250" height="540" alt="All issues View" src="https://github.com/user-attachments/assets/91e01273-a8fd-49e6-99be-3466db41b60d" />
-<img width="250" height="540" alt="Board View" src="https://github.com/user-attachments/assets/eda748c6-8595-4555-b9a4-533027c6e2df" />
-
+## Interface example
+<img width="1339" height="1102" alt="image" src="https://github.com/user-attachments/assets/815691a0-fac8-4e40-8bb7-4efa4f28d0bd" />
 
 ## App structure
 
