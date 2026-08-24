@@ -108,6 +108,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var organization = Assert.Single(organizations!);
         
         Assert.True(organization.CanDelete);
+        Assert.False(organization.CanLeave);
         Assert.True(organization.CanUpdate);
         Assert.Equal("Org 1", organization.Name);
         Assert.Equal("#ffffff", organization.Color);
@@ -122,12 +123,14 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         
         Assert.False(personalOrganization.IsPersonal);
         Assert.True(personalOrganization.CanDelete);
+        Assert.True(personalOrganization.CanLeave);
         Assert.False(personalOrganization.CanUpdate);
         Assert.Equal("Org 1", personalOrganization.Name);
         Assert.Equal("#ffffff", personalOrganization.Color);
         
         Assert.True(additionalOrganization.IsPersonal);
         Assert.False(additionalOrganization.CanDelete);
+        Assert.False(additionalOrganization.CanLeave);
         Assert.True(additionalOrganization.CanUpdate);
         Assert.Equal("Org 2", additionalOrganization.Name);
         Assert.Equal("#000000", additionalOrganization.Color);
@@ -364,6 +367,20 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         // Ensure that now the record is missing
         organizationUsers = await testScope.Database.OrganizationUsers.ToListAsyncEF();
         Assert.Null(organizationUsers.FirstOrDefault(x => x.UserId == newUserId));
+    }
+
+    [Fact]
+    public async Task Owner_ShouldNotLeaveOrganization_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithUserAuthorization(ownerId)
+            .Execute(x => x.Leave(organization.Id)));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
     }
 
     [Fact]

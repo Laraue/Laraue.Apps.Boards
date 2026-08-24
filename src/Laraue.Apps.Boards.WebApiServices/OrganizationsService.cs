@@ -113,6 +113,7 @@ public class OrganizationsService(
                     CanUpdate = x.AdminAccessLevel.HasFlag(AdminAccessLevel.UpdateOrganization),
                     CanDelete = x.Organization.Type != OrganizationType.Personal &&
                                 x.AdminAccessLevel.HasFlag(AdminAccessLevel.DeleteOrganization),
+                    CanLeave = x.Organization.OwnerId != x.UserId,
                     Name = x.Organization.Name,
                     Color = x.Organization.Color,
                     IsPersonal = x.Organization.Type == OrganizationType.Personal,
@@ -222,6 +223,14 @@ public class OrganizationsService(
 
     public async Task Leave(LeaveOrganizationRequest request, CancellationToken cancellationToken)
     {
+        var isOwner = await context.OrganizationUsers
+            .Where(x => x.UserId == request.UserId)
+            .Where(x => x.OrganizationId == request.OrganizationId)
+            .AnyAsync(x => x.Organization!.OwnerId == x.UserId, cancellationToken);
+
+        if (isOwner)
+            throw new ForbiddenException(ErrorMessages.OwnerAccessCannotBeRevoked);
+
         await context.OrganizationUsers
             .Where(x => x.UserId == request.UserId)
             .Where(x => x.OrganizationId == request.OrganizationId)
@@ -596,6 +605,7 @@ public record OrganizationListDto
     public required string? Color { get; set; }
     public required bool CanUpdate { get; set; }
     public required bool CanDelete { get; set; }
+    public required bool CanLeave { get; set; }
     public required bool IsPersonal { get; set; }
     public required bool CanCreateSpaces { get; set; }
     public required string Slug { get; set; }
