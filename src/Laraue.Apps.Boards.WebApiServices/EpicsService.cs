@@ -192,7 +192,7 @@ public class EpicsService(
                     query = query.Where(x => EF.Functions.ILike(x.Name, request.SearchString.AsSearchable()));
 
                 return query
-                    .OrderBy(x => x.Name)
+                    .OrderByDescending(x => x.Id)
                     .Select(x => new EpicStatusesDto
                     {
                         EpicId = x.Id,
