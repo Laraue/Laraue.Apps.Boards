@@ -73,6 +73,7 @@ public record IssueHistoryStatusChange : HistoryItemChange
 public record IssueHistoryPropertyChange : HistoryItemChange
 {
     public required string PropertyName { get; set; }
+    public required AttributeType AttributeType { get; set; }
     public required string? OldValueName { get; set; }
     public required string? OldValueColor { get; set; }
     public required string? NewValueName { get; set; }
@@ -364,9 +365,11 @@ public class OrganizationHistoryService(
             .Where(s => possibleAssigneeIds.Contains(s.Id))
             .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
 
-        var attributeColors = await context.Attributes
+        var attributes = (await context.Attributes
             .Where(s => possibleAttributeIds.Contains(s.Id))
-            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+            .Select(s => new { Id = s.Id.ToString(), s.AttributeType, s.Color })
+            .ToArrayAsyncEF(cancellationToken))
+            .ToDictionary(x => x.Id, x => new AttributeData(x.Color, x.AttributeType));
 
         var epicColors = await context.Epics
             .Where(s => possibleEpicIds.Contains(s.Id))
@@ -384,7 +387,7 @@ public class OrganizationHistoryService(
                     y,
                     statusColors,
                     userColors,
-                    attributeColors,
+                    attributes,
                     epicColors,
                     spacesColors))
             })
@@ -393,11 +396,13 @@ public class OrganizationHistoryService(
         return result;
     }
 
+    private record AttributeData(string Color, AttributeType Type);
+    
     private static HistoryItemChange MapChange(
         OrganizationLogItem item,
         Dictionary<string, string> statusColors,
         Dictionary<string, string> userColors,
-        Dictionary<string, string> attributeColors,
+        Dictionary<string, AttributeData> attributes,
         Dictionary<string, string> epicColors,
         Dictionary<string, string> spacesColors)
     {
@@ -425,10 +430,11 @@ public class OrganizationHistoryService(
             PropertyType.Attribute => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
+                AttributeType = item.ParentId is not null ? attributes[item.ParentId].Type : default,
                 NewValueName = item.NewDisplayValue,
-                NewValueColor = item.NewDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
+                NewValueColor = item.ParentId is not null ? attributes[item.ParentId].Color : null,
                 OldValueName = item.OldDisplayValue,
-                OldValueColor = item.OldDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
+                OldValueColor = item.ParentId is not null ? attributes[item.ParentId].Color : null,
             },
             PropertyType.Attachment => new IssueHistoryAttachmentChange
             {
