@@ -311,7 +311,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
 
         var result = await _epicsController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetWithStatuses(new SearchEpicStatusesRequest
+            .Execute(x => x.SearchEpicsWithStatuses(new SearchEpicStatusesRequest
             {
                 Pagination = new PaginationData { Page = 0, PerPage = 10 },
             }));
@@ -340,7 +340,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
 
         var result = await _epicsController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetWithStatuses(new SearchEpicStatusesRequest
+            .Execute(x => x.SearchEpicsWithStatuses(new SearchEpicStatusesRequest
             {
                 SpaceKey = "SPA",
                 Pagination = new PaginationData { Page = 0, PerPage = 10 },
@@ -365,7 +365,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
 
         var result = await _epicsController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetWithStatuses(new SearchEpicStatusesRequest
+            .Execute(x => x.SearchEpicsWithStatuses(new SearchEpicStatusesRequest
             {
                 SearchString = "sprint",
                 Pagination = new PaginationData { Page = 0, PerPage = 10 },
@@ -385,7 +385,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
 
         var result = await _epicsController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetWithStatuses(new SearchEpicStatusesRequest
+            .Execute(x => x.SearchEpicsWithStatuses(new SearchEpicStatusesRequest
             {
                 SpaceKey = "ZZZ",
                 Pagination = new PaginationData { Page = 0, PerPage = 10 },
@@ -410,7 +410,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
 
         var result = await _epicsController
             .WithOrganizationAuthorization(organization.Id, participatorId)
-            .Execute(x => x.GetWithStatuses(new SearchEpicStatusesRequest
+            .Execute(x => x.SearchEpicsWithStatuses(new SearchEpicStatusesRequest
             {
                 SpaceKey = "SPA",
                 Pagination = new PaginationData { Page = 0, PerPage = 10 },

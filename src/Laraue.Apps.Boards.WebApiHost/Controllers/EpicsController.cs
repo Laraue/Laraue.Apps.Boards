@@ -37,7 +37,7 @@ public class EpicsController(IEpicsService categoriesService)
     }
     
     [HttpPost("get-with-statuses")]
-    public Task<ShortPaginatedResult<EpicStatusesDto>> GetWithStatuses(
+    public Task<ShortPaginatedResult<EpicStatusesDto>> SearchEpicsWithStatuses(
         [FromBody] SearchEpicStatusesRequest request,
         CancellationToken cancellationToken = default)
     {
