@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -35,6 +36,19 @@ public class EpicsController(IEpicsService categoriesService)
             cancellationToken);
     }
     
+    [HttpPost("get-with-statuses")]
+    public Task<ShortPaginatedResult<EpicStatusesDto>> SearchEpicsWithStatuses(
+        [FromBody] SearchEpicStatusesRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return categoriesService.SearchEpicsWithStatuses(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
     [HttpPost("{id:long}/status")]
     public Task ChangeStatus(
         [FromRoute] long id,
