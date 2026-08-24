@@ -73,6 +73,7 @@ public record IssueHistoryStatusChange : HistoryItemChange
 public record IssueHistoryPropertyChange : HistoryItemChange
 {
     public required string PropertyName { get; set; }
+    public required AttributeType AttributeType { get; set; }
     public required string? OldValueName { get; set; }
     public required string? OldValueColor { get; set; }
     public required string? NewValueName { get; set; }
@@ -364,9 +365,12 @@ public class OrganizationHistoryService(
             .Where(s => possibleAssigneeIds.Contains(s.Id))
             .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
 
-        var attributeColors = await context.Attributes
+        var attributes = await context.Attributes
             .Where(s => possibleAttributeIds.Contains(s.Id))
-            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+            .Select(s => new { Id = s.Id.ToString(), s.AttributeType, s.Color })
+            .ToArrayAsyncEF(cancellationToken);
+        var attributeColors = attributes.ToDictionary(s => s.Id, s => s.Color);
+        var attributeTypes = attributes.ToDictionary(s => s.Id, s => s.AttributeType);
 
         var epicColors = await context.Epics
             .Where(s => possibleEpicIds.Contains(s.Id))
@@ -385,6 +389,7 @@ public class OrganizationHistoryService(
                     statusColors,
                     userColors,
                     attributeColors,
+                    attributeTypes,
                     epicColors,
                     spacesColors))
             })
@@ -398,6 +403,7 @@ public class OrganizationHistoryService(
         Dictionary<string, string> statusColors,
         Dictionary<string, string> userColors,
         Dictionary<string, string> attributeColors,
+        Dictionary<string, AttributeType> attributeTypes,
         Dictionary<string, string> epicColors,
         Dictionary<string, string> spacesColors)
     {
@@ -425,10 +431,11 @@ public class OrganizationHistoryService(
             PropertyType.Attribute => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
+                AttributeType = attributeTypes[item.ParentId!],
                 NewValueName = item.NewDisplayValue,
-                NewValueColor = item.NewDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
+                NewValueColor = item.ParentId is not null ? attributeColors[item.ParentId] : null,
                 OldValueName = item.OldDisplayValue,
-                OldValueColor = item.OldDisplayValue is not null && item.ParentId is not null ? attributeColors[item.ParentId] : null,
+                OldValueColor = item.ParentId is not null ? attributeColors[item.ParentId] : null,
             },
             PropertyType.Attachment => new IssueHistoryAttachmentChange
             {

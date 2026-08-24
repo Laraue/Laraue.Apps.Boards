@@ -1060,12 +1060,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(AttachmentAction.Deleted, attachmentDeleteChange.Action);
         
         Assert.Equal("Description", descriptionAttributeChange.PropertyName);
+        Assert.Equal(AttributeType.Text, descriptionAttributeChange.AttributeType);
         Assert.Null(descriptionAttributeChange.NewValueName);
-        Assert.Null(descriptionAttributeChange.NewValueColor);
+        Assert.Equal("#444444", descriptionAttributeChange.NewValueColor);
         Assert.Equal("50 cents debt", descriptionAttributeChange.OldValueName);
         Assert.Equal("#444444", descriptionAttributeChange.OldValueColor);
         
         Assert.Equal("Urgency", urgencyAttributeChange.PropertyName);
+        Assert.Equal(AttributeType.List, urgencyAttributeChange.AttributeType);
         Assert.Equal("High", urgencyAttributeChange.NewValueName);
         Assert.Equal("Low", urgencyAttributeChange.OldValueName);
         Assert.Equal("#333333", urgencyAttributeChange.NewValueColor);

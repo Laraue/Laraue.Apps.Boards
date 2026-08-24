@@ -383,6 +383,7 @@ public class OrganizationsService(
                         DisplayName = x.User.DisplayName,
                         Initials = x.User.Initials,
                         OrganizationUserId = x.Id,
+                        UserId = x.UserId,
                         IsOwner = x.Organization!.OwnerId == x.UserId,
                         AdminAccessLevel = x.AdminAccessLevel,
                     })
@@ -670,6 +671,7 @@ public record GetOrganizationJoinCodeRequest
 public record OrganizationMember
 {
     public long OrganizationUserId { get; set; }
+    public required Guid UserId { get; set; }
     public required string DisplayName { get; set; }
     public required string Initials { get; set; }
     public required string Color { get; set; }
