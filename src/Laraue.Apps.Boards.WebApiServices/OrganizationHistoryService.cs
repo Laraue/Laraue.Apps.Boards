@@ -430,11 +430,11 @@ public class OrganizationHistoryService(
             PropertyType.Attribute => new IssueHistoryPropertyChange
             {
                 PropertyName = item.PropertyName ?? string.Empty,
-                AttributeType = item.ParentId is not null ? attributes[item.ParentId!].Type : default,
+                AttributeType = item.ParentId is not null ? attributes[item.ParentId].Type : default,
                 NewValueName = item.NewDisplayValue,
-                NewValueColor = item.ParentId is not null ? attributes[item.ParentId!].Color : null,
+                NewValueColor = item.ParentId is not null ? attributes[item.ParentId].Color : null,
                 OldValueName = item.OldDisplayValue,
-                OldValueColor = item.ParentId is not null ? attributes[item.ParentId!].Color : null,
+                OldValueColor = item.ParentId is not null ? attributes[item.ParentId].Color : null,
             },
             PropertyType.Attachment => new IssueHistoryAttachmentChange
             {
