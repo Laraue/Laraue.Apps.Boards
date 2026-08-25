@@ -900,4 +900,72 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var historyItem = Assert.Single(historyData!.Data);
         Assert.Equal(recentEntry.CreatedAt, historyItem.CreatedAt);
     }
+
+    [Fact]
+    public async Task GetVisibleUsers_ShouldReturnOnlySpaceMembers_WhenSpaceKeyProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "aa";
+            x.Color = "#111111";
+        });
+        var spaceMemberId = await testScope.CreateUser(x =>
+        {
+            x.TelegramUserName = "bb";
+            x.Color = "#222222";
+        });
+        var otherSpaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "cc");
+
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(spaceMemberId, b => b
+                .SetSpaceAccessLevel(0, x => x.CanRead = true)) // member of the DEF space
+            .AddSpace(ownerId)
+            .AddUser(otherSpaceMemberId, b => b
+                .SetSpaceAccessLevel(1, x => x.CanRead = true))); // member of the ADD space
+
+        var defSpaceKey = organization.Spaces![0].Key;
+
+        var members = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, otherSpaceMemberId)
+            .Execute(x => x.GetVisibleUsers(defSpaceKey));
+
+        Assert.Equal(2, members!.Length);
+        Assert.Equal(["AA", "BB"], members.Select(x => x.Initials).OrderBy(x => x));
+        Assert.DoesNotContain(members, x => x.UserId == otherSpaceMemberId);
+    }
+
+    [Fact]
+    public async Task GetVisibleUsers_ShouldReturnUsersAcrossAllReadableSpaces_WhenSpaceKeyOmitted()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(x => x.TelegramUserName = "aa");
+        var spaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "bb");
+        var otherSpaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "cc");
+
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(spaceMemberId, b => b
+                .SetSpaceAccessLevel(0, x => x.CanRead = true)) // member of the DEF space only
+            .AddSpace(ownerId)
+            .AddUser(otherSpaceMemberId, b => b
+                .SetSpaceAccessLevel(1, x => x.CanRead = true))); // member of the ADD space only
+
+        // Only readable space for spaceMemberId is DEF, so only its members should come back.
+        var members = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, spaceMemberId)
+            .Execute(x => x.GetVisibleUsers(null));
+
+        Assert.Equal(2, members!.Length);
+        Assert.Contains(members, x => x.UserId == ownerId);
+        Assert.Contains(members, x => x.UserId == spaceMemberId);
+        Assert.DoesNotContain(members, x => x.UserId == otherSpaceMemberId);
+
+        // Owner has org-wide read, so every space's members are visible.
+        members = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetVisibleUsers(null));
+
+        Assert.Equal(3, members!.Length);
+        Assert.True(Assert.Single(members, x => x.UserId == ownerId).IsCurrentUser);
+    }
 }

@@ -138,9 +138,8 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        var members = await accessService.GetSpaceMembers(
-            request.AuthData,
-            spaceId,
+        var members = await accessService.GetVisibleUsers(
+            [spaceId],
             query => query
                 .Select(x => new SpaceMember
                 {
@@ -150,7 +149,8 @@ public class SpacesService(
                     Color = x.User.Color,
                     IsCurrentUser = x.UserId == request.AuthData.UserId,
                 })
-                .ToArrayAsyncEF(cancellationToken));
+                .ToArrayAsyncEF(cancellationToken),
+            cancellationToken);
 
         return members;
     }

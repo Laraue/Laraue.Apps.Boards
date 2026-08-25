@@ -238,6 +238,21 @@ public class OrganizationsController(
     }
 
     [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
+    [HttpGet("visible-users")]
+    public Task<VisibleUser[]> GetVisibleUsers(
+        [Microsoft.AspNetCore.Mvc.FromQuery] string? spaceKey = null,
+        CancellationToken cancellationToken = default)
+    {
+        return organizationsService.GetVisibleUsers(
+            new GetVisibleUsersRequest
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                SpaceKey = spaceKey,
+            },
+            cancellationToken);
+    }
+
+    [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
     [HttpPost("attributes")]
     public Task<long> CreateAttribute(
         [FromBody] CreateAttributeRequest request,

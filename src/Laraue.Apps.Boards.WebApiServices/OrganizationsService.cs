@@ -65,7 +65,11 @@ public interface IOrganizationsService
     Task<OrganizationMember[]> GetOrganizationMembers(
         GetOrganizationMembersRequest request,
         CancellationToken cancellationToken);
-    
+
+    Task<VisibleUser[]> GetVisibleUsers(
+        GetVisibleUsersRequest request,
+        CancellationToken cancellationToken);
+
     Task<string?> GetOrganizationJoinCode(
         GetOrganizationJoinCodeRequest request,
         CancellationToken cancellationToken);
@@ -93,6 +97,7 @@ public interface IOrganizationsService
 
 public class OrganizationsService(
     ICoreOrganizationsService coreOrganizationsService,
+    ICoreSpacesService coreSpacesService,
     DatabaseContext context,
     IAuthService authService,
     IAccessService accessService)
@@ -402,6 +407,43 @@ public class OrganizationsService(
         return data;
     }
 
+    public async Task<VisibleUser[]> GetVisibleUsers(
+        GetVisibleUsersRequest request,
+        CancellationToken cancellationToken)
+    {
+        long[] spaceIds;
+        if (request.SpaceKey is not null)
+        {
+            var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+                request.AuthData.OrganizationId,
+                request.SpaceKey,
+                cancellationToken);
+
+            spaceIds = [spaceId];
+        }
+        else
+        {
+            spaceIds = await accessService.GetAvailableSpaces(
+                request.AuthData,
+                query => query.Select(s => s.Id).ToArrayAsyncEF(cancellationToken),
+                cancellationToken);
+        }
+
+        return await accessService.GetVisibleUsers(
+            spaceIds,
+            query => query
+                .Select(x => new VisibleUser
+                {
+                    UserId = x.UserId,
+                    Initials = x.User!.Initials,
+                    DisplayName = x.User.DisplayName,
+                    Color = x.User.Color,
+                    IsCurrentUser = x.UserId == request.AuthData.UserId,
+                })
+                .ToArrayAsyncEF(cancellationToken),
+            cancellationToken);
+    }
+
     public async Task<string?> GetOrganizationJoinCode(GetOrganizationJoinCodeRequest request, CancellationToken cancellationToken)
     {
         await EnsureAdminAccess(
@@ -687,6 +729,26 @@ public record OrganizationMember
     public required string Color { get; set; }
     public required bool IsOwner { get; set; }
     public required AdminAccessLevel AdminAccessLevel { get; set; }
+}
+
+public record GetVisibleUsersRequest
+{
+    public required OrganizationAuthData AuthData { get; set; }
+
+    /// <summary>
+    /// Narrows candidates to members of this one space. When omitted, every space the
+    /// requesting user can read is in scope.
+    /// </summary>
+    public string? SpaceKey { get; set; }
+}
+
+public record VisibleUser
+{
+    public required Guid UserId { get; set; }
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
+    public required string Color { get; set; }
+    public required bool IsCurrentUser { get; set; }
 }
 
 public record GetPermittableEntitiesRequest

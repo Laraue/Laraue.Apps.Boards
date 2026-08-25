@@ -48,13 +48,17 @@ public interface IAccessService
         CancellationToken cancellationToken);
     
     /// <summary>
-    /// Returns members that can read the requested space.
+    /// Returns organization users that can read any of the requested spaces — via either
+    /// org-wide <c>CanRead</c> or a direct per-space grant. Organization scope is derived from
+    /// the spaces themselves rather than taking an <see cref="OrganizationAuthData"/>, so this
+    /// also works for callers (e.g. the Telegram inline search) whose space set spans more than
+    /// one organization.
     /// </summary>
-    Task<T> GetSpaceMembers<T>(
-        OrganizationAuthData authData,
-        long spaceId,
-        Func<IQueryable<OrganizationUser>, Task<T>> map);
-    
+    Task<T> GetVisibleUsers<T>(
+        long[] spaceIds,
+        Func<IQueryable<OrganizationUser>, Task<T>> map,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Get all spaces where user can create epics.
     /// </summary>
@@ -186,29 +190,33 @@ public class AccessService(DatabaseContext context) : IAccessService
         return await map(query); 
     }
 
-    public Task<T> GetSpaceMembers<T>(
-        OrganizationAuthData authData,
-        long spaceId,
-        Func<IQueryable<OrganizationUser>, Task<T>> map)
+    public async Task<T> GetVisibleUsers<T>(
+        long[] spaceIds,
+        Func<IQueryable<OrganizationUser>, Task<T>> map,
+        CancellationToken cancellationToken)
     {
+        var orgIds = context.Spaces
+            .Where(s => spaceIds.Contains(s.Id))
+            .Select(s => s.OrganizationId)
+            .Distinct();
+
         var organizationUsersWithOrganizationLevelRead = context.OrganizationUsers
-            .Where(ou => ou.OrganizationId == authData.OrganizationId)
+            .Where(ou => orgIds.Contains(ou.OrganizationId))
             .Where(ou => ou.CanRead)
             .Select(ou => ou.Id);
 
         var organizationUsersWithDirectSpaceRead = context.DirectSpacePermissions
-            .Where(sos => sos.OrganizationUser!.OrganizationId == authData.OrganizationId)
-            .Where(sos => sos.SpaceId == spaceId)
+            .Where(sos => spaceIds.Contains(sos.SpaceId))
             .Where(sos => sos.CanRead)
             .Select(sos => sos.OrganizationUserId);
 
-        var spaceMemberIds = organizationUsersWithOrganizationLevelRead
+        var visibleUserIds = organizationUsersWithOrganizationLevelRead
             .Union(organizationUsersWithDirectSpaceRead);
 
         var query = context.OrganizationUsers
-            .Where(ou => spaceMemberIds.Contains(ou.Id));
-        
-        return map(query);
+            .Where(ou => visibleUserIds.Contains(ou.Id));
+
+        return await map(query);
     }
 
     public Task<T> GetSpacesWithAllowedEpicCreation<T>(
