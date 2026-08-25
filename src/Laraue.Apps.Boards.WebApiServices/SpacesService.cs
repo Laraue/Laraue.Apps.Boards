@@ -138,9 +138,8 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        var members = await accessService.GetSpaceMembers(
-            request.AuthData,
-            spaceId,
+        var members = await accessService.GetVisibleUsers(
+            [spaceId],
             query => query
                 .Select(x => new SpaceMember
                 {

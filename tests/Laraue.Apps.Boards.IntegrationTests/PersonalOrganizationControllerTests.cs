@@ -12,6 +12,7 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
 {
     private readonly Proxy<OrganizationsController> _organizationsController = host.Controller<OrganizationsController>();
+    private readonly Proxy<AdminOrganizationsController> _adminOrganizationsController = host.Controller<AdminOrganizationsController>();
     private readonly Proxy<SpacesController> _spacesController = host.Controller<SpacesController>();
     
     [Fact]
@@ -26,7 +27,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
             setup => setup
                 .WithTimestamp(timestamp));
 
-        await _organizationsController
+        await _adminOrganizationsController
             .WithUserAuthorization(userId)
             .Execute(x => x.Update(
                 organization.Id,
@@ -56,7 +57,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
 
         var organization = await testScope.InitializePersonalOrganization(userId);
         
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
             .WithUserAuthorization(nonPermittedUserId)
             .Execute(x => x.Update(
                 organization.Id,
@@ -77,7 +78,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializePersonalOrganization(userId);
         
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
             .WithUserAuthorization(userId)
             .Execute(x => x.Delete(organization.Id)));
 
@@ -93,7 +94,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
         var nonPermittedUserId = await testScope.CreateUser();
         var organization = await testScope.InitializePersonalOrganization(userId);
         
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
             .WithUserAuthorization(nonPermittedUserId)
             .Execute(x => x.Delete(organization.Id)));
         
@@ -150,7 +151,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializePersonalOrganization(userId);
 
-        var attributeId = await _organizationsController
+        var attributeId = await _adminOrganizationsController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.CreateAttribute(
                 new CreateAttributeRequest
@@ -186,7 +187,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializePersonalOrganization(userId);
 
-        await _organizationsController
+        await _adminOrganizationsController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.CreateAttribute(
                 new CreateAttributeRequest
@@ -240,7 +241,7 @@ public class PersonalOrganizationControllerTests(WebApiTestHost host) : IClassFi
                 .AddListAttribute("Color", ["Red", "Green"]));
 
         var firstAttributeId = organization.GetAttribute(0).Id;
-        await _organizationsController
+        await _adminOrganizationsController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.DeleteAttribute(firstAttributeId));
         

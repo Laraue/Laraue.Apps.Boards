@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Telegram.Bot.Types.Enums;
@@ -13,7 +14,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 /// (<see cref="FilterContext.EffectiveSpaceIds"/>) — not just org membership, since a user
 /// might have only a direct per-space grant without org-wide read access.
 /// </summary>
-public sealed class AssigneeTokenFilter(IOptions<AppOptions> options) : IQueryTokenFilter
+public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessService accessService) : IQueryTokenFilter
 {
     private readonly record struct UserCandidate(Guid Id, string Username);
 
@@ -151,7 +152,7 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options) : IQueryTo
         return new SuggestionsResolution(results);
     }
 
-    private static async Task<IReadOnlyList<UserCandidate>> GetCandidateUsersAsync(
+    private async Task<IReadOnlyList<UserCandidate>> GetCandidateUsersAsync(
         FilterContext context,
         CancellationToken ct)
     {
@@ -161,36 +162,18 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options) : IQueryTo
         // member) might have access to only one space in an org via a direct space
         // permission, without org-wide CanRead — showing every org member here would leak
         // people who can't actually see the space(s) being searched.
-        var scopeSpaceIds = context.EffectiveSpaceIds;
+        var scopeSpaceIds = context.EffectiveSpaceIds.ToArray();
 
-        var orgIdsForScope = context.ReadableSpaces
-            .Where(s => scopeSpaceIds.Contains(s.Id))
-            .Select(s => s.OrganizationId)
-            .Distinct()
-            .ToArray();
-
-        // Adjust `context.DbContext.OrganizationUsers` / `DirectSpacePermissions` / `Users`
-        // to your actual DbSet and property names if different. A candidate is anyone who can
-        // read at least one of the in-scope spaces, via either org-wide CanRead or a direct
-        // per-space grant — mirrors exactly how the searching user's own readable spaces are
-        // computed (org-wide OR direct-space), just run in the other direction.
-        var orgWideUserIds = context.DbContext.OrganizationUsers
-            .Where(ou => orgIdsForScope.Contains(ou.OrganizationId) && ou.CanRead)
-            .Select(ou => ou.UserId);
-
-        var spaceScopedUserIds = context.DbContext.DirectSpacePermissions
-            .Where(p => scopeSpaceIds.Contains(p.SpaceId) && p.CanRead)
-            .Select(p => p.OrganizationUser!.UserId);
-
-        var candidates = await context.DbContext.Users
-            .Where(u => orgWideUserIds.Contains(u.Id) || spaceScopedUserIds.Contains(u.Id))
-            .Where(u => u.TelegramUserName != null)
-            .Select(u => new { u.Id, u.TelegramUserName })
-            .Distinct()
-            .ToListAsyncLinqToDB(ct);
+        var candidates = await accessService.GetVisibleUsers(
+            scopeSpaceIds,
+            query => query
+                .Where(ou => ou.User!.TelegramUserName != null)
+                .Select(ou => new { ou.UserId, ou.User!.TelegramUserName })
+                .Distinct()
+                .ToListAsyncLinqToDB(ct));
 
         return candidates
-            .Select(u => new UserCandidate(u.Id, u.TelegramUserName!))
+            .Select(u => new UserCandidate(u.UserId, u.TelegramUserName!))
             .ToList();
     }
 }
