@@ -36,6 +36,10 @@ jobs:
     - name: Run all tests
       run: dotnet test -c Release --no-build
     
+    - name: Pack Telegram Host
+      if: github.ref == 'refs/heads/main'
+      run: tar -czf telegram-host.tar.gz -C src/Laraue.Apps.Boards.TelegramHost/bin/Release/net10.0 .
+
     - name: Upload Telegram Host
       if: github.ref == 'refs/heads/main'
       uses: marcodallasanta/ssh-scp-deploy@v1.2.0
@@ -44,10 +48,16 @@ jobs:
        port: ${{ secrets.SSH_PORT }} # 22
        user: ${{ secrets.SSH_USER }} # "user"
        password: ${{ secrets.SSH_PASSWORD }} # "password"
-       local: src/Laraue.Apps.Boards.TelegramHost/bin/Release/net10.0/*
+       local: telegram-host.tar.gz
        remote: "/home/laraue/boards-telegram-host"
-       post_upload: echo "Uploaded successfully"
-       
+       post_upload:
+        cd /home/laraue/boards-telegram-host && find . -mindepth 1 ! -name telegram-host.tar.gz -delete &&
+        tar -xzf telegram-host.tar.gz && rm telegram-host.tar.gz
+
+    - name: Pack Web API Host
+      if: github.ref == 'refs/heads/main'
+      run: tar -czf webapi-host.tar.gz -C src/Laraue.Apps.Boards.WebApiHost/bin/Release/net10.0 .
+
     - name: Upload Web API Host
       if: github.ref == 'refs/heads/main'
       uses: marcodallasanta/ssh-scp-deploy@v1.2.0
@@ -56,6 +66,8 @@ jobs:
        port: ${{ secrets.SSH_PORT }} # 22
        user: ${{ secrets.SSH_USER }} # "user"
        password: ${{ secrets.SSH_PASSWORD }} # "password"
-       local: src/Laraue.Apps.Boards.WebApiHost/bin/Release/net10.0/*
+       local: webapi-host.tar.gz
        remote: "/home/laraue/boards-webapi-host"
-       post_upload: echo "Uploaded successfully"
+       post_upload:
+        cd /home/laraue/boards-webapi-host && find . -mindepth 1 ! -name webapi-host.tar.gz -delete &&
+        tar -xzf webapi-host.tar.gz && rm webapi-host.tar.gz
