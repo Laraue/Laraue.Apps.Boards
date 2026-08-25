@@ -7,16 +7,17 @@ using Microsoft.AspNetCore.Mvc;
 namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 
 /// <summary>
-/// Every action here requires organization-level admin access (checked via
-/// <see cref="IOrganizationsService"/>'s <c>EnsureAdminAccess</c>, not just organization
-/// membership) — kept separate from <see cref="OrganizationsController"/> so the route alone
-/// tells you an action is admin-gated, and so <c>/api/organizations/members</c> stays free for
+/// Every action here requires organization-level admin access, enforced by
+/// <see cref="IAdminOrganizationsService"/>'s <c>EnsureAdminAccess</c> — kept as its own
+/// service/controller pair, separate from <see cref="OrganizationsController"/> and
+/// <see cref="IOrganizationsService"/>, so the admin-gated surface can't be reached except
+/// through an admin-authorized route, and so <c>/api/organizations/members</c> stays free for
 /// the non-admin "who can I filter/assign to" endpoint.
 /// </summary>
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 [ApiController]
 [Route("/api/admin/organizations")]
-public class AdminOrganizationsController(IOrganizationsService organizationsService) : ControllerBase
+public class AdminOrganizationsController(IAdminOrganizationsService adminOrganizationsService) : ControllerBase
 {
     // Update/Delete organization aren't Organization-token-scoped like the rest of this
     // controller — they take the organization id from the route and run under the plain User
@@ -28,7 +29,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         [FromBody] EditOrganizationRequest request,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.Update(
+        return adminOrganizationsService.Update(
             request with
             {
                 Id = id,
@@ -43,7 +44,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         long id,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.Delete(
+        return adminOrganizationsService.Delete(
             new DeleteOrganizationRequest
             {
                 Id = id,
@@ -56,7 +57,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
     public Task<string> RegenerateCode(
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.RegenerateJoinCode(
+        return adminOrganizationsService.RegenerateJoinCode(
             new RegenerateJoinCodeRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
@@ -68,7 +69,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
     public Task<string?> GetJoinCode(
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.GetOrganizationJoinCode(
+        return adminOrganizationsService.GetOrganizationJoinCode(
             new GetOrganizationJoinCodeRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
@@ -81,7 +82,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         long organizationUserId,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.RevokeAccess(
+        return adminOrganizationsService.RevokeAccess(
             new RevokeAccessRequest
             {
                 OrganizationUserId = organizationUserId,
@@ -95,7 +96,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         long organizationUserId,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.GetUserPermissions(
+        return adminOrganizationsService.GetUserPermissions(
             new GetUserPermissionsRequest
             {
                 OrganizationUserId = organizationUserId,
@@ -110,7 +111,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         [FromBody] SetPermissionsRequest request,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.SetUserPermissions(
+        return adminOrganizationsService.SetUserPermissions(
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
@@ -123,7 +124,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
     public Task<PermittableSpace[]> GetPermittableEntities(
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.GetPermittableEntities(
+        return adminOrganizationsService.GetPermittableEntities(
             new GetPermittableEntitiesRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
@@ -135,7 +136,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
     public Task<OrganizationMember[]> GetOrganizationMembers(
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.GetOrganizationMembers(
+        return adminOrganizationsService.GetOrganizationMembers(
             new GetOrganizationMembersRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData()
@@ -148,7 +149,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         [FromBody] CreateAttributeRequest request,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.CreateAttribute(
+        return adminOrganizationsService.CreateAttribute(
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData()
@@ -162,7 +163,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         [FromBody] UpdateAttributeRequest request,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.UpdateAttribute(
+        return adminOrganizationsService.UpdateAttribute(
             request with
             {
                 Id = id,
@@ -176,7 +177,7 @@ public class AdminOrganizationsController(IOrganizationsService organizationsSer
         [FromPath] long id,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.DeleteAttribute(
+        return adminOrganizationsService.DeleteAttribute(
             new DeleteAttributeRequest
             {
                 Id = id,
