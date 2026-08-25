@@ -111,12 +111,12 @@ public class OrganizationsController(
 
     [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
     [HttpGet("members")]
-    public Task<VisibleUser[]> GetVisibleUsers(
+    public Task<VisibleUser[]> GetMembers(
         [Microsoft.AspNetCore.Mvc.FromQuery] string? spaceKey = null,
         CancellationToken cancellationToken = default)
     {
-        return organizationsService.GetVisibleUsers(
-            new GetVisibleUsersRequest
+        return organizationsService.GetMembers(
+            new GetMembersRequest
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
                 SpaceKey = spaceKey,

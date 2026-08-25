@@ -66,8 +66,8 @@ public interface IOrganizationsService
         GetOrganizationMembersRequest request,
         CancellationToken cancellationToken);
 
-    Task<VisibleUser[]> GetVisibleUsers(
-        GetVisibleUsersRequest request,
+    Task<VisibleUser[]> GetMembers(
+        GetMembersRequest request,
         CancellationToken cancellationToken);
 
     Task<string?> GetOrganizationJoinCode(
@@ -407,8 +407,8 @@ public class OrganizationsService(
         return data;
     }
 
-    public async Task<VisibleUser[]> GetVisibleUsers(
-        GetVisibleUsersRequest request,
+    public async Task<VisibleUser[]> GetMembers(
+        GetMembersRequest request,
         CancellationToken cancellationToken)
     {
         long[] spaceIds;
@@ -730,7 +730,7 @@ public record OrganizationMember
     public required AdminAccessLevel AdminAccessLevel { get; set; }
 }
 
-public record GetVisibleUsersRequest
+public record GetMembersRequest
 {
     public required OrganizationAuthData AuthData { get; set; }
 

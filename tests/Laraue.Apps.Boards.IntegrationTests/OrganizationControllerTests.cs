@@ -903,7 +903,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
-    public async Task GetVisibleUsers_ShouldReturnOnlySpaceMembers_WhenSpaceKeyProvided()
+    public async Task GetMembers_ShouldReturnOnlySpaceMembers_WhenSpaceKeyProvided()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser(x =>
@@ -929,7 +929,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 
         var members = await _organizationsController
             .WithOrganizationAuthorization(organization.Id, otherSpaceMemberId)
-            .Execute(x => x.GetVisibleUsers(defSpaceKey));
+            .Execute(x => x.GetMembers(defSpaceKey));
 
         Assert.Equal(2, members!.Length);
         Assert.Equal(["AA", "BB"], members.Select(x => x.Initials).OrderBy(x => x));
@@ -937,7 +937,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
-    public async Task GetVisibleUsers_ShouldReturnUsersAcrossAllReadableSpaces_WhenSpaceKeyOmitted()
+    public async Task GetMembers_ShouldReturnUsersAcrossAllReadableSpaces_WhenSpaceKeyOmitted()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser(x => x.TelegramUserName = "aa");
@@ -954,7 +954,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         // Only readable space for spaceMemberId is DEF, so only its members should come back.
         var members = await _organizationsController
             .WithOrganizationAuthorization(organization.Id, spaceMemberId)
-            .Execute(x => x.GetVisibleUsers(null));
+            .Execute(x => x.GetMembers(null));
 
         Assert.Equal(2, members!.Length);
         Assert.Contains(members, x => x.UserId == ownerId);
@@ -964,7 +964,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         // Owner has org-wide read, so every space's members are visible.
         members = await _organizationsController
             .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.GetVisibleUsers(null));
+            .Execute(x => x.GetMembers(null));
 
         Assert.Equal(3, members!.Length);
         Assert.True(Assert.Single(members, x => x.UserId == ownerId).IsCurrentUser);
