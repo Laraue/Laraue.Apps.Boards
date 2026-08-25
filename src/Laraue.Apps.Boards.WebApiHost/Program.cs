@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
 using Scalar.AspNetCore;
 
 namespace Laraue.Apps.Boards.WebApiHost;
@@ -27,6 +28,14 @@ public sealed class Program
             .AddDatabaseServices(dbConnectionStringName);
 
         builder.Services.AddHealthChecks();
+
+        builder.Services
+            .AddOpenTelemetry()
+            .WithMetrics(metrics => metrics
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddPrometheusExporter());
 
         var app = builder.Build();
 
@@ -69,6 +78,7 @@ public sealed class Program
         }
 
         app.MapHealthChecks("/_health");
+        app.MapPrometheusScrapingEndpoint("/_metrics");
         await app.RunAsync();
     }
 }

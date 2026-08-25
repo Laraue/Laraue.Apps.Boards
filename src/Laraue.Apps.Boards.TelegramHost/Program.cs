@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Telegram.NET.Core.Extensions;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
 
 namespace Laraue.Apps.Boards.TelegramHost;
 
@@ -21,6 +22,14 @@ public sealed class Program
 
         builder.Services.AddHealthChecks();
 
+        builder.Services
+            .AddOpenTelemetry()
+            .WithMetrics(metrics => metrics
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddPrometheusExporter());
+
         var app = builder.Build();
 
         app.Services.UseLinq2Db();
@@ -34,6 +43,7 @@ public sealed class Program
         }
 
         app.MapHealthChecks("/_health");
+        app.MapPrometheusScrapingEndpoint("/_metrics");
         await app.RunAsync();
     }
 }
