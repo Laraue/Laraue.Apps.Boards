@@ -149,8 +149,7 @@ public class SpacesService(
                     Color = x.User.Color,
                     IsCurrentUser = x.UserId == request.AuthData.UserId,
                 })
-                .ToArrayAsyncEF(cancellationToken),
-            cancellationToken);
+                .ToArrayAsyncEF(cancellationToken));
 
         return members;
     }

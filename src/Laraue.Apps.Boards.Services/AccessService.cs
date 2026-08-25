@@ -56,8 +56,7 @@ public interface IAccessService
     /// </summary>
     Task<T> GetVisibleUsers<T>(
         long[] spaceIds,
-        Func<IQueryable<OrganizationUser>, Task<T>> map,
-        CancellationToken cancellationToken);
+        Func<IQueryable<OrganizationUser>, Task<T>> map);
 
     /// <summary>
     /// Get all spaces where user can create epics.
@@ -192,8 +191,7 @@ public class AccessService(DatabaseContext context) : IAccessService
 
     public async Task<T> GetVisibleUsers<T>(
         long[] spaceIds,
-        Func<IQueryable<OrganizationUser>, Task<T>> map,
-        CancellationToken cancellationToken)
+        Func<IQueryable<OrganizationUser>, Task<T>> map)
     {
         var orgIds = context.Spaces
             .Where(s => spaceIds.Contains(s.Id))

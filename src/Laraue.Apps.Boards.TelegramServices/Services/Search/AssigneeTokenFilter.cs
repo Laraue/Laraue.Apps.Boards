@@ -33,7 +33,7 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
             return new AppliedResolution(filtered, Description: "assignee \"me\"");
         }
 
-        var candidates = await GetCandidateUsersAsync(accessService, context, ct);
+        var candidates = await GetCandidateUsersAsync(context, ct);
 
         if (value.Length == 0)
         {
@@ -152,8 +152,7 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
         return new SuggestionsResolution(results);
     }
 
-    private static async Task<IReadOnlyList<UserCandidate>> GetCandidateUsersAsync(
-        IAccessService accessService,
+    private async Task<IReadOnlyList<UserCandidate>> GetCandidateUsersAsync(
         FilterContext context,
         CancellationToken ct)
     {
@@ -171,8 +170,7 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
                 .Where(ou => ou.User!.TelegramUserName != null)
                 .Select(ou => new { ou.UserId, ou.User!.TelegramUserName })
                 .Distinct()
-                .ToListAsyncLinqToDB(ct),
-            ct);
+                .ToListAsyncLinqToDB(ct));
 
         return candidates
             .Select(u => new UserCandidate(u.UserId, u.TelegramUserName!))

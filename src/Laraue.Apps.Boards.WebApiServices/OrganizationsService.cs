@@ -440,8 +440,7 @@ public class OrganizationsService(
                     Color = x.User.Color,
                     IsCurrentUser = x.UserId == request.AuthData.UserId,
                 })
-                .ToArrayAsyncEF(cancellationToken),
-            cancellationToken);
+                .ToArrayAsyncEF(cancellationToken));
     }
 
     public async Task<string?> GetOrganizationJoinCode(GetOrganizationJoinCodeRequest request, CancellationToken cancellationToken)
