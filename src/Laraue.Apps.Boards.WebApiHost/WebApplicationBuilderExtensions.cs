@@ -33,6 +33,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IUserOnboardingService, UserOnboardingService>()
                 .AddScoped<ISpacesService, SpacesService>()
                 .AddScoped<IOrganizationsService, OrganizationsService>()
+                .AddScoped<IRetrosService, RetrosService>()
                 .AddScoped<IAdminOrganizationsService, AdminOrganizationsService>()
                 .AddScoped<IMovementService, MovementService>();
 
@@ -47,6 +48,11 @@ public static class WebApplicationBuilderExtensions
             builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
                 options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
             
+            builder.Services
+                .AddSignalR()
+                .AddJsonProtocol(options => options.PayloadSerializerOptions
+                    .Converters.Add(new JsonStringEnumConverter()));
+
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddOpenApi();
 

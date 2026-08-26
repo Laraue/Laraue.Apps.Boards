@@ -2,7 +2,7 @@
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.Exceptions.Web;
 
-namespace Laraue.Apps.Boards.WebApiHost;
+namespace Laraue.Apps.Boards.WebApiServices;
 
 public static class ClaimsPrincipalExtensions
 {

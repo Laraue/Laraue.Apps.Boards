@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -35,7 +36,11 @@ public static class WebApplicationBuilderExtensions
         
         public WebApplicationBuilder AddCoreServices()
         {
-            builder.Logging.ClearProviders().AddJsonConsole();
+            builder.Logging.ClearProviders();
+            if (builder.Environment.IsDevelopment())
+                builder.Logging.AddSimpleConsole();
+            else
+                builder.Logging.AddJsonConsole();
 
             builder.Services
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()
@@ -51,6 +56,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreSpacesService, CoreSpacesService>()
                 .AddScoped<ISpaceCounterService, SpaceCounterService>()
                 .AddScoped<ICoreOrganizationsService, CoreOrganizationsService>()
+                .AddScoped<ICoreRetrosService, CoreRetrosService>()
                 .AddScoped<ICoreMovementService, CoreMovementService>()
                 .AddScoped<ICoreFilesService, CoreFilesService>()
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()

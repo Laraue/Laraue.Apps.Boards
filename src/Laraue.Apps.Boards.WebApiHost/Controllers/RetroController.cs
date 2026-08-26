@@ -1,0 +1,103 @@
+﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Laraue.Apps.Boards.WebApiHost.Controllers;
+
+[Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
+[ApiController]
+[Route("/api/retro")]
+public class RetroController(IRetrosService retrosService) : ControllerBase
+{
+    [HttpGet]
+    public Task<RetroListItem[]> Get(CancellationToken cancellationToken = default) =>
+        retrosService.Get(AuthData(), cancellationToken);
+
+    [HttpGet("{id:long}")]
+    public Task<GetRetroResponse> Get(
+        [FromRoute] long id,
+        CancellationToken cancellationToken = default) =>
+        retrosService.Get(id, AuthData(), cancellationToken);
+
+    [HttpPost]
+    public Task<CreateRetroResponse> Create(
+        [FromBody] CreateRetroRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.Create(request, AuthData(), cancellationToken);
+
+    [HttpPost("{id:long}/finish")]
+    public Task Finish(
+        [FromRoute] long id,
+        CancellationToken cancellationToken = default) =>
+        retrosService.Finish(id, AuthData(), cancellationToken);
+
+    [HttpPost("{id:long}/settings")]
+    public Task UpdateSettings(
+        [FromRoute] long id,
+        [FromBody] UpdateRetroSettingsRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.UpdateSettings(id, request, AuthData(), cancellationToken);
+
+    [HttpPost("{id:long}/timer")]
+    public Task SetVoteTimer(
+        [FromRoute] long id,
+        [FromBody] SetRetroTimerRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.SetVoteTimer(id, request, AuthData(), cancellationToken);
+
+    [HttpPost("{id:long}/reveal-mine")]
+    public Task SetMyCardsRevealed(
+        [FromRoute] long id,
+        [FromBody] SetRetroRevealRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.SetMyCardsRevealed(id, request, AuthData(), cancellationToken);
+
+    [HttpPost("{id:long}/cards")]
+    public Task<CreateRetroCardResponse> CreateCard(
+        [FromRoute] long id,
+        [FromBody] CreateRetroCardRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.CreateCard(id, request, AuthData(), cancellationToken);
+
+    [HttpPut("cards/{cardId:guid}")]
+    public Task UpdateCard(
+        [FromRoute] Guid cardId,
+        [FromBody] UpdateRetroCardRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.UpdateCard(cardId, request, AuthData(), cancellationToken);
+
+    [HttpPut("cards/{cardId:guid}/position")]
+    public Task MoveCard(
+        [FromRoute] Guid cardId,
+        [FromBody] MoveRetroCardRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.MoveCard(cardId, request, AuthData(), cancellationToken);
+
+    [HttpDelete("cards/{cardId:guid}")]
+    public Task DeleteCard(
+        [FromRoute] Guid cardId,
+        CancellationToken cancellationToken = default) =>
+        retrosService.DeleteCard(cardId, AuthData(), cancellationToken);
+
+    [HttpPost("cards/{cardId:guid}/vote")]
+    public Task ToggleVote(
+        [FromRoute] Guid cardId,
+        CancellationToken cancellationToken = default) =>
+        retrosService.ToggleVote(cardId, AuthData(), cancellationToken);
+
+    [HttpPost("cards/{cardId:guid}/done")]
+    public Task ToggleDone(
+        [FromRoute] Guid cardId,
+        CancellationToken cancellationToken = default) =>
+        retrosService.ToggleDone(cardId, AuthData(), cancellationToken);
+
+    [HttpPost("cards/{cardId:guid}/reveal")]
+    public Task ToggleReveal(
+        [FromRoute] Guid cardId,
+        CancellationToken cancellationToken = default) =>
+        retrosService.ToggleReveal(cardId, AuthData(), cancellationToken);
+
+    private OrganizationAuthData AuthData() => HttpContext.User.GetOrganizationAuthData();
+}

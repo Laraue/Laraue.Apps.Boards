@@ -34,6 +34,11 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<DirectSpacePermission> DirectSpacePermissions { get; init; }
     public DbSet<Organization> Organizations { get; init; }
     public DbSet<OrganizationUser> OrganizationUsers { get; init; }
+    public DbSet<Retro> Retros { get; init; }
+    public DbSet<RetroSection> RetroSections { get; init; }
+    public DbSet<RetroCard> RetroCards { get; init; }
+    public DbSet<RetroCardVote> RetroCardVotes { get; init; }
+    public DbSet<RetroParticipant> RetroParticipants { get; init; }
     public DbSet<Status> Statuses { get; init; }
     public DbSet<TelegramFile> TelegramFiles { get; init; }
     public DbSet<TelegramMessage> TelegramMessages { get; init; }
@@ -180,6 +185,30 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => new { x.SlugPostfix, x.Slug })
                 .IsUnique();
+        });
+
+        modelBuilder.Entity<Retro>(entity =>
+        {
+            entity
+                .HasIndex(x => new { x.OrganizationId, x.CreatedAt })
+                .IsDescending(false, true);
+        });
+
+        modelBuilder.Entity<RetroSection>(entity =>
+        {
+            entity
+                .HasIndex(x => new { x.RetroId, x.SortOrder })
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<RetroCardVote>(entity =>
+        {
+            entity.HasKey(x => new { x.CardId, x.UserId });
+        });
+
+        modelBuilder.Entity<RetroParticipant>(entity =>
+        {
+            entity.HasKey(x => new { x.RetroId, x.UserId });
         });
         
         modelBuilder.Entity<User>(builder =>

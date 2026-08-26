@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 
 <root>
     <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
@@ -131,5 +131,17 @@
     </data>
     <data name="SpaceNotExists" xml:space="preserve">
         <value>Space: {0} is not exists</value>
+    </data>
+    <data name="RetroFinished" xml:space="preserve">
+        <value>The retro is finished and can no longer be changed.</value>
+    </data>
+    <data name="RetroVoteTimerNotRunning" xml:space="preserve">
+        <value>Start the timer to vote.</value>
+    </data>
+    <data name="RetroVoteLimitReached" xml:space="preserve">
+        <value>You have used all available votes.</value>
+    </data>
+    <data name="RetroCardDoneUnavailable" xml:space="preserve">
+        <value>Cards can only be marked as done in the Actions section during Discuss.</value>
     </data>
 </root>

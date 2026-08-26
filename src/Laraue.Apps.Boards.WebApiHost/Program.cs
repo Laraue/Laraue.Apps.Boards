@@ -1,5 +1,6 @@
-using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions;
 using Microsoft.EntityFrameworkCore;
@@ -56,6 +57,7 @@ public sealed class Program
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
+        app.MapHub<RetroHub>("/hubs/retro");
         app.Services.UseLinq2Db();
         app.UseMiddleware<ExceptionHandleMiddleware>();
 
