@@ -54,9 +54,21 @@ public interface IRetrosService
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
     Task DeleteCard(Guid cardId, OrganizationAuthData authData, CancellationToken cancellationToken);
-    Task ToggleVote(Guid cardId, OrganizationAuthData authData, CancellationToken cancellationToken);
-    Task ToggleDone(Guid cardId, OrganizationAuthData authData, CancellationToken cancellationToken);
-    Task ToggleReveal(Guid cardId, OrganizationAuthData authData, CancellationToken cancellationToken);
+    Task SetCardVote(
+        Guid cardId,
+        SetRetroCardVoteRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+    Task SetCardDone(
+        Guid cardId,
+        SetRetroCardDoneRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+    Task SetCardRevealed(
+        Guid cardId,
+        SetRetroCardRevealedRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
 }
 
 public class RetrosService(
@@ -102,49 +114,85 @@ public class RetrosService(
     {
         await EnsureParticipant(id, authData, cancellationToken);
         var currentUser = await GetCurrentUser(authData, cancellationToken);
+
         var retro = await context.Retros
-            .AsNoTracking()
-            .AsSplitQuery()
             .Where(x => x.Id == id && x.OrganizationId == authData.OrganizationId)
-            .Include(x => x.Sections)
-                .ThenInclude(x => x.Cards)
-                    .ThenInclude(x => x.Author)
-            .Include(x => x.Sections)
-                .ThenInclude(x => x.Cards)
-                    .ThenInclude(x => x.Votes)
-            .Include(x => x.Owner)
-            .Include(x => x.Participants)
-                .ThenInclude(x => x.User)
+            .Select(x => new
+            {
+                x.Id,
+                x.Name,
+                x.Color,
+                x.Phase,
+                x.CreatedAt,
+                x.FinishedAt,
+                x.VotesPerUser,
+                x.VoteEndsAt,
+                x.OwnerId,
+                Owner = new VisibleUser
+                {
+                    UserId = x.Owner!.Id,
+                    DisplayName = x.Owner.DisplayName,
+                    Initials = x.Owner.Initials,
+                    Color = x.Owner.Color,
+                    IsCurrentUser = x.Owner.Id == authData.UserId,
+                },
+            })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw RetroNotFound(id);
 
-        var cards = retro.Sections
-            .SelectMany(x => x.Cards)
-            .OrderBy(x => x.CreatedAt)
-            .Select(card => new RetroCardDto
+        var sections = await context.RetroSections
+            .Where(x => x.RetroId == id)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => new RetroSectionDto
             {
-                Id = card.Id,
-                SectionId = card.SectionId,
+                Id = x.Id,
+                Name = x.Name,
+                Color = x.Color,
+                SortOrder = x.SortOrder,
+            })
+            .ToArrayAsync(cancellationToken);
+
+        var cards = await context.RetroCards
+            .Where(x => x.Section!.RetroId == id)
+            .OrderBy(x => x.CreatedAt)
+            .Select(c => new RetroCardDto
+            {
+                Id = c.Id,
+                SectionId = c.SectionId,
                 // A covered note must not reach the client at all - the UI only blurs it.
-                Text = IsHidden(retro, card, authData.UserId) ? string.Empty : card.Text,
-                X = card.X,
-                Y = card.Y,
-                Done = card.Done,
-                Hidden = IsHidden(retro, card, authData.UserId),
-                Revealed = card.Revealed,
-                IsMine = card.AuthorId == authData.UserId,
-                Votes = retro.Phase == RetroPhase.Collect ? 0 : card.Votes.Count,
-                VotedByMe = card.Votes.Any(x => x.UserId == authData.UserId),
+                Text = retro.Phase == RetroPhase.Collect && c.AuthorId != authData.UserId && !c.Revealed
+                    ? string.Empty
+                    : c.Text,
+                X = c.X,
+                Y = c.Y,
+                Done = c.Done,
+                Hidden = retro.Phase == RetroPhase.Collect && c.AuthorId != authData.UserId && !c.Revealed,
+                Revealed = c.Revealed,
+                IsMine = c.AuthorId == authData.UserId,
+                Votes = retro.Phase == RetroPhase.Collect ? 0 : c.Votes.Count,
+                VotedByMe = c.Votes.Any(v => v.UserId == authData.UserId),
                 Author = new VisibleUser
                 {
-                    UserId = card.AuthorId,
-                    DisplayName = card.Author!.DisplayName,
-                    Initials = card.Author.Initials,
-                    Color = card.Author.Color,
-                    IsCurrentUser = card.AuthorId == authData.UserId,
+                    UserId = c.AuthorId,
+                    DisplayName = c.Author!.DisplayName,
+                    Initials = c.Author.Initials,
+                    Color = c.Author.Color,
+                    IsCurrentUser = c.AuthorId == authData.UserId,
                 },
             })
-            .ToArray();
+            .ToArrayAsync(cancellationToken);
+
+        var participants = await context.RetroParticipants
+            .Where(x => x.RetroId == id)
+            .Select(p => new VisibleUser
+            {
+                UserId = p.UserId,
+                DisplayName = p.User!.DisplayName,
+                Initials = p.User.Initials,
+                Color = p.User.Color,
+                IsCurrentUser = p.UserId == authData.UserId,
+            })
+            .ToArrayAsync(cancellationToken);
 
         return new GetRetroResponse
         {
@@ -158,23 +206,13 @@ public class RetrosService(
             MyVotes = cards.Count(x => x.VotedByMe),
             VoteEndsAt = retro.VoteEndsAt,
             CanManage = retro.OwnerId == authData.UserId,
-            Owner = MapUser(retro.Owner!, authData.UserId),
+            Owner = retro.Owner,
             CurrentUser = currentUser,
-            Participants = retro.Participants
-                .Select(x => MapUser(x.User!, authData.UserId))
+            Participants = participants
                 .OrderByDescending(x => x.IsCurrentUser)
                 .ThenBy(x => x.DisplayName)
                 .ToArray(),
-            Sections = retro.Sections
-                .OrderBy(x => x.SortOrder)
-                .Select(x => new RetroSectionDto
-                {
-                    Id = x.Id,
-                    Name = x.Name,
-                    Color = x.Color,
-                    SortOrder = x.SortOrder,
-                })
-                .ToArray(),
+            Sections = sections,
             Cards = cards,
         };
     }
@@ -251,11 +289,11 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         await EnsureEditable(id, authData, cancellationToken);
+        await EnsureSectionInRetro(id, request.SectionId, cancellationToken);
         var cardId = await coreRetrosService.CreateCard(
-            id,
             request.SectionId,
             authData.UserId,
-            request.Text,
+            request.Text.Trim(),
             request.X,
             request.Y,
             cancellationToken);
@@ -270,7 +308,7 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var retroId = await EnsureOwnCard(cardId, authData, cancellationToken);
-        await coreRetrosService.UpdateCard(cardId, request.Text, cancellationToken);
+        await coreRetrosService.UpdateCard(cardId, request.Text.Trim(), cancellationToken);
         await Changed(retroId, cancellationToken);
     }
 
@@ -281,6 +319,7 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var retroId = await EnsureCard(cardId, authData, cancellationToken);
+        await EnsureSectionInRetro(retroId, request.SectionId, cancellationToken);
         await coreRetrosService.MoveCard(
             cardId,
             request.SectionId,
@@ -300,13 +339,14 @@ public class RetrosService(
         await Changed(retroId, cancellationToken);
     }
 
-    public async Task ToggleVote(
+    public async Task SetCardVote(
         Guid cardId,
+        SetRetroCardVoteRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
         var retroId = await EnsureCard(cardId, authData, cancellationToken);
-        var result = await coreRetrosService.ToggleVote(cardId, authData.UserId, cancellationToken);
+        var result = await coreRetrosService.SetVote(cardId, authData.UserId, request.Voted, cancellationToken);
         switch (result)
         {
             case RetroVoteResult.Added:
@@ -322,25 +362,27 @@ public class RetrosService(
         }
     }
 
-    public async Task ToggleDone(
+    public async Task SetCardDone(
         Guid cardId,
+        SetRetroCardDoneRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
         var retroId = await EnsureCard(cardId, authData, cancellationToken);
-        if (!await coreRetrosService.ToggleDone(cardId, cancellationToken))
+        if (!await coreRetrosService.SetDone(cardId, request.Done, cancellationToken))
             throw new BadRequestException(nameof(cardId), ErrorMessages.RetroCardDoneUnavailable);
 
         await Changed(retroId, cancellationToken);
     }
 
-    public async Task ToggleReveal(
+    public async Task SetCardRevealed(
         Guid cardId,
+        SetRetroCardRevealedRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
         var retroId = await EnsureOwnCard(cardId, authData, cancellationToken);
-        await coreRetrosService.ToggleReveal(cardId, cancellationToken);
+        await coreRetrosService.SetRevealed(cardId, request.Revealed, cancellationToken);
         await Changed(retroId, cancellationToken);
     }
 
@@ -429,6 +471,17 @@ public class RetrosService(
             throw new BadRequestException(nameof(retroId), ErrorMessages.RetroFinished);
     }
 
+    private async Task EnsureSectionInRetro(
+        long retroId,
+        long sectionId,
+        CancellationToken cancellationToken)
+    {
+        var sectionExists = await context.RetroSections
+            .AnyAsync(x => x.Id == sectionId && x.RetroId == retroId, cancellationToken);
+        if (!sectionExists)
+            throw new BadRequestException(nameof(sectionId), ErrorMessages.RetroSectionNotInRetro);
+    }
+
     private async Task<long> EnsureCard(
         Guid cardId,
         OrganizationAuthData authData,
@@ -478,9 +531,6 @@ public class RetrosService(
             && x.Section.Retro.FinishedAt == null
             && x.Section.Retro.Participants.Any(p => p.UserId == authData.UserId));
 
-    private static bool IsHidden(Retro retro, RetroCard card, Guid currentUserId) =>
-        retro.Phase == RetroPhase.Collect && card.AuthorId != currentUserId && !card.Revealed;
-
     private static NotFoundException RetroNotFound(long id) => new(string.Format(
         ErrorMessages.EntityNotFound,
         "Retro",
@@ -490,15 +540,6 @@ public class RetrosService(
         ErrorMessages.EntityNotFound,
         "Card",
         id));
-
-    private static VisibleUser MapUser(User user, Guid currentUserId) => new()
-    {
-        UserId = user.Id,
-        DisplayName = user.DisplayName,
-        Initials = user.Initials,
-        Color = user.Color,
-        IsCurrentUser = user.Id == currentUserId,
-    };
 }
 
 public record RetroListItem
@@ -609,6 +650,21 @@ public record SetRetroTimerRequest
 }
 
 public record SetRetroRevealRequest
+{
+    public required bool Revealed { get; init; }
+}
+
+public record SetRetroCardVoteRequest
+{
+    public required bool Voted { get; init; }
+}
+
+public record SetRetroCardDoneRequest
+{
+    public required bool Done { get; init; }
+}
+
+public record SetRetroCardRevealedRequest
 {
     public required bool Revealed { get; init; }
 }

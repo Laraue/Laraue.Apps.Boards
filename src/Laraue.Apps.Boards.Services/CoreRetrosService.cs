@@ -1,7 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
-using Laraue.Core.Exceptions.Web;
 using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.Services;
@@ -22,7 +21,6 @@ public interface ICoreRetrosService
     Task SetVoteTimer(long retroId, int? minutes, CancellationToken cancellationToken);
     Task SetCardsRevealed(long retroId, Guid authorId, bool revealed, CancellationToken cancellationToken);
     Task<Guid> CreateCard(
-        long retroId,
         long sectionId,
         Guid authorId,
         string text,
@@ -37,22 +35,40 @@ public interface ICoreRetrosService
         double y,
         CancellationToken cancellationToken);
     Task DeleteCard(Guid cardId, CancellationToken cancellationToken);
-    Task<bool> ToggleDone(Guid cardId, CancellationToken cancellationToken);
-    Task ToggleReveal(Guid cardId, CancellationToken cancellationToken);
-    Task<RetroVoteResult> ToggleVote(Guid cardId, Guid userId, CancellationToken cancellationToken);
+    Task<bool> SetDone(Guid cardId, bool done, CancellationToken cancellationToken);
+    Task SetRevealed(Guid cardId, bool revealed, CancellationToken cancellationToken);
+    Task<RetroVoteResult> SetVote(Guid cardId, Guid userId, bool voted, CancellationToken cancellationToken);
 }
 
 public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTimeProvider)
     : ICoreRetrosService
 {
-    private static readonly (string Name, string Color)[] SectionTemplate =
-    [
-        ("Good", "#489c61"),
-        ("Bad", "#d65f63"),
-        ("Start", "#4774d4"),
-        ("Stop", "#c99724"),
-        ("Actions", "#8a5fc1"),
-    ];
+    private static class SectionTemplate
+    {
+        private static readonly (string Name, string Color)[] Sections =
+        [
+            ("Good", "#489c61"),
+            ("Bad", "#d65f63"),
+            ("Start", "#4774d4"),
+            ("Stop", "#c99724"),
+            ("Actions", "#8a5fc1"),
+        ];
+
+        public static List<RetroSection> WithPreviousCards(IReadOnlyCollection<RetroCard> carriedCards)
+        {
+            var sections = Sections
+                .Select((section, sortOrder) => new RetroSection
+                {
+                    Name = section.Name,
+                    Color = section.Color,
+                    SortOrder = sortOrder,
+                })
+                .ToList();
+            sections[^1].Cards.AddRange(carriedCards);
+
+            return sections;
+        }
+    }
 
     public async Task<long> Create(
         long organizationId,
@@ -102,16 +118,6 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             }
         }
 
-        var sections = SectionTemplate
-            .Select((section, sortOrder) => new RetroSection
-            {
-                Name = section.Name,
-                Color = section.Color,
-                SortOrder = sortOrder,
-            })
-            .ToList();
-        sections[^1].Cards.AddRange(carriedCards);
-
         var retro = new Retro
         {
             OrganizationId = organizationId,
@@ -121,10 +127,8 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             Phase = RetroPhase.Collect,
             VotesPerUser = 3,
             CreatedAt = now,
-            Sections = sections,
+            Sections = SectionTemplate.WithPreviousCards(carriedCards),
             Participants = participantIds
-                .Append(ownerId)
-                .Distinct()
                 .Select(userId => new RetroParticipant { UserId = userId })
                 .ToList(),
         };
@@ -182,7 +186,6 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
     }
 
     public async Task<Guid> CreateCard(
-        long retroId,
         long sectionId,
         Guid authorId,
         string text,
@@ -190,17 +193,12 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         double y,
         CancellationToken cancellationToken)
     {
-        var sectionExists = await context.RetroSections
-            .AnyAsync(x => x.Id == sectionId && x.RetroId == retroId, cancellationToken);
-        if (!sectionExists)
-            throw new BadRequestException(nameof(sectionId), "Section does not belong to the retro");
-
         var card = new RetroCard
         {
             Id = Guid.NewGuid(),
             SectionId = sectionId,
             AuthorId = authorId,
-            Text = text.Trim(),
+            Text = text,
             X = x,
             Y = y,
             CreatedAt = dateTimeProvider.UtcNow,
@@ -214,32 +212,19 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
 
     public Task UpdateCard(Guid cardId, string text, CancellationToken cancellationToken)
     {
-        var trimmedText = text.Trim();
         return context.RetroCards
             .Where(x => x.Id == cardId)
-            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Text, trimmedText), cancellationToken);
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Text, text), cancellationToken);
     }
 
-    public async Task MoveCard(
+    public Task MoveCard(
         Guid cardId,
         long sectionId,
         double x,
         double y,
         CancellationToken cancellationToken)
     {
-        var sourceRetroId = await context.RetroCards
-            .Where(x => x.Id == cardId)
-            .Select(x => (long?)x.Section!.RetroId)
-            .FirstOrDefaultAsync(cancellationToken);
-        var targetRetroId = await context.RetroSections
-            .Where(x => x.Id == sectionId)
-            .Select(x => (long?)x.RetroId)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (!sourceRetroId.HasValue || sourceRetroId != targetRetroId)
-            throw new BadRequestException(nameof(sectionId), "Card can only be moved within its retro");
-
-        await context.RetroCards
+        return context.RetroCards
             .Where(x => x.Id == cardId)
             .ExecuteUpdateAsync(update => update
                 .SetProperty(p => p.SectionId, sectionId)
@@ -255,55 +240,70 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .ExecuteDeleteAsync(cancellationToken);
     }
 
-    public async Task<bool> ToggleDone(Guid cardId, CancellationToken cancellationToken)
+    public async Task<bool> SetDone(Guid cardId, bool done, CancellationToken cancellationToken)
     {
         var updated = await context.RetroCards
             .Where(x => x.Id == cardId)
             .Where(x => x.Section!.Retro!.Phase == RetroPhase.Discuss)
             .Where(x => x.Section!.SortOrder == x.Section.Retro!.Sections.Max(s => s.SortOrder))
-            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Done, p => !p.Done), cancellationToken);
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Done, done), cancellationToken);
 
         return updated != 0;
     }
 
-    public Task ToggleReveal(Guid cardId, CancellationToken cancellationToken)
+    public Task SetRevealed(Guid cardId, bool revealed, CancellationToken cancellationToken)
     {
         return context.RetroCards
             .Where(x => x.Id == cardId)
-            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Revealed, p => !p.Revealed), cancellationToken);
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Revealed, revealed), cancellationToken);
     }
 
-    public async Task<RetroVoteResult> ToggleVote(
+    public async Task<RetroVoteResult> SetVote(
         Guid cardId,
         Guid userId,
+        bool voted,
         CancellationToken cancellationToken)
     {
         var card = await context.RetroCards
-            .Include(x => x.Section)!
-            .ThenInclude(x => x.Retro)
-            .Include(x => x.Votes)
-            .FirstOrDefaultAsync(x => x.Id == cardId, cancellationToken);
-        if (card?.Section?.Retro is not { } retro)
+            .Where(x => x.Id == cardId)
+            .Select(x => new
+            {
+                RetroId = x.Section!.RetroId,
+                x.Section.Retro!.Phase,
+                x.Section.Retro.VoteEndsAt,
+                x.Section.Retro.VotesPerUser,
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (card is null)
             return RetroVoteResult.CardNotFound;
 
-        if (retro.Phase != RetroPhase.Vote
-            || !retro.VoteEndsAt.HasValue
-            || retro.VoteEndsAt <= dateTimeProvider.UtcNow)
+        if (card.Phase != RetroPhase.Vote
+            || !card.VoteEndsAt.HasValue
+            || card.VoteEndsAt <= dateTimeProvider.UtcNow)
         {
             return RetroVoteResult.TimerNotRunning;
         }
 
-        var existingVote = card.Votes.FirstOrDefault(x => x.UserId == userId);
-        if (existingVote is not null)
+        var existingVote = await context.RetroCardVotes
+            .FirstOrDefaultAsync(x => x.CardId == cardId && x.UserId == userId, cancellationToken);
+
+        if (!voted)
         {
-            context.RetroCardVotes.Remove(existingVote);
-            await context.SaveChangesAsync(cancellationToken);
+            if (existingVote is not null)
+            {
+                context.RetroCardVotes.Remove(existingVote);
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
             return RetroVoteResult.Removed;
         }
 
+        if (existingVote is not null)
+            return RetroVoteResult.Added;
+
         var usedVotes = await context.RetroCardVotes
-            .CountAsync(x => x.UserId == userId && x.Card!.Section!.RetroId == retro.Id, cancellationToken);
-        if (usedVotes >= retro.VotesPerUser)
+            .CountAsync(x => x.UserId == userId && x.Card!.Section!.RetroId == card.RetroId, cancellationToken);
+        if (usedVotes >= card.VotesPerUser)
             return RetroVoteResult.LimitReached;
 
         context.RetroCardVotes.Add(new RetroCardVote { CardId = cardId, UserId = userId });

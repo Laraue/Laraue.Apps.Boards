@@ -185,6 +185,38 @@ yourself — ask the user to stop it, then retry the build once they confirm.
   query (or translates it inefficiently) and LinqToDB can. Don't reach for LinqToDB by default —
   it's the fallback, not the first choice.
 
+## Query shape: project, don't load-then-map
+
+- Don't `Include`/`ThenInclude` a full entity graph just to read a handful of fields off it.
+  Project straight to the shape the caller needs with `.Select(...)` — pull only the columns
+  actually used. This avoids over-fetching (whole `User`/navigation entities when only
+  `DisplayName`/`Initials`/`Color` are needed) and skips `AsSplitQuery()` entirely, since EF
+  already issues one query per projected collection when you `Select` into nested arrays/DTOs —
+  `AsSplitQuery()` is only relevant for `Include`-based graphs.
+- Don't add `AsNoTracking()` to a query that ends in `.Select(...)` into a non-entity type (a DTO,
+  an anonymous type, etc.) — EF Core never tracks projected results in the first place, so it's a
+  no-op there. `AsNoTracking()` only matters when the query's result is the entity type itself
+  (e.g. returned via `Include` or a bare `Where(...).ToListAsync()` with no projection).
+- Project directly into the final response DTO inside the `Select` (e.g. `new VisibleUser {
+  UserId = p.UserId, DisplayName = p.User!.DisplayName, ... }`) instead of projecting to an
+  anonymous type first and mapping it to the DTO in a second, separate step — that second step is
+  usually redundant work once the query already has everything the DTO needs.
+- When one response combines rows from several unrelated collections off the same aggregate root
+  (e.g. a retro's sections, cards, and participants), don't fetch it as a single query with nested
+  `Select`s off the root — issue one focused, independent query per collection instead (e.g.
+  `context.RetroSections.Where(x => x.RetroId == id)...`, `context.RetroCards.Where(x =>
+  x.Section!.RetroId == id)...`, `context.RetroParticipants.Where(x => x.RetroId == id)...`) and
+  assemble the response from the results. Scalar/root fields needed by a later projection (like a
+  parent's `Phase` used to decide whether a card's vote count/text should be hidden) can be
+  captured from an earlier query and referenced as a local variable in a later query's `Select` —
+  EF Core parameterizes it, it's not a client-eval issue. See
+  `RetrosService.Get(long id, OrganizationAuthData, CancellationToken)` for the pattern.
+- Core services that only need to check a scalar condition (existence, a status flag, a count)
+  shouldn't load the owning entity graph to get it — query directly for that scalar instead. E.g.
+  `CoreRetrosService.SetVote` queries `Phase`/`VoteEndsAt`/`VotesPerUser` via a `Select` and looks
+  up the caller's own vote with a targeted `FirstOrDefaultAsync`, rather than `Include`-ing the
+  card's `Section`, `Retro`, and entire `Votes` collection.
+
 ## AI content summarization
 
 `Laraue.Apps.Boards.Services.Ai` (core, shared by both hosts) provides `IAiContentSummarizer` /

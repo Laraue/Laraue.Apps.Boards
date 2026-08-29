@@ -56,7 +56,7 @@ public class RetroControllerTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task ToggleVote_ShouldBeAllowedForOwner_WhenTimerIsRunning()
+    public async Task SetCardVote_ShouldBeAllowedForOwner_WhenTimerIsRunning()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
@@ -79,14 +79,14 @@ public class RetroControllerTests(WebApiTestHost host) : IClassFixture<WebApiTes
             new CreateRetroCardRequest { SectionId = sectionId, Text = "Vote", X = 10, Y = 20 }));
 
         var cardId = card!.Id;
-        await _retroController.Execute(x => x.ToggleVote(cardId));
+        await _retroController.Execute(x => x.SetCardVote(cardId, new SetRetroCardVoteRequest { Voted = true }));
 
         Assert.True(await testScope.Database.RetroCardVotes
             .AnyAsync(x => x.CardId == cardId && x.UserId == data.OwnerId));
     }
 
     [Fact]
-    public async Task ToggleVote_ShouldFail_WhenTimerIsNotRunning()
+    public async Task SetCardVote_ShouldFail_WhenTimerIsNotRunning()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
@@ -108,13 +108,13 @@ public class RetroControllerTests(WebApiTestHost host) : IClassFixture<WebApiTes
                 new UpdateRetroSettingsRequest { Phase = RetroPhase.Vote, VotesPerUser = 3 }));
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
-            .Execute(x => x.ToggleVote(card!.Id)));
+            .Execute(x => x.SetCardVote(card!.Id, new SetRetroCardVoteRequest { Voted = true })));
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
     }
 
     [Fact]
-    public async Task ToggleVote_ShouldFail_WhenVoteLimitReached()
+    public async Task SetCardVote_ShouldFail_WhenVoteLimitReached()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
@@ -142,9 +142,9 @@ public class RetroControllerTests(WebApiTestHost host) : IClassFixture<WebApiTes
             data.RetroId,
             new CreateRetroCardRequest { SectionId = sectionId, Text = "Second", X = 30, Y = 40 }));
 
-        await _retroController.Execute(x => x.ToggleVote(firstCard!.Id));
+        await _retroController.Execute(x => x.SetCardVote(firstCard!.Id, new SetRetroCardVoteRequest { Voted = true }));
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() =>
-            _retroController.Execute(x => x.ToggleVote(secondCard!.Id)));
+            _retroController.Execute(x => x.SetCardVote(secondCard!.Id, new SetRetroCardVoteRequest { Voted = true })));
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
     }

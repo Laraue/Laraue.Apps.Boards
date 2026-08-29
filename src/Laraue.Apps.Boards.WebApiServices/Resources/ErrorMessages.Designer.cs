@@ -398,6 +398,12 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
 
+        internal static string RetroSectionNotInRetro {
+            get {
+                return ResourceManager.GetString("RetroSectionNotInRetro", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to {0}: {1} is not accessible.
         /// </summary>

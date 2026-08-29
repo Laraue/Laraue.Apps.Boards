@@ -144,4 +144,7 @@
     <data name="RetroCardDoneUnavailable" xml:space="preserve">
         <value>Cards can only be marked as done in the Actions section during Discuss.</value>
     </data>
+    <data name="RetroSectionNotInRetro" xml:space="preserve">
+        <value>Section does not belong to the retro.</value>
+    </data>
 </root>

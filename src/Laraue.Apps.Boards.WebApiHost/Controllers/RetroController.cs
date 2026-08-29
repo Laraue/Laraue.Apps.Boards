@@ -82,22 +82,25 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         retrosService.DeleteCard(cardId, AuthData(), cancellationToken);
 
     [HttpPost("cards/{cardId:guid}/vote")]
-    public Task ToggleVote(
+    public Task SetCardVote(
         [FromRoute] Guid cardId,
+        [FromBody] SetRetroCardVoteRequest request,
         CancellationToken cancellationToken = default) =>
-        retrosService.ToggleVote(cardId, AuthData(), cancellationToken);
+        retrosService.SetCardVote(cardId, request, AuthData(), cancellationToken);
 
     [HttpPost("cards/{cardId:guid}/done")]
-    public Task ToggleDone(
+    public Task SetCardDone(
         [FromRoute] Guid cardId,
+        [FromBody] SetRetroCardDoneRequest request,
         CancellationToken cancellationToken = default) =>
-        retrosService.ToggleDone(cardId, AuthData(), cancellationToken);
+        retrosService.SetCardDone(cardId, request, AuthData(), cancellationToken);
 
     [HttpPost("cards/{cardId:guid}/reveal")]
-    public Task ToggleReveal(
+    public Task SetCardRevealed(
         [FromRoute] Guid cardId,
+        [FromBody] SetRetroCardRevealedRequest request,
         CancellationToken cancellationToken = default) =>
-        retrosService.ToggleReveal(cardId, AuthData(), cancellationToken);
+        retrosService.SetCardRevealed(cardId, request, AuthData(), cancellationToken);
 
     private OrganizationAuthData AuthData() => HttpContext.User.GetOrganizationAuthData();
 }
