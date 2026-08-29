@@ -1,19 +1,23 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
-using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
+using Laraue.Apps.Retro.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using ErrorMessages = Laraue.Apps.Retro.WebApiServices.Resources.ErrorMessages;
+// "Retro" (the entity) collides with the "Laraue.Apps.Retro" namespace segment this project
+// lives under - alias it so the bare type name resolves correctly.
+using RetroEntity = Laraue.Apps.Boards.DataAccess.Models.Retro;
 
-namespace Laraue.Apps.Boards.WebApiServices;
+namespace Laraue.Apps.Retro.WebApiServices;
 
 public interface IRetrosService
 {
     Task<RetroListItem[]> Get(OrganizationAuthData authData, CancellationToken cancellationToken);
-    Task<VisibleUser> JoinRealtime(
+    Task<RetroUser> JoinRealtime(
         long id,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
@@ -73,11 +77,10 @@ public interface IRetrosService
 
 public class RetrosService(
     DatabaseContext context,
-    IAccessService accessService,
     ICoreRetrosService coreRetrosService,
     IHubContext<RetroHub> retroHub) : IRetrosService
 {
-    public async Task<VisibleUser> JoinRealtime(
+    public async Task<RetroUser> JoinRealtime(
         long id,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
@@ -128,7 +131,7 @@ public class RetrosService(
                 x.VotesPerUser,
                 x.VoteEndsAt,
                 x.OwnerId,
-                Owner = new VisibleUser
+                Owner = new RetroUser
                 {
                     UserId = x.Owner!.Id,
                     DisplayName = x.Owner.DisplayName,
@@ -171,7 +174,7 @@ public class RetrosService(
                 IsMine = c.AuthorId == authData.UserId,
                 Votes = retro.Phase == RetroPhase.Collect ? 0 : c.Votes.Count,
                 VotedByMe = c.Votes.Any(v => v.UserId == authData.UserId),
-                Author = new VisibleUser
+                Author = new RetroUser
                 {
                     UserId = c.AuthorId,
                     DisplayName = c.Author!.DisplayName,
@@ -184,7 +187,7 @@ public class RetrosService(
 
         var participants = await context.RetroParticipants
             .Where(x => x.RetroId == id)
-            .Select(p => new VisibleUser
+            .Select(p => new RetroUser
             {
                 UserId = p.UserId,
                 DisplayName = p.User!.DisplayName,
@@ -388,11 +391,9 @@ public class RetrosService(
 
     private async Task EnsureMember(OrganizationAuthData authData, CancellationToken cancellationToken)
     {
-        var isMember = await accessService.GetOrganizations(
-            authData.UserId,
-            query => query
-                .Where(x => x.OrganizationId == authData.OrganizationId)
-                .AnyAsync(cancellationToken));
+        var isMember = await context.OrganizationUsers
+            .Where(x => x.OrganizationId == authData.OrganizationId && x.UserId == authData.UserId)
+            .AnyAsync(cancellationToken);
         if (!isMember)
             throw new NotFoundException(string.Format(
                 ErrorMessages.EntityNotFoundOrNotAccessible,
@@ -400,28 +401,26 @@ public class RetrosService(
                 authData.OrganizationId));
     }
 
-    private Task<VisibleUser> GetCurrentUser(
+    private Task<RetroUser> GetCurrentUser(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        return accessService.GetOrganizationMembers(
-            authData.OrganizationId,
-            query => query
-                .Where(x => x.UserId == authData.UserId)
-                .Select(x => new VisibleUser
-                {
-                    UserId = x.UserId,
-                    DisplayName = x.User!.DisplayName,
-                    Initials = x.User.Initials,
-                    Color = x.User.Color,
-                    IsCurrentUser = true,
-                })
-                .FirstOrThrowNotFoundEFAsync(
-                    string.Format(
-                        ErrorMessages.EntityNotFoundOrNotAccessible,
-                        "Organization",
-                        authData.OrganizationId),
-                    cancellationToken));
+        return context.OrganizationUsers
+            .Where(x => x.OrganizationId == authData.OrganizationId && x.UserId == authData.UserId)
+            .Select(x => new RetroUser
+            {
+                UserId = x.UserId,
+                DisplayName = x.User!.DisplayName,
+                Initials = x.User.Initials,
+                Color = x.User.Color,
+                IsCurrentUser = true,
+            })
+            .FirstOrThrowNotFoundEFAsync(
+                string.Format(
+                    ErrorMessages.EntityNotFoundOrNotAccessible,
+                    "Organization",
+                    authData.OrganizationId),
+                cancellationToken);
     }
 
     private async Task EnsureParticipant(
@@ -521,7 +520,7 @@ public class RetrosService(
             .Group(RetroHub.GroupName(retroId))
             .SendAsync("changed", cancellationToken);
 
-    private IQueryable<Retro> ParticipatingRetros(OrganizationAuthData authData) =>
+    private IQueryable<RetroEntity> ParticipatingRetros(OrganizationAuthData authData) =>
         context.Retros.Where(x => x.OrganizationId == authData.OrganizationId
             && x.Participants.Any(p => p.UserId == authData.UserId));
 
@@ -540,6 +539,15 @@ public class RetrosService(
         ErrorMessages.EntityNotFound,
         "Card",
         id));
+}
+
+public record RetroUser
+{
+    public required Guid UserId { get; set; }
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
+    public required string Color { get; set; }
+    public required bool IsCurrentUser { get; set; }
 }
 
 public record RetroListItem
@@ -563,9 +571,9 @@ public record GetRetroResponse
     public required int MyVotes { get; init; }
     public required DateTime? VoteEndsAt { get; init; }
     public required bool CanManage { get; init; }
-    public required VisibleUser Owner { get; init; }
-    public required VisibleUser CurrentUser { get; init; }
-    public required VisibleUser[] Participants { get; init; }
+    public required RetroUser Owner { get; init; }
+    public required RetroUser CurrentUser { get; init; }
+    public required RetroUser[] Participants { get; init; }
     public required RetroSectionDto[] Sections { get; init; }
     public required RetroCardDto[] Cards { get; init; }
 }
@@ -591,7 +599,7 @@ public record RetroCardDto
     public required bool IsMine { get; init; }
     public required int Votes { get; init; }
     public required bool VotedByMe { get; init; }
-    public required VisibleUser Author { get; init; }
+    public required RetroUser Author { get; init; }
 }
 
 public record CreateRetroRequest

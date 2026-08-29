@@ -1,16 +1,17 @@
 ﻿using System.Net;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
-using Laraue.Apps.Boards.WebApiHost.Controllers;
-using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Apps.Retro.WebApiHost.Controllers;
+using Laraue.Apps.Retro.WebApiServices;
 using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
 [Collection("IntegrationTest")]
-public class RetroControllerTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
+public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retroHost)
+    : IClassFixture<WebApiTestHost>, IClassFixture<RetroWebApiTestHost>
 {
-    private readonly Proxy<RetroController> _retroController = host.Controller<RetroController>();
+    private readonly Proxy<RetroController> _retroController = retroHost.Controller<RetroController>();
 
     [Fact]
     public async Task Create_ShouldSetCreatorAsOwnerAndParticipant_Always()

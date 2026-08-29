@@ -1,13 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
     <ItemGroup>
-        <ProjectReference Include="..\Laraue.Apps.Boards.WebApiServices\Laraue.Apps.Boards.WebApiServices.csproj" />
+        <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />
+        <ProjectReference Include="..\Laraue.Apps.Boards.Common\Laraue.Apps.Boards.Common.csproj" />
         <ProjectReference Include="..\Laraue.Apps.Boards.Auth\Laraue.Apps.Boards.Auth.csproj" />
+        <ProjectReference Include="..\Laraue.Apps.Retro.Services\Laraue.Apps.Retro.Services.csproj" />
+        <ProjectReference Include="..\Laraue.Apps.Retro.WebApiServices\Laraue.Apps.Retro.WebApiServices.csproj" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
       <PackageReference Include="Scalar.AspNetCore" Version="2.16.16" />
+      <PackageReference Include="EFCore.NamingConventions" Version="$(EfCoreNamingConventionsVersion)" />
       <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="$(OpenTelemetryExtensionsHostingVersion)" />
       <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="$(OpenTelemetryExporterPrometheusAspNetCoreVersion)" />
       <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="$(OpenTelemetryInstrumentationAspNetCoreVersion)" />

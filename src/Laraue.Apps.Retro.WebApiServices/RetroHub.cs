@@ -1,8 +1,8 @@
-using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
-namespace Laraue.Apps.Boards.WebApiServices;
+namespace Laraue.Apps.Retro.WebApiServices;
 
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 public class RetroHub(IRetrosService retrosService) : Hub
@@ -53,7 +53,7 @@ public class RetroHub(IRetrosService retrosService) : Hub
 
     private IClientProxy Others() => Clients.OthersInGroup(GroupName(Joined<long>(RetroIdKey)));
 
-    private VisibleUser Member() => Joined<VisibleUser>(MemberKey);
+    private RetroUser Member() => Joined<RetroUser>(MemberKey);
 
     private TValue Joined<TValue>(string key) =>
         Context.Items.TryGetValue(key, out var value) && value is TValue joined

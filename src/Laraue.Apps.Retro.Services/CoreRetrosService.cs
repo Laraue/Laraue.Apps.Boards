@@ -1,9 +1,12 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Microsoft.EntityFrameworkCore;
+// "Retro" (the entity) collides with the "Laraue.Apps.Retro" namespace segment this project
+// lives under - alias it so the bare type name resolves correctly.
+using RetroEntity = Laraue.Apps.Boards.DataAccess.Models.Retro;
 
-namespace Laraue.Apps.Boards.Services;
+namespace Laraue.Apps.Retro.Services;
 
 public interface ICoreRetrosService
 {
@@ -118,7 +121,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             }
         }
 
-        var retro = new Retro
+        var retro = new RetroEntity
         {
             OrganizationId = organizationId,
             OwnerId = ownerId,

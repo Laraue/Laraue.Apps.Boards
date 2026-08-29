@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.Auth;
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;

@@ -1,10 +1,9 @@
-﻿using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.WebApiServices;
-using Laraue.Core.DataAccess.Contracts;
+using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Retro.WebApiServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Laraue.Apps.Boards.WebApiHost.Controllers;
+namespace Laraue.Apps.Retro.WebApiHost.Controllers;
 
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 [ApiController]

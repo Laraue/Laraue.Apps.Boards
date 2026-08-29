@@ -1,14 +1,17 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-  
+<Project Sdk="Microsoft.NET.Sdk">
+
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="$(MicrosoftJwtAuthenticationVersion)" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
-  
+
+  <ItemGroup>
+    <PackageReference Include="Laraue.Core.DataAccess.EFCore" Version="$(LaraueCoreDataAccessVersion)" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />
-    <ProjectReference Include="..\Laraue.Apps.Boards.Services\Laraue.Apps.Boards.Services.csproj" />
     <ProjectReference Include="..\Laraue.Apps.Boards.Common\Laraue.Apps.Boards.Common.csproj" />
-    <ProjectReference Include="..\Laraue.Apps.Boards.Auth\Laraue.Apps.Boards.Auth.csproj" />
+    <ProjectReference Include="..\Laraue.Apps.Retro.Services\Laraue.Apps.Retro.Services.csproj" />
   </ItemGroup>
 
   <ItemGroup>

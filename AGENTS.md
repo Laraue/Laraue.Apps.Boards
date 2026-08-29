@@ -76,20 +76,68 @@ its caller.
 Solution: `Laraue.Apps.Boards.sln`
 
 - `src/Laraue.Apps.Boards.DataAccess` — EF Core `DatabaseContext`, entity models, migrations.
-- `src/Laraue.Apps.Boards.Services` — shared, host-agnostic services (DI setup extensions, file
-  storage, etc.) used by both hosts.
+- `src/Laraue.Apps.Boards.Common` — generic, host-agnostic identity types with no business logic and
+  no ASP.NET-specific dependencies: `OrganizationAuthData`, `AuthSchemas`,
+  `ClaimsPrincipalExtensions`. Referenced by `Boards.Services` (so effectively every host, including
+  `TelegramHost`, gets it transitively) — kept intentionally minimal so that transitive reach doesn't
+  drag in anything a consumer might not need. Notably `VisibleUser` (the "person as seen by another
+  org member" DTO — id/display name/initials/color/isCurrentUser) is **not** here: it's a plain DTO
+  with zero logic, so Boards (`WebApiServices.VisibleUser`) and Retro
+  (`Retro.WebApiServices.RetroUser`) each keep their own copy rather than sharing one through
+  `Common`. Prefer duplicating a shape like this over adding a cross-feature dependency for it —
+  reach for `Common` when there's actual behavior/logic to share, not just an identical shape.
+- `src/Laraue.Apps.Boards.Auth` — `IAuthService`/`AuthService`/`AuthOptions` (JWT creation/config),
+  split out of `Common` specifically because it needs the
+  `Microsoft.AspNetCore.Authentication.JwtBearer` package and is only used by the two web hosts that
+  mint/validate tokens (`Boards.WebApiHost`, `Retro.WebApiHost`) plus `Boards.WebApiServices` (login
+  token issuance) and tests — never by `Boards.Services` or `TelegramServices`/`TelegramHost`. Keeping
+  it separate from `Common` means those unrelated projects don't transitively pull in a JWT package
+  they never call into. **Rule of thumb for `Common` vs `Auth` vs a new split**: a type belongs in
+  `Common` only if it's dependency-free (or only depends on `Laraue.Core.Exceptions`-style base
+  packages) and every consumer would plausibly need it; if a type pulls in a heavier package that
+  only some consumers need, give it its own project instead of bundling it into `Common`.
+- `src/Laraue.Apps.Boards.Services` — shared, host-agnostic **Boards-domain** services (DI setup
+  extensions, `IAccessService`'s space/epic/issue permission engine, file storage, etc.) used by
+  both Boards hosts.
 - `src/Laraue.Apps.Boards.TelegramHost` — ASP.NET host for the Telegram bot webhook: routes,
   middleware pipeline, `appsettings`.
 - `src/Laraue.Apps.Boards.TelegramServices` — Telegram-specific business logic (group chat
   linking, `/save`, inline search, issue preview formatting) consumed by `TelegramHost`.
 - `src/Laraue.Apps.Boards.WebApiHost` — ASP.NET host for the web/Mini App REST API.
 - `src/Laraue.Apps.Boards.WebApiServices` — business logic consumed by `WebApiHost`.
+- `src/Laraue.Apps.Retro.Services`, `src/Laraue.Apps.Retro.WebApiServices`,
+  `src/Laraue.Apps.Retro.WebApiHost` — the retro-board feature, split into its **own deployable**
+  from `Boards.WebApiHost` (its own `Program.cs`, port, `appsettings`, and its own DI-wiring
+  extension methods — not shared with Boards' `AddCoreServices()`/`AddDatabaseServices()`, each host
+  configures its own container from scratch). It's the only feature that needs SignalR/WebSockets
+  (`RetroHub`, `/hubs/retro`) — bundling that into the main API host would mean nginx has to proxy
+  WebSocket traffic for everything else too, and a retro-specific incident (e.g. a runaway
+  connection storm) would take down unrelated Boards endpoints. Keep new retro-adjacent work in
+  these three projects, not back in `Boards.WebApiHost`/`WebApiServices`.
+  - These still share `Boards.DataAccess`'s `DatabaseContext`/migrations and the retro entities
+    (`Retro`, `RetroSection`, `RetroCard`, `RetroCardVote`, `RetroParticipant`) — there's no
+    separate `Retro.DataAccess`.
+  - They deliberately do **not** reference `Boards.Services`/`Boards.WebApiServices` — only
+    `Boards.DataAccess`, `Boards.Common`, and `Boards.Auth`. `RetrosService` doesn't take an
+    `IAccessService` dependency at all; it inlines its own trivial "is this user an org member"
+    check directly against `DatabaseContext.OrganizationUsers` rather than pulling in Boards' full
+    space/epic/issue permission engine for two methods it doesn't need. `Retro.WebApiHost`'s
+    `AddDatabaseServices()`/`AddApplicationServices()`/`AddAuthentication()` are its own local
+    copies (not calls into Boards' equivalents) — registering only `ICoreRetrosService`/
+    `IRetrosService`/`DatabaseContext`/JWT auth, not Boards' Issue/Epic/Space/AI-summarizer stack.
+  - The organization JWT is minted by Boards' login flow and validated by the retro host too (same
+    `AuthService` from `Boards.Auth`, `AuthSchemas` from `Boards.Common`), so `Auth:Key` must be
+    identical in both hosts' `appsettings`.
 - `src/Laraue.Apps.StructuredMessages.DataAccess`, `src/Laraue.Apps.StructuredMessages.Services`
   — a separate app living in the same solution; unrelated to the Boards/Telegram feature set
   unless a task says otherwise.
 - `tests/Laraue.Apps.Boards.IntegrationTests` — the only test project. Uses
   `Laraue.Telegram.NET.Testing` (`AppTelegramTestHost`) for Telegram-flow tests and a similar
-  in-process host for web API tests.
+  in-process host for web API tests. Retro tests (`RetroControllerTests`) use two in-process hosts
+  side by side — `WebApiTestHost` (Boards) for seeding users/organizations via
+  `WebApiTestHostScope`/`OrganizationInitializer` (which need Boards-only core services like
+  `ICoreOrganizationsService`), and `RetroWebApiTestHost` for the actual `Proxy<RetroController>`
+  calls — both point at the same test database.
 
 ## Service layering
 

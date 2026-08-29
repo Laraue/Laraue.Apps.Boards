@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;

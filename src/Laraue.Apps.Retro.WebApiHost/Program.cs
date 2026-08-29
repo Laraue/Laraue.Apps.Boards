@@ -1,23 +1,17 @@
-﻿using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.WebApiServices;
-using Laraue.Core.DataAccess.Linq2DB.Extensions;
+using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Retro.WebApiServices;
 using Laraue.Core.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using Scalar.AspNetCore;
 
-namespace Laraue.Apps.Boards.WebApiHost;
+namespace Laraue.Apps.Retro.WebApiHost;
 
 public sealed class Program
 {
     public static async Task Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
-
-        builder.Services.AddOptions<TelegramOptions>();
-        builder.Services.Configure<TelegramOptions>(
-            builder.Configuration.GetSection("Telegram"));
 
         const string dbConnectionStringName = "Postgre";
 
@@ -57,7 +51,7 @@ public sealed class Program
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
-        app.Services.UseLinq2Db();
+        app.MapHub<RetroHub>("/hubs/retro");
         app.UseMiddleware<ExceptionHandleMiddleware>();
 
         if (app.Environment.IsDevelopment())
@@ -66,7 +60,7 @@ public sealed class Program
             app.MapScalarApiReference(options =>
             {
                 options
-                    .WithTitle("Laraue Boards API")
+                    .WithTitle("Laraue Retro API")
                     .WithTheme(ScalarTheme.Purple)
                     .WithDefaultHttpClient(ScalarTarget.JavaScript, ScalarClient.Axios);
             });

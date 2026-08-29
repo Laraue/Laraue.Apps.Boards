@@ -374,36 +374,6 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
 
-        internal static string RetroFinished {
-            get {
-                return ResourceManager.GetString("RetroFinished", resourceCulture);
-            }
-        }
-
-        internal static string RetroVoteTimerNotRunning {
-            get {
-                return ResourceManager.GetString("RetroVoteTimerNotRunning", resourceCulture);
-            }
-        }
-
-        internal static string RetroVoteLimitReached {
-            get {
-                return ResourceManager.GetString("RetroVoteLimitReached", resourceCulture);
-            }
-        }
-
-        internal static string RetroCardDoneUnavailable {
-            get {
-                return ResourceManager.GetString("RetroCardDoneUnavailable", resourceCulture);
-            }
-        }
-
-        internal static string RetroSectionNotInRetro {
-            get {
-                return ResourceManager.GetString("RetroSectionNotInRetro", resourceCulture);
-            }
-        }
-
         /// <summary>
         ///   Looks up a localized string similar to {0}: {1} is not accessible.
         /// </summary>
