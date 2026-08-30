@@ -71,3 +71,21 @@ jobs:
        post_upload:
         cd /home/laraue/boards-webapi-host && find . -mindepth 1 ! -name webapi-host.tar.gz -delete &&
         tar -xzf webapi-host.tar.gz && rm webapi-host.tar.gz
+
+    - name: Pack Retro Web API Host
+      if: github.ref == 'refs/heads/main'
+      run: tar -czf retro-webapi-host.tar.gz -C src/Laraue.Apps.Retro.WebApiHost/bin/Release/net10.0 .
+
+    - name: Upload Retro Web API Host
+      if: github.ref == 'refs/heads/main'
+      uses: marcodallasanta/ssh-scp-deploy@v1.2.0
+      with:
+       host: ${{ secrets.SSH_HOST }} # "example.com"
+       port: ${{ secrets.SSH_PORT }} # 22
+       user: ${{ secrets.SSH_USER }} # "user"
+       password: ${{ secrets.SSH_PASSWORD }} # "password"
+       local: retro-webapi-host.tar.gz
+       remote: "/home/laraue/retro-webapi-host"
+       post_upload:
+        cd /home/laraue/retro-webapi-host && find . -mindepth 1 ! -name retro-webapi-host.tar.gz -delete &&
+        tar -xzf retro-webapi-host.tar.gz && rm retro-webapi-host.tar.gz
