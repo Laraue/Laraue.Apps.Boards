@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using Laraue.Apps.Boards.Auth;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Apps.Retro.Services;
 using Laraue.Apps.Retro.WebApiServices;
 using Laraue.Core.Exceptions;
@@ -58,10 +58,6 @@ public static class WebApplicationBuilderExtensions
             var stringKey = builder.Configuration["Auth:Key"] ?? throw new InvalidOperationException("Auth:Key is required.");
             var symmetricSecurityKey = AuthService.GetSymmetricSecurityKey(stringKey);
 
-            builder.Services.AddOptions<AuthOptions>();
-            builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
-
-            builder.Services.AddSingleton<IAuthService, AuthService>();
             builder.Services
                 .AddAuthentication()
                 .AddJwtBearer(AuthSchemas.Organization, options =>

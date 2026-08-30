@@ -8,7 +8,6 @@
     <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />
     <ProjectReference Include="..\Laraue.Apps.Boards.Services\Laraue.Apps.Boards.Services.csproj" />
     <ProjectReference Include="..\Laraue.Apps.Boards.Common\Laraue.Apps.Boards.Common.csproj" />
-    <ProjectReference Include="..\Laraue.Apps.Boards.Auth\Laraue.Apps.Boards.Auth.csproj" />
   </ItemGroup>
 
   <ItemGroup>

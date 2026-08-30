@@ -86,16 +86,16 @@ Solution: `Laraue.Apps.Boards.sln`
   (`Retro.WebApiServices.RetroUser`) each keep their own copy rather than sharing one through
   `Common`. Prefer duplicating a shape like this over adding a cross-feature dependency for it —
   reach for `Common` when there's actual behavior/logic to share, not just an identical shape.
-- `src/Laraue.Apps.Boards.Auth` — `IAuthService`/`AuthService`/`AuthOptions` (JWT creation/config),
-  split out of `Common` specifically because it needs the
-  `Microsoft.AspNetCore.Authentication.JwtBearer` package and is only used by the two web hosts that
-  mint/validate tokens (`Boards.WebApiHost`, `Retro.WebApiHost`) plus `Boards.WebApiServices` (login
-  token issuance) and tests — never by `Boards.Services` or `TelegramServices`/`TelegramHost`. Keeping
-  it separate from `Common` means those unrelated projects don't transitively pull in a JWT package
-  they never call into. **Rule of thumb for `Common` vs `Auth` vs a new split**: a type belongs in
-  `Common` only if it's dependency-free (or only depends on `Laraue.Core.Exceptions`-style base
-  packages) and every consumer would plausibly need it; if a type pulls in a heavier package that
-  only some consumers need, give it its own project instead of bundling it into `Common`.
+  **Rule of thumb for what belongs in `Common`**: a type belongs here only if it's dependency-free
+  (or only depends on `Laraue.Core.Exceptions`-style base packages) and every consumer would
+  plausibly need it. `IAuthService`/`AuthService`/`AuthOptions` (JWT creation/validation config) are
+  **not** here, on purpose — they live in `Boards.WebApiServices` (their original, pre-split home)
+  even though `Retro.WebApiHost` also needs them for JWT validation. A dedicated `Boards.Auth`
+  project was tried and reverted: it's not worth a fourth shared project yet for one class used by
+  only three consumers (`Boards.WebApiHost`, `Retro.WebApiHost`, `Boards.WebApiServices`'s login
+  token issuance) — `Retro.WebApiHost` just takes a direct `ProjectReference` to
+  `Boards.WebApiServices` for it instead. Revisit this (and `Common` in general) if/when this
+  becomes an actual shared package, per the original ask that started this restructuring.
 - `src/Laraue.Apps.Boards.Services` — shared, host-agnostic **Boards-domain** services (DI setup
   extensions, `IAccessService`'s space/epic/issue permission engine, file storage, etc.) used by
   both Boards hosts.
@@ -117,17 +117,20 @@ Solution: `Laraue.Apps.Boards.sln`
   - These still share `Boards.DataAccess`'s `DatabaseContext`/migrations and the retro entities
     (`Retro`, `RetroSection`, `RetroCard`, `RetroCardVote`, `RetroParticipant`) — there's no
     separate `Retro.DataAccess`.
-  - They deliberately do **not** reference `Boards.Services`/`Boards.WebApiServices` — only
-    `Boards.DataAccess`, `Boards.Common`, and `Boards.Auth`. `RetrosService` doesn't take an
-    `IAccessService` dependency at all; it inlines its own trivial "is this user an org member"
-    check directly against `DatabaseContext.OrganizationUsers` rather than pulling in Boards' full
-    space/epic/issue permission engine for two methods it doesn't need. `Retro.WebApiHost`'s
+  - `Retro.Services`/`Retro.WebApiServices` deliberately do **not** reference `Boards.Services`
+    — only `Boards.DataAccess` and `Boards.Common`. `RetrosService` doesn't take an `IAccessService`
+    dependency at all; it inlines its own trivial "is this user an org member" check directly
+    against `DatabaseContext.OrganizationUsers` rather than pulling in Boards' full space/epic/issue
+    permission engine for two methods it doesn't need. `Retro.WebApiHost`'s
     `AddDatabaseServices()`/`AddApplicationServices()`/`AddAuthentication()` are its own local
     copies (not calls into Boards' equivalents) — registering only `ICoreRetrosService`/
     `IRetrosService`/`DatabaseContext`/JWT auth, not Boards' Issue/Epic/Space/AI-summarizer stack.
+    `Retro.WebApiHost` *does* reference `Boards.WebApiServices` directly, but only for
+    `AuthService`/`IAuthService` — see the `Common` entry above for why that one dependency is kept
+    rather than duplicated or split out further.
   - The organization JWT is minted by Boards' login flow and validated by the retro host too (same
-    `AuthService` from `Boards.Auth`, `AuthSchemas` from `Boards.Common`), so `Auth:Key` must be
-    identical in both hosts' `appsettings`.
+    `AuthService` from `Boards.WebApiServices`, `AuthSchemas` from `Boards.Common`), so `Auth:Key`
+    must be identical in both hosts' `appsettings`.
 - `src/Laraue.Apps.StructuredMessages.DataAccess`, `src/Laraue.Apps.StructuredMessages.Services`
   — a separate app living in the same solution; unrelated to the Boards/Telegram feature set
   unless a task says otherwise.
@@ -137,7 +140,11 @@ Solution: `Laraue.Apps.Boards.sln`
   side by side — `WebApiTestHost` (Boards) for seeding users/organizations via
   `WebApiTestHostScope`/`OrganizationInitializer` (which need Boards-only core services like
   `ICoreOrganizationsService`), and `RetroWebApiTestHost` for the actual `Proxy<RetroController>`
-  calls — both point at the same test database.
+  calls — both point at the same test database. `RetroWebApiTestHost.Controller<TController>()`
+  takes an optional `authServices` `IServiceProvider`: Retro's own container has no `IAuthService`
+  (it never mints tokens, only validates them), so `RetroControllerTests` passes the Boards
+  `WebApiTestHost`'s `Services` there to mint the test JWT while still calling through Retro's
+  `HttpClient`.
 
 ## Service layering
 

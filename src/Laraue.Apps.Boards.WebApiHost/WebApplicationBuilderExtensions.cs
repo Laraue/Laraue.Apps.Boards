@@ -1,5 +1,4 @@
-﻿using Laraue.Apps.Boards.Auth;
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DateTime.Services.Abstractions;

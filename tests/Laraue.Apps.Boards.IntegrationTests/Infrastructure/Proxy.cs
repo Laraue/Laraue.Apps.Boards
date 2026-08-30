@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Laraue.Apps.Boards.Auth;
+using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.Exceptions;
 using Laraue.Core.Exceptions.Web;
 using Laraue.Telegram.NET.Abstractions.Request;

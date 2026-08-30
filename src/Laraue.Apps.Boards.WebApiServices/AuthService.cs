@@ -4,7 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Laraue.Apps.Boards.Auth;
+namespace Laraue.Apps.Boards.WebApiServices;
 
 public interface IAuthService
 {

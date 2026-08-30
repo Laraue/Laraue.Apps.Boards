@@ -11,7 +11,7 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retroHost)
     : IClassFixture<WebApiTestHost>, IClassFixture<RetroWebApiTestHost>
 {
-    private readonly Proxy<RetroController> _retroController = retroHost.Controller<RetroController>();
+    private readonly Proxy<RetroController> _retroController = retroHost.Controller<RetroController>(host.Services);
 
     [Fact]
     public async Task Create_ShouldSetCreatorAsOwnerAndParticipant_Always()
