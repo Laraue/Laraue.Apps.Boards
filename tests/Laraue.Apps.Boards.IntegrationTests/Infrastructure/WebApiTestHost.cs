@@ -47,7 +47,7 @@ public class WebApiTestHost
             AllowAutoRedirect = false
         });
         
-        return new Proxy<TController>(client, this);
+        return new Proxy<TController>(client, Services);
     }
 
     public WebApiTestHostScope CreateTestScope()

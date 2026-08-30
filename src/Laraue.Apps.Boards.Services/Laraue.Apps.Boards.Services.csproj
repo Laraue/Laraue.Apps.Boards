@@ -8,5 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />
+    <ProjectReference Include="..\Laraue.Apps.Boards.Common\Laraue.Apps.Boards.Common.csproj" />
   </ItemGroup>
 </Project>

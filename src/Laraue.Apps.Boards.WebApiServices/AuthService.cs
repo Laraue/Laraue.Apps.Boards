@@ -1,4 +1,4 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.Extensions.Options;
@@ -25,7 +25,7 @@ public class AuthService(IOptions<AuthOptions> options) : IAuthService
             new("orgId", organizationId.ToString()),
             new("id", userId.ToString()),
         };
-        
+
         var jwt = new JwtSecurityToken(
             issuer: Issuer,
             audience: OrganizationAudience,
@@ -33,17 +33,17 @@ public class AuthService(IOptions<AuthOptions> options) : IAuthService
             signingCredentials: new SigningCredentials(
                 GetSymmetricSecurityKey(options.Value.Key),
                 SecurityAlgorithms.HmacSha256));
-            
+
         return new JwtSecurityTokenHandler().WriteToken(jwt);
     }
-    
+
     public string CreateUserToken(Guid userId)
     {
         var claims = new List<Claim>
         {
             new("id", userId.ToString())
         };
-        
+
         var jwt = new JwtSecurityToken(
             issuer: Issuer,
             audience: UserAudience,
@@ -51,10 +51,10 @@ public class AuthService(IOptions<AuthOptions> options) : IAuthService
             signingCredentials: new SigningCredentials(
                 GetSymmetricSecurityKey(options.Value.Key),
                 SecurityAlgorithms.HmacSha256));
-            
+
         return new JwtSecurityTokenHandler().WriteToken(jwt);
     }
-    
+
     public static SymmetricSecurityKey GetSymmetricSecurityKey(string key)
     {
         return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));

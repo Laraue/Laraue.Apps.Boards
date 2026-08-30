@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Laraue.Core.DateTime" Version="$(LaraueCoreDateTimeVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />
+  </ItemGroup>
+</Project>

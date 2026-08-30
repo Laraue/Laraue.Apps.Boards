@@ -25,6 +25,7 @@
     <ItemGroup>
       <ProjectReference Include="..\..\src\Laraue.Apps.Boards.WebApiHost\Laraue.Apps.Boards.WebApiHost.csproj" />
       <ProjectReference Include="..\..\src\Laraue.Apps.Boards.TelegramHost\Laraue.Apps.Boards.TelegramHost.csproj" />
+      <ProjectReference Include="..\..\src\Laraue.Apps.Retro.WebApiHost\Laraue.Apps.Retro.WebApiHost.csproj" />
     </ItemGroup>
 
     <ItemGroup>

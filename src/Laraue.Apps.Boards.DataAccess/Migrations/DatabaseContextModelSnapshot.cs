@@ -946,6 +946,198 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("organization_users", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Retro", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("name");
+
+                    b.Property<long>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<int>("Phase")
+                        .HasColumnType("integer")
+                        .HasColumnName("phase");
+
+                    b.Property<DateTime?>("VoteEndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("vote_ends_at");
+
+                    b.Property<int>("VotesPerUser")
+                        .HasColumnType("integer")
+                        .HasColumnName("votes_per_user");
+
+                    b.HasKey("Id")
+                        .HasName("pk_retros");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_retros_owner_id");
+
+                    b.HasIndex("OrganizationId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_retros_organization_id_created_at");
+
+                    b.ToTable("retros", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroCard", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("Done")
+                        .HasColumnType("boolean")
+                        .HasColumnName("done");
+
+                    b.Property<bool>("Revealed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("revealed");
+
+                    b.Property<long>("SectionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("section_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("text");
+
+                    b.Property<double>("X")
+                        .HasColumnType("double precision")
+                        .HasColumnName("x");
+
+                    b.Property<double>("Y")
+                        .HasColumnType("double precision")
+                        .HasColumnName("y");
+
+                    b.HasKey("Id")
+                        .HasName("pk_retro_cards");
+
+                    b.HasIndex("AuthorId")
+                        .HasDatabaseName("ix_retro_cards_author_id");
+
+                    b.HasIndex("SectionId")
+                        .HasDatabaseName("ix_retro_cards_section_id");
+
+                    b.ToTable("retro_cards", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroCardVote", b =>
+                {
+                    b.Property<Guid>("CardId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("card_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("CardId", "UserId")
+                        .HasName("pk_retro_card_votes");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_retro_card_votes_user_id");
+
+                    b.ToTable("retro_card_votes", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroParticipant", b =>
+                {
+                    b.Property<long>("RetroId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("retro_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("RetroId", "UserId")
+                        .HasName("pk_retro_participants");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_retro_participants_user_id");
+
+                    b.ToTable("retro_participants", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroSection", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)")
+                        .HasColumnName("color");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("name");
+
+                    b.Property<long>("RetroId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("retro_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.HasKey("Id")
+                        .HasName("pk_retro_sections");
+
+                    b.HasIndex("RetroId", "SortOrder")
+                        .IsUnique()
+                        .HasDatabaseName("ix_retro_sections_retro_id_sort_order");
+
+                    b.ToTable("retro_sections", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Space", b =>
                 {
                     b.Property<long>("Id")
@@ -1807,6 +1999,102 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Retro", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retros_organizations_organization_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retros_users_owner_id");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroCard", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Author")
+                        .WithMany()
+                        .HasForeignKey("AuthorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retro_cards_users_author_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.RetroSection", "Section")
+                        .WithMany("Cards")
+                        .HasForeignKey("SectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retro_cards_retro_sections_section_id");
+
+                    b.Navigation("Author");
+
+                    b.Navigation("Section");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroCardVote", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.RetroCard", "Card")
+                        .WithMany("Votes")
+                        .HasForeignKey("CardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retro_card_votes_retro_cards_card_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retro_card_votes_users_user_id");
+
+                    b.Navigation("Card");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroParticipant", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Retro", "Retro")
+                        .WithMany("Participants")
+                        .HasForeignKey("RetroId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retro_participants_retros_retro_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retro_participants_users_user_id");
+
+                    b.Navigation("Retro");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroSection", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Retro", "Retro")
+                        .WithMany("Sections")
+                        .HasForeignKey("RetroId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_retro_sections_retros_retro_id");
+
+                    b.Navigation("Retro");
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Space", b =>
                 {
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Creator")
@@ -1953,6 +2241,23 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OrganizationLog", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Retro", b =>
+                {
+                    b.Navigation("Participants");
+
+                    b.Navigation("Sections");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroCard", b =>
+                {
+                    b.Navigation("Votes");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.RetroSection", b =>
+                {
+                    b.Navigation("Cards");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Space", b =>

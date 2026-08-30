@@ -1,3 +1,4 @@
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.WebApiServices;
 using Microsoft.AspNetCore.Authorization;

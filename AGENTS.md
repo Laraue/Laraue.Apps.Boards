@@ -76,20 +76,75 @@ its caller.
 Solution: `Laraue.Apps.Boards.sln`
 
 - `src/Laraue.Apps.Boards.DataAccess` — EF Core `DatabaseContext`, entity models, migrations.
-- `src/Laraue.Apps.Boards.Services` — shared, host-agnostic services (DI setup extensions, file
-  storage, etc.) used by both hosts.
+- `src/Laraue.Apps.Boards.Common` — generic, host-agnostic identity types with no business logic and
+  no ASP.NET-specific dependencies: `OrganizationAuthData`, `AuthSchemas`,
+  `ClaimsPrincipalExtensions`. Referenced by `Boards.Services` (so effectively every host, including
+  `TelegramHost`, gets it transitively) — kept intentionally minimal so that transitive reach doesn't
+  drag in anything a consumer might not need. Notably `VisibleUser` (the "person as seen by another
+  org member" DTO — id/display name/initials/color/isCurrentUser) is **not** here: it's a plain DTO
+  with zero logic, so Boards (`WebApiServices.VisibleUser`) and Retro
+  (`Retro.WebApiServices.RetroUser`) each keep their own copy rather than sharing one through
+  `Common`. Prefer duplicating a shape like this over adding a cross-feature dependency for it —
+  reach for `Common` when there's actual behavior/logic to share, not just an identical shape.
+  **Rule of thumb for what belongs in `Common`**: a type belongs here only if it's dependency-free
+  (or only depends on `Laraue.Core.Exceptions`-style base packages) and every consumer would
+  plausibly need it. `IAuthService`/`AuthService`/`AuthOptions` (JWT creation/validation config) are
+  **not** here, on purpose — they live in `Boards.WebApiServices` (their original, pre-split home)
+  even though `Retro.WebApiHost` also needs them for JWT validation. A dedicated `Boards.Auth`
+  project was tried and reverted: it's not worth a fourth shared project yet for one class used by
+  only three consumers (`Boards.WebApiHost`, `Retro.WebApiHost`, `Boards.WebApiServices`'s login
+  token issuance) — `Retro.WebApiHost` just takes a direct `ProjectReference` to
+  `Boards.WebApiServices` for it instead. Revisit this (and `Common` in general) if/when this
+  becomes an actual shared package, per the original ask that started this restructuring.
+- `src/Laraue.Apps.Boards.Services` — shared, host-agnostic **Boards-domain** services (DI setup
+  extensions, `IAccessService`'s space/epic/issue permission engine, file storage, etc.) used by
+  both Boards hosts.
 - `src/Laraue.Apps.Boards.TelegramHost` — ASP.NET host for the Telegram bot webhook: routes,
   middleware pipeline, `appsettings`.
 - `src/Laraue.Apps.Boards.TelegramServices` — Telegram-specific business logic (group chat
   linking, `/save`, inline search, issue preview formatting) consumed by `TelegramHost`.
 - `src/Laraue.Apps.Boards.WebApiHost` — ASP.NET host for the web/Mini App REST API.
 - `src/Laraue.Apps.Boards.WebApiServices` — business logic consumed by `WebApiHost`.
+- `src/Laraue.Apps.Retro.Services`, `src/Laraue.Apps.Retro.WebApiServices`,
+  `src/Laraue.Apps.Retro.WebApiHost` — the retro-board feature, split into its **own deployable**
+  from `Boards.WebApiHost` (its own `Program.cs`, port, `appsettings`, and its own DI-wiring
+  extension methods — not shared with Boards' `AddCoreServices()`/`AddDatabaseServices()`, each host
+  configures its own container from scratch). It's the only feature that needs SignalR/WebSockets
+  (`RetroHub`, `/hubs/retro`) — bundling that into the main API host would mean nginx has to proxy
+  WebSocket traffic for everything else too, and a retro-specific incident (e.g. a runaway
+  connection storm) would take down unrelated Boards endpoints. Keep new retro-adjacent work in
+  these three projects, not back in `Boards.WebApiHost`/`WebApiServices`.
+  - These still share `Boards.DataAccess`'s `DatabaseContext`/migrations and the retro entities
+    (`Retro`, `RetroSection`, `RetroCard`, `RetroCardVote`, `RetroParticipant`) — there's no
+    separate `Retro.DataAccess`.
+  - `Retro.Services`/`Retro.WebApiServices` deliberately do **not** reference `Boards.Services`
+    — only `Boards.DataAccess` and `Boards.Common`. `RetrosService` doesn't take an `IAccessService`
+    dependency at all; it inlines its own trivial "is this user an org member" check directly
+    against `DatabaseContext.OrganizationUsers` rather than pulling in Boards' full space/epic/issue
+    permission engine for two methods it doesn't need. `Retro.WebApiHost`'s
+    `AddDatabaseServices()`/`AddApplicationServices()`/`AddAuthentication()` are its own local
+    copies (not calls into Boards' equivalents) — registering only `ICoreRetrosService`/
+    `IRetrosService`/`DatabaseContext`/JWT auth, not Boards' Issue/Epic/Space/AI-summarizer stack.
+    `Retro.WebApiHost` *does* reference `Boards.WebApiServices` directly, but only for
+    `AuthService`/`IAuthService` — see the `Common` entry above for why that one dependency is kept
+    rather than duplicated or split out further.
+  - The organization JWT is minted by Boards' login flow and validated by the retro host too (same
+    `AuthService` from `Boards.WebApiServices`, `AuthSchemas` from `Boards.Common`), so `Auth:Key`
+    must be identical in both hosts' `appsettings`.
 - `src/Laraue.Apps.StructuredMessages.DataAccess`, `src/Laraue.Apps.StructuredMessages.Services`
   — a separate app living in the same solution; unrelated to the Boards/Telegram feature set
   unless a task says otherwise.
 - `tests/Laraue.Apps.Boards.IntegrationTests` — the only test project. Uses
   `Laraue.Telegram.NET.Testing` (`AppTelegramTestHost`) for Telegram-flow tests and a similar
-  in-process host for web API tests.
+  in-process host for web API tests. Retro tests (`RetroControllerTests`) use two in-process hosts
+  side by side — `WebApiTestHost` (Boards) for seeding users/organizations via
+  `WebApiTestHostScope`/`OrganizationInitializer` (which need Boards-only core services like
+  `ICoreOrganizationsService`), and `RetroWebApiTestHost` for the actual `Proxy<RetroController>`
+  calls — both point at the same test database. `RetroWebApiTestHost.Controller<TController>()`
+  takes an optional `authServices` `IServiceProvider`: Retro's own container has no `IAuthService`
+  (it never mints tokens, only validates them), so `RetroControllerTests` passes the Boards
+  `WebApiTestHost`'s `Services` there to mint the test JWT while still calling through Retro's
+  `HttpClient`.
 
 ## Service layering
 
@@ -184,6 +239,38 @@ yourself — ask the user to stop it, then retry the build once they confirm.
   etc., via `LinqToDB.EntityFrameworkCore`) only where EF Core's LINQ provider can't translate the
   query (or translates it inefficiently) and LinqToDB can. Don't reach for LinqToDB by default —
   it's the fallback, not the first choice.
+
+## Query shape: project, don't load-then-map
+
+- Don't `Include`/`ThenInclude` a full entity graph just to read a handful of fields off it.
+  Project straight to the shape the caller needs with `.Select(...)` — pull only the columns
+  actually used. This avoids over-fetching (whole `User`/navigation entities when only
+  `DisplayName`/`Initials`/`Color` are needed) and skips `AsSplitQuery()` entirely, since EF
+  already issues one query per projected collection when you `Select` into nested arrays/DTOs —
+  `AsSplitQuery()` is only relevant for `Include`-based graphs.
+- Don't add `AsNoTracking()` to a query that ends in `.Select(...)` into a non-entity type (a DTO,
+  an anonymous type, etc.) — EF Core never tracks projected results in the first place, so it's a
+  no-op there. `AsNoTracking()` only matters when the query's result is the entity type itself
+  (e.g. returned via `Include` or a bare `Where(...).ToListAsync()` with no projection).
+- Project directly into the final response DTO inside the `Select` (e.g. `new VisibleUser {
+  UserId = p.UserId, DisplayName = p.User!.DisplayName, ... }`) instead of projecting to an
+  anonymous type first and mapping it to the DTO in a second, separate step — that second step is
+  usually redundant work once the query already has everything the DTO needs.
+- When one response combines rows from several unrelated collections off the same aggregate root
+  (e.g. a retro's sections, cards, and participants), don't fetch it as a single query with nested
+  `Select`s off the root — issue one focused, independent query per collection instead (e.g.
+  `context.RetroSections.Where(x => x.RetroId == id)...`, `context.RetroCards.Where(x =>
+  x.Section!.RetroId == id)...`, `context.RetroParticipants.Where(x => x.RetroId == id)...`) and
+  assemble the response from the results. Scalar/root fields needed by a later projection (like a
+  parent's `Phase` used to decide whether a card's vote count/text should be hidden) can be
+  captured from an earlier query and referenced as a local variable in a later query's `Select` —
+  EF Core parameterizes it, it's not a client-eval issue. See
+  `RetrosService.Get(long id, OrganizationAuthData, CancellationToken)` for the pattern.
+- Core services that only need to check a scalar condition (existence, a status flag, a count)
+  shouldn't load the owning entity graph to get it — query directly for that scalar instead. E.g.
+  `CoreRetrosService.SetVote` queries `Phase`/`VoteEndsAt`/`VotesPerUser` via a `Select` and looks
+  up the caller's own vote with a targeted `FirstOrDefaultAsync`, rather than `Include`-ing the
+  card's `Section`, `Retro`, and entire `Votes` collection.
 
 ## AI content summarization
 

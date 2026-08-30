@@ -1,4 +1,4 @@
-﻿namespace Laraue.Apps.Boards.WebApiServices;
+namespace Laraue.Apps.Boards.Common;
 
 public static class AuthSchemas
 {

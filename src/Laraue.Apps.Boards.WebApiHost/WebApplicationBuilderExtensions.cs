@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.Services;
+﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DateTime.Services.Impl;
@@ -46,7 +47,7 @@ public static class WebApplicationBuilderExtensions
                     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
             builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
                 options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-            
+
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddOpenApi();
 

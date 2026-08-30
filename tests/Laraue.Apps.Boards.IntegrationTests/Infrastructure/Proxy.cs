@@ -18,7 +18,7 @@ using FromQueryAttribute = Microsoft.AspNetCore.Mvc.FromQueryAttribute;
 
 namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
-public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TController : ControllerBase
+public class Proxy<TController>(HttpClient client, IServiceProvider services) where TController : ControllerBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -42,14 +42,14 @@ public class Proxy<TController>(HttpClient client, WebApiTestHost host) where TC
 
     public Proxy<TController> WithUserAuthorization(Guid userId)
     {
-        var authService = host.Services.GetRequiredService<IAuthService>();
+        var authService = services.GetRequiredService<IAuthService>();
         var bearer = authService.CreateUserToken(userId);
         return WithAuthorizationToken(bearer);
     }
 
     public Proxy<TController> WithOrganizationAuthorization(long organizationId, Guid userId)
     {
-        var authService = host.Services.GetRequiredService<IAuthService>();
+        var authService = services.GetRequiredService<IAuthService>();
         var bearer = authService.CreateOrganizationToken(organizationId, userId);
         return WithAuthorizationToken(bearer);
     }

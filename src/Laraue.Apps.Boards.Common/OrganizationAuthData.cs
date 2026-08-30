@@ -1,4 +1,4 @@
-﻿namespace Laraue.Apps.Boards.Services;
+namespace Laraue.Apps.Boards.Common;
 
 public struct OrganizationAuthData
 {
