@@ -72,12 +72,12 @@ public static class WebApplicationBuilderExtensions
             builder.Services
                 .AddScoped<ISearchService, SearchService>()
                 .AddSingleton<IIssueUrlBuilder, IssueUrlBuilder>()
-                .AddSingleton<ITokenFilterRegistry, TokenFilterRegistry>()
-                .AddSingleton<IQueryTokenFilter, UpdatedTokenFilter>()
-                .AddSingleton<IQueryTokenFilter, AssigneeTokenFilter>()
-                .AddSingleton<IQueryTokenFilter, OrganizationTokenFilter>()
-                .AddSingleton<IQueryTokenFilter, IssueKeyTokenFilter>()
-                .AddSingleton<IQueryTokenFilter, SpaceTokenFilter>();
+                .AddScoped<ITokenFilterRegistry, TokenFilterRegistry>()
+                .AddScoped<IQueryTokenFilter, UpdatedTokenFilter>()
+                .AddScoped<IQueryTokenFilter, AssigneeTokenFilter>()
+                .AddScoped<IQueryTokenFilter, OrganizationTokenFilter>()
+                .AddScoped<IQueryTokenFilter, IssueKeyTokenFilter>()
+                .AddScoped<IQueryTokenFilter, SpaceTokenFilter>();
 
             builder.Services
                 .AddScoped<IGroupChatService, GroupChatService>()

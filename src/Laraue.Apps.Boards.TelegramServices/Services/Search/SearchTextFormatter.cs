@@ -5,17 +5,29 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 
 public static class SearchTextFormatter
 {
+    private const string ReservedMarkdownV2Characters = "_*[]()~`>#+-=|{}.!\\";
+
     public static string EscapeMarkdownV2(string text)
     {
-        const string reserved = "_*[]()~`>#+-=|{}.!\\";
         var sb = new StringBuilder(text.Length);
+        AppendEscapedMarkdownV2(sb, text);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Same escaping as <see cref="EscapeMarkdownV2"/>, but writes directly into an existing
+    /// <see cref="StringBuilder"/> from a span instead of allocating an intermediate string -
+    /// for callers (like <see cref="TelegramMarkdownFormatter"/>) building up a larger result
+    /// out of many small escaped segments.
+    /// </summary>
+    public static void AppendEscapedMarkdownV2(StringBuilder sb, ReadOnlySpan<char> text)
+    {
         foreach (var c in text)
         {
-            if (reserved.IndexOf(c) >= 0)
+            if (ReservedMarkdownV2Characters.IndexOf(c) >= 0)
                 sb.Append('\\');
             sb.Append(c);
         }
-        return sb.ToString();
     }
 
     // Runs of 3+ of these are almost always a decorative divider (markdown horizontal rule

@@ -2,6 +2,8 @@
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
+using Laraue.Core.DataAccess.Contracts;
+using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -18,7 +20,12 @@ public interface ISearchService
     Task HandleInlineSearchQuery(SearchRequest request, CancellationToken ct);
 }
 
-public record SearchRequest(Guid UserId, string InlineQuery, string InlineQueryId);
+/// <summary>
+/// <paramref name="Offset"/> is Telegram's own inline-query pagination cursor - empty on the
+/// first page, then whatever this service previously returned as <c>next_offset</c> once the
+/// user scrolls the results list further.
+/// </summary>
+public record SearchRequest(Guid UserId, string InlineQuery, string InlineQueryId, string Offset = "");
 
 public class SearchService(
     DatabaseContext context,
@@ -29,6 +36,8 @@ public class SearchService(
     ITelegramBotClient botClient)
     : ISearchService
 {
+    private const int PageSize = 20;
+
     public async Task HandleInlineSearchQuery(SearchRequest request, CancellationToken ct)
     {
         var readableSpaceIds = await GetReadableSpaceIdsAsync(request, ct);
@@ -161,7 +170,25 @@ public class SearchService(
             issuesQuery = issuesQuery.Where(x => x.Content != null && x.Content != string.Empty);
         }
 
-        var issues = await issuesQuery
+        // Telegram's inline query pagination: the client re-sends the same query with `Offset`
+        // set to whatever we previously returned as next_offset, once the user scrolls the
+        // results list further. `page` stays valid because we only ever hand back page-aligned
+        // offsets (below) - a raw, possibly-misaligned offset can't be handed to
+        // ShortPaginateLinq2DbAsync directly, since it only understands page numbers.
+        var pageOffset = int.TryParse(request.Offset, out var parsedOffset) && parsedOffset >= 0
+            ? parsedOffset
+            : 0;
+        var page = pageOffset / PageSize;
+
+        // ShortPaginateLinq2DbAsync is the same "fetch PageSize + 1 rows to tell whether there's
+        // a next page" trick used elsewhere in this codebase's paginated endpoints, instead of a
+        // separate COUNT query.
+        var paginated = await issuesQuery
+            // Most-recently-created first - with no explicit order, Postgres returns rows in
+            // whatever order its query plan happens to produce, which isn't guaranteed to be
+            // meaningful and can visibly change between otherwise-identical searches (and would
+            // make paging incoherent - rows could shuffle between pages between requests).
+            .OrderByDescending(x => x.Id)
             .Select(x => new
             {
                 Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
@@ -175,12 +202,14 @@ public class SearchService(
                     : null,
                 SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
-            .Take(5)
-            .ToListAsyncLinqToDB(ct);
+            .ShortPaginateLinq2DbAsync(new PaginationData { Page = page, PerPage = PageSize }, ct);
+
+        var issues = paginated.Data;
+        var nextOffset = paginated.HasNextPage ? ((page + 1) * PageSize).ToString() : string.Empty;
 
         logger.LogInformation(
-            "Search text {SearchText:l} (key lookup: {IsKeyLookup}) matched {IssueCount} issue(s)",
-            searchText, isKeyLookup, issues.Count);
+            "Search text {SearchText:l} (key lookup: {IsKeyLookup}) matched {IssueCount} issue(s) at offset {Offset}",
+            searchText, isKeyLookup, issues.Count, pageOffset);
 
         if (issues.Count == 0)
         {
@@ -201,79 +230,127 @@ public class SearchService(
         var result = new List<InlineQueryResult>();
         foreach (var issue in issues)
         {
-            var normalizedContent = SearchTextFormatter.CleanForPreview(issue.Content ?? string.Empty);
-
-            if (normalizedContent.Length == 0)
+            try
             {
-                if (isKeyLookup)
+                // Only strip decorative runs here, not the full CleanForPreview whitespace
+                // collapse - collapsing newlines would merge every paragraph into one line
+                // before it reaches TelegramMarkdownFormatter, which relies on line boundaries
+                // to keep an inline span's opening/closing marker from pairing up with an
+                // unrelated stray marker in a totally different paragraph (turning most of the
+                // message bold by accident). The structure needs to survive all the way to
+                // ToMarkdownV2() - see GetIssuePreview in TelegramSaveMessageService, which
+                // never flattens for the same reason.
+                var rawContent = SearchTextFormatter.RemoveDecorativeRuns(issue.Content ?? string.Empty);
+
+                if (string.IsNullOrWhiteSpace(rawContent))
                 {
-                    // Found by exact key even though it has no content — still show it,
-                    // just with a placeholder instead of a blank preview.
-                    normalizedContent = "(no description)";
-                }
-                else
-                {
-                    // Whitespace-only content (passes the DB's plain != "" check but normalizes to
-                    // nothing) or the empty-content edge case in general. Don't send Telegram a
-                    // message with no text — it can't render that and shows a broken
-                    // "open bot privately" placeholder instead — so just skip this result.
-                    logger.LogWarning("Issue {IssueKey}: content is empty after normalization, skipping", issue.Key);
-                    continue;
-                }
-            }
-
-            var fragment = ContentFragment.Extract(normalizedContent, searchText, IssuePreviewFormatter.FragmentContextChars);
-
-            if (!string.IsNullOrWhiteSpace(searchText) && fragment.Match.Length == 0)
-            {
-                // The DB matched this issue via ILIKE, but our own IndexOf couldn't find the
-                // term in the same (normalized) content — this is the mismatch we're chasing.
-                // Log enough to diagnose (length + a short snippet) without dumping full,
-                // potentially large or sensitive issue content into logs.
-                var snippetLength = Math.Min(200, normalizedContent.Length);
-                logger.LogWarning(
-                    "Issue {IssueKey}: ILIKE matched {SearchText:l} but IndexOf did not. " +
-                    "ContentLength={ContentLength}, Snippet={Snippet:l}",
-                    issue.Key, searchText, normalizedContent.Length, normalizedContent[..snippetLength]);
-            }
-
-            var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
-            var footer = IssuePreviewFormatter.BuildSourceFooter(issue.ChatTitle, issue.SenderName, issue.SentAt);
-
-            // The link lives on a button, not in the text — buttons render reliably regardless
-            // of MarkdownV2 escaping, whereas an in-text [text](url) link depends on every
-            // character around it being escaped exactly right or Telegram shows the raw syntax.
-            var messageText =
-                IssuePreviewFormatter.BuildHeader(issue.Key, issue.OrganizationName) + "\n" +
-                fragment.ToMarkdownV2() +
-                (footer is not null ? "\n" + footer : string.Empty);
-
-            result.Add(
-                new InlineQueryResultArticle(
-                    issue.Key.ToString(),
-                    $"{issue.Key} · {issue.OrganizationName}",
-                    new InputTextMessageContent(messageText)
+                    if (isKeyLookup)
                     {
-                        ParseMode = ParseMode.MarkdownV2
-                    })
+                        // Found by exact key even though it has no content — still show it,
+                        // just with a placeholder instead of a blank preview.
+                        rawContent = "(no description)";
+                    }
+                    else
+                    {
+                        // Whitespace-only content (passes the DB's plain != "" check) or the
+                        // empty-content edge case in general. Don't send Telegram a message with
+                        // no text — it can't render that and shows a broken "open bot privately"
+                        // placeholder instead — so just skip this result.
+                        logger.LogWarning("Issue {IssueKey}: content is empty, skipping", issue.Key);
+                        continue;
+                    }
+                }
+
+                var fragment = ContentFragment.Extract(rawContent, searchText, IssuePreviewFormatter.FragmentContextChars);
+
+                if (!string.IsNullOrWhiteSpace(searchText) && fragment.Match.Length == 0)
                 {
-                    Description = fragment.ToPlainText(),
-                    // Without this, Telegram falls back to a grey placeholder tile with just
-                    // the first letter of the title — setting a real icon here is what makes
-                    // the mobile results list show an actual image instead.
-                    ThumbnailUrl = options.Value.Icons.Issue,
-                    ReplyMarkup = new InlineKeyboardMarkup(
-                        InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl))
-                });
+                    // The DB matched this issue via ILIKE, but our own IndexOf couldn't find the
+                    // term in the same content — this is the mismatch we're chasing. Log enough
+                    // to diagnose (length + a short snippet) without dumping full, potentially
+                    // large or sensitive issue content into logs.
+                    var snippetLength = Math.Min(200, rawContent.Length);
+                    logger.LogWarning(
+                        "Issue {IssueKey}: ILIKE matched {SearchText:l} but IndexOf did not. " +
+                        "ContentLength={ContentLength}, Snippet={Snippet:l}",
+                        issue.Key, searchText, rawContent.Length, rawContent[..snippetLength]);
+                }
+
+                var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
+                var footer = IssuePreviewFormatter.BuildSourceFooter(issue.ChatTitle, issue.SenderName, issue.SentAt);
+
+                // The text actually posted to the chat once the user taps this result
+                // (InputTextMessageContent) always starts from the beginning of the issue, like
+                // /save and /info do - centering on the match (via `fragment`) only makes sense
+                // while still choosing between results in the dropdown. Once posted, there's no
+                // reader left for whom "here's where your search term was" means anything, and
+                // starting mid-issue is just confusing on its own.
+                var messagePreview = ContentFragment.Extract(rawContent, searchText: string.Empty, IssuePreviewFormatter.FragmentContextChars);
+
+                // The link lives on a button, not in the text — buttons render reliably
+                // regardless of MarkdownV2 escaping, whereas an in-text [text](url) link depends
+                // on every character around it being escaped exactly right or Telegram shows
+                // the raw syntax.
+                var messageText =
+                    IssuePreviewFormatter.BuildHeader(issue.Key, issue.OrganizationName) + "\n" +
+                    messagePreview.ToMarkdownV2() +
+                    (footer is not null ? "\n" + footer : string.Empty);
+
+                result.Add(
+                    new InlineQueryResultArticle(
+                        issue.Key.ToString(),
+                        $"{issue.Key} · {issue.OrganizationName}",
+                        new InputTextMessageContent(messageText)
+                        {
+                            ParseMode = ParseMode.MarkdownV2
+                        })
+                    {
+                        // Normalized only here, after extraction/truncation - the dropdown entry
+                        // is a single-line UI element regardless, so collapsing any leftover
+                        // newlines in this already-bounded snippet is safe (unlike normalizing
+                        // the whole content before ToMarkdownV2() above).
+                        Description = SearchTextFormatter.NormalizeWhitespace(fragment.ToPlainText()),
+                        // Without this, Telegram falls back to a grey placeholder tile with just
+                        // the first letter of the title — setting a real icon here is what makes
+                        // the mobile results list show an actual image instead.
+                        ThumbnailUrl = options.Value.Icons.Issue,
+                        ReplyMarkup = new InlineKeyboardMarkup(
+                            InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl))
+                    });
+            }
+            catch (Exception ex)
+            {
+                // A bug in formatting this one issue's content shouldn't fail the whole batch of
+                // results (or worse, the entire inline query) - log it and show a safe
+                // placeholder for this result instead.
+                logger.LogError(ex, "Issue {IssueKey}: failed to build search result content", issue.Key);
+
+                result.Add(
+                    new InlineQueryResultArticle(
+                        issue.Key.ToString(),
+                        $"{issue.Key} · {issue.OrganizationName}",
+                        new InputTextMessageContent(
+                            IssuePreviewFormatter.BuildContentGenerationErrorText(issue.Key, issue.OrganizationName))
+                        {
+                            ParseMode = ParseMode.MarkdownV2
+                        })
+                    {
+                        Description = "⚠️ Something went wrong while generating the content of this message.",
+                        ThumbnailUrl = options.Value.Icons.Issue,
+                    });
+            }
         }
 
         // isPersonal: true — see note above; the same reasoning applies to every branch
-        // that answers an inline query, not just the suggestions one.
+        // that answers an inline query, not just the suggestions one. nextOffset left empty
+        // means "no more pages" to Telegram - it only requests another page when we hand back
+        // a non-empty cursor here.
         await botClient.AnswerInlineQuery(
             request.InlineQueryId,
             result,
             cacheTime: 0,
             isPersonal: true,
+            nextOffset: nextOffset,
             cancellationToken: ct);
     }
 

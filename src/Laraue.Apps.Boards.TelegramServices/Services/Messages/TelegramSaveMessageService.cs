@@ -8,6 +8,7 @@ using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using File = Laraue.Apps.Boards.Services.File;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
@@ -61,7 +62,8 @@ public class TelegramSaveMessageService(
     IAccessService accessService,
     IIssueUrlBuilder issueUrlBuilder,
     IDateTimeProvider dateTimeProvider,
-    IAiContentSummarizer aiContentSummarizer)
+    IAiContentSummarizer aiContentSummarizer,
+    ILogger<TelegramSaveMessageService> logger)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -802,16 +804,27 @@ public class TelegramSaveMessageService(
 
         var url = issueUrlBuilder.Build(issueData.OrganizationSlug, issueData.OrganizationSlugPostfix, issueData.Key);
 
-        var fragment = ContentFragment.Extract(
-            issueData.Content ?? string.Empty,
-            searchText: string.Empty,
-            IssuePreviewFormatter.FragmentContextChars);
+        string text;
+        try
+        {
+            var fragment = ContentFragment.Extract(
+                issueData.Content ?? string.Empty,
+                searchText: string.Empty,
+                IssuePreviewFormatter.FragmentContextChars);
 
-        var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, issueData.SenderName, issueData.SentAt);
+            var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, issueData.SenderName, issueData.SentAt);
 
-        var text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" + fragment.ToMarkdownV2();
-        if (footer is not null)
-            text += "\n" + footer;
+            text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" + fragment.ToMarkdownV2();
+            if (footer is not null)
+                text += "\n" + footer;
+        }
+        catch (Exception ex)
+        {
+            // A bug in formatting this one issue's content shouldn't fail the whole /save or
+            // /info reply - log it and hand back a safe placeholder instead.
+            logger.LogError(ex, "Issue {IssueKey}: failed to build preview content", issueData.Key);
+            text = IssuePreviewFormatter.BuildContentGenerationErrorText(issueData.Key, issueData.OrganizationName);
+        }
 
         return (text, url);
     }
