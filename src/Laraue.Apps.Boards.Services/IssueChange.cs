@@ -27,9 +27,16 @@ public abstract class IssueChange<TSelf> where TSelf : IssueChange<TSelf>
 
     internal List<Guid> AttachmentIdsToLink { get; } = [];
 
+    /// <summary>
+    /// Normalizes line endings to <see cref="IssueContentFormat.LineSeparator"/> before storing -
+    /// the web app and Telegram send the same text with different line endings (browser textarea
+    /// vs. Telegram's message text), which otherwise makes
+    /// <see cref="ICoreIssuesService.Update"/>'s content-equality check see a "change" and log a
+    /// history entry whose old/new values render identically.
+    /// </summary>
     public TSelf SetContent(string? content)
     {
-        Content = ChangedValue<string?>.Of(content);
+        Content = ChangedValue<string?>.Of(content?.ReplaceLineEndings(IssueContentFormat.LineSeparatorString));
         return (TSelf)this;
     }
 

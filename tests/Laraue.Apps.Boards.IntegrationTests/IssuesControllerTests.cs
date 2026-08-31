@@ -1457,4 +1457,62 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         Assert.Equal(System.Net.HttpStatusCode.ServiceUnavailable, ex.StatusCode);
     }
+
+    [Fact]
+    public async Task Create_ShouldNormalizeLineEndings_WhenContentUsesCrlf()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "Line1\r\nLine2",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
+        Assert.Equal("Line1\nLine2", issue!.Content);
+    }
+
+    [Fact]
+    public async Task Update_ShouldNotRecordContentChange_WhenNewContentOnlyDiffersByLineEndings()
+    {
+        // Regression test: the web app and Telegram send the same text with different line
+        // endings (browser textarea vs. Telegram's message text). Before content was normalized
+        // in IssueChange.SetContent, re-saving semantically-identical content from the other
+        // source produced a spurious history entry whose old/new values rendered identically.
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { AssigneeId = userId, Content = "Line1\r\nLine2" }));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { AssigneeId = userId, Content = "Line1\nLine2" }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.Equal("Line1\nLine2", issue!.Content);
+
+        // Only the first (real) content-changing update should have logged anything - the
+        // second update should not have produced a row at all, since nothing actually changed.
+        var historyChanges = await testScope.Database.OrganizationLogs.ToListAsyncEF();
+        Assert.Single(historyChanges);
+    }
 }

@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Telegram.NET.Testing;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -2384,7 +2385,232 @@ public class TelegramHostTests : TelegramIntegrationTest
         var invalidResult = Assert.Single(invalidRequest.Results);
         Assert.Equal("key-error", invalidResult.Id);
     }
-    
+
+    [Fact]
+    public async Task InlineSearch_ShouldKeepParagraphsSeparate_WhenContentHasUnpairedAsterisksInDifferentParagraphs()
+    {
+        // Regression test: a lone "*" in one paragraph and another lone "*" several paragraphs
+        // later used to get merged into one giant (wrong) bold span covering everything between
+        // them, because the content was flattened to a single line (CleanForPreview) before
+        // reaching TelegramMarkdownFormatter - which relies on line boundaries to keep an inline
+        // span's open/close markers from pairing up across unrelated paragraphs. With paragraph
+        // structure preserved, each lone "*" has no partner on its own line and is escaped as
+        // literal text instead.
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+        const string content =
+            "Line one with a lone * mark.\n\n" +
+            "Line two is fine.\n\n" +
+            "Line three has another lone * mark.";
+
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "AAA", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i
+                            .WithContent(content)))));
+
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = DefaultUser,
+                Query = $"key:{issueData.Key}"
+            }
+        });
+
+        var request = host.Requests().Single<AnswerInlineQueryRequest>();
+        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
+        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
+
+        Assert.Contains(
+            "Line one with a lone \\* mark\\.\n\n" +
+            "Line two is fine\\.\n\n" +
+            "Line three has another lone \\* mark\\.",
+            messageText);
+    }
+
+    [Fact]
+    public async Task InlineSearch_ShouldProduceValidMessage_WhenFenceStraddlesAFreeTextMatch()
+    {
+        // Regression test (BRD-161, at production FragmentContextChars): searching "ret" matches
+        // "return" further down the content, well after a fenced code block. Historically the
+        // posted message was built from a match-centered window that started partway through that
+        // block (its real closing marker ending up inside the window), which made Telegram reject
+        // the message outright ("Character '}' is reserved and must be escaped") because Prefix
+        // and Suffix were formatted independently and disagreed about whether the fence was still
+        // open by the time Suffix started. The posted message is now always built from the start
+        // of the content instead (see the next test) - this still guards the underlying "fence
+        // markers must pair up" invariant in case a future change reintroduces windowing here.
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+        const string content =
+            "1. Add status to epics. Just an enum\n\n" +
+            "```\n" +
+            "enum EpicStatus\n" +
+            "{\n" +
+            "  New,\n" +
+            "  InProgress,\n" +
+            "  Done,\n" +
+            "}\n" +
+            "```\n\n" +
+            "2. API that will change the status\n" +
+            "3. Show epic status while return epics list\n" +
+            "4. API that return epics should support filtering by status " +
+            "(array of statuses to return, null - no filtering, [1,2] - not completed, etc)\n" +
+            "5. Allow filter issues in all issues list by epic status";
+
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "AAA", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i
+                            .WithContent(content)))));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "ret" }
+        });
+
+        var request = host.Requests().Single<AnswerInlineQueryRequest>();
+        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
+        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
+
+        // Fence markers must always pair up - an odd count is exactly what made Telegram reject
+        // the message as an unterminated/invalid entity.
+        Assert.Equal(0, System.Text.RegularExpressions.Regex.Matches(messageText, "```").Count % 2);
+    }
+
+    [Fact]
+    public async Task InlineSearch_ShouldOrderByMostRecentlyCreatedFirst()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "AAA", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i.WithContent("widget one"))
+                        .AddIssue(userId, 0, i => i.WithContent("widget two"))
+                        .AddIssue(userId, 0, i => i.WithContent("widget three")))));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "widget" }
+        });
+
+        var request = host.Requests().Single<AnswerInlineQueryRequest>();
+        var ids = request.Results.Cast<InlineQueryResultArticle>().Select(x => x.Id).ToList();
+
+        Assert.Equal(
+            new[]
+            {
+                organization.GetIssueData(1, 1, 0, 2).Key,
+                organization.GetIssueData(1, 1, 0, 1).Key,
+                organization.GetIssueData(1, 1, 0, 0).Key,
+            },
+            ids);
+    }
+
+    [Fact]
+    public async Task InlineSearch_ShouldPaginate_WhenMoreIssuesMatchThanFitOnOnePage()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+
+        // One more than PageSize (20), so the results span exactly two pages: 20 + 3.
+        await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "AAA", s => s
+                    .AddEpic(userId, e => Enumerable.Range(1, 23)
+                        .Aggregate(e, (epic, i) => epic.AddIssue(userId, 0, b => b.WithContent($"widget {i}"))))));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "widget", Offset = "" }
+        });
+
+        var firstPage = host.Requests().Single<AnswerInlineQueryRequest>();
+        Assert.Equal(20, firstPage.Results.Count());
+        Assert.Equal("20", firstPage.NextOffset);
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "widget", Offset = firstPage.NextOffset }
+        });
+
+        var secondPage = host.Requests().Last<AnswerInlineQueryRequest>();
+        Assert.Equal(3, secondPage.Results.Count());
+        Assert.Equal(string.Empty, secondPage.NextOffset);
+
+        // No overlap between the two pages.
+        var firstPageIds = firstPage.Results.Cast<InlineQueryResultArticle>().Select(x => x.Id).ToHashSet();
+        var secondPageIds = secondPage.Results.Cast<InlineQueryResultArticle>().Select(x => x.Id).ToHashSet();
+        Assert.Empty(firstPageIds.Intersect(secondPageIds));
+    }
+
+    [Fact]
+    public async Task InlineSearch_ShouldPostMessageFromStartOfContent_RegardlessOfWhereSearchTextMatched()
+    {
+        // The dropdown entry the user picks *between* centers on the match (useful context while
+        // still choosing) - but once selected, the posted message should read like /save's and
+        // /info's previews always do: from the top of the issue, not from wherever "ret" happened
+        // to match deep inside it.
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+        const string content =
+            "1. Add status to epics. Just an enum\n\n" +
+            "```\n" +
+            "enum EpicStatus\n" +
+            "{\n" +
+            "  New,\n" +
+            "}\n" +
+            "```\n\n" +
+            "2. API that will change the status\n" +
+            "3. Show epic status while return epics list";
+
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "AAA", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i
+                            .WithContent(content)))));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "ret" }
+        });
+
+        var request = host.Requests().Single<AnswerInlineQueryRequest>();
+        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
+        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
+
+        Assert.Contains("1\\. Add status to epics\\. Just an enum", messageText);
+        Assert.DoesNotContain('…', messageText);
+
+        // The dropdown entry, by contrast, still centers on and highlights the match.
+        Assert.Contains(
+            SearchTextFormatter.ToUnicodeBold("ret"),
+            article.Description);
+    }
+
     [Fact]
     public async Task InlineSearch_ShouldNotReturnIssuesFromInaccessibleOrganizations_Always()
     {

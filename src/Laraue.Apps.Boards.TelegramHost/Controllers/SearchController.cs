@@ -16,7 +16,8 @@ public class SearchController(ISearchService searchService) : TelegramController
             new SearchRequest(
                 requestContext.UserId,
                 requestContext.Update.InlineQuery!.Query,
-                requestContext.Update.InlineQuery.Id),
+                requestContext.Update.InlineQuery.Id,
+                requestContext.Update.InlineQuery.Offset),
             ct);
     }
 }
