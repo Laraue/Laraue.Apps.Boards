@@ -16,6 +16,7 @@ public interface ICoreRetrosService
         long organizationId,
         Guid ownerId,
         string name,
+        long? basedOnRetroId,
         CancellationToken cancellationToken);
     Task Join(long retroId, Guid userId, CancellationToken cancellationToken);
     Task<bool> Finish(long retroId, CancellationToken cancellationToken);
@@ -99,24 +100,23 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         }
     }
 
+    /// <summary>
+    /// Starts a retro. Nothing is carried over on its own - when the facilitator picks a retro to
+    /// build on, its open actions come along, owners included.
+    /// </summary>
     public async Task<long> Create(
         long organizationId,
         Guid ownerId,
         string name,
+        long? basedOnRetroId,
         CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
-        var previousRetroId = await context.Retros
-            .Where(x => x.OrganizationId == organizationId && x.FinishedAt != null)
-            .OrderByDescending(x => x.CreatedAt)
-            .Select(x => (long?)x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
         var carriedCards = Array.Empty<RetroCard>();
-        if (previousRetroId.HasValue)
+        if (basedOnRetroId.HasValue)
         {
             var actionSectionId = await context.RetroSections
-                .Where(x => x.RetroId == previousRetroId.Value)
+                .Where(x => x.RetroId == basedOnRetroId.Value)
                 .OrderByDescending(x => x.SortOrder)
                 .Select(x => (long?)x.Id)
                 .FirstOrDefaultAsync(cancellationToken);
@@ -125,7 +125,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             {
                 var previousCards = await context.RetroCards
                     .Where(x => x.SectionId == actionSectionId.Value && !x.Done)
-                    .Select(x => new { x.AuthorId, x.Text, x.X, x.Y, x.CreatedAt })
+                    .Select(x => new { x.AuthorId, x.AssigneeId, x.Text, x.X, x.Y, x.CreatedAt })
                     .ToArrayAsync(cancellationToken);
 
                 carriedCards = previousCards
@@ -133,6 +133,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
                     {
                         Id = Guid.NewGuid(),
                         AuthorId = x.AuthorId,
+                        AssigneeId = x.AssigneeId,
                         Text = x.Text,
                         X = x.X,
                         Y = x.Y,

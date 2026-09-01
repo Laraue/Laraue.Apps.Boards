@@ -270,32 +270,20 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task Create_ShouldCarryUnfinishedActions_WhenPreviousRetroIsFinished()
+    public async Task Create_ShouldCarryOpenActions_WhenBasedOnAnotherRetro()
     {
         using var testScope = host.CreateTestScope();
-        var data = await CreateRetro(testScope);
-        var actionsSectionId = await testScope.Database.RetroSections
-            .Where(x => x.RetroId == data.RetroId)
-            .OrderByDescending(x => x.SortOrder)
-            .Select(x => x.Id)
-            .FirstAsync();
+        var previous = await CreateAction(testScope);
+        await _retroController.Execute(x => x.SetCardAssignee(
+            previous.CardId,
+            new SetRetroCardAssigneeRequest { AssigneeId = previous.Retro.ParticipantId }));
+        await _retroController.Execute(x => x.Finish(previous.Retro.RetroId));
 
-        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
-        await _retroController
-            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
-            .Execute(x => x.CreateCard(
-                data.RetroId,
-                new CreateRetroCardRequest
-                {
-                    SectionId = actionsSectionId,
-                    Text = "Automate the release",
-                    X = 1,
-                    Y = 2,
-                }));
-        await _retroController.Execute(x => x.Finish(data.RetroId));
-
-        var next = await _retroController.Execute(x =>
-            x.Create(new CreateRetroRequest { Name = "Next retro" }));
+        var next = await _retroController.Execute(x => x.Create(new CreateRetroRequest
+        {
+            Name = "Next retro",
+            BasedOnRetroId = previous.Retro.RetroId,
+        }));
 
         var response = await _retroController.Execute(x => x.Get(next!.Id));
         var card = Assert.Single(response!.Cards);
@@ -303,6 +291,76 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal("Automate the release", card.Text);
         Assert.True(card.Revealed);
         Assert.Equal(response.Sections[^1].Id, card.SectionId);
+        // The owner travels with the action, so nobody has to assign it again.
+        Assert.Equal(previous.Retro.ParticipantId, card.Assignee!.UserId);
+    }
+
+    [Fact]
+    public async Task Create_ShouldCarryNothing_WhenNoRetroIsChosenToBuildOn()
+    {
+        using var testScope = host.CreateTestScope();
+        var previous = await CreateAction(testScope);
+        await _retroController.Execute(x => x.Finish(previous.Retro.RetroId));
+
+        var next = await _retroController.Execute(x =>
+            x.Create(new CreateRetroRequest { Name = "Unrelated retro" }));
+
+        var response = await _retroController.Execute(x => x.Get(next!.Id));
+        Assert.Empty(response!.Cards);
+    }
+
+    [Fact]
+    public async Task Create_ShouldSkipDoneActions_WhenBasedOnAnotherRetro()
+    {
+        using var testScope = host.CreateTestScope();
+        var previous = await CreateAction(testScope);
+        await _retroController.Execute(x => x.SetCardDone(
+            previous.CardId,
+            new SetRetroCardDoneRequest { Done = true }));
+
+        var next = await _retroController.Execute(x => x.Create(new CreateRetroRequest
+        {
+            Name = "Next retro",
+            BasedOnRetroId = previous.Retro.RetroId,
+        }));
+
+        var response = await _retroController.Execute(x => x.Get(next!.Id));
+        Assert.Empty(response!.Cards);
+    }
+
+    [Fact]
+    public async Task Create_ShouldFail_WhenBasedOnARetroOfAnotherOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var theirs = await CreateRetro(testScope);
+        var mine = await CreateRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(mine.OrganizationId, mine.OwnerId)
+            .Execute(x => x.Create(new CreateRetroRequest
+            {
+                Name = "Next retro",
+                BasedOnRetroId = theirs.RetroId,
+            })));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_ShouldReportOpenActions_ForEveryRetroOfTheOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateAction(testScope);
+
+        var listed = await _retroController.Execute(x => x.Get());
+        Assert.Equal(1, Assert.Single(listed!).OpenActionCount);
+
+        await _retroController.Execute(x => x.SetCardDone(
+            data.CardId,
+            new SetRetroCardDoneRequest { Done = true }));
+
+        var closed = await _retroController.Execute(x => x.Get());
+        Assert.Equal(0, Assert.Single(closed!).OpenActionCount);
     }
 
     [Fact]

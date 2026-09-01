@@ -209,6 +209,17 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsUnique();
         });
 
+        modelBuilder.Entity<RetroCard>(entity =>
+        {
+            // Removing a person must not be blocked by an action they were once given; the action
+            // stays and simply loses its owner.
+            entity
+                .HasOne(x => x.Assignee)
+                .WithMany()
+                .HasForeignKey(x => x.AssigneeId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<RetroCardGroup>(entity =>
         {
             entity.HasIndex(x => x.RetroId);

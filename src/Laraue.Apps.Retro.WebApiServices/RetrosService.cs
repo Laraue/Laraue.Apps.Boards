@@ -143,6 +143,11 @@ public class RetrosService(
                 CreatedAt = x.CreatedAt,
                 FinishedAt = x.FinishedAt,
                 CardCount = x.Sections.SelectMany(s => s.Cards).Count(),
+                OpenActionCount = x.Sections
+                    .OrderByDescending(s => s.SortOrder)
+                    .Take(1)
+                    .SelectMany(s => s.Cards)
+                    .Count(c => !c.Done),
             })
             .ToArrayAsync(cancellationToken);
     }
@@ -297,10 +302,14 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         await EnsureMember(authData, cancellationToken);
+        if (request.BasedOnRetroId.HasValue)
+            await EnsureAccessible(request.BasedOnRetroId.Value, authData, cancellationToken);
+
         var id = await coreRetrosService.Create(
             authData.OrganizationId,
             authData.UserId,
             request.Name,
+            request.BasedOnRetroId,
             cancellationToken);
         return new CreateRetroResponse { Id = id };
     }
@@ -803,6 +812,9 @@ public record RetroListItem
     public required DateTime CreatedAt { get; init; }
     public required DateTime? FinishedAt { get; init; }
     public required int CardCount { get; init; }
+
+    /// <summary>Actions still open here, i.e. what starting a retro from this one would carry.</summary>
+    public required int OpenActionCount { get; init; }
 }
 
 public record GetRetroResponse
@@ -866,6 +878,9 @@ public record CreateRetroRequest
 {
     [MaxLength(128)]
     public required string Name { get; init; }
+
+    /// <summary>Retro whose open actions are carried into the new one; null starts from scratch.</summary>
+    public long? BasedOnRetroId { get; init; }
 }
 
 public record CreateRetroResponse
