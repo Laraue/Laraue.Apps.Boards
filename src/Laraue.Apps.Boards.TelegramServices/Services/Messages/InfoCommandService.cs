@@ -1,4 +1,9 @@
+using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
+using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -16,6 +21,10 @@ public interface IInfoCommandService
 
 public class InfoCommandService(
     ITelegramSaveMessageService saveMessageService,
+    IIssueLinkParser issueLinkParser,
+    IIssuePreviewBuilder issuePreviewBuilder,
+    IAccessService accessService,
+    DatabaseContext context,
     ITelegramBotClient client,
     IEphemeralReplySender ephemeralReplySender)
     : IInfoCommandService
@@ -48,6 +57,17 @@ public class InfoCommandService(
             return;
         }
 
+        // A message that mentions issues by link (e.g. someone pasting a Mini App URL, not
+        // necessarily a message the bot ever saved as a card) is answered by resolving those
+        // links directly, rather than falling back to the "is this message itself a tracked
+        // card" lookup below.
+        var issueLinks = issueLinkParser.Parse(repliedMessage.Text ?? repliedMessage.Caption);
+        if (issueLinks.Count > 0)
+        {
+            await HandleIssueLinks(message, repliedMessage, issueLinks, userId, cancellationToken);
+            return;
+        }
+
         var result = await saveMessageService.GetInfoByReply(
             new InfoByReplyRequest
             {
@@ -73,12 +93,72 @@ public class InfoCommandService(
                 break;
 
             case InfoByReplyOutcome.MessageNotTracked:
-                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InfoMessageNotTracked, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(
+                    message,
+                    string.Format(Phrases.InfoMessageNotTracked, issueLinkParser.ExampleLink),
+                    cancellationToken);
                 break;
 
             case InfoByReplyOutcome.Forbidden:
                 await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InfoForbidden, cancellationToken);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Resolves each issue link straight to its issue and checks read access, independent of
+    /// whether the replied-to message itself is a tracked card.
+    /// </summary>
+    private async Task HandleIssueLinks(
+        Message message,
+        Message repliedMessage,
+        IReadOnlyList<IssueLinkMatch> issueLinks,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        foreach (var link in issueLinks)
+        {
+            var issueKeyText = $"{link.SpaceKey}-{link.IssueNumber}";
+
+            var issueData = await context.Issues
+                .Where(x => x.IssueNumber!.Space!.Key == link.SpaceKey
+                    && x.IssueNumber.Number == link.IssueNumber
+                    && x.IssueNumber.Space.Organization!.Slug + "-" + x.IssueNumber.Space.Organization.SlugPostfix == link.OrganizationKey)
+                .Select(x => new { x.Id, OrganizationId = x.IssueNumber!.Space!.OrganizationId })
+                .FirstOrDefaultAsyncEF(cancellationToken);
+
+            // A missing issue and an issue the caller can't read are answered identically -
+            // distinguishing them would let a link let someone probe whether a given key exists
+            // in an organization they otherwise have no access to.
+            if (issueData is null || !await HasReadAccess(issueData.OrganizationId, issueData.Id, userId, cancellationToken))
+            {
+                await ephemeralReplySender.SendEphemeralNotice(
+                    message,
+                    string.Format(Phrases.InfoIssueLinkUnavailable, issueKeyText),
+                    cancellationToken);
+                continue;
+            }
+
+            var preview = await issuePreviewBuilder.Build(issueData.Id, cancellationToken);
+
+            await client.SendIssuePreviewReply(
+                message.Chat.Id,
+                repliedMessage.MessageId,
+                preview.Text,
+                preview.Url,
+                cancellationToken);
+        }
+    }
+
+    private async Task<bool> HasReadAccess(
+        long organizationId,
+        long issueId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var authData = new OrganizationAuthData { OrganizationId = organizationId, UserId = userId };
+        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, cancellationToken);
+
+        return accessLevels?.CanRead == true;
     }
 }

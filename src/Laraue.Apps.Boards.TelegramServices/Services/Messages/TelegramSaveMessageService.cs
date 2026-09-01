@@ -8,7 +8,6 @@ using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using File = Laraue.Apps.Boards.Services.File;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
@@ -60,10 +59,9 @@ public class TelegramSaveMessageService(
     ICoreFilesService coreFilesService,
     ICoreIssuesService coreIssuesService,
     IAccessService accessService,
-    IIssueUrlBuilder issueUrlBuilder,
+    IIssuePreviewBuilder issuePreviewBuilder,
     IDateTimeProvider dateTimeProvider,
-    IAiContentSummarizer aiContentSummarizer,
-    ILogger<TelegramSaveMessageService> logger)
+    IAiContentSummarizer aiContentSummarizer)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -141,7 +139,7 @@ public class TelegramSaveMessageService(
                 update,
                 cancellationToken);
 
-            var existingPreview = await GetIssuePreview(cardMessage.IssueId.Value, cancellationToken);
+            var existingPreview = await issuePreviewBuilder.Build(cardMessage.IssueId.Value, cancellationToken);
 
             return new SaveByReplyResult
             {
@@ -168,7 +166,7 @@ public class TelegramSaveMessageService(
 
         await transaction.CommitAsync(cancellationToken);
 
-        var preview = await GetIssuePreview(issueId, cancellationToken);
+        var preview = await issuePreviewBuilder.Build(issueId, cancellationToken);
 
         return new SaveByReplyResult
         {
@@ -207,7 +205,7 @@ public class TelegramSaveMessageService(
         if (accessLevels?.CanRead != true)
             return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
 
-        var preview = await GetIssuePreview(lookup.IssueId.Value, cancellationToken);
+        var preview = await issuePreviewBuilder.Build(lookup.IssueId.Value, cancellationToken);
 
         return new InfoByReplyResult
         {
@@ -238,7 +236,7 @@ public class TelegramSaveMessageService(
         if (!await CanDeleteIssue(issueId, request.UserId, cancellationToken))
             return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
 
-        var preview = await GetIssuePreview(issueId, cancellationToken);
+        var preview = await issuePreviewBuilder.Build(issueId, cancellationToken);
 
         return new InfoByReplyResult
         {
@@ -777,56 +775,6 @@ public class TelegramSaveMessageService(
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         return linkedChatData ?? throw new ChatNotLinkedException(externalChatId);
-    }
-
-    /// <summary>
-    /// Builds the same key/org/content-preview + link shown for an inline search result, so a
-    /// /save or /info reply looks like the same "card" wherever it's shown from.
-    /// </summary>
-    private async Task<(string Text, string Url)> GetIssuePreview(long issueId, CancellationToken cancellationToken)
-    {
-        var issueData = await context.Issues
-            .Where(x => x.Id == issueId)
-            .Select(x => new
-            {
-                Key = new IssueKey(x.IssueNumber!.Space!.Key, x.IssueNumber.Number),
-                OrganizationName = x.IssueNumber.Space.Organization!.Name,
-                OrganizationSlug = x.IssueNumber.Space.Organization!.Slug,
-                OrganizationSlugPostfix = x.IssueNumber.Space.Organization!.SlugPostfix,
-                x.Content,
-                ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
-                SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
-                    ? (x.TelegramMessage.Sender.TelegramUserName ?? x.TelegramMessage.Sender.TelegramFirstName)
-                    : null,
-                SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
-            })
-            .FirstAsyncEF(cancellationToken);
-
-        var url = issueUrlBuilder.Build(issueData.OrganizationSlug, issueData.OrganizationSlugPostfix, issueData.Key);
-
-        string text;
-        try
-        {
-            var fragment = ContentFragment.Extract(
-                issueData.Content ?? string.Empty,
-                searchText: string.Empty,
-                IssuePreviewFormatter.FragmentContextChars);
-
-            var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, issueData.SenderName, issueData.SentAt);
-
-            text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" + fragment.ToMarkdownV2();
-            if (footer is not null)
-                text += "\n" + footer;
-        }
-        catch (Exception ex)
-        {
-            // A bug in formatting this one issue's content shouldn't fail the whole /save or
-            // /info reply - log it and hand back a safe placeholder instead.
-            logger.LogError(ex, "Issue {IssueKey}: failed to build preview content", issueData.Key);
-            text = IssuePreviewFormatter.BuildContentGenerationErrorText(issueData.Key, issueData.OrganizationName);
-        }
-
-        return (text, url);
     }
 
     /// <summary>

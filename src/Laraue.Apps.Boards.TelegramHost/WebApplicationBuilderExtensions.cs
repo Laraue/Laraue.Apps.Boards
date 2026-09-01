@@ -62,6 +62,8 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ISaveCommandService, SaveCommandService>()
                 .AddScoped<IInfoCommandService, InfoCommandService>()
                 .AddScoped<IDeleteCommandService, DeleteCommandService>()
+                .AddScoped<IIssuePreviewBuilder, IssuePreviewBuilder>()
+                .AddSingleton<IIssueLinkParser, IssueLinkParser>()
                 .AddSingleton<IEphemeralReplySender, EphemeralReplySender>();
 
             builder.Services

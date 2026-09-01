@@ -180,13 +180,16 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>That's my own message - reply to the original message you want info about instead.</value>
     </data>
     <data name="InfoMessageNotTracked" xml:space="preserve">
-        <value>I don't have that message on record - it may have arrived before the chat was linked.</value>
+        <value>I couldn't find a saved card or an issue link in that message. An issue link looks like: {0}</value>
     </data>
     <data name="InfoNoCardYet" xml:space="preserve">
         <value>This message hasn't been saved as a card yet - reply to it with /save first.</value>
     </data>
     <data name="InfoForbidden" xml:space="preserve">
         <value>This action is not available - you don't have permission to view this card.</value>
+    </data>
+    <data name="InfoIssueLinkUnavailable" xml:space="preserve">
+        <value>{0}: not available.</value>
     </data>
     <data name="DeleteNotAReply" xml:space="preserve">
         <value>Reply to the message whose card you want to delete and send /delete again.</value>
