@@ -101,6 +101,24 @@ namespace Laraue.Apps.Retro.WebApiServices.Resources {
             }
         }
 
+        internal static string RetroActionsPhaseOnly {
+            get {
+                return ResourceManager.GetString("RetroActionsPhaseOnly", resourceCulture);
+            }
+        }
+
+        internal static string RetroActionsSectionOnly {
+            get {
+                return ResourceManager.GetString("RetroActionsSectionOnly", resourceCulture);
+            }
+        }
+
+        internal static string RetroAssigneeNotParticipant {
+            get {
+                return ResourceManager.GetString("RetroAssigneeNotParticipant", resourceCulture);
+            }
+        }
+
         internal static string RetroSectionNotInRetro {
             get {
                 return ResourceManager.GetString("RetroSectionNotInRetro", resourceCulture);

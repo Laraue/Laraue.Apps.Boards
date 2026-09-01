@@ -108,6 +108,13 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         CancellationToken cancellationToken = default) =>
         retrosService.SetCardDone(cardId, request, AuthData(), cancellationToken);
 
+    [HttpPost("cards/{cardId:guid}/assignee")]
+    public Task SetCardAssignee(
+        [FromRoute] Guid cardId,
+        [FromBody] SetRetroCardAssigneeRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.SetCardAssignee(cardId, request, AuthData(), cancellationToken);
+
     [HttpPost("cards/{cardId:guid}/reveal")]
     public Task SetCardRevealed(
         [FromRoute] Guid cardId,

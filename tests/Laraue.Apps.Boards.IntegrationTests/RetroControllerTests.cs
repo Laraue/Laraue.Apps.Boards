@@ -280,6 +280,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .Select(x => x.Id)
             .FirstAsync();
 
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
         await _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
             .Execute(x => x.CreateCard(
@@ -291,7 +292,6 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
                     X = 1,
                     Y = 2,
                 }));
-        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
         await _retroController.Execute(x => x.Finish(data.RetroId));
 
         var next = await _retroController.Execute(x =>
@@ -501,6 +501,172 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
 
         Assert.Equal(1, Assert.Single(response!.Cards).Votes);
     }
+
+    [Fact]
+    public async Task CreateCard_ShouldFail_WhenActionIsAddedOutsideActionsPhase()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var actionsSectionId = await ActionsSectionId(testScope, data.RetroId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest
+                {
+                    SectionId = actionsSectionId,
+                    Text = "Too early",
+                    X = 0,
+                    Y = 0,
+                })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateCard_ShouldFail_WhenTopicIsAddedDuringActionsPhase()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Too late", X = 0, Y = 0 })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task MoveCard_ShouldTurnTopicIntoAction_WhenMovedToActionsDuringActionsPhase()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        var actionsSectionId = await ActionsSectionId(testScope, data.RetroId);
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Painful releases", X = 0, Y = 0 }));
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
+
+        await _retroController.Execute(x => x.MoveCard(
+            card!.Id,
+            new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
+
+        Assert.Equal(actionsSectionId, await testScope.Database.RetroCards
+            .Where(x => x.Id == card.Id)
+            .Select(x => x.SectionId)
+            .SingleAsync());
+    }
+
+    [Fact]
+    public async Task SetCardAssignee_ShouldStoreParticipant_WhenPhaseIsActions()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateAction(testScope);
+
+        await _retroController.Execute(x => x.SetCardAssignee(
+            data.CardId,
+            new SetRetroCardAssigneeRequest { AssigneeId = data.Retro.ParticipantId }));
+
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        var card = Assert.Single(response!.Cards);
+        Assert.Equal(data.Retro.ParticipantId, card.Assignee!.UserId);
+
+        await _retroController.Execute(x => x.SetCardAssignee(
+            data.CardId,
+            new SetRetroCardAssigneeRequest { AssigneeId = null }));
+
+        var cleared = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Null(Assert.Single(cleared!.Cards).Assignee);
+    }
+
+    [Fact]
+    public async Task SetCardAssignee_ShouldFail_WhenUserIsNotAParticipant()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateAction(testScope);
+        var outsiderId = await testScope.CreateUser();
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.SetCardAssignee(
+                data.CardId,
+                new SetRetroCardAssigneeRequest { AssigneeId = outsiderId })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetCardAssignee_ShouldFail_WhenCardIsNotAnAction()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+        await SetPhase(testScope, frozen.Data.RetroId, RetroPhase.Actions);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.SetCardAssignee(
+                frozen.CardId,
+                new SetRetroCardAssigneeRequest { AssigneeId = frozen.Data.OwnerId })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetCardAssignee_ShouldFail_WhenRetroIsFinished()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateAction(testScope);
+        await _retroController.Execute(x => x.Finish(data.Retro.RetroId));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.SetCardAssignee(
+                data.CardId,
+                new SetRetroCardAssigneeRequest { AssigneeId = data.Retro.ParticipantId })));
+
+        // A finished retro drops out of the editable-card query entirely, like every other change.
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    /// <summary>A retro in Actions with one action card and both users joined as participants.</summary>
+    private async Task<ActionTestData> CreateAction(WebApiTestHostScope testScope)
+    {
+        var data = await CreateRetro(testScope);
+        var actionsSectionId = await ActionsSectionId(testScope, data.RetroId);
+        testScope.Database.RetroParticipants.AddRange(
+            new RetroParticipant { RetroId = data.RetroId, UserId = data.OwnerId },
+            new RetroParticipant { RetroId = data.RetroId, UserId = data.ParticipantId });
+        await testScope.Database.SaveChangesAsync();
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
+
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest
+                {
+                    SectionId = actionsSectionId,
+                    Text = "Automate the release",
+                    X = 0,
+                    Y = 0,
+                }));
+
+        return new ActionTestData(data, card!.Id);
+    }
+
+    private record ActionTestData(RetroTestData Retro, Guid CardId);
+
+    private static Task<long> ActionsSectionId(WebApiTestHostScope testScope, long retroId) =>
+        testScope.Database.RetroSections
+            .Where(x => x.RetroId == retroId)
+            .OrderByDescending(x => x.SortOrder)
+            .Select(x => x.Id)
+            .FirstAsync();
 
     private const string FrozenCardText = "Topic";
 

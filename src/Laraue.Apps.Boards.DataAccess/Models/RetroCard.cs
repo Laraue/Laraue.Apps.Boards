@@ -12,6 +12,10 @@ public class RetroCard
     public Guid AuthorId { get; set; }
     public User? Author { get; set; }
 
+    /// <summary>Who owns the action; only cards of the actions section ever set it.</summary>
+    public Guid? AssigneeId { get; set; }
+    public User? Assignee { get; set; }
+
     [MaxLength(4096)]
     public required string Text { get; set; }
 

@@ -44,6 +44,7 @@ public interface ICoreRetrosService
         CancellationToken cancellationToken);
     Task DeleteCard(Guid cardId, CancellationToken cancellationToken);
     Task<bool> SetDone(Guid cardId, bool done, CancellationToken cancellationToken);
+    Task SetAssignee(Guid cardId, Guid? assigneeId, CancellationToken cancellationToken);
     Task SetRevealed(Guid cardId, bool revealed, CancellationToken cancellationToken);
     Task<RetroVoteResult> SetVote(Guid cardId, Guid userId, bool voted, CancellationToken cancellationToken);
 }
@@ -316,6 +317,13 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.Done, done), cancellationToken);
 
         return updated != 0;
+    }
+
+    public Task SetAssignee(Guid cardId, Guid? assigneeId, CancellationToken cancellationToken)
+    {
+        return context.RetroCards
+            .Where(x => x.Id == cardId)
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.AssigneeId, assigneeId), cancellationToken);
     }
 
     public Task SetRevealed(Guid cardId, bool revealed, CancellationToken cancellationToken)
