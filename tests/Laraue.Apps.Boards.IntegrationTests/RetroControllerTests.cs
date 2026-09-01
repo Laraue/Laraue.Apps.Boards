@@ -633,6 +633,63 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
     }
 
+    [Fact]
+    public async Task Get_ShouldReturnCardsInStackOrder_WhenACardWasMoved()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        _retroController.WithOrganizationAuthorization(data.OrganizationId, data.OwnerId);
+
+        var first = await _retroController.Execute(x => x.CreateCard(
+            data.RetroId,
+            new CreateRetroCardRequest { SectionId = sectionId, Text = "First", X = 0, Y = 0 }));
+        var second = await _retroController.Execute(x => x.CreateCard(
+            data.RetroId,
+            new CreateRetroCardRequest { SectionId = sectionId, Text = "Second", X = 10, Y = 10 }));
+
+        var created = await _retroController.Execute(x => x.Get(data.RetroId));
+        Assert.Equal(["First", "Second"], created!.Cards.Select(x => x.Text));
+
+        await _retroController.Execute(x => x.MoveCard(
+            first!.Id,
+            new MoveRetroCardRequest { SectionId = sectionId, X = 20, Y = 20 }));
+
+        var moved = await _retroController.Execute(x => x.Get(data.RetroId));
+        Assert.Equal(["Second", "First"], moved!.Cards.Select(x => x.Text));
+        Assert.True(moved.Cards[^1].StackOrder > moved.Cards[0].StackOrder);
+        Assert.Equal(second!.Id, moved.Cards[0].Id);
+    }
+
+    [Fact]
+    public async Task Get_ShouldKeepStackOrder_WhenSomebodyElseReloadsTheBoard()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+
+        var first = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "First", X = 0, Y = 0 }));
+        await _retroController.Execute(x => x.CreateCard(
+            data.RetroId,
+            new CreateRetroCardRequest { SectionId = sectionId, Text = "Second", X = 10, Y = 10 }));
+        await _retroController.Execute(x => x.MoveCard(
+            first!.Id,
+            new MoveRetroCardRequest { SectionId = sectionId, X = 20, Y = 20 }));
+
+        var mine = await _retroController.Execute(x => x.Get(data.RetroId));
+        var theirs = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.Get(data.RetroId));
+
+        Assert.Equal(
+            mine!.Cards.Select(x => x.Id),
+            theirs!.Cards.Select(x => x.Id));
+    }
+
     /// <summary>A retro in Actions with one action card and both users joined as participants.</summary>
     private async Task<ActionTestData> CreateAction(WebApiTestHostScope testScope)
     {

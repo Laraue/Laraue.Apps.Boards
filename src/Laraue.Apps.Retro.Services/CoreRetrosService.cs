@@ -261,6 +261,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         double y,
         CancellationToken cancellationToken)
     {
+        var retroId = await RetroIdOfSection(sectionId, cancellationToken);
         var card = new RetroCard
         {
             Id = Guid.NewGuid(),
@@ -269,6 +270,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             Text = text,
             X = x,
             Y = y,
+            StackOrder = await NextStackOrder(retroId, cancellationToken),
             CreatedAt = dateTimeProvider.UtcNow,
         };
 
@@ -285,20 +287,44 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.Text, text), cancellationToken);
     }
 
-    public Task MoveCard(
+    /// <summary>Moves the card and lifts it above every other card of the same retro.</summary>
+    public async Task MoveCard(
         Guid cardId,
         long sectionId,
         double x,
         double y,
         CancellationToken cancellationToken)
     {
-        return context.RetroCards
+        var stackOrder = await NextStackOrder(await RetroIdOfSection(sectionId, cancellationToken), cancellationToken);
+
+        await context.RetroCards
             .Where(x => x.Id == cardId)
             .ExecuteUpdateAsync(update => update
                 .SetProperty(p => p.SectionId, sectionId)
                 .SetProperty(p => p.X, x)
-                .SetProperty(p => p.Y, y),
+                .SetProperty(p => p.Y, y)
+                .SetProperty(p => p.StackOrder, stackOrder),
                 cancellationToken);
+    }
+
+    private Task<long> RetroIdOfSection(long sectionId, CancellationToken cancellationToken) =>
+        context.RetroSections
+            .Where(s => s.Id == sectionId)
+            .Select(s => s.RetroId)
+            .FirstAsync(cancellationToken);
+
+    // ponytail: read-then-write, so two drops landing in the same millisecond can share an order.
+    // Harmless as long as the read side breaks ties deterministically (RetrosService orders by
+    // StackOrder, then CreatedAt, then Id) - every client still paints the same stack. Swap for a
+    // single "set stack_order = (select max...) + 1" statement if that ever stops being enough;
+    // EF cannot translate that subquery inside ExecuteUpdate, so it would need raw SQL.
+    private async Task<int> NextStackOrder(long retroId, CancellationToken cancellationToken)
+    {
+        var max = await context.RetroCards
+            .Where(c => c.Section!.RetroId == retroId)
+            .MaxAsync(c => (int?)c.StackOrder, cancellationToken);
+
+        return (max ?? 0) + 1;
     }
 
     public Task DeleteCard(Guid cardId, CancellationToken cancellationToken)

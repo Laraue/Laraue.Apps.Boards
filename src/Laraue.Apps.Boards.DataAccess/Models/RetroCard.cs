@@ -21,6 +21,9 @@ public class RetroCard
 
     public double X { get; set; }
     public double Y { get; set; }
+
+    /// <summary>Paint order inside the retro; the card moved last sits on top for everyone.</summary>
+    public int StackOrder { get; set; }
     public bool Done { get; set; }
     public bool Revealed { get; set; }
     public DateTime CreatedAt { get; set; }

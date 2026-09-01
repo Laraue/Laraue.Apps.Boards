@@ -176,7 +176,11 @@ public class RetrosService(
         var voteResultsVisible = retro.Phase is RetroPhase.Discuss or RetroPhase.Actions;
         var cards = await context.RetroCards
             .Where(x => x.Section!.RetroId == id)
-            .OrderBy(x => x.CreatedAt)
+            // Bottom of the stack first - the client paints them in exactly this order. CreatedAt
+            // breaks the tie when two moves happened to land on the same order.
+            .OrderBy(x => x.StackOrder)
+            .ThenBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
             .Select(c => new RetroCardDto
             {
                 Id = c.Id,
@@ -187,6 +191,7 @@ public class RetrosService(
                     : c.Text,
                 X = c.X,
                 Y = c.Y,
+                StackOrder = c.StackOrder,
                 Done = c.Done,
                 Hidden = retro.Phase == RetroPhase.Collect && c.AuthorId != authData.UserId && !c.Revealed,
                 Revealed = c.Revealed,
@@ -720,6 +725,7 @@ public record RetroCardDto
     public required string Text { get; init; }
     public required double X { get; init; }
     public required double Y { get; init; }
+    public required int StackOrder { get; init; }
     public required bool Done { get; init; }
     public required bool Hidden { get; init; }
     public required bool Revealed { get; init; }
