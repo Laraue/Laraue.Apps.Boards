@@ -18,6 +18,12 @@ namespace Laraue.Apps.Retro.WebApiServices;
 public interface IRetrosService
 {
     Task<RetroListItem[]> Get(OrganizationAuthData authData, CancellationToken cancellationToken);
+    Task Delete(long id, OrganizationAuthData authData, CancellationToken cancellationToken);
+    Task Rename(
+        long id,
+        RenameRetroRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
     Task<RetroUser> JoinRealtime(
         long id,
         OrganizationAuthData authData,
@@ -130,6 +136,35 @@ public class RetrosService(
         await EnsureAccessible(id, authData, cancellationToken);
         await coreRetrosService.Join(id, authData.UserId, cancellationToken);
         return await GetCurrentUser(authData, cancellationToken);
+    }
+
+    /// <summary>
+    /// A retro starts named after the day it happened; the team renames it to what it was about.
+    /// </summary>
+    public async Task Rename(
+        long id,
+        RenameRetroRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureOwner(id, authData, cancellationToken);
+
+        var name = request.Name.Trim();
+        if (name.Length == 0)
+            throw new BadRequestException(nameof(request.Name), ErrorMessages.RetroNameRequired);
+
+        await coreRetrosService.Rename(id, name, cancellationToken);
+        await Changed(id, cancellationToken);
+    }
+
+    /// <summary>Only the facilitator can throw a retro away, finished or not.</summary>
+    public async Task Delete(
+        long id,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureRetroOwner(id, authData, cancellationToken);
+        await coreRetrosService.Delete(id, cancellationToken);
     }
 
     public async Task<RetroListItem[]> Get(
@@ -726,7 +761,8 @@ public class RetrosService(
             throw new BadRequestException(paramName, ErrorMessages.RetroCardsFrozen);
     }
 
-    private async Task EnsureOwner(
+    /// <summary>Running the retro is the facilitator's job; returns when it was finished, if it was.</summary>
+    private async Task<DateTime?> EnsureRetroOwner(
         long retroId,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
@@ -744,7 +780,15 @@ public class RetrosService(
                 retroId,
                 "manage"));
 
-        if (retro.FinishedAt.HasValue)
+        return retro.FinishedAt;
+    }
+
+    private async Task EnsureOwner(
+        long retroId,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        if ((await EnsureRetroOwner(retroId, authData, cancellationToken)).HasValue)
             throw new BadRequestException(nameof(retroId), ErrorMessages.RetroFinished);
     }
 
@@ -914,6 +958,12 @@ public record CreateRetroRequest
 
     /// <summary>Retro whose open actions are carried into the new one; null starts from scratch.</summary>
     public long? BasedOnRetroId { get; init; }
+}
+
+public record RenameRetroRequest
+{
+    [MaxLength(128)]
+    public required string Name { get; init; }
 }
 
 public record CreateRetroResponse

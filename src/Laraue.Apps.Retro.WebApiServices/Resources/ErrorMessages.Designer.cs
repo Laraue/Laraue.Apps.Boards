@@ -119,6 +119,12 @@ namespace Laraue.Apps.Retro.WebApiServices.Resources {
             }
         }
 
+        internal static string RetroNameRequired {
+            get {
+                return ResourceManager.GetString("RetroNameRequired", resourceCulture);
+            }
+        }
+
         internal static string RetroFacilitatorNotParticipant {
             get {
                 return ResourceManager.GetString("RetroFacilitatorNotParticipant", resourceCulture);

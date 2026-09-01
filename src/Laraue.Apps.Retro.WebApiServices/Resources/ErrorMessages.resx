@@ -48,6 +48,9 @@
     <data name="RetroActionsSectionOnly" xml:space="preserve">
         <value>Only a card of the actions section can have an assignee.</value>
     </data>
+    <data name="RetroNameRequired" xml:space="preserve">
+        <value>A retro needs a name.</value>
+    </data>
     <data name="RetroFacilitatorNotParticipant" xml:space="preserve">
         <value>The retro can only be handed over to somebody who has joined it.</value>
     </data>

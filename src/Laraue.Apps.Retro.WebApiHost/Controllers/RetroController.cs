@@ -26,6 +26,19 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         CancellationToken cancellationToken = default) =>
         retrosService.Create(request, AuthData(), cancellationToken);
 
+    [HttpPut("{id:long}/name")]
+    public Task Rename(
+        [FromRoute] long id,
+        [FromBody] RenameRetroRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.Rename(id, request, AuthData(), cancellationToken);
+
+    [HttpDelete("{id:long}")]
+    public Task Delete(
+        [FromRoute] long id,
+        CancellationToken cancellationToken = default) =>
+        retrosService.Delete(id, AuthData(), cancellationToken);
+
     [HttpPost("{id:long}/owner")]
     public Task TransferOwnership(
         [FromRoute] long id,

@@ -20,6 +20,8 @@ public interface ICoreRetrosService
         CancellationToken cancellationToken);
     Task Join(long retroId, Guid userId, CancellationToken cancellationToken);
     Task<bool> SetOwner(long retroId, Guid userId, CancellationToken cancellationToken);
+    Task Delete(long retroId, CancellationToken cancellationToken);
+    Task Rename(long retroId, string name, CancellationToken cancellationToken);
     Task<bool> Finish(long retroId, CancellationToken cancellationToken);
     Task<bool> UpdateSettings(
         long retroId,
@@ -175,6 +177,21 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .On((target, source) => target.RetroId == source.RetroId && target.UserId == source.UserId)
             .InsertWhenNotMatched()
             .MergeAsync(cancellationToken);
+    }
+
+    public Task Rename(long retroId, string name, CancellationToken cancellationToken)
+    {
+        return context.Retros
+            .Where(x => x.Id == retroId)
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Name, name), cancellationToken);
+    }
+
+    /// <summary>Removes the retro with everything on its board - sections, notes, votes.</summary>
+    public Task Delete(long retroId, CancellationToken cancellationToken)
+    {
+        return context.Retros
+            .Where(x => x.Id == retroId)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     /// <summary>Hands the retro over to somebody else; the previous owner keeps no control.</summary>

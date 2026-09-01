@@ -853,6 +853,68 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
     }
 
+    [Fact]
+    public async Task Rename_ShouldReplaceTheDefaultDateName()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+
+        await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.Rename(data.RetroId, new RenameRetroRequest { Name = "  Sprint 42  " }));
+
+        var response = await _retroController.Execute(x => x.Get(data.RetroId));
+        Assert.Equal("Sprint 42", response!.Name);
+
+        var blank = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.Rename(data.RetroId, new RenameRetroRequest { Name = "   " })));
+        Assert.Equal(HttpStatusCode.BadRequest, blank.StatusCode);
+    }
+
+    [Fact]
+    public async Task Rename_ShouldBeForbidden_WhenCallerIsNotTheFacilitator()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.Rename(data.RetroId, new RenameRetroRequest { Name = "Theirs" })));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_ShouldRemoveTheRetroWithItsBoard_EvenWhenFinished()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateAction(testScope);
+        await _retroController.Execute(x => x.Finish(data.Retro.RetroId));
+
+        await _retroController.Execute(x => x.Delete(data.Retro.RetroId));
+
+        Assert.False(await testScope.Database.Retros.AnyAsync(x => x.Id == data.Retro.RetroId));
+        Assert.False(await testScope.Database.RetroCards.AnyAsync(x => x.Id == data.CardId));
+        Assert.False(await testScope.Database.RetroSections
+            .AnyAsync(x => x.RetroId == data.Retro.RetroId));
+        Assert.False(await testScope.Database.RetroParticipants
+            .AnyAsync(x => x.RetroId == data.Retro.RetroId));
+    }
+
+    [Fact]
+    public async Task Delete_ShouldBeForbidden_WhenCallerIsNotTheFacilitator()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.Delete(data.RetroId)));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        Assert.True(await testScope.Database.Retros.AnyAsync(x => x.Id == data.RetroId));
+    }
+
     /// <summary>A retro in Actions with one action card and both users joined as participants.</summary>
     private async Task<ActionTestData> CreateAction(WebApiTestHostScope testScope)
     {
