@@ -416,22 +416,35 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task MoveCard_ShouldKeepPosition_WhenPhaseIsVote()
+    public async Task MoveCard_ShouldRearrange_ButKeepActionsClosed_WhenPhaseIsVote()
     {
         using var testScope = host.CreateTestScope();
         var frozen = await CreateFrozenRetro(testScope);
-        var otherSectionId = await testScope.Database.RetroSections
-            .Where(x => x.RetroId == frozen.Data.RetroId && x.Id != frozen.SectionId)
+        var sections = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == frozen.Data.RetroId)
+            .OrderBy(x => x.SortOrder)
             .Select(x => x.Id)
-            .FirstAsync();
+            .ToListAsync();
+        var otherSectionId = sections[^2];
+        var actionsSectionId = sections[^1];
+
+        // Sliding a note around is layout, not content, so a frozen board can still be tidied up.
+        await _retroController.Execute(x => x.MoveCard(
+            frozen.CardId,
+            new MoveRetroCardRequest { SectionId = otherSectionId, X = 99, Y = 99 }));
+
+        Assert.Equal(otherSectionId, await testScope.Database.RetroCards
+            .Where(x => x.Id == frozen.CardId)
+            .Select(x => x.SectionId)
+            .SingleAsync());
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
             .Execute(x => x.MoveCard(
                 frozen.CardId,
-                new MoveRetroCardRequest { SectionId = otherSectionId, X = 99, Y = 99 })));
+                new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 })));
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
-        Assert.Equal(frozen.SectionId, await testScope.Database.RetroCards
+        Assert.Equal(otherSectionId, await testScope.Database.RetroCards
             .Where(x => x.Id == frozen.CardId)
             .Select(x => x.SectionId)
             .SingleAsync());

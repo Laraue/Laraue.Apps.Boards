@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.Linq.Expressions;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
@@ -522,7 +522,13 @@ public class RetrosService(
             card.RetroId,
             request.SectionId,
             cancellationToken);
-        EnsureCardEditable(targetIsAction, card.Phase, nameof(request.SectionId));
+        if (card.Finished)
+            throw new BadRequestException(nameof(request.SectionId), ErrorMessages.RetroFinished);
+
+        // Sliding a note around the board is layout, not content, so every phase allows it. Only
+        // crossing the actions border turns the note into something else, and that obeys the phase.
+        if (targetIsAction != card.IsAction)
+            EnsureCardEditable(targetIsAction, card.Phase, nameof(request.SectionId));
         await coreRetrosService.MoveCard(
             cardId,
             request.SectionId,
@@ -840,9 +846,15 @@ public class RetrosService(
             x.AuthorId,
             x.Section!.RetroId,
             x.Section.Retro!.Phase,
-            x.Section.SortOrder == x.Section.Retro.Sections.Max(s => s.SortOrder));
+            x.Section.SortOrder == x.Section.Retro.Sections.Max(s => s.SortOrder),
+            x.Section.Retro.FinishedAt != null);
 
-    private record CardContext(Guid AuthorId, long RetroId, RetroPhase Phase, bool IsAction);
+    private record CardContext(
+        Guid AuthorId,
+        long RetroId,
+        RetroPhase Phase,
+        bool IsAction,
+        bool Finished);
 
     private Task Changed(long retroId, CancellationToken cancellationToken) =>
         retroHub.Clients
