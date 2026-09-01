@@ -3426,7 +3426,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("I don't have that message on record - it may have arrived before the chat was linked.", request.Text);
+        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: /organizations/acme-a1b2/issues/BRD-185", request.Text);
     }
 
     [Fact]
@@ -3553,7 +3553,178 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("I don't have that message on record - it may have arrived before the chat was linked.", request.Text);
+        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: /organizations/acme-a1b2/issues/BRD-185", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyWithIssuePreview_WhenRepliedMessageContainsIssueLink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content")));
+
+        var space = organization.Spaces[0];
+        var orgKey = $"{organization.Slug}-{organization.SlugPostfix}";
+        // The pasted link can point at any host - the bot only cares about the
+        // /organizations/{orgKey}/issues/{key} path shape, then rebuilds the canonical URL
+        // itself (which is why the assertion below uses a differently-shaped expected URL).
+        var pastedIssueUrl = $"https://boards.example.com/organizations/{orgKey}/issues/{space.Key}-1";
+        var expectedCanonicalUrl = $"/organizations/{orgKey}/issues/{space.Key}-1";
+
+        var chat = new Chat { Id = 794, Type = ChatType.Group };
+
+        // The replied-to message isn't itself a tracked TelegramMessage row - it's just a plain
+        // chat message that happens to paste an issue link, e.g. someone sharing it manually.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message
+                {
+                    Id = 1,
+                    Chat = chat,
+                    Text = $"first task\n{pastedIssueUrl}",
+                },
+            }
+        });
+
+        var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
+        Assert.Contains("Existing card content", replyRequest.Text);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal(expectedCanonicalUrl, button.Url);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyWithIssuePreview_WhenRepliedMessageContainsBoardViewIssueLink()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content")));
+
+        var space = organization.Spaces[0];
+        var orgKey = $"{organization.Slug}-{organization.SlugPostfix}";
+        // The board view opens a specific issue via a query string rather than the issue's own
+        // "/issues/{key}" page - the space/board path segments (BRD/149) aren't parsed, since the
+        // issue key in "issue=" already carries the space key and number.
+        var pastedBoardUrl = $"https://boards.example.com/organizations/{orgKey}/spaces/{space.Key}/149?issue={space.Key}-1";
+        var expectedCanonicalUrl = $"/organizations/{orgKey}/issues/{space.Key}-1";
+
+        var chat = new Chat { Id = 797, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message
+                {
+                    Id = 1,
+                    Chat = chat,
+                    Text = $"open this from the board\n{pastedBoardUrl}",
+                },
+            }
+        });
+
+        var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
+        Assert.Contains("Existing card content", replyRequest.Text);
+        var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
+        var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
+        Assert.Equal(expectedCanonicalUrl, button.Url);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyIssueLinkNotFound_WhenLinkedIssueDoesNotExist()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var space = organization.Spaces[0];
+        var issueUrl = $"https://boards.example.com/organizations/{organization.Slug}-{organization.SlugPostfix}/issues/{space.Key}-999";
+
+        var chat = new Chat { Id = 795, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message
+                {
+                    Id = 1,
+                    Chat = chat,
+                    Text = issueUrl,
+                },
+            }
+        });
+
+        // Deliberately the same generic message as the "exists but forbidden" case below -
+        // distinguishing them would let a pasted link be used to probe whether a given issue key
+        // exists in an organization the caller can't otherwise see.
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal($"{space.Key}-999: not available.", request.Text);
+    }
+
+    [Fact]
+    public async Task HandleInfo_ShouldReplyIssueLinkForbidden_WhenSenderLacksReadPermissionToLinkedIssue()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // Org member with no read access at all - unlike the owner, who created/can see the card.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o
+                .AddUser(memberId)
+                .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Existing card content")));
+
+        var space = organization.Spaces[0];
+        var issueUrl = $"https://boards.example.com/organizations/{organization.Slug}-{organization.SlugPostfix}/issues/{space.Key}-1";
+
+        var chat = new Chat { Id = 796, Type = ChatType.Group };
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 2,
+                Text = "/info",
+                Chat = chat,
+                ReplyToMessage = new Message
+                {
+                    Id = 1,
+                    Chat = chat,
+                    Text = issueUrl,
+                },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal($"{space.Key}-1: not available.", request.Text);
     }
 
     [Fact]

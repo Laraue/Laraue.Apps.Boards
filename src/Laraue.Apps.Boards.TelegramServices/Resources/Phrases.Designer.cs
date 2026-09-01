@@ -400,7 +400,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to I don&apos;t have that message on record - it may have arrived before the chat was linked..
+        ///   Looks up a localized string similar to I couldn&apos;t find a saved card or an issue link in that message. An issue link looks like: {0}.
         /// </summary>
         internal static string InfoMessageNotTracked {
             get {
@@ -423,6 +423,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         internal static string InfoForbidden {
             get {
                 return ResourceManager.GetString("InfoForbidden", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to {0}: not available..
+        /// </summary>
+        internal static string InfoIssueLinkUnavailable {
+            get {
+                return ResourceManager.GetString("InfoIssueLinkUnavailable", resourceCulture);
             }
         }
 

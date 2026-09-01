@@ -173,13 +173,16 @@
         <value>Это моё собственное сообщение — ответьте на исходное сообщение, о котором нужна информация.</value>
     </data>
     <data name="InfoMessageNotTracked" xml:space="preserve">
-        <value>У меня нет этого сообщения — возможно, оно пришло до того, как чат был привязан.</value>
+        <value>Не нашёл ни сохранённой карточки, ни ссылки на задачу в этом сообщении. Ссылка на задачу выглядит так: {0}</value>
     </data>
     <data name="InfoNoCardYet" xml:space="preserve">
         <value>Это сообщение ещё не сохранено как карточка — сначала ответьте на него командой /save.</value>
     </data>
     <data name="InfoForbidden" xml:space="preserve">
         <value>Это действие недоступно — у вас нет прав на просмотр этой карточки.</value>
+    </data>
+    <data name="InfoIssueLinkUnavailable" xml:space="preserve">
+        <value>{0}: недоступно.</value>
     </data>
     <data name="DeleteNotAReply" xml:space="preserve">
         <value>Ответьте на сообщение, карточку которого нужно удалить, и отправьте /delete ещё раз.</value>
