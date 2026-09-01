@@ -24,6 +24,10 @@ public class RetroCard
 
     /// <summary>Paint order inside the retro; the card moved last sits on top for everyone.</summary>
     public int StackOrder { get; set; }
+
+    /// <summary>The topic this note was merged into, if the team grouped it with others.</summary>
+    public long? GroupId { get; set; }
+    public RetroCardGroup? Group { get; set; }
     public bool Done { get; set; }
     public bool Revealed { get; set; }
     public DateTime CreatedAt { get; set; }

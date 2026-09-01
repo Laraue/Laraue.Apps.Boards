@@ -46,6 +46,16 @@ public interface ICoreRetrosService
     Task DeleteCard(Guid cardId, CancellationToken cancellationToken);
     Task<bool> SetDone(Guid cardId, bool done, CancellationToken cancellationToken);
     Task SetAssignee(Guid cardId, Guid? assigneeId, CancellationToken cancellationToken);
+    Task<long?> GroupCards(
+        long retroId,
+        IReadOnlyCollection<Guid> cardIds,
+        CancellationToken cancellationToken);
+    Task<bool> Ungroup(long retroId, long groupId, CancellationToken cancellationToken);
+    Task<bool> SetGroupTitle(
+        long retroId,
+        long groupId,
+        string title,
+        CancellationToken cancellationToken);
     Task SetRevealed(Guid cardId, bool revealed, CancellationToken cancellationToken);
     Task<RetroVoteResult> SetVote(Guid cardId, Guid userId, bool voted, CancellationToken cancellationToken);
 }
@@ -374,6 +384,72 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         return updated != 0;
     }
 
+    /// <summary>
+    /// Merges the given notes into one topic. Returns null when the selection does not hold up -
+    /// fewer than two notes, or a note that is not a topic of this retro.
+    /// </summary>
+    public async Task<long?> GroupCards(
+        long retroId,
+        IReadOnlyCollection<Guid> cardIds,
+        CancellationToken cancellationToken)
+    {
+        if (cardIds.Count < 2)
+            return null;
+
+        var actionsSortOrder = await context.RetroSections
+            .Where(x => x.RetroId == retroId)
+            .MaxAsync(x => (int?)x.SortOrder, cancellationToken);
+        var found = await context.RetroCards
+            .Where(x => cardIds.Contains(x.Id)
+                && x.Section!.RetroId == retroId
+                && x.Section.SortOrder != actionsSortOrder)
+            .CountAsync(cancellationToken);
+
+        if (found != cardIds.Count)
+            return null;
+
+        var group = new RetroCardGroup { RetroId = retroId, Title = string.Empty };
+        context.RetroCardGroups.Add(group);
+        await context.SaveChangesAsync(cancellationToken);
+
+        await context.RetroCards
+            .Where(x => cardIds.Contains(x.Id))
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.GroupId, group.Id), cancellationToken);
+
+        // A note pulled out of its old topic can leave it with a single member, which is no longer
+        // a topic at all - drop those so the board never shows a group of one.
+        await DropDegenerateGroups(retroId, cancellationToken);
+
+        return group.Id;
+    }
+
+    public async Task<bool> Ungroup(long retroId, long groupId, CancellationToken cancellationToken)
+    {
+        var deleted = await context.RetroCardGroups
+            .Where(x => x.Id == groupId && x.RetroId == retroId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return deleted != 0;
+    }
+
+    public async Task<bool> SetGroupTitle(
+        long retroId,
+        long groupId,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        var updated = await context.RetroCardGroups
+            .Where(x => x.Id == groupId && x.RetroId == retroId)
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Title, title), cancellationToken);
+
+        return updated != 0;
+    }
+
+    private Task DropDegenerateGroups(long retroId, CancellationToken cancellationToken) =>
+        context.RetroCardGroups
+            .Where(x => x.RetroId == retroId && x.Cards.Count < 2)
+            .ExecuteDeleteAsync(cancellationToken);
+
     public Task SetAssignee(Guid cardId, Guid? assigneeId, CancellationToken cancellationToken)
     {
         return context.RetroCards
@@ -402,10 +478,22 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
                 x.Section.Retro!.Phase,
                 x.Section.Retro.PhaseEndsAt,
                 x.Section.Retro.VotesPerUser,
+                x.GroupId,
             })
             .FirstOrDefaultAsync(cancellationToken);
         if (card is null)
             return RetroVoteResult.CardNotFound;
+
+        // A grouped note is not a topic of its own: the whole group shares one vote per person, so
+        // every vote for any of its notes lands on the same one.
+        cardId = card.GroupId is null
+            ? cardId
+            : await context.RetroCards
+                .Where(x => x.GroupId == card.GroupId)
+                .OrderBy(x => x.StackOrder)
+                .ThenBy(x => x.Id)
+                .Select(x => x.Id)
+                .FirstAsync(cancellationToken);
 
         if (card.Phase != RetroPhase.Vote
             || !card.PhaseEndsAt.HasValue

@@ -115,6 +115,28 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         CancellationToken cancellationToken = default) =>
         retrosService.SetCardDone(cardId, request, AuthData(), cancellationToken);
 
+    [HttpPost("{id:long}/groups")]
+    public Task<GroupRetroCardsResponse> GroupCards(
+        [FromRoute] long id,
+        [FromBody] GroupRetroCardsRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.GroupCards(id, request, AuthData(), cancellationToken);
+
+    [HttpDelete("{id:long}/groups/{groupId:long}")]
+    public Task Ungroup(
+        [FromRoute] long id,
+        [FromRoute] long groupId,
+        CancellationToken cancellationToken = default) =>
+        retrosService.Ungroup(id, groupId, AuthData(), cancellationToken);
+
+    [HttpPut("{id:long}/groups/{groupId:long}")]
+    public Task SetGroupTitle(
+        [FromRoute] long id,
+        [FromRoute] long groupId,
+        [FromBody] SetRetroGroupTitleRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.SetGroupTitle(id, groupId, request, AuthData(), cancellationToken);
+
     [HttpPost("cards/{cardId:guid}/assignee")]
     public Task SetCardAssignee(
         [FromRoute] Guid cardId,

@@ -94,6 +94,22 @@ public interface IRetrosService
         SetRetroCardAssigneeRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
+    Task<GroupRetroCardsResponse> GroupCards(
+        long id,
+        GroupRetroCardsRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+    Task Ungroup(
+        long id,
+        long groupId,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+    Task SetGroupTitle(
+        long id,
+        long groupId,
+        SetRetroGroupTitleRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
 }
 
 public class RetrosService(
@@ -202,6 +218,7 @@ public class RetrosService(
                 Hidden = retro.Phase == RetroPhase.Collect && c.AuthorId != authData.UserId && !c.Revealed,
                 Revealed = c.Revealed,
                 IsMine = c.AuthorId == authData.UserId,
+                GroupId = c.GroupId,
                 Assignee = c.AssigneeId == null
                     ? null
                     : new RetroUser
@@ -222,6 +239,18 @@ public class RetrosService(
                     Color = c.Author.Color,
                     IsCurrentUser = c.AuthorId == authData.UserId,
                 },
+            })
+            .ToArrayAsync(cancellationToken);
+
+        var groups = await context.RetroCardGroups
+            .Where(x => x.RetroId == id)
+            .Select(x => new RetroCardGroupDto
+            {
+                Id = x.Id,
+                Title = x.Title,
+                CardIds = x.Cards.Select(c => c.Id).ToArray(),
+                Votes = voteResultsVisible ? x.Cards.Sum(c => c.Votes.Count) : 0,
+                VotedByMe = x.Cards.Any(c => c.Votes.Any(v => v.UserId == authData.UserId)),
             })
             .ToArrayAsync(cancellationToken);
 
@@ -258,6 +287,7 @@ public class RetrosService(
                 .ToArray(),
             Sections = sections,
             Cards = cards,
+            Groups = groups,
         };
     }
 
@@ -514,6 +544,65 @@ public class RetrosService(
         await Changed(card.RetroId, cancellationToken);
     }
 
+    public async Task<GroupRetroCardsResponse> GroupCards(
+        long id,
+        GroupRetroCardsRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var phase = await EnsureGroupingPhase(id, authData, cancellationToken);
+        EnsureCardEditable(isAction: false, phase, nameof(id));
+
+        var groupId = await coreRetrosService.GroupCards(id, request.CardIds, cancellationToken)
+            ?? throw new BadRequestException(nameof(request.CardIds), ErrorMessages.RetroGroupInvalid);
+
+        await Changed(id, cancellationToken);
+
+        return new GroupRetroCardsResponse { Id = groupId };
+    }
+
+    public async Task Ungroup(
+        long id,
+        long groupId,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var phase = await EnsureGroupingPhase(id, authData, cancellationToken);
+        EnsureCardEditable(isAction: false, phase, nameof(id));
+
+        if (!await coreRetrosService.Ungroup(id, groupId, cancellationToken))
+            throw GroupNotFound(groupId);
+
+        await Changed(id, cancellationToken);
+    }
+
+    public async Task SetGroupTitle(
+        long id,
+        long groupId,
+        SetRetroGroupTitleRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var phase = await EnsureGroupingPhase(id, authData, cancellationToken);
+        EnsureCardEditable(isAction: false, phase, nameof(id));
+
+        if (!await coreRetrosService.SetGroupTitle(id, groupId, request.Title.Trim(), cancellationToken))
+            throw GroupNotFound(groupId);
+
+        await Changed(id, cancellationToken);
+    }
+
+    /// <summary>Merging topics is the facilitator's call and freezes with everything else at Vote.</summary>
+    private async Task<RetroPhase> EnsureGroupingPhase(
+        long retroId,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureOwner(retroId, authData, cancellationToken);
+
+        return await EnsureEditable(retroId, authData, cancellationToken);
+    }
+
     private async Task EnsureMember(OrganizationAuthData authData, CancellationToken cancellationToken)
     {
         var isMember = await context.OrganizationUsers
@@ -691,6 +780,11 @@ public class RetrosService(
         ErrorMessages.EntityNotFound,
         "Card",
         id));
+
+    private static NotFoundException GroupNotFound(long id) => new(string.Format(
+        ErrorMessages.EntityNotFound,
+        "Group",
+        id));
 }
 
 public record RetroUser
@@ -729,6 +823,16 @@ public record GetRetroResponse
     public required RetroUser[] Participants { get; init; }
     public required RetroSectionDto[] Sections { get; init; }
     public required RetroCardDto[] Cards { get; init; }
+    public required RetroCardGroupDto[] Groups { get; init; }
+}
+
+public record RetroCardGroupDto
+{
+    public required long Id { get; init; }
+    public required string Title { get; init; }
+    public required Guid[] CardIds { get; init; }
+    public required int Votes { get; init; }
+    public required bool VotedByMe { get; init; }
 }
 
 public record RetroSectionDto
@@ -752,6 +856,7 @@ public record RetroCardDto
     public required bool Revealed { get; init; }
     public required bool IsMine { get; init; }
     public required RetroUser? Assignee { get; init; }
+    public required long? GroupId { get; init; }
     public required int Votes { get; init; }
     public required bool VotedByMe { get; init; }
     public required RetroUser Author { get; init; }
@@ -841,6 +946,23 @@ public record SetRetroCardDoneRequest
 public record SetRetroCardRevealedRequest
 {
     public required bool Revealed { get; init; }
+}
+
+public record GroupRetroCardsRequest
+{
+    /// <summary>The notes to merge; at least two, all topics of this retro.</summary>
+    public required Guid[] CardIds { get; init; }
+}
+
+public record GroupRetroCardsResponse
+{
+    public required long Id { get; init; }
+}
+
+public record SetRetroGroupTitleRequest
+{
+    [MaxLength(4096)]
+    public required string Title { get; init; }
 }
 
 public record SetRetroCardAssigneeRequest

@@ -859,6 +859,170 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
     }
 
+    [Fact]
+    public async Task GroupCards_ShouldMergeNotesIntoOneTopic_WhenPhaseIsGroup()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        var topic = Assert.Single(response!.Groups);
+
+        Assert.Equal(group!.Id, topic.Id);
+        Assert.Equal(string.Empty, topic.Title);
+        Assert.Equal([data.FirstId, data.SecondId], topic.CardIds.Order());
+        // The notes themselves are untouched - text, author and all.
+        Assert.Equal(["First", "Second", "Third"], response.Cards.Select(x => x.Text).Order());
+        Assert.Equal(
+            [data.FirstId, data.SecondId],
+            response.Cards.Where(x => x.GroupId == topic.Id).Select(x => x.Id).Order());
+    }
+
+    [Fact]
+    public async Task GroupCards_ShouldFail_WhenFewerThanTwoNotesAreSelected()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.GroupCards(
+                data.Retro.RetroId,
+                new GroupRetroCardsRequest { CardIds = new[] { data.FirstId } })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task GroupCards_ShouldBeForbidden_WhenCallerIsNotTheFacilitator()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.ParticipantId)
+            .Execute(x => x.GroupCards(
+                data.Retro.RetroId,
+                new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } })));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task GroupCards_ShouldFail_WhenVotingHasStarted()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.GroupCards(
+                data.Retro.RetroId,
+                new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task Ungroup_ShouldKeepTheNotes_AndFailAfterVotingStarted()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+
+        await _retroController.Execute(x => x.Ungroup(data.Retro.RetroId, group!.Id));
+
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Empty(response!.Groups);
+        Assert.Equal(3, response.Cards.Length);
+        Assert.All(response.Cards, card => Assert.Null(card.GroupId));
+
+        var regrouped = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            _retroController.Execute(x => x.Ungroup(data.Retro.RetroId, regrouped!.Id)));
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetGroupTitle_ShouldStoreTheHeadline()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+
+        await _retroController.Execute(x => x.SetGroupTitle(
+            data.Retro.RetroId,
+            group!.Id,
+            new SetRetroGroupTitleRequest { Title = "  Painful releases  " }));
+
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Equal("Painful releases", Assert.Single(response!.Groups).Title);
+    }
+
+    [Fact]
+    public async Task SetVote_ShouldCountOncePerGroup_WhateverNoteIsVotedFor()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
+        await _retroController.Execute(x => x.SetPhaseTimer(
+            data.Retro.RetroId,
+            new SetRetroTimerRequest { Minutes = 5 }));
+
+        await _retroController.Execute(x => x.SetCardVote(
+            data.FirstId,
+            new SetRetroCardVoteRequest { Voted = true }));
+        await _retroController.Execute(x => x.SetCardVote(
+            data.SecondId,
+            new SetRetroCardVoteRequest { Voted = true }));
+
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Discuss);
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        var topic = Assert.Single(response!.Groups);
+
+        Assert.Equal(group!.Id, topic.Id);
+        Assert.Equal(1, topic.Votes);
+        Assert.True(topic.VotedByMe);
+        Assert.Equal(1, response.MyVotes);
+    }
+
+    /// <summary>A retro in Group with three topic notes of the facilitator.</summary>
+    private async Task<TopicsTestData> CreateTopics(WebApiTestHostScope testScope)
+    {
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        _retroController.WithOrganizationAuthorization(data.OrganizationId, data.OwnerId);
+
+        var ids = new List<Guid>();
+        foreach (var text in new[] { "First", "Second", "Third" })
+        {
+            var card = await _retroController.Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = text, X = 0, Y = 0 }));
+            ids.Add(card!.Id);
+        }
+
+        await SetPhase(testScope, data.RetroId, RetroPhase.Group);
+
+        return new TopicsTestData(data, ids[0], ids[1], ids[2]);
+    }
+
+    private record TopicsTestData(RetroTestData Retro, Guid FirstId, Guid SecondId, Guid ThirdId);
+
     private static Task<long> FirstSectionId(WebApiTestHostScope testScope, long retroId) =>
         testScope.Database.RetroSections
             .Where(x => x.RetroId == retroId)
