@@ -363,7 +363,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var retroId = await EnsureCard(cardId, authData, cancellationToken);
+        var retroId = await EnsureCard(cardId, authData, mutating: true, cancellationToken);
         await EnsureSectionInRetro(retroId, request.SectionId, cancellationToken);
         await coreRetrosService.MoveCard(
             cardId,
@@ -390,7 +390,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var retroId = await EnsureCard(cardId, authData, cancellationToken);
+        var retroId = await EnsureCard(cardId, authData, mutating: false, cancellationToken);
         var result = await coreRetrosService.SetVote(cardId, authData.UserId, request.Voted, cancellationToken);
         switch (result)
         {
@@ -413,7 +413,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var retroId = await EnsureCard(cardId, authData, cancellationToken);
+        var retroId = await EnsureCard(cardId, authData, mutating: false, cancellationToken);
         if (!await coreRetrosService.SetDone(cardId, request.Done, cancellationToken))
             throw new BadRequestException(nameof(cardId), ErrorMessages.RetroCardDoneUnavailable);
 
@@ -483,12 +483,24 @@ public class RetrosService(
     {
         var retro = await OrganizationRetros(authData)
             .Where(x => x.Id == retroId)
-            .Select(x => new { x.FinishedAt })
+            .Select(x => new { x.FinishedAt, x.Phase })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw RetroNotFound(retroId);
 
         if (retro.FinishedAt.HasValue)
             throw new BadRequestException(nameof(retroId), ErrorMessages.RetroFinished);
+
+        EnsureCardsNotFrozen(retro.Phase, nameof(retroId));
+    }
+
+    /// <summary>
+    /// Everyone votes on the same set of topics, so the cards freeze once Vote starts - the
+    /// facilitator has to consciously revert the retro to Group/Collect to change them again.
+    /// </summary>
+    private static void EnsureCardsNotFrozen(RetroPhase phase, string paramName)
+    {
+        if (phase == RetroPhase.Vote)
+            throw new BadRequestException(paramName, ErrorMessages.RetroCardsFrozen);
     }
 
     private async Task EnsureOwner(
@@ -527,14 +539,19 @@ public class RetrosService(
     private async Task<long> EnsureCard(
         Guid cardId,
         OrganizationAuthData authData,
+        bool mutating,
         CancellationToken cancellationToken)
     {
-        var retroId = await EditableCards(authData)
+        var card = await EditableCards(authData)
             .Where(x => x.Id == cardId)
-            .Select(x => (long?)x.Section!.RetroId)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Select(x => new { x.Section!.RetroId, x.Section.Retro!.Phase })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw CardNotFound(cardId);
 
-        return retroId ?? throw CardNotFound(cardId);
+        if (mutating)
+            EnsureCardsNotFrozen(card.Phase, nameof(cardId));
+
+        return card.RetroId;
     }
 
     private async Task<long> EnsureOwnCard(
@@ -544,7 +561,7 @@ public class RetrosService(
     {
         var card = await EditableCards(authData)
             .Where(x => x.Id == cardId)
-            .Select(x => new { x.AuthorId, x.Section!.RetroId })
+            .Select(x => new { x.AuthorId, x.Section!.RetroId, x.Section.Retro!.Phase })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw CardNotFound(cardId);
 
@@ -554,6 +571,8 @@ public class RetrosService(
                 "Card",
                 cardId,
                 "update"));
+
+        EnsureCardsNotFrozen(card.Phase, nameof(cardId));
 
         return card.RetroId;
     }

@@ -160,19 +160,19 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .OrderBy(x => x.SortOrder)
             .Select(x => x.Id)
             .FirstAsync();
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Vote", X = 10, Y = 20 }));
         await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
 
-        await _retroController
-            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
-            .Execute(x => x.UpdateSettings(
-                data.RetroId,
-                new UpdateRetroSettingsRequest { Phase = RetroPhase.Vote, VotesPerUser = 3 }));
+        await _retroController.Execute(x => x.UpdateSettings(
+            data.RetroId,
+            new UpdateRetroSettingsRequest { Phase = RetroPhase.Vote, VotesPerUser = 3 }));
         await _retroController.Execute(x => x.SetVoteTimer(
             data.RetroId,
             new SetRetroTimerRequest { Minutes = 5 }));
-        var card = await _retroController.Execute(x => x.CreateCard(
-            data.RetroId,
-            new CreateRetroCardRequest { SectionId = sectionId, Text = "Vote", X = 10, Y = 20 }));
 
         var cardId = card!.Id;
         await _retroController.Execute(x => x.SetCardVote(cardId, new SetRetroCardVoteRequest { Voted = true }));
@@ -220,6 +220,14 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .OrderBy(x => x.SortOrder)
             .Select(x => x.Id)
             .FirstAsync();
+        var firstCard = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "First", X = 10, Y = 20 }));
+        var secondCard = await _retroController.Execute(x => x.CreateCard(
+            data.RetroId,
+            new CreateRetroCardRequest { SectionId = sectionId, Text = "Second", X = 30, Y = 40 }));
         await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
 
         await _retroController
@@ -231,16 +239,8 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             data.RetroId,
             new SetRetroTimerRequest { Minutes = 5 }));
 
-        var firstCard = await _retroController
-            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
-            .Execute(x => x.CreateCard(
-                data.RetroId,
-                new CreateRetroCardRequest { SectionId = sectionId, Text = "First", X = 10, Y = 20 }));
-        var secondCard = await _retroController.Execute(x => x.CreateCard(
-            data.RetroId,
-            new CreateRetroCardRequest { SectionId = sectionId, Text = "Second", X = 30, Y = 40 }));
-
-        await _retroController.Execute(x => x.SetCardVote(firstCard!.Id, new SetRetroCardVoteRequest { Voted = true }));
+        await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId).Execute(x => x.SetCardVote(firstCard!.Id, new SetRetroCardVoteRequest { Voted = true }));
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() =>
             _retroController.Execute(x => x.SetCardVote(secondCard!.Id, new SetRetroCardVoteRequest { Voted = true })));
 
@@ -324,6 +324,137 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
     }
+
+    [Fact]
+    public async Task CreateCard_ShouldFail_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.CreateCard(
+                frozen.Data.RetroId,
+                new CreateRetroCardRequest { SectionId = frozen.SectionId, Text = "Late", X = 0, Y = 0 })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+        Assert.Equal(1, await testScope.Database.RetroCards
+            .CountAsync(x => x.Section!.RetroId == frozen.Data.RetroId));
+    }
+
+    [Fact]
+    public async Task UpdateCard_ShouldKeepText_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.UpdateCard(frozen.CardId, new UpdateRetroCardRequest { Text = "Rewritten" })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+        Assert.Equal(FrozenCardText, await testScope.Database.RetroCards
+            .Where(x => x.Id == frozen.CardId)
+            .Select(x => x.Text)
+            .SingleAsync());
+    }
+
+    [Fact]
+    public async Task MoveCard_ShouldKeepPosition_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+        var otherSectionId = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == frozen.Data.RetroId && x.Id != frozen.SectionId)
+            .Select(x => x.Id)
+            .FirstAsync();
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.MoveCard(
+                frozen.CardId,
+                new MoveRetroCardRequest { SectionId = otherSectionId, X = 99, Y = 99 })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+        Assert.Equal(frozen.SectionId, await testScope.Database.RetroCards
+            .Where(x => x.Id == frozen.CardId)
+            .Select(x => x.SectionId)
+            .SingleAsync());
+    }
+
+    [Fact]
+    public async Task DeleteCard_ShouldKeepCard_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.DeleteCard(frozen.CardId)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+        Assert.True(await testScope.Database.RetroCards.AnyAsync(x => x.Id == frozen.CardId));
+    }
+
+    [Fact]
+    public async Task SetCardRevealed_ShouldFail_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.SetCardRevealed(
+                frozen.CardId,
+                new SetRetroCardRevealedRequest { Revealed = true })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetMyCardsRevealed_ShouldFail_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.SetMyCardsRevealed(
+                frozen.Data.RetroId,
+                new SetRetroRevealRequest { Revealed = true })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateCard_ShouldSucceed_WhenOwnerRevertedPhaseBackToGroup()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+
+        await _retroController.Execute(x => x.RevertPhase(
+            frozen.Data.RetroId,
+            new SetRetroPhaseRequest { Phase = RetroPhase.Group }));
+        await _retroController.Execute(x => x.CreateCard(
+            frozen.Data.RetroId,
+            new CreateRetroCardRequest { SectionId = frozen.SectionId, Text = "One more", X = 0, Y = 0 }));
+
+        Assert.Equal(2, await testScope.Database.RetroCards
+            .CountAsync(x => x.Section!.RetroId == frozen.Data.RetroId));
+    }
+
+    private const string FrozenCardText = "Topic";
+
+    /// <summary>A retro in Vote with one card of the owner created back in Collect.</summary>
+    private async Task<FrozenRetro> CreateFrozenRetro(WebApiTestHostScope testScope)
+    {
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = FrozenCardText, X = 0, Y = 0 }));
+        await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
+
+        return new FrozenRetro(data, sectionId, card!.Id);
+    }
+
+    private record FrozenRetro(RetroTestData Data, long SectionId, Guid CardId);
 
     private static Task<long> FirstSectionId(WebApiTestHostScope testScope, long retroId) =>
         testScope.Database.RetroSections
