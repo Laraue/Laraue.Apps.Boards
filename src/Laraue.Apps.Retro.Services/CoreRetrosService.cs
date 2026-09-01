@@ -19,6 +19,7 @@ public interface ICoreRetrosService
         long? basedOnRetroId,
         CancellationToken cancellationToken);
     Task Join(long retroId, Guid userId, CancellationToken cancellationToken);
+    Task<bool> SetOwner(long retroId, Guid userId, CancellationToken cancellationToken);
     Task<bool> Finish(long retroId, CancellationToken cancellationToken);
     Task<bool> UpdateSettings(
         long retroId,
@@ -174,6 +175,16 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .On((target, source) => target.RetroId == source.RetroId && target.UserId == source.UserId)
             .InsertWhenNotMatched()
             .MergeAsync(cancellationToken);
+    }
+
+    /// <summary>Hands the retro over to somebody else; the previous owner keeps no control.</summary>
+    public async Task<bool> SetOwner(long retroId, Guid userId, CancellationToken cancellationToken)
+    {
+        var updated = await context.Retros
+            .Where(x => x.Id == retroId && x.FinishedAt == null)
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.OwnerId, userId), cancellationToken);
+
+        return updated != 0;
     }
 
     public async Task<bool> Finish(long retroId, CancellationToken cancellationToken)

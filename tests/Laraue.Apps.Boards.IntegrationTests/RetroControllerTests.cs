@@ -785,6 +785,74 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal("Deploys hurt", seen.Text);
     }
 
+    [Fact]
+    public async Task TransferOwnership_ShouldMoveControlToAnotherParticipant()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        testScope.Database.RetroParticipants.Add(
+            new RetroParticipant { RetroId = data.RetroId, UserId = data.ParticipantId });
+        await testScope.Database.SaveChangesAsync();
+
+        await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.TransferOwnership(
+                data.RetroId,
+                new TransferRetroOwnershipRequest { UserId = data.ParticipantId }));
+
+        var theirs = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.Get(data.RetroId));
+        Assert.True(theirs!.CanManage);
+
+        // The retro runs on without its creator: the new facilitator drives the phases...
+        await _retroController.Execute(x => x.AdvancePhase(
+            data.RetroId,
+            new SetRetroPhaseRequest { Phase = RetroPhase.Group }));
+
+        // ...and the previous one is left with no control at all.
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.AdvancePhase(
+                data.RetroId,
+                new SetRetroPhaseRequest { Phase = RetroPhase.Vote })));
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+
+        var mine = await _retroController.Execute(x => x.Get(data.RetroId));
+        Assert.False(mine!.CanManage);
+        Assert.Equal(data.ParticipantId, mine.Owner.UserId);
+    }
+
+    [Fact]
+    public async Task TransferOwnership_ShouldFail_WhenTargetNeverJoinedTheRetro()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.TransferOwnership(
+                data.RetroId,
+                new TransferRetroOwnershipRequest { UserId = data.ParticipantId })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task TransferOwnership_ShouldBeForbidden_WhenCallerIsNotTheFacilitator()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.TransferOwnership(
+                data.RetroId,
+                new TransferRetroOwnershipRequest { UserId = data.ParticipantId })));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+    }
+
     /// <summary>A retro in Actions with one action card and both users joined as participants.</summary>
     private async Task<ActionTestData> CreateAction(WebApiTestHostScope testScope)
     {
@@ -969,11 +1037,12 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
 
         Assert.Equal(group!.Id, topic.Id);
         Assert.Equal(string.Empty, topic.Title);
-        Assert.Equal([data.FirstId, data.SecondId], topic.CardIds.Order());
+        // Guid order is not creation order, so both sides get sorted.
+        Assert.Equal(new[] { data.FirstId, data.SecondId }.Order(), topic.CardIds.Order());
         // The notes themselves are untouched - text, author and all.
         Assert.Equal(["First", "Second", "Third"], response.Cards.Select(x => x.Text).Order());
         Assert.Equal(
-            [data.FirstId, data.SecondId],
+            new[] { data.FirstId, data.SecondId }.Order(),
             response.Cards.Where(x => x.GroupId == topic.Id).Select(x => x.Id).Order());
     }
 

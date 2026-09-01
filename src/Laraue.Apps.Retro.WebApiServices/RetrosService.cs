@@ -23,6 +23,11 @@ public interface IRetrosService
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
     Task<GetRetroResponse> Get(long id, OrganizationAuthData authData, CancellationToken cancellationToken);
+    Task TransferOwnership(
+        long id,
+        TransferRetroOwnershipRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
     Task<CreateRetroResponse> Create(
         CreateRetroRequest request,
         OrganizationAuthData authData,
@@ -316,6 +321,30 @@ public class RetrosService(
             request.BasedOnRetroId,
             cancellationToken);
         return new CreateRetroResponse { Id = id };
+    }
+
+    public async Task TransferOwnership(
+        long id,
+        TransferRetroOwnershipRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureOwner(id, authData, cancellationToken);
+
+        var isParticipant = await context.RetroParticipants.AnyAsync(
+            x => x.RetroId == id && x.UserId == request.UserId,
+            cancellationToken);
+        if (!isParticipant)
+        {
+            throw new BadRequestException(
+                nameof(request.UserId),
+                ErrorMessages.RetroFacilitatorNotParticipant);
+        }
+
+        if (!await coreRetrosService.SetOwner(id, request.UserId, cancellationToken))
+            throw new BadRequestException(nameof(id), ErrorMessages.RetroFinished);
+
+        await Changed(id, cancellationToken);
     }
 
     public async Task Finish(
@@ -927,6 +956,12 @@ public record UpdateRetroSettingsRequest
 
     [Range(1, int.MaxValue)]
     public required int VotesPerUser { get; init; }
+}
+
+public record TransferRetroOwnershipRequest
+{
+    /// <summary>Participant who runs the retro from now on.</summary>
+    public required Guid UserId { get; init; }
 }
 
 public record SetRetroPhaseRequest

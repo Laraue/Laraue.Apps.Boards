@@ -26,6 +26,13 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         CancellationToken cancellationToken = default) =>
         retrosService.Create(request, AuthData(), cancellationToken);
 
+    [HttpPost("{id:long}/owner")]
+    public Task TransferOwnership(
+        [FromRoute] long id,
+        [FromBody] TransferRetroOwnershipRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.TransferOwnership(id, request, AuthData(), cancellationToken);
+
     [HttpPost("{id:long}/finish")]
     public Task Finish(
         [FromRoute] long id,
