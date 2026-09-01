@@ -28,7 +28,13 @@
         <value>You have used all available votes.</value>
     </data>
     <data name="RetroCardDoneUnavailable" xml:space="preserve">
-        <value>Cards can only be marked as done in the Actions section during Discuss.</value>
+        <value>Cards can only be marked as done in the Actions section during Actions.</value>
+    </data>
+    <data name="RetroPhaseTransitionInvalid" xml:space="preserve">
+        <value>The requested phase transition is not allowed.</value>
+    </data>
+    <data name="RetroFinishUnavailable" xml:space="preserve">
+        <value>The retro can only be finished from Actions.</value>
     </data>
     <data name="RetroSectionNotInRetro" xml:space="preserve">
         <value>Section does not belong to the retro.</value>

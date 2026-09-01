@@ -18,12 +18,14 @@ public interface ICoreRetrosService
         string name,
         CancellationToken cancellationToken);
     Task Join(long retroId, Guid userId, CancellationToken cancellationToken);
-    Task Finish(long retroId, CancellationToken cancellationToken);
-    Task UpdateSettings(
+    Task<bool> Finish(long retroId, CancellationToken cancellationToken);
+    Task<bool> UpdateSettings(
         long retroId,
         RetroPhase phase,
         int votesPerUser,
         CancellationToken cancellationToken);
+    Task<bool> AdvancePhase(long retroId, RetroPhase phase, CancellationToken cancellationToken);
+    Task<bool> RevertPhase(long retroId, RetroPhase phase, CancellationToken cancellationToken);
     Task SetVoteTimer(long retroId, int? minutes, CancellationToken cancellationToken);
     Task SetCardsRevealed(long retroId, Guid authorId, bool revealed, CancellationToken cancellationToken);
     Task<Guid> CreateCard(
@@ -49,6 +51,15 @@ public interface ICoreRetrosService
 public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTimeProvider)
     : ICoreRetrosService
 {
+    private static readonly RetroPhase[] PhaseOrder =
+    [
+        RetroPhase.Collect,
+        RetroPhase.Group,
+        RetroPhase.Vote,
+        RetroPhase.Discuss,
+        RetroPhase.Actions,
+    ];
+
     private static class SectionTemplate
     {
         private static readonly (string Name, string Color)[] Sections =
@@ -146,33 +157,76 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
 
         return context.RetroParticipants
             .Merge()
-            .Using(participant)
+            .Using(participant.ToLinqToDB())
             .On((target, source) => target.RetroId == source.RetroId && target.UserId == source.UserId)
             .InsertWhenNotMatched()
             .MergeAsync(cancellationToken);
     }
 
-    public Task Finish(long retroId, CancellationToken cancellationToken)
+    public async Task<bool> Finish(long retroId, CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
-        return context.Retros
-            .Where(x => x.Id == retroId)
+        var updated = await context.Retros
+            .Where(x => x.Id == retroId && x.Phase == RetroPhase.Actions && x.FinishedAt == null)
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.FinishedAt, now), cancellationToken);
+
+        return updated != 0;
     }
 
-    public Task UpdateSettings(
+    public async Task<bool> UpdateSettings(
         long retroId,
         RetroPhase phase,
         int votesPerUser,
         CancellationToken cancellationToken)
     {
-        return context.Retros
-            .Where(x => x.Id == retroId)
+        var updated = await context.Retros
+            .Where(x => x.Id == retroId && x.Phase == phase && x.FinishedAt == null)
+            .ExecuteUpdateAsync(
+                x => x.SetProperty(p => p.VotesPerUser, votesPerUser),
+                cancellationToken);
+
+        return updated != 0;
+    }
+
+    public Task<bool> AdvancePhase(
+        long retroId,
+        RetroPhase phase,
+        CancellationToken cancellationToken) =>
+        MovePhase(retroId, phase, 1, cancellationToken);
+
+    public Task<bool> RevertPhase(
+        long retroId,
+        RetroPhase phase,
+        CancellationToken cancellationToken) =>
+        MovePhase(retroId, phase, -1, cancellationToken);
+
+    private async Task<bool> MovePhase(
+        long retroId,
+        RetroPhase phase,
+        int offset,
+        CancellationToken cancellationToken)
+    {
+        var current = await context.Retros
+            .Where(x => x.Id == retroId && x.FinishedAt == null)
+            .Select(x => x.Phase)
+            .FirstOrDefaultAsync(cancellationToken);
+        var currentIndex = Array.IndexOf(PhaseOrder, current);
+        var targetIndex = currentIndex + offset;
+
+        if (targetIndex < 0 || targetIndex >= PhaseOrder.Length || PhaseOrder[targetIndex] != phase)
+            return false;
+
+        var updated = await context.Retros
+            .Where(x => x.Id == retroId && x.Phase == current && x.FinishedAt == null)
             .ExecuteUpdateAsync(
                 x => x
                     .SetProperty(p => p.Phase, phase)
-                    .SetProperty(p => p.VotesPerUser, votesPerUser),
+                    .SetProperty(
+                        p => p.VoteEndsAt,
+                        p => current == RetroPhase.Vote ? null : p.VoteEndsAt),
                 cancellationToken);
+
+        return updated != 0;
     }
 
     /// <summary>Starts the voting timer for <paramref name="minutes"/>; null stops it.</summary>
@@ -257,7 +311,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
     {
         var updated = await context.RetroCards
             .Where(x => x.Id == cardId)
-            .Where(x => x.Section!.Retro!.Phase == RetroPhase.Discuss)
+            .Where(x => x.Section!.Retro!.Phase == RetroPhase.Actions)
             .Where(x => x.Section!.SortOrder == x.Section.Retro!.Sections.Max(s => s.SortOrder))
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.Done, done), cancellationToken);
 

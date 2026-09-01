@@ -68,6 +68,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
         await _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
             .Execute(x => x.Finish(data.RetroId));
@@ -87,18 +88,66 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task UpdateSettings_ShouldBeForbidden_WhenCallerIsNotOwner()
+    public async Task AdvancePhase_ShouldBeForbidden_WhenCallerIsNotOwner()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.AdvancePhase(
+                data.RetroId,
+                new SetRetroPhaseRequest { Phase = RetroPhase.Group })));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task ChangePhase_ShouldAllowOnlyTheAdjacentPhaseInTheRequestedDirection()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        _retroController.WithOrganizationAuthorization(data.OrganizationId, data.OwnerId);
+
+        var skipped = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.AdvancePhase(
+                data.RetroId,
+                new SetRetroPhaseRequest { Phase = RetroPhase.Vote })));
+        Assert.Equal(HttpStatusCode.BadRequest, skipped.StatusCode);
+
+        await _retroController.Execute(x => x.AdvancePhase(
+            data.RetroId,
+            new SetRetroPhaseRequest { Phase = RetroPhase.Group }));
+
+        var changedThroughSettings = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
             .Execute(x => x.UpdateSettings(
                 data.RetroId,
                 new UpdateRetroSettingsRequest { Phase = RetroPhase.Vote, VotesPerUser = 3 })));
+        Assert.Equal(HttpStatusCode.BadRequest, changedThroughSettings.StatusCode);
 
-        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        await _retroController.Execute(x => x.RevertPhase(
+            data.RetroId,
+            new SetRetroPhaseRequest { Phase = RetroPhase.Collect }));
+
+        Assert.Equal(
+            RetroPhase.Collect,
+            await testScope.Database.Retros
+                .Where(x => x.Id == data.RetroId)
+                .Select(x => x.Phase)
+                .SingleAsync());
+    }
+
+    [Fact]
+    public async Task Finish_ShouldFail_WhenPhaseIsNotActions()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.Finish(data.RetroId)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
     }
 
     [Fact]
@@ -111,6 +160,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .OrderBy(x => x.SortOrder)
             .Select(x => x.Id)
             .FirstAsync();
+        await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
 
         await _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
@@ -146,6 +196,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .Execute(x => x.CreateCard(
                 data.RetroId,
                 new CreateRetroCardRequest { SectionId = sectionId, Text = "Vote", X = 10, Y = 20 }));
+        await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
 
         await _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
@@ -169,6 +220,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .OrderBy(x => x.SortOrder)
             .Select(x => x.Id)
             .FirstAsync();
+        await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
 
         await _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
@@ -239,6 +291,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
                     X = 1,
                     Y = 2,
                 }));
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
         await _retroController.Execute(x => x.Finish(data.RetroId));
 
         var next = await _retroController.Execute(x =>
@@ -258,6 +311,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
         var sectionId = await FirstSectionId(testScope, data.RetroId);
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
 
         await _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
@@ -277,6 +331,14 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .OrderBy(x => x.SortOrder)
             .Select(x => x.Id)
             .FirstAsync();
+
+    private static Task SetPhase(
+        WebApiTestHostScope testScope,
+        long retroId,
+        RetroPhase phase) =>
+        testScope.Database.Retros
+            .Where(x => x.Id == retroId)
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Phase, phase));
 
     private async Task<RetroTestData> CreateRetro(WebApiTestHostScope testScope)
     {

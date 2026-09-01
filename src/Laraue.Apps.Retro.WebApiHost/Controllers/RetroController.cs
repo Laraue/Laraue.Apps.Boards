@@ -39,6 +39,20 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         CancellationToken cancellationToken = default) =>
         retrosService.UpdateSettings(id, request, AuthData(), cancellationToken);
 
+    [HttpPost("{id:long}/phase/next")]
+    public Task AdvancePhase(
+        [FromRoute] long id,
+        [FromBody] SetRetroPhaseRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.AdvancePhase(id, request, AuthData(), cancellationToken);
+
+    [HttpPost("{id:long}/phase/back")]
+    public Task RevertPhase(
+        [FromRoute] long id,
+        [FromBody] SetRetroPhaseRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.RevertPhase(id, request, AuthData(), cancellationToken);
+
     [HttpPost("{id:long}/timer")]
     public Task SetVoteTimer(
         [FromRoute] long id,

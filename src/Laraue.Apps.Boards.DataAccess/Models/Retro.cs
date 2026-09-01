@@ -30,7 +30,9 @@ public class Retro
 
 public enum RetroPhase
 {
-    Collect,
-    Vote,
-    Discuss,
+    Collect = 0,
+    Vote = 1,
+    Discuss = 2,
+    Group = 3,
+    Actions = 4,
 }

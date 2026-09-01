@@ -83,6 +83,18 @@ namespace Laraue.Apps.Retro.WebApiServices.Resources {
             }
         }
 
+        internal static string RetroPhaseTransitionInvalid {
+            get {
+                return ResourceManager.GetString("RetroPhaseTransitionInvalid", resourceCulture);
+            }
+        }
+
+        internal static string RetroFinishUnavailable {
+            get {
+                return ResourceManager.GetString("RetroFinishUnavailable", resourceCulture);
+            }
+        }
+
         internal static string RetroSectionNotInRetro {
             get {
                 return ResourceManager.GetString("RetroSectionNotInRetro", resourceCulture);

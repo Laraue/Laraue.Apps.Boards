@@ -32,6 +32,16 @@ public interface IRetrosService
         UpdateRetroSettingsRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
+    Task AdvancePhase(
+        long id,
+        SetRetroPhaseRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+    Task RevertPhase(
+        long id,
+        SetRetroPhaseRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
     Task SetVoteTimer(
         long id,
         SetRetroTimerRequest request,
@@ -240,7 +250,9 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         await EnsureOwner(id, authData, cancellationToken);
-        await coreRetrosService.Finish(id, cancellationToken);
+        if (!await coreRetrosService.Finish(id, cancellationToken))
+            throw new BadRequestException(nameof(id), ErrorMessages.RetroFinishUnavailable);
+
         await Changed(id, cancellationToken);
     }
 
@@ -251,11 +263,41 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         await EnsureOwner(id, authData, cancellationToken);
-        await coreRetrosService.UpdateSettings(
+        if (!await coreRetrosService.UpdateSettings(
             id,
             request.Phase,
             request.VotesPerUser,
-            cancellationToken);
+            cancellationToken))
+        {
+            throw new BadRequestException(nameof(request.Phase), ErrorMessages.RetroPhaseTransitionInvalid);
+        }
+
+        await Changed(id, cancellationToken);
+    }
+
+    public async Task AdvancePhase(
+        long id,
+        SetRetroPhaseRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureOwner(id, authData, cancellationToken);
+        if (!await coreRetrosService.AdvancePhase(id, request.Phase, cancellationToken))
+            throw new BadRequestException(nameof(request.Phase), ErrorMessages.RetroPhaseTransitionInvalid);
+
+        await Changed(id, cancellationToken);
+    }
+
+    public async Task RevertPhase(
+        long id,
+        SetRetroPhaseRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureOwner(id, authData, cancellationToken);
+        if (!await coreRetrosService.RevertPhase(id, request.Phase, cancellationToken))
+            throw new BadRequestException(nameof(request.Phase), ErrorMessages.RetroPhaseTransitionInvalid);
+
         await Changed(id, cancellationToken);
     }
 
@@ -647,6 +689,11 @@ public record UpdateRetroSettingsRequest
 
     [Range(1, int.MaxValue)]
     public required int VotesPerUser { get; init; }
+}
+
+public record SetRetroPhaseRequest
+{
+    public required RetroPhase Phase { get; init; }
 }
 
 public record SetRetroTimerRequest
