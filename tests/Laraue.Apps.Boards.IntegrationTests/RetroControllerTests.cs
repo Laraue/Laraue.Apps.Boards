@@ -1,9 +1,11 @@
 ﻿using System.Net;
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Retro.WebApiHost.Controllers;
 using Laraue.Apps.Retro.WebApiServices;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -14,7 +16,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     private readonly Proxy<RetroController> _retroController = retroHost.Controller<RetroController>(host.Services);
 
     [Fact]
-    public async Task Create_ShouldSetCreatorAsOwnerAndParticipant_Always()
+    public async Task Create_ShouldLeaveParticipantsEmpty_Always()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
@@ -25,9 +27,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .SingleAsync(x => x.Id == data.RetroId);
 
         Assert.Equal(data.OwnerId, retro.OwnerId);
-        Assert.Equal(
-            new[] { data.OwnerId, data.ParticipantId }.Order().ToArray(),
-            retro.Participants.Select(x => x.UserId).Order().ToArray());
+        Assert.Empty(retro.Participants);
         Assert.Equal(new[] { "Good", "Bad", "Start", "Stop", "Actions" },
             retro.Sections.OrderBy(x => x.SortOrder).Select(x => x.Name).ToArray());
 
@@ -37,12 +37,57 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
 
         Assert.False(response!.CanManage);
         Assert.Equal(data.OwnerId, response.Owner.UserId);
-        Assert.Contains(response.Participants, x => x.UserId == data.OwnerId);
-        Assert.Contains(response.Participants, x => x.UserId == data.ParticipantId);
+        Assert.Empty(response.Participants);
     }
 
     [Fact]
-    public async Task UpdateSettings_ShouldBeForbidden_WhenCallerIsParticipant()
+    public async Task JoinRealtime_ShouldAddParticipantOnce_WhenRetroIsActive()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        using var retroScope = retroHost.Services.CreateScope();
+        var service = retroScope.ServiceProvider.GetRequiredService<IRetrosService>();
+        var authData = new OrganizationAuthData
+        {
+            OrganizationId = data.OrganizationId,
+            UserId = data.ParticipantId,
+        };
+
+        await service.JoinRealtime(data.RetroId, authData, CancellationToken.None);
+        await service.JoinRealtime(data.RetroId, authData, CancellationToken.None);
+
+        var participants = await testScope.Database.RetroParticipants
+            .Where(x => x.RetroId == data.RetroId)
+            .Select(x => x.UserId)
+            .ToArrayAsync();
+        Assert.Equal([data.ParticipantId], participants);
+    }
+
+    [Fact]
+    public async Task JoinRealtime_ShouldNotAddParticipant_WhenRetroIsFinished()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.Finish(data.RetroId));
+        using var retroScope = retroHost.Services.CreateScope();
+        var service = retroScope.ServiceProvider.GetRequiredService<IRetrosService>();
+
+        await service.JoinRealtime(
+            data.RetroId,
+            new OrganizationAuthData
+            {
+                OrganizationId = data.OrganizationId,
+                UserId = data.ParticipantId,
+            },
+            CancellationToken.None);
+
+        Assert.False(await testScope.Database.RetroParticipants.AnyAsync(x => x.RetroId == data.RetroId));
+    }
+
+    [Fact]
+    public async Task UpdateSettings_ShouldBeForbidden_WhenCallerIsNotOwner()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);

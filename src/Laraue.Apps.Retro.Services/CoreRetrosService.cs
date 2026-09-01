@@ -1,6 +1,8 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
+using LinqToDB;
+using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 // "Retro" (the entity) collides with the "Laraue.Apps.Retro" namespace segment this project
 // lives under - alias it so the bare type name resolves correctly.
@@ -15,6 +17,7 @@ public interface ICoreRetrosService
         Guid ownerId,
         string name,
         CancellationToken cancellationToken);
+    Task Join(long retroId, Guid userId, CancellationToken cancellationToken);
     Task Finish(long retroId, CancellationToken cancellationToken);
     Task UpdateSettings(
         long retroId,
@@ -80,10 +83,6 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
-        var participantIds = await context.OrganizationUsers
-            .Where(x => x.OrganizationId == organizationId)
-            .Select(x => x.UserId)
-            .ToArrayAsync(cancellationToken);
         var previousRetroId = await context.Retros
             .Where(x => x.OrganizationId == organizationId && x.FinishedAt != null)
             .OrderByDescending(x => x.CreatedAt)
@@ -131,15 +130,26 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             VotesPerUser = 3,
             CreatedAt = now,
             Sections = SectionTemplate.WithPreviousCards(carriedCards),
-            Participants = participantIds
-                .Select(userId => new RetroParticipant { UserId = userId })
-                .ToList(),
         };
 
         context.Retros.Add(retro);
         await context.SaveChangesAsync(cancellationToken);
 
         return retro.Id;
+    }
+
+    public Task Join(long retroId, Guid userId, CancellationToken cancellationToken)
+    {
+        var participant = context.Retros
+            .Where(x => x.Id == retroId && x.FinishedAt == null)
+            .Select(x => new RetroParticipant { RetroId = x.Id, UserId = userId });
+
+        return context.RetroParticipants
+            .Merge()
+            .Using(participant)
+            .On((target, source) => target.RetroId == source.RetroId && target.UserId == source.UserId)
+            .InsertWhenNotMatched()
+            .MergeAsync(cancellationToken);
     }
 
     public Task Finish(long retroId, CancellationToken cancellationToken)
