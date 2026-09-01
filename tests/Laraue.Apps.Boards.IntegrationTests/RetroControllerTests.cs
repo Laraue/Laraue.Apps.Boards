@@ -437,6 +437,71 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .CountAsync(x => x.Section!.RetroId == frozen.Data.RetroId));
     }
 
+    [Fact]
+    public async Task Get_ShouldHideVoteTotals_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+        await _retroController.Execute(x => x.SetVoteTimer(
+            frozen.Data.RetroId,
+            new SetRetroTimerRequest { Minutes = 5 }));
+        await _retroController.Execute(x => x.SetCardVote(
+            frozen.CardId,
+            new SetRetroCardVoteRequest { Voted = true }));
+
+        var response = await _retroController
+            .WithOrganizationAuthorization(frozen.Data.OrganizationId, frozen.Data.ParticipantId)
+            .Execute(x => x.Get(frozen.Data.RetroId));
+
+        var card = Assert.Single(response!.Cards);
+        Assert.Equal(0, card.Votes);
+        Assert.False(card.VotedByMe);
+        Assert.Equal(0, response.MyVotes);
+    }
+
+    [Fact]
+    public async Task Get_ShouldKeepOwnChoiceAndRemainingLimit_WhenPhaseIsVote()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+        await _retroController.Execute(x => x.SetVoteTimer(
+            frozen.Data.RetroId,
+            new SetRetroTimerRequest { Minutes = 5 }));
+        await _retroController.Execute(x => x.SetCardVote(
+            frozen.CardId,
+            new SetRetroCardVoteRequest { Voted = true }));
+
+        var response = await _retroController.Execute(x => x.Get(frozen.Data.RetroId));
+
+        var card = Assert.Single(response!.Cards);
+        Assert.True(card.VotedByMe);
+        Assert.Equal(0, card.Votes);
+        Assert.Equal(1, response.MyVotes);
+        Assert.Equal(3, response.VotesPerUser);
+    }
+
+    [Fact]
+    public async Task Get_ShouldRevealVoteTotals_WhenPhaseAdvancedToDiscuss()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+        await _retroController.Execute(x => x.SetVoteTimer(
+            frozen.Data.RetroId,
+            new SetRetroTimerRequest { Minutes = 5 }));
+        await _retroController.Execute(x => x.SetCardVote(
+            frozen.CardId,
+            new SetRetroCardVoteRequest { Voted = true }));
+
+        await _retroController.Execute(x => x.AdvancePhase(
+            frozen.Data.RetroId,
+            new SetRetroPhaseRequest { Phase = RetroPhase.Discuss }));
+        var response = await _retroController
+            .WithOrganizationAuthorization(frozen.Data.OrganizationId, frozen.Data.ParticipantId)
+            .Execute(x => x.Get(frozen.Data.RetroId));
+
+        Assert.Equal(1, Assert.Single(response!.Cards).Votes);
+    }
+
     private const string FrozenCardText = "Topic";
 
     /// <summary>A retro in Vote with one card of the owner created back in Collect.</summary>

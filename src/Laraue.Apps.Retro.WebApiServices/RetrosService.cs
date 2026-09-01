@@ -165,6 +165,9 @@ public class RetrosService(
             })
             .ToArrayAsync(cancellationToken);
 
+        // Totals stay hidden until the facilitator closes Vote - a client whose local timer ran
+        // out must not see intermediate results, and everyone gets them at the same moment.
+        var voteResultsVisible = retro.Phase is RetroPhase.Discuss or RetroPhase.Actions;
         var cards = await context.RetroCards
             .Where(x => x.Section!.RetroId == id)
             .OrderBy(x => x.CreatedAt)
@@ -182,7 +185,7 @@ public class RetrosService(
                 Hidden = retro.Phase == RetroPhase.Collect && c.AuthorId != authData.UserId && !c.Revealed,
                 Revealed = c.Revealed,
                 IsMine = c.AuthorId == authData.UserId,
-                Votes = retro.Phase == RetroPhase.Collect ? 0 : c.Votes.Count,
+                Votes = voteResultsVisible ? c.Votes.Count : 0,
                 VotedByMe = c.Votes.Any(v => v.UserId == authData.UserId),
                 Author = new RetroUser
                 {
