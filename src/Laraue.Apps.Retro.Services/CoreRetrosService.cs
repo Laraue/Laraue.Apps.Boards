@@ -15,6 +15,7 @@ public interface ICoreRetrosService
         Guid ownerId,
         string name,
         CancellationToken cancellationToken);
+    Task Join(long retroId, Guid userId, CancellationToken cancellationToken);
     Task Finish(long retroId, CancellationToken cancellationToken);
     Task UpdateSettings(
         long retroId,
@@ -80,10 +81,6 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
-        var participantIds = await context.OrganizationUsers
-            .Where(x => x.OrganizationId == organizationId)
-            .Select(x => x.UserId)
-            .ToArrayAsync(cancellationToken);
         var previousRetroId = await context.Retros
             .Where(x => x.OrganizationId == organizationId && x.FinishedAt != null)
             .OrderByDescending(x => x.CreatedAt)
@@ -131,9 +128,6 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             VotesPerUser = 3,
             CreatedAt = now,
             Sections = SectionTemplate.WithPreviousCards(carriedCards),
-            Participants = participantIds
-                .Select(userId => new RetroParticipant { UserId = userId })
-                .ToList(),
         };
 
         context.Retros.Add(retro);
@@ -141,6 +135,15 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
 
         return retro.Id;
     }
+
+    public Task Join(long retroId, Guid userId, CancellationToken cancellationToken) =>
+        context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO retro_participants (retro_id, user_id)
+            SELECT {retroId}, {userId}
+            FROM retros
+            WHERE id = {retroId} AND finished_at IS NULL
+            ON CONFLICT (retro_id, user_id) DO NOTHING
+            """, cancellationToken);
 
     public Task Finish(long retroId, CancellationToken cancellationToken)
     {

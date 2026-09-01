@@ -85,7 +85,8 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        await EnsureParticipant(id, authData, cancellationToken);
+        await EnsureAccessible(id, authData, cancellationToken);
+        await coreRetrosService.Join(id, authData.UserId, cancellationToken);
         return await GetCurrentUser(authData, cancellationToken);
     }
 
@@ -97,7 +98,6 @@ public class RetrosService(
 
         return await context.Retros
             .Where(x => x.OrganizationId == authData.OrganizationId)
-            .Where(x => x.Participants.Any(p => p.UserId == authData.UserId))
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new RetroListItem
             {
@@ -115,7 +115,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        await EnsureParticipant(id, authData, cancellationToken);
+        await EnsureAccessible(id, authData, cancellationToken);
         var currentUser = await GetCurrentUser(authData, cancellationToken);
 
         var retro = await context.Retros
@@ -423,12 +423,13 @@ public class RetrosService(
                 cancellationToken);
     }
 
-    private async Task EnsureParticipant(
+    private async Task EnsureAccessible(
         long retroId,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        if (!await ParticipatingRetros(authData).AnyAsync(x => x.Id == retroId, cancellationToken))
+        await EnsureMember(authData, cancellationToken);
+        if (!await OrganizationRetros(authData).AnyAsync(x => x.Id == retroId, cancellationToken))
             throw RetroNotFound(retroId);
     }
 
@@ -438,7 +439,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var retro = await ParticipatingRetros(authData)
+        var retro = await OrganizationRetros(authData)
             .Where(x => x.Id == retroId)
             .Select(x => new { x.FinishedAt })
             .FirstOrDefaultAsync(cancellationToken)
@@ -453,7 +454,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var retro = await ParticipatingRetros(authData)
+        var retro = await OrganizationRetros(authData)
             .Where(x => x.Id == retroId)
             .Select(x => new { x.OwnerId, x.FinishedAt })
             .FirstOrDefaultAsync(cancellationToken)
@@ -520,15 +521,13 @@ public class RetrosService(
             .Group(RetroHub.GroupName(retroId))
             .SendAsync("changed", cancellationToken);
 
-    private IQueryable<RetroEntity> ParticipatingRetros(OrganizationAuthData authData) =>
-        context.Retros.Where(x => x.OrganizationId == authData.OrganizationId
-            && x.Participants.Any(p => p.UserId == authData.UserId));
+    private IQueryable<RetroEntity> OrganizationRetros(OrganizationAuthData authData) =>
+        context.Retros.Where(x => x.OrganizationId == authData.OrganizationId);
 
-    /// <summary>Cards of retros the caller takes part in that are still open for changes.</summary>
+    /// <summary>Cards of the caller's organization that are still open for changes.</summary>
     private IQueryable<RetroCard> EditableCards(OrganizationAuthData authData) =>
         context.RetroCards.Where(x => x.Section!.Retro!.OrganizationId == authData.OrganizationId
-            && x.Section.Retro.FinishedAt == null
-            && x.Section.Retro.Participants.Any(p => p.UserId == authData.UserId));
+            && x.Section.Retro.FinishedAt == null);
 
     private static NotFoundException RetroNotFound(long id) => new(string.Format(
         ErrorMessages.EntityNotFound,
