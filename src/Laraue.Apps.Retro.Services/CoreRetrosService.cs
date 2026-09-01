@@ -26,7 +26,8 @@ public interface ICoreRetrosService
         CancellationToken cancellationToken);
     Task<bool> AdvancePhase(long retroId, RetroPhase phase, CancellationToken cancellationToken);
     Task<bool> RevertPhase(long retroId, RetroPhase phase, CancellationToken cancellationToken);
-    Task SetVoteTimer(long retroId, int? minutes, CancellationToken cancellationToken);
+    Task SetPhaseTimer(long retroId, int? minutes, CancellationToken cancellationToken);
+    Task<bool> SetDiscussedCard(long retroId, Guid? cardId, CancellationToken cancellationToken);
     Task SetCardsRevealed(long retroId, Guid authorId, bool revealed, CancellationToken cancellationToken);
     Task<Guid> CreateCard(
         long sectionId,
@@ -222,16 +223,19 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .ExecuteUpdateAsync(
                 x => x
                     .SetProperty(p => p.Phase, phase)
-                    .SetProperty(
-                        p => p.VoteEndsAt,
-                        p => current == RetroPhase.Vote ? null : p.VoteEndsAt),
+                    .SetProperty(p => p.PhaseEndsAt, (DateTime?)null)
+                    .SetProperty(p => p.DiscussedCardId, (Guid?)null),
                 cancellationToken);
 
         return updated != 0;
     }
 
-    /// <summary>Starts the voting timer for <paramref name="minutes"/>; null stops it.</summary>
-    public Task SetVoteTimer(long retroId, int? minutes, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs the timer of the current phase for <paramref name="minutes"/> from now; null stops it.
+    /// Extending is the same call with a bigger number - the deadline is always counted from now,
+    /// so the facilitator never has to work out what is left.
+    /// </summary>
+    public Task SetPhaseTimer(long retroId, int? minutes, CancellationToken cancellationToken)
     {
         var endsAt = minutes.HasValue
             ? dateTimeProvider.UtcNow.AddMinutes(minutes.Value)
@@ -239,7 +243,32 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
 
         return context.Retros
             .Where(x => x.Id == retroId)
-            .ExecuteUpdateAsync(x => x.SetProperty(p => p.VoteEndsAt, endsAt), cancellationToken);
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.PhaseEndsAt, endsAt), cancellationToken);
+    }
+
+    /// <summary>Moves the discussion to another topic, which stops the timer of the previous one.</summary>
+    public async Task<bool> SetDiscussedCard(
+        long retroId,
+        Guid? cardId,
+        CancellationToken cancellationToken)
+    {
+        if (cardId.HasValue)
+        {
+            var belongsToRetro = await context.RetroCards
+                .AnyAsync(x => x.Id == cardId.Value && x.Section!.RetroId == retroId, cancellationToken);
+            if (!belongsToRetro)
+                return false;
+        }
+
+        await context.Retros
+            .Where(x => x.Id == retroId)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(p => p.DiscussedCardId, cardId)
+                    .SetProperty(p => p.PhaseEndsAt, (DateTime?)null),
+                cancellationToken);
+
+        return true;
     }
 
     public Task SetCardsRevealed(
@@ -371,7 +400,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             {
                 RetroId = x.Section!.RetroId,
                 x.Section.Retro!.Phase,
-                x.Section.Retro.VoteEndsAt,
+                x.Section.Retro.PhaseEndsAt,
                 x.Section.Retro.VotesPerUser,
             })
             .FirstOrDefaultAsync(cancellationToken);
@@ -379,8 +408,8 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             return RetroVoteResult.CardNotFound;
 
         if (card.Phase != RetroPhase.Vote
-            || !card.VoteEndsAt.HasValue
-            || card.VoteEndsAt <= dateTimeProvider.UtcNow)
+            || !card.PhaseEndsAt.HasValue
+            || card.PhaseEndsAt <= dateTimeProvider.UtcNow)
         {
             return RetroVoteResult.TimerNotRunning;
         }

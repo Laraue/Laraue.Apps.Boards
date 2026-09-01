@@ -20,7 +20,12 @@ public class Retro
 
     public RetroPhase Phase { get; set; }
     public int VotesPerUser { get; set; }
-    public DateTime? VoteEndsAt { get; set; }
+    /// <summary>When the running timer of the current phase (or discussed topic) expires.</summary>
+    public DateTime? PhaseEndsAt { get; set; }
+
+    /// <summary>The topic the team is talking through right now; only meaningful in Discuss.</summary>
+    public Guid? DiscussedCardId { get; set; }
+    public RetroCard? DiscussedCard { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? FinishedAt { get; set; }
 

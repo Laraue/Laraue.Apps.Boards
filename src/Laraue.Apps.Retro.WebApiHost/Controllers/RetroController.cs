@@ -54,11 +54,18 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         retrosService.RevertPhase(id, request, AuthData(), cancellationToken);
 
     [HttpPost("{id:long}/timer")]
-    public Task SetVoteTimer(
+    public Task SetPhaseTimer(
         [FromRoute] long id,
         [FromBody] SetRetroTimerRequest request,
         CancellationToken cancellationToken = default) =>
-        retrosService.SetVoteTimer(id, request, AuthData(), cancellationToken);
+        retrosService.SetPhaseTimer(id, request, AuthData(), cancellationToken);
+
+    [HttpPost("{id:long}/discussed-card")]
+    public Task SetDiscussedCard(
+        [FromRoute] long id,
+        [FromBody] SetRetroDiscussedCardRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.SetDiscussedCard(id, request, AuthData(), cancellationToken);
 
     [HttpPost("{id:long}/reveal-mine")]
     public Task SetMyCardsRevealed(

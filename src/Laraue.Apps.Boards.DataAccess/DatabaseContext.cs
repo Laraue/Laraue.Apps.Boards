@@ -192,6 +192,13 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => new { x.OrganizationId, x.CreatedAt })
                 .IsDescending(false, true);
+
+            // Deleting the card the team happens to be discussing just clears the pointer.
+            entity
+                .HasOne(x => x.DiscussedCard)
+                .WithMany()
+                .HasForeignKey(x => x.DiscussedCardId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<RetroSection>(entity =>

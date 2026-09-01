@@ -43,9 +43,14 @@ public interface IRetrosService
         SetRetroPhaseRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
-    Task SetVoteTimer(
+    Task SetPhaseTimer(
         long id,
         SetRetroTimerRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+    Task SetDiscussedCard(
+        long id,
+        SetRetroDiscussedCardRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
     Task SetMyCardsRevealed(
@@ -145,7 +150,8 @@ public class RetrosService(
                 x.CreatedAt,
                 x.FinishedAt,
                 x.VotesPerUser,
-                x.VoteEndsAt,
+                x.PhaseEndsAt,
+                x.DiscussedCardId,
                 x.OwnerId,
                 Owner = new RetroUser
                 {
@@ -241,7 +247,8 @@ public class RetrosService(
             FinishedAt = retro.FinishedAt,
             VotesPerUser = retro.VotesPerUser,
             MyVotes = cards.Count(x => x.VotedByMe),
-            VoteEndsAt = retro.VoteEndsAt,
+            PhaseEndsAt = retro.PhaseEndsAt,
+            DiscussedCardId = retro.DiscussedCardId,
             CanManage = retro.OwnerId == authData.UserId,
             Owner = retro.Owner,
             CurrentUser = currentUser,
@@ -325,14 +332,27 @@ public class RetrosService(
         await Changed(id, cancellationToken);
     }
 
-    public async Task SetVoteTimer(
+    public async Task SetPhaseTimer(
         long id,
         SetRetroTimerRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
         await EnsureOwner(id, authData, cancellationToken);
-        await coreRetrosService.SetVoteTimer(id, request.Minutes, cancellationToken);
+        await coreRetrosService.SetPhaseTimer(id, request.Minutes, cancellationToken);
+        await Changed(id, cancellationToken);
+    }
+
+    public async Task SetDiscussedCard(
+        long id,
+        SetRetroDiscussedCardRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureOwner(id, authData, cancellationToken);
+        if (!await coreRetrosService.SetDiscussedCard(id, request.CardId, cancellationToken))
+            throw CardNotFound(request.CardId!.Value);
+
         await Changed(id, cancellationToken);
     }
 
@@ -701,7 +721,8 @@ public record GetRetroResponse
     public required DateTime? FinishedAt { get; init; }
     public required int VotesPerUser { get; init; }
     public required int MyVotes { get; init; }
-    public required DateTime? VoteEndsAt { get; init; }
+    public required DateTime? PhaseEndsAt { get; init; }
+    public required Guid? DiscussedCardId { get; init; }
     public required bool CanManage { get; init; }
     public required RetroUser Owner { get; init; }
     public required RetroUser CurrentUser { get; init; }
@@ -791,9 +812,15 @@ public record SetRetroPhaseRequest
 
 public record SetRetroTimerRequest
 {
-    /// <summary>Runs the voting timer for that many minutes; null stops it.</summary>
+    /// <summary>Runs the timer of the current phase for that many minutes; null stops it.</summary>
     [Range(1, int.MaxValue)]
     public required int? Minutes { get; init; }
+}
+
+public record SetRetroDiscussedCardRequest
+{
+    /// <summary>The topic being discussed right now; null clears it. Resets the timer either way.</summary>
+    public required Guid? CardId { get; init; }
 }
 
 public record SetRetroRevealRequest
