@@ -748,6 +748,43 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             theirs!.Cards.Select(x => x.Id));
     }
 
+    [Fact]
+    public async Task Get_ShouldRevealResults_WhenRetroIsFinished()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Deploys hurt", X = 0, Y = 0 }));
+        await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
+        await _retroController.Execute(x => x.SetPhaseTimer(
+            data.RetroId,
+            new SetRetroTimerRequest { Minutes = 5 }));
+        await _retroController.Execute(x => x.SetCardVote(
+            card!.Id,
+            new SetRetroCardVoteRequest { Voted = true }));
+
+        // A retro finished before the phase workflow existed is still parked in Collect, where
+        // results and covered notes would otherwise stay hidden forever.
+        await testScope.Database.Retros
+            .Where(x => x.Id == data.RetroId)
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(p => p.Phase, RetroPhase.Collect)
+                .SetProperty(p => p.FinishedAt, DateTime.UtcNow));
+
+        var response = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.Get(data.RetroId));
+
+        var seen = Assert.Single(response!.Cards);
+        Assert.Equal(1, seen.Votes);
+        Assert.False(seen.Hidden);
+        Assert.Equal("Deploys hurt", seen.Text);
+    }
+
     /// <summary>A retro in Actions with one action card and both users joined as participants.</summary>
     private async Task<ActionTestData> CreateAction(WebApiTestHostScope testScope)
     {

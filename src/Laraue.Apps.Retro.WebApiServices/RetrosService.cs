@@ -200,7 +200,11 @@ public class RetrosService(
 
         // Totals stay hidden until the facilitator closes Vote - a client whose local timer ran
         // out must not see intermediate results, and everyone gets them at the same moment.
-        var voteResultsVisible = retro.Phase is RetroPhase.Discuss or RetroPhase.Actions;
+        // A finished retro is a record of what happened, so it always shows its results - even
+        // one finished before the phase workflow existed, which is still parked in Collect.
+        var finished = retro.FinishedAt.HasValue;
+        var voteResultsVisible = finished || retro.Phase is RetroPhase.Discuss or RetroPhase.Actions;
+        var coversNotes = !finished && retro.Phase == RetroPhase.Collect;
         var cards = await context.RetroCards
             .Where(x => x.Section!.RetroId == id)
             // Bottom of the stack first - the client paints them in exactly this order. CreatedAt
@@ -213,14 +217,14 @@ public class RetrosService(
                 Id = c.Id,
                 SectionId = c.SectionId,
                 // A covered note must not reach the client at all - the UI only blurs it.
-                Text = retro.Phase == RetroPhase.Collect && c.AuthorId != authData.UserId && !c.Revealed
+                Text = coversNotes && c.AuthorId != authData.UserId && !c.Revealed
                     ? string.Empty
                     : c.Text,
                 X = c.X,
                 Y = c.Y,
                 StackOrder = c.StackOrder,
                 Done = c.Done,
-                Hidden = retro.Phase == RetroPhase.Collect && c.AuthorId != authData.UserId && !c.Revealed,
+                Hidden = coversNotes && c.AuthorId != authData.UserId && !c.Revealed,
                 Revealed = c.Revealed,
                 IsMine = c.AuthorId == authData.UserId,
                 GroupId = c.GroupId,
