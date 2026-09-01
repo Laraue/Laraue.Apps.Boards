@@ -1,6 +1,8 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
+using LinqToDB;
+using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 // "Retro" (the entity) collides with the "Laraue.Apps.Retro" namespace segment this project
 // lives under - alias it so the bare type name resolves correctly.
@@ -136,14 +138,19 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         return retro.Id;
     }
 
-    public Task Join(long retroId, Guid userId, CancellationToken cancellationToken) =>
-        context.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO retro_participants (retro_id, user_id)
-            SELECT {retroId}, {userId}
-            FROM retros
-            WHERE id = {retroId} AND finished_at IS NULL
-            ON CONFLICT (retro_id, user_id) DO NOTHING
-            """, cancellationToken);
+    public Task Join(long retroId, Guid userId, CancellationToken cancellationToken)
+    {
+        var participant = context.Retros
+            .Where(x => x.Id == retroId && x.FinishedAt == null)
+            .Select(x => new RetroParticipant { RetroId = x.Id, UserId = userId });
+
+        return context.RetroParticipants
+            .Merge()
+            .Using(participant)
+            .On((target, source) => target.RetroId == source.RetroId && target.UserId == source.UserId)
+            .InsertWhenNotMatched()
+            .MergeAsync(cancellationToken);
+    }
 
     public Task Finish(long retroId, CancellationToken cancellationToken)
     {
