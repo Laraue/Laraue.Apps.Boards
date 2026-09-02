@@ -353,14 +353,15 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         using var testScope = host.CreateTestScope();
         var data = await CreateAction(testScope);
 
-        var listed = await _retroController.Execute(x => x.Get(FirstPage()));
+        var firstPage = new GetRetrosRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } };
+        var listed = await _retroController.Execute(x => x.Get(firstPage));
         Assert.Equal(1, Assert.Single(listed!.Data).OpenActionCount);
 
         await _retroController.Execute(x => x.SetCardDone(
             data.CardId,
             new SetRetroCardDoneRequest { Done = true }));
 
-        var closed = await _retroController.Execute(x => x.Get(FirstPage()));
+        var closed = await _retroController.Execute(x => x.Get(firstPage));
         Assert.Equal(0, Assert.Single(closed!.Data).OpenActionCount);
     }
 
@@ -386,9 +387,6 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Single(secondPage!.Data);
         Assert.False(secondPage.HasNextPage);
     }
-
-    private static GetRetrosRequest FirstPage() =>
-        new() { Pagination = new PaginationData { Page = 0, PerPage = 10 } };
 
     [Fact]
     public async Task CreateCard_ShouldFail_WhenRetroIsFinished()
