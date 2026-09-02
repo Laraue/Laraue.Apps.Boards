@@ -84,6 +84,12 @@ public interface IRetrosService
         MoveRetroCardRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
+    Task MoveGroup(
+        long id,
+        long groupId,
+        MoveRetroGroupRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
     Task DeleteCard(Guid cardId, OrganizationAuthData authData, CancellationToken cancellationToken);
     Task SetCardVote(
         Guid cardId,
@@ -536,6 +542,33 @@ public class RetrosService(
             request.Y,
             cancellationToken);
         await Changed(card.RetroId, cancellationToken);
+    }
+
+    public async Task MoveGroup(
+        long id,
+        long groupId,
+        MoveRetroGroupRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var phase = await EnsureEditable(id, authData, cancellationToken);
+        // A topic is notes of one category, so it lands in a section as a whole - and the actions
+        // section stays as closed to it as it is to a single note.
+        if (await EnsureSectionInRetro(id, request.SectionId, cancellationToken))
+            EnsureCardEditable(isAction: true, phase, nameof(request.SectionId));
+
+        if (!await coreRetrosService.MoveGroup(
+                id,
+                groupId,
+                request.SectionId,
+                request.DeltaX,
+                request.DeltaY,
+                cancellationToken))
+        {
+            throw GroupNotFound(groupId);
+        }
+
+        await Changed(id, cancellationToken);
     }
 
     public async Task DeleteCard(
@@ -1010,6 +1043,13 @@ public record MoveRetroCardRequest
     public required long SectionId { get; init; }
     public required double X { get; init; }
     public required double Y { get; init; }
+}
+
+public record MoveRetroGroupRequest
+{
+    public required long SectionId { get; init; }
+    public required double DeltaX { get; init; }
+    public required double DeltaY { get; init; }
 }
 
 public record UpdateRetroSettingsRequest

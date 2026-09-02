@@ -1166,6 +1166,44 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
+    public async Task MoveGroup_ShouldKeepCardOffsets_AndCarryTheTopicIntoTheSection()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var sectionId = await FirstSectionId(testScope, data.Retro.RetroId);
+        await _retroController.Execute(x => x.MoveCard(
+            data.SecondId,
+            new MoveRetroCardRequest { SectionId = sectionId, X = 20, Y = 30 }));
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+
+        var otherSectionId = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == data.Retro.RetroId && x.Id != sectionId)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Id)
+            .FirstAsync();
+
+        await _retroController.Execute(x => x.MoveGroup(
+            data.Retro.RetroId,
+            group!.Id,
+            new MoveRetroGroupRequest { DeltaX = 10, DeltaY = 15, SectionId = otherSectionId }));
+
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        var first = response!.Cards.Single(x => x.Id == data.FirstId);
+        var second = response.Cards.Single(x => x.Id == data.SecondId);
+        var third = response.Cards.Single(x => x.Id == data.ThirdId);
+
+        Assert.Equal((10, 15), (first.X, first.Y));
+        Assert.Equal((30, 45), (second.X, second.Y));
+        Assert.Equal((0, 0), (third.X, third.Y));
+        Assert.True(first.StackOrder < second.StackOrder);
+        // The whole topic belongs to the section it was dropped on, colour and all.
+        Assert.Equal(otherSectionId, first.SectionId);
+        Assert.Equal(otherSectionId, second.SectionId);
+    }
+
+    [Fact]
     public async Task Ungroup_ShouldKeepTheNotes_AndFailAfterVotingStarted()
     {
         using var testScope = host.CreateTestScope();

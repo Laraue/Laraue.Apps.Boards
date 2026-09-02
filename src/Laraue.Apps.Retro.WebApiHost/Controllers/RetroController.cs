@@ -149,6 +149,14 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         CancellationToken cancellationToken = default) =>
         retrosService.Ungroup(id, groupId, AuthData(), cancellationToken);
 
+    [HttpPut("{id:long}/groups/{groupId:long}/position")]
+    public Task MoveGroup(
+        [FromRoute] long id,
+        [FromRoute] long groupId,
+        [FromBody] MoveRetroGroupRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.MoveGroup(id, groupId, request, AuthData(), cancellationToken);
+
     [HttpPut("{id:long}/groups/{groupId:long}")]
     public Task SetGroupTitle(
         [FromRoute] long id,

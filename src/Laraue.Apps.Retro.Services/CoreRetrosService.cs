@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB;
@@ -46,6 +46,13 @@ public interface ICoreRetrosService
         long sectionId,
         double x,
         double y,
+        CancellationToken cancellationToken);
+    Task<bool> MoveGroup(
+        long retroId,
+        long groupId,
+        long sectionId,
+        double deltaX,
+        double deltaY,
         CancellationToken cancellationToken);
     Task DeleteCard(Guid cardId, CancellationToken cancellationToken);
     Task<bool> SetDone(Guid cardId, bool done, CancellationToken cancellationToken);
@@ -373,6 +380,33 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
                 .SetProperty(p => p.Y, y)
                 .SetProperty(p => p.StackOrder, stackOrder),
                 cancellationToken);
+    }
+
+    /// <summary>Moves every card of the group together and keeps their stacking order.</summary>
+    public async Task<bool> MoveGroup(
+        long retroId,
+        long groupId,
+        long sectionId,
+        double deltaX,
+        double deltaY,
+        CancellationToken cancellationToken)
+    {
+        var cards = context.RetroCards
+            .Where(x => x.GroupId == groupId && x.Section!.RetroId == retroId);
+        var firstStackOrder = await cards.MinAsync(x => (int?)x.StackOrder, cancellationToken);
+
+        if (!firstStackOrder.HasValue)
+            return false;
+
+        var nextStackOrder = await NextStackOrder(retroId, cancellationToken);
+        var updated = await cards.ExecuteUpdateAsync(update => update
+            .SetProperty(p => p.SectionId, sectionId)
+            .SetProperty(p => p.X, p => p.X + deltaX)
+            .SetProperty(p => p.Y, p => p.Y + deltaY)
+            .SetProperty(p => p.StackOrder, p => nextStackOrder + p.StackOrder - firstStackOrder.Value),
+            cancellationToken);
+
+        return updated != 0;
     }
 
     private Task<long> RetroIdOfSection(long sectionId, CancellationToken cancellationToken) =>
