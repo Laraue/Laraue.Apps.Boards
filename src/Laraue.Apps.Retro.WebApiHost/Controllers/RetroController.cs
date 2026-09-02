@@ -80,13 +80,6 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         CancellationToken cancellationToken = default) =>
         retrosService.SetPhaseTimer(id, request, AuthData(), cancellationToken);
 
-    [HttpPost("{id:long}/discussed-card")]
-    public Task SetDiscussedCard(
-        [FromRoute] long id,
-        [FromBody] SetRetroDiscussedCardRequest request,
-        CancellationToken cancellationToken = default) =>
-        retrosService.SetDiscussedCard(id, request, AuthData(), cancellationToken);
-
     [HttpPost("{id:long}/reveal-mine")]
     public Task SetMyCardsRevealed(
         [FromRoute] long id,

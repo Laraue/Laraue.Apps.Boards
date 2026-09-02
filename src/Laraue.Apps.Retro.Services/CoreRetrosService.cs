@@ -31,7 +31,6 @@ public interface ICoreRetrosService
     Task<bool> AdvancePhase(long retroId, RetroPhase phase, CancellationToken cancellationToken);
     Task<bool> RevertPhase(long retroId, RetroPhase phase, CancellationToken cancellationToken);
     Task SetPhaseTimer(long retroId, int? minutes, CancellationToken cancellationToken);
-    Task<bool> SetDiscussedCard(long retroId, Guid? cardId, CancellationToken cancellationToken);
     Task SetCardsRevealed(long retroId, Guid authorId, bool revealed, CancellationToken cancellationToken);
     Task<Guid> CreateCard(
         long sectionId,
@@ -270,8 +269,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .ExecuteUpdateAsync(
                 x => x
                     .SetProperty(p => p.Phase, phase)
-                    .SetProperty(p => p.PhaseEndsAt, (DateTime?)null)
-                    .SetProperty(p => p.DiscussedCardId, (Guid?)null),
+                    .SetProperty(p => p.PhaseEndsAt, (DateTime?)null),
                 cancellationToken);
 
         return updated != 0;
@@ -291,31 +289,6 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         return context.Retros
             .Where(x => x.Id == retroId)
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.PhaseEndsAt, endsAt), cancellationToken);
-    }
-
-    /// <summary>Moves the discussion to another topic, which stops the timer of the previous one.</summary>
-    public async Task<bool> SetDiscussedCard(
-        long retroId,
-        Guid? cardId,
-        CancellationToken cancellationToken)
-    {
-        if (cardId.HasValue)
-        {
-            var belongsToRetro = await context.RetroCards
-                .AnyAsync(x => x.Id == cardId.Value && x.Section!.RetroId == retroId, cancellationToken);
-            if (!belongsToRetro)
-                return false;
-        }
-
-        await context.Retros
-            .Where(x => x.Id == retroId)
-            .ExecuteUpdateAsync(
-                x => x
-                    .SetProperty(p => p.DiscussedCardId, cardId)
-                    .SetProperty(p => p.PhaseEndsAt, (DateTime?)null),
-                cancellationToken);
-
-        return true;
     }
 
     public Task SetCardsRevealed(

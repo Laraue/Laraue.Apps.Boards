@@ -59,11 +59,6 @@ public interface IRetrosService
         SetRetroTimerRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
-    Task SetDiscussedCard(
-        long id,
-        SetRetroDiscussedCardRequest request,
-        OrganizationAuthData authData,
-        CancellationToken cancellationToken);
     Task SetMyCardsRevealed(
         long id,
         SetRetroRevealRequest request,
@@ -219,7 +214,6 @@ public class RetrosService(
                 x.FinishedAt,
                 x.VotesPerUser,
                 x.PhaseEndsAt,
-                x.DiscussedCardId,
                 x.OwnerId,
                 Owner = new RetroUser
                 {
@@ -333,7 +327,6 @@ public class RetrosService(
             VotesPerUser = retro.VotesPerUser,
             MyVotes = cards.Count(x => x.VotedByMe),
             PhaseEndsAt = retro.PhaseEndsAt,
-            DiscussedCardId = retro.DiscussedCardId,
             CanManage = retro.OwnerId == authData.UserId,
             Owner = retro.Owner,
             CurrentUser = currentUser,
@@ -454,19 +447,6 @@ public class RetrosService(
     {
         await EnsureOwner(id, authData, cancellationToken);
         await coreRetrosService.SetPhaseTimer(id, request.Minutes, cancellationToken);
-        await Changed(id, cancellationToken);
-    }
-
-    public async Task SetDiscussedCard(
-        long id,
-        SetRetroDiscussedCardRequest request,
-        OrganizationAuthData authData,
-        CancellationToken cancellationToken)
-    {
-        await EnsureOwner(id, authData, cancellationToken);
-        if (!await coreRetrosService.SetDiscussedCard(id, request.CardId, cancellationToken))
-            throw CardNotFound(request.CardId!.Value);
-
         await Changed(id, cancellationToken);
     }
 
@@ -962,7 +942,6 @@ public record GetRetroResponse
     public required int VotesPerUser { get; init; }
     public required int MyVotes { get; init; }
     public required DateTime? PhaseEndsAt { get; init; }
-    public required Guid? DiscussedCardId { get; init; }
     public required bool CanManage { get; init; }
     public required RetroUser Owner { get; init; }
     public required RetroUser CurrentUser { get; init; }
@@ -1088,12 +1067,6 @@ public record SetRetroTimerRequest
     /// <summary>Runs the timer of the current phase for that many minutes; null stops it.</summary>
     [Range(1, int.MaxValue)]
     public required int? Minutes { get; init; }
-}
-
-public record SetRetroDiscussedCardRequest
-{
-    /// <summary>The topic being discussed right now; null clears it. Resets the timer either way.</summary>
-    public required Guid? CardId { get; init; }
 }
 
 public record SetRetroRevealRequest
