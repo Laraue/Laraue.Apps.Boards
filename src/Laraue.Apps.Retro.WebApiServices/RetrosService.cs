@@ -3,6 +3,7 @@ using System.Linq.Expressions;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 using Laraue.Apps.Retro.Services;
@@ -17,7 +18,10 @@ namespace Laraue.Apps.Retro.WebApiServices;
 
 public interface IRetrosService
 {
-    Task<RetroListItem[]> Get(OrganizationAuthData authData, CancellationToken cancellationToken);
+    Task<ShortPaginatedResult<RetroListItem>> Get(
+        GetRetrosRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
     Task Delete(long id, OrganizationAuthData authData, CancellationToken cancellationToken);
     Task Rename(
         long id,
@@ -169,7 +173,8 @@ public class RetrosService(
         await coreRetrosService.Delete(id, cancellationToken);
     }
 
-    public async Task<RetroListItem[]> Get(
+    public async Task<ShortPaginatedResult<RetroListItem>> Get(
+        GetRetrosRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
@@ -191,7 +196,7 @@ public class RetrosService(
                     .SelectMany(s => s.Cards)
                     .Count(c => !c.Done),
             })
-            .ToArrayAsync(cancellationToken);
+            .ShortPaginateEFAsync(request.Pagination, cancellationToken);
     }
 
     public async Task<GetRetroResponse> Get(
@@ -917,6 +922,11 @@ public record RetroUser
     public required string Initials { get; set; }
     public required string Color { get; set; }
     public required bool IsCurrentUser { get; set; }
+}
+
+public record GetRetrosRequest : IPaginatedRequest
+{
+    public required PaginationData Pagination { get; set; }
 }
 
 public record RetroListItem

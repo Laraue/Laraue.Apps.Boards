@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Retro.WebApiHost.Controllers;
 using Laraue.Apps.Retro.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -352,16 +353,42 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         using var testScope = host.CreateTestScope();
         var data = await CreateAction(testScope);
 
-        var listed = await _retroController.Execute(x => x.Get());
-        Assert.Equal(1, Assert.Single(listed!).OpenActionCount);
+        var listed = await _retroController.Execute(x => x.Get(FirstPage()));
+        Assert.Equal(1, Assert.Single(listed!.Data).OpenActionCount);
 
         await _retroController.Execute(x => x.SetCardDone(
             data.CardId,
             new SetRetroCardDoneRequest { Done = true }));
 
-        var closed = await _retroController.Execute(x => x.Get());
-        Assert.Equal(0, Assert.Single(closed!).OpenActionCount);
+        var closed = await _retroController.Execute(x => x.Get(FirstPage()));
+        Assert.Equal(0, Assert.Single(closed!.Data).OpenActionCount);
     }
+
+    [Fact]
+    public async Task Get_ShouldReturnOnePageAtATime_WhenTheOrganizationHasManyRetros()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        _retroController.WithOrganizationAuthorization(data.OrganizationId, data.OwnerId);
+        await _retroController.Execute(x => x.Create(new CreateRetroRequest
+        {
+            Name = "Second retro",
+            BasedOnRetroId = null,
+        }));
+
+        var request = new GetRetrosRequest { Pagination = new PaginationData { Page = 0, PerPage = 1 } };
+        var firstPage = await _retroController.Execute(x => x.Get(request));
+        Assert.Equal("Second retro", Assert.Single(firstPage!.Data).Name);
+        Assert.True(firstPage.HasNextPage);
+
+        var secondPage = await _retroController.Execute(x => x.Get(
+            new GetRetrosRequest { Pagination = new PaginationData { Page = 1, PerPage = 1 } }));
+        Assert.Single(secondPage!.Data);
+        Assert.False(secondPage.HasNextPage);
+    }
+
+    private static GetRetrosRequest FirstPage() =>
+        new() { Pagination = new PaginationData { Page = 0, PerPage = 10 } };
 
     [Fact]
     public async Task CreateCard_ShouldFail_WhenRetroIsFinished()

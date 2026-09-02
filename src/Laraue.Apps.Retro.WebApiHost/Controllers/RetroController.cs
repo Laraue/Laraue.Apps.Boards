@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Retro.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,9 +11,11 @@ namespace Laraue.Apps.Retro.WebApiHost.Controllers;
 [Route("/api/retro")]
 public class RetroController(IRetrosService retrosService) : ControllerBase
 {
-    [HttpGet]
-    public Task<RetroListItem[]> Get(CancellationToken cancellationToken = default) =>
-        retrosService.Get(AuthData(), cancellationToken);
+    [HttpPost("list")]
+    public Task<ShortPaginatedResult<RetroListItem>> Get(
+        [FromBody] GetRetrosRequest request,
+        CancellationToken cancellationToken = default) =>
+        retrosService.Get(request, AuthData(), cancellationToken);
 
     [HttpGet("{id:long}")]
     public Task<GetRetroResponse> Get(
