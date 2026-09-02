@@ -1277,6 +1277,40 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal(1, response.MyVotes);
     }
 
+    [Fact]
+    public async Task SetVote_ShouldTakeTheVoteBack_WhenItWasCastBeforeGrouping()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
+        await _retroController.Execute(x => x.SetPhaseTimer(
+            data.Retro.RetroId,
+            new SetRetroTimerRequest { Minutes = 5 }));
+        await _retroController.Execute(x => x.SetCardVote(
+            data.SecondId,
+            new SetRetroCardVoteRequest { Voted = true }));
+
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Group);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
+
+        // The vote sits on the second note, new votes would land on the first - the topic still
+        // has to give the vote back.
+        await _retroController.Execute(x => x.SetCardVote(
+            data.FirstId,
+            new SetRetroCardVoteRequest { Voted = false }));
+
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Discuss);
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        var topic = Assert.Single(response!.Groups, x => x.Id == group!.Id);
+
+        Assert.Equal(0, topic.Votes);
+        Assert.False(topic.VotedByMe);
+        Assert.Equal(0, response.MyVotes);
+    }
+
     /// <summary>A retro in Group with three topic notes of the facilitator.</summary>
     private async Task<TopicsTestData> CreateTopics(WebApiTestHostScope testScope)
     {

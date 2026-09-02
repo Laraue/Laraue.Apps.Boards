@@ -548,15 +548,19 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             return RetroVoteResult.CardNotFound;
 
         // A grouped note is not a topic of its own: the whole group shares one vote per person, so
-        // every vote for any of its notes lands on the same one.
-        cardId = card.GroupId is null
-            ? cardId
+        // every vote for any of its notes lands on its first note. An older vote can still sit on
+        // any other note of the group - grouping does not move votes - so taking the vote back
+        // looks at the whole group, not only at the note the new ones land on.
+        var ballot = card.GroupId is null
+            ? [cardId]
             : await context.RetroCards
                 .Where(x => x.GroupId == card.GroupId)
                 .OrderBy(x => x.StackOrder)
                 .ThenBy(x => x.Id)
                 .Select(x => x.Id)
-                .FirstAsync(cancellationToken);
+                .ToListAsync(cancellationToken);
+
+        cardId = ballot[0];
 
         if (card.Phase != RetroPhase.Vote
             || !card.PhaseEndsAt.HasValue
@@ -565,21 +569,22 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             return RetroVoteResult.TimerNotRunning;
         }
 
-        var existingVote = await context.RetroCardVotes
-            .FirstOrDefaultAsync(x => x.CardId == cardId && x.UserId == userId, cancellationToken);
+        var existingVotes = await context.RetroCardVotes
+            .Where(x => ballot.Contains(x.CardId) && x.UserId == userId)
+            .ToListAsync(cancellationToken);
 
         if (!voted)
         {
-            if (existingVote is not null)
+            if (existingVotes.Count != 0)
             {
-                context.RetroCardVotes.Remove(existingVote);
+                context.RetroCardVotes.RemoveRange(existingVotes);
                 await context.SaveChangesAsync(cancellationToken);
             }
 
             return RetroVoteResult.Removed;
         }
 
-        if (existingVote is not null)
+        if (existingVotes.Count != 0)
             return RetroVoteResult.Added;
 
         var usedVotes = await context.RetroCardVotes
