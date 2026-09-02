@@ -68,6 +68,7 @@ public interface ICoreRetrosService
         string title,
         CancellationToken cancellationToken);
     Task SetRevealed(Guid cardId, bool revealed, CancellationToken cancellationToken);
+    Task<int> ResetVotes(long retroId, CancellationToken cancellationToken);
     Task<RetroVoteResult> SetVote(Guid cardId, Guid userId, bool voted, CancellationToken cancellationToken);
 }
 
@@ -526,6 +527,12 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             .Where(x => x.Id == cardId)
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.Revealed, revealed), cancellationToken);
     }
+
+    /// <summary>Clears the whole board's votes so the room can vote again.</summary>
+    public Task<int> ResetVotes(long retroId, CancellationToken cancellationToken) =>
+        context.RetroCardVotes
+            .Where(x => x.Card!.Section!.RetroId == retroId)
+            .ExecuteDeleteAsync(cancellationToken);
 
     public async Task<RetroVoteResult> SetVote(
         Guid cardId,

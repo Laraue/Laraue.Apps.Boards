@@ -1151,18 +1151,23 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task GroupCards_ShouldFail_WhenVotingHasStarted()
+    public async Task GroupCards_ShouldStayOpenForTheOwner_WhenVotingHasStarted()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateTopics(testScope);
         await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
 
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
-            .Execute(x => x.GroupCards(
-                data.Retro.RetroId,
-                new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } })));
+        // Notes that turn out to say the same thing get merged whenever the room notices.
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
 
-        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+        var participant = _retroController
+            .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.ParticipantId);
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => participant
+            .Execute(x => x.Ungroup(data.Retro.RetroId, group!.Id)));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
     }
 
     [Fact]
@@ -1204,7 +1209,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task Ungroup_ShouldKeepTheNotes_AndFailAfterVotingStarted()
+    public async Task Ungroup_ShouldKeepTheNotes_AndStayOpenAfterVotingStarted()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateTopics(testScope);
@@ -1222,11 +1227,40 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var regrouped = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
             new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
-        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Discuss);
 
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(() =>
-            _retroController.Execute(x => x.Ungroup(data.Retro.RetroId, regrouped!.Id)));
-        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+        // A topic cut the wrong way has to be fixable while the team is already talking about it.
+        await _retroController.Execute(x => x.Ungroup(data.Retro.RetroId, regrouped!.Id));
+
+        Assert.Empty((await _retroController.Execute(x => x.Get(data.Retro.RetroId)))!.Groups);
+    }
+
+    [Fact]
+    public async Task ResetVotes_ShouldClearTheBoard_AndOnlyForTheOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
+        await _retroController.Execute(x => x.SetPhaseTimer(
+            data.Retro.RetroId,
+            new SetRetroTimerRequest { Minutes = 5 }));
+        await _retroController.Execute(x => x.SetCardVote(
+            data.FirstId,
+            new SetRetroCardVoteRequest { Voted = true }));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.ParticipantId)
+            .Execute(x => x.ResetVotes(data.Retro.RetroId)));
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+
+        _retroController.WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.OwnerId);
+        await _retroController.Execute(x => x.ResetVotes(data.Retro.RetroId));
+
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Discuss);
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+
+        Assert.Equal(0, response!.MyVotes);
+        Assert.All(response.Cards, card => Assert.Equal(0, card.Votes));
     }
 
     [Fact]

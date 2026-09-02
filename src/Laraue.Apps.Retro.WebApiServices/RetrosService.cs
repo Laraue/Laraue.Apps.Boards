@@ -90,6 +90,7 @@ public interface IRetrosService
         MoveRetroGroupRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
+    Task ResetVotes(long id, OrganizationAuthData authData, CancellationToken cancellationToken);
     Task DeleteCard(Guid cardId, OrganizationAuthData authData, CancellationToken cancellationToken);
     Task SetCardVote(
         Guid cardId,
@@ -606,6 +607,17 @@ public class RetrosService(
         }
     }
 
+    /// <summary>Wipes every vote of the retro so the room can vote again.</summary>
+    public async Task ResetVotes(
+        long id,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureOwner(id, authData, cancellationToken);
+        await coreRetrosService.ResetVotes(id, cancellationToken);
+        await Changed(id, cancellationToken);
+    }
+
     public async Task SetCardDone(
         Guid cardId,
         SetRetroCardDoneRequest request,
@@ -666,8 +678,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var phase = await EnsureGroupingPhase(id, authData, cancellationToken);
-        EnsureCardEditable(isAction: false, phase, nameof(id));
+        await EnsureGroupingAllowed(id, authData, cancellationToken);
 
         var groupId = await coreRetrosService.GroupCards(id, request.CardIds, cancellationToken)
             ?? throw new BadRequestException(nameof(request.CardIds), ErrorMessages.RetroGroupInvalid);
@@ -683,8 +694,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var phase = await EnsureGroupingPhase(id, authData, cancellationToken);
-        EnsureCardEditable(isAction: false, phase, nameof(id));
+        await EnsureGroupingAllowed(id, authData, cancellationToken);
 
         if (!await coreRetrosService.Ungroup(id, groupId, cancellationToken))
             throw GroupNotFound(groupId);
@@ -699,8 +709,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var phase = await EnsureGroupingPhase(id, authData, cancellationToken);
-        EnsureCardEditable(isAction: false, phase, nameof(id));
+        await EnsureGroupingAllowed(id, authData, cancellationToken);
 
         if (!await coreRetrosService.SetGroupTitle(id, groupId, request.Title.Trim(), cancellationToken))
             throw GroupNotFound(groupId);
@@ -708,15 +717,17 @@ public class RetrosService(
         await Changed(id, cancellationToken);
     }
 
-    /// <summary>Merging topics is the facilitator's call and freezes with everything else at Vote.</summary>
-    private async Task<RetroPhase> EnsureGroupingPhase(
+    /// <summary>
+    /// Topics are the facilitator's tool for running the room, not a step of it: a wrongly cut
+    /// topic has to be fixable while the team is already discussing it.
+    /// </summary>
+    private async Task EnsureGroupingAllowed(
         long retroId,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
         await EnsureOwner(retroId, authData, cancellationToken);
-
-        return await EnsureEditable(retroId, authData, cancellationToken);
+        await EnsureEditable(retroId, authData, cancellationToken);
     }
 
     private async Task EnsureMember(OrganizationAuthData authData, CancellationToken cancellationToken)

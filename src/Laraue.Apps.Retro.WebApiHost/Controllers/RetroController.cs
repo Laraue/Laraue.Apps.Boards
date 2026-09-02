@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Retro.WebApiServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -148,6 +148,10 @@ public class RetroController(IRetrosService retrosService) : ControllerBase
         [FromRoute] long groupId,
         CancellationToken cancellationToken = default) =>
         retrosService.Ungroup(id, groupId, AuthData(), cancellationToken);
+
+    [HttpDelete("{id:long}/votes")]
+    public Task ResetVotes([FromRoute] long id, CancellationToken cancellationToken = default) =>
+        retrosService.ResetVotes(id, AuthData(), cancellationToken);
 
     [HttpPut("{id:long}/groups/{groupId:long}/position")]
     public Task MoveGroup(
