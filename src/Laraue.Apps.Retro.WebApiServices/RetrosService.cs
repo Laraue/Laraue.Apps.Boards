@@ -1050,7 +1050,7 @@ public record CreateRetroCardRequest
 {
     public required long SectionId { get; init; }
 
-    [MaxLength(4096)]
+    [MaxLength(256)]
     public required string Text { get; init; }
 
     public required double X { get; init; }
@@ -1064,7 +1064,7 @@ public record CreateRetroCardResponse
 
 public record UpdateRetroCardRequest
 {
-    [MaxLength(4096)]
+    [MaxLength(256)]
     public required string Text { get; init; }
 }
 
@@ -1141,7 +1141,7 @@ public record GroupRetroCardsResponse
 
 public record SetRetroGroupTitleRequest
 {
-    [MaxLength(4096)]
+    [MaxLength(128)]
     public required string Title { get; init; }
 }
 

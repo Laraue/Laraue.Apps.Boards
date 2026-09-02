@@ -14,7 +14,7 @@ public class RetroCardGroup
     public Retro? Retro { get; set; }
 
     /// <summary>Headline the team gives the topic; empty until somebody names it.</summary>
-    [MaxLength(4096)]
+    [MaxLength(128)]
     public required string Title { get; set; }
 
     public List<RetroCard> Cards { get; set; } = [];

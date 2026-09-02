@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260902095134_DropRetroDiscussedCard")]
-    partial class DropRetroDiscussedCard
+    [Migration("20260902211218_AddRetroPhaseWorkflow")]
+    partial class AddRetroPhaseWorkflow
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1052,8 +1052,8 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
 
                     b.Property<string>("Text")
                         .IsRequired()
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
                         .HasColumnName("text");
 
                     b.Property<double>("X")
@@ -1097,8 +1097,8 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
 
                     b.Property<string>("Title")
                         .IsRequired()
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("title");
 
                     b.HasKey("Id")

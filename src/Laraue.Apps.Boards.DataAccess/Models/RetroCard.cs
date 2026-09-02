@@ -16,7 +16,7 @@ public class RetroCard
     public Guid? AssigneeId { get; set; }
     public User? Assignee { get; set; }
 
-    [MaxLength(4096)]
+    [MaxLength(256)]
     public required string Text { get; set; }
 
     public double X { get; set; }
