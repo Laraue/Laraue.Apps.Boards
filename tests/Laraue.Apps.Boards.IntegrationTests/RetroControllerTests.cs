@@ -415,6 +415,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var frozen = await CreateFrozenRetro(testScope);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(frozen.Data.OrganizationId, frozen.Data.ParticipantId)
             .Execute(x => x.CreateCard(
                 frozen.Data.RetroId,
                 new CreateRetroCardRequest { SectionId = frozen.SectionId, Text = "Late", X = 0, Y = 0 })));
@@ -431,6 +432,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var frozen = await CreateFrozenRetro(testScope);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(frozen.Data.OrganizationId, frozen.Data.ParticipantId)
             .Execute(x => x.UpdateCard(frozen.CardId, new UpdateRetroCardRequest { Text = "Rewritten" })));
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
@@ -452,6 +454,10 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .ToListAsync();
         var otherSectionId = sections[^2];
         var actionsSectionId = sections[^1];
+
+        _retroController.WithOrganizationAuthorization(
+            frozen.Data.OrganizationId,
+            frozen.Data.ParticipantId);
 
         // Sliding a note around is layout, not content, so a frozen board can still be tidied up.
         await _retroController.Execute(x => x.MoveCard(
@@ -476,12 +482,45 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
+    public async Task MoveCard_ShouldOpenTheActionsSection_ForTheOwnerInAnyPhase()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+        var actionsSectionId = await ActionsSectionId(testScope, frozen.Data.RetroId);
+
+        // Running the room means fixing whatever it got wrong, whenever it comes up.
+        await _retroController.Execute(x => x.MoveCard(
+            frozen.CardId,
+            new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
+
+        Assert.Equal(actionsSectionId, await testScope.Database.RetroCards
+            .Where(x => x.Id == frozen.CardId)
+            .Select(x => x.SectionId)
+            .SingleAsync());
+    }
+
+    [Fact]
+    public async Task CreateCard_ShouldSucceed_ForTheOwnerInAnyPhase()
+    {
+        using var testScope = host.CreateTestScope();
+        var frozen = await CreateFrozenRetro(testScope);
+
+        await _retroController.Execute(x => x.CreateCard(
+            frozen.Data.RetroId,
+            new CreateRetroCardRequest { SectionId = frozen.SectionId, Text = "Missed one", X = 0, Y = 0 }));
+
+        Assert.Equal(2, await testScope.Database.RetroCards
+            .CountAsync(x => x.Section!.RetroId == frozen.Data.RetroId));
+    }
+
+    [Fact]
     public async Task DeleteCard_ShouldKeepCard_WhenPhaseIsVote()
     {
         using var testScope = host.CreateTestScope();
         var frozen = await CreateFrozenRetro(testScope);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(frozen.Data.OrganizationId, frozen.Data.ParticipantId)
             .Execute(x => x.DeleteCard(frozen.CardId)));
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
@@ -495,6 +534,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var frozen = await CreateFrozenRetro(testScope);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(frozen.Data.OrganizationId, frozen.Data.ParticipantId)
             .Execute(x => x.SetCardRevealed(
                 frozen.CardId,
                 new SetRetroCardRevealedRequest { Revealed = true })));
@@ -509,6 +549,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var frozen = await CreateFrozenRetro(testScope);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(frozen.Data.OrganizationId, frozen.Data.ParticipantId)
             .Execute(x => x.SetMyCardsRevealed(
                 frozen.Data.RetroId,
                 new SetRetroRevealRequest { Revealed = true })));
@@ -606,7 +647,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var actionsSectionId = await ActionsSectionId(testScope, data.RetroId);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
-            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
             .Execute(x => x.CreateCard(
                 data.RetroId,
                 new CreateRetroCardRequest
@@ -629,7 +670,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
 
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
-            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
             .Execute(x => x.CreateCard(
                 data.RetroId,
                 new CreateRetroCardRequest { SectionId = sectionId, Text = "Too late", X = 0, Y = 0 })));
@@ -995,12 +1036,15 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     {
         var data = await CreateRetro(testScope);
         var sectionId = await FirstSectionId(testScope, data.RetroId);
+        // The note belongs to a participant: the phases bind the team, and the tests below check
+        // what the team may do. The controller is handed back to the owner, who runs the retro.
         var card = await _retroController
-            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
             .Execute(x => x.CreateCard(
                 data.RetroId,
                 new CreateRetroCardRequest { SectionId = sectionId, Text = FrozenCardText, X = 0, Y = 0 }));
         await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
+        _retroController.WithOrganizationAuthorization(data.OrganizationId, data.OwnerId);
 
         return new FrozenRetro(data, sectionId, card!.Id);
     }

@@ -461,8 +461,8 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var phase = await EnsureEditable(id, authData, cancellationToken);
-        EnsureCardEditable(isAction: false, phase, nameof(id));
+        var retro = await EnsureEditable(id, authData, cancellationToken);
+        EnsureCardEditable(isAction: false, retro.Phase, retro.IsOwner, nameof(id));
         await coreRetrosService.SetCardsRevealed(
             id,
             authData.UserId,
@@ -477,9 +477,9 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var phase = await EnsureEditable(id, authData, cancellationToken);
+        var retro = await EnsureEditable(id, authData, cancellationToken);
         var isAction = await EnsureSectionInRetro(id, request.SectionId, cancellationToken);
-        EnsureCardEditable(isAction, phase, nameof(request.SectionId));
+        EnsureCardEditable(isAction, retro.Phase, retro.IsOwner, nameof(request.SectionId));
         var cardId = await coreRetrosService.CreateCard(
             request.SectionId,
             authData.UserId,
@@ -498,7 +498,7 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var card = await EnsureOwnCard(cardId, authData, cancellationToken);
-        EnsureCardEditable(card.IsAction, card.Phase, nameof(cardId));
+        EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
         await coreRetrosService.UpdateCard(cardId, request.Text.Trim(), cancellationToken);
         await Changed(card.RetroId, cancellationToken);
     }
@@ -521,7 +521,7 @@ public class RetrosService(
         // crossing the actions border turns the note into something else - and a note that crossed
         // it by mistake has to be able to cross back, so both ways belong to the Actions phase.
         if (targetIsAction != card.IsAction)
-            EnsureCardEditable(isAction: true, card.Phase, nameof(request.SectionId));
+            EnsureCardEditable(isAction: true, card.Phase, card.IsOwner, nameof(request.SectionId));
         await coreRetrosService.MoveCard(
             cardId,
             request.SectionId,
@@ -538,11 +538,11 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var phase = await EnsureEditable(id, authData, cancellationToken);
+        var retro = await EnsureEditable(id, authData, cancellationToken);
         // A topic is notes of one category, so it lands in a section as a whole - and the actions
         // section stays as closed to it as it is to a single note.
         if (await EnsureSectionInRetro(id, request.SectionId, cancellationToken))
-            EnsureCardEditable(isAction: true, phase, nameof(request.SectionId));
+            EnsureCardEditable(isAction: true, retro.Phase, retro.IsOwner, nameof(request.SectionId));
 
         if (!await coreRetrosService.MoveGroup(
                 id,
@@ -564,7 +564,7 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var card = await EnsureOwnCard(cardId, authData, cancellationToken);
-        EnsureCardEditable(card.IsAction, card.Phase, nameof(cardId));
+        EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
         await coreRetrosService.DeleteCard(cardId, cancellationToken);
         await Changed(card.RetroId, cancellationToken);
     }
@@ -624,7 +624,7 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var card = await EnsureOwnCard(cardId, authData, cancellationToken);
-        EnsureCardEditable(card.IsAction, card.Phase, nameof(cardId));
+        EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
         await coreRetrosService.SetRevealed(cardId, request.Revealed, cancellationToken);
         await Changed(card.RetroId, cancellationToken);
     }
@@ -639,7 +639,7 @@ public class RetrosService(
         if (!card.IsAction)
             throw new BadRequestException(nameof(cardId), ErrorMessages.RetroActionsSectionOnly);
 
-        EnsureCardEditable(card.IsAction, card.Phase, nameof(cardId));
+        EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
 
         if (request.AssigneeId.HasValue)
         {
@@ -761,30 +761,41 @@ public class RetrosService(
     }
 
     /// <summary>A finished retro is a record of the past: everyone keeps read access only.</summary>
-    private async Task<RetroPhase> EnsureEditable(
+    private async Task<RetroContext> EnsureEditable(
         long retroId,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
         var retro = await OrganizationRetros(authData)
             .Where(x => x.Id == retroId)
-            .Select(x => new { x.FinishedAt, x.Phase })
+            .Select(x => new { x.FinishedAt, x.Phase, x.OwnerId })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw RetroNotFound(retroId);
 
         if (retro.FinishedAt.HasValue)
             throw new BadRequestException(nameof(retroId), ErrorMessages.RetroFinished);
 
-        return retro.Phase;
+        return new RetroContext(retro.Phase, retro.OwnerId == authData.UserId);
     }
+
+    private record RetroContext(RetroPhase Phase, bool IsOwner);
 
     /// <summary>
     /// Topics are written in Collect/Group and freeze from Vote on, so everyone votes on and
     /// discusses the same set; the facilitator has to revert the retro to change them again.
     /// Action items are the mirror image - they only exist once the team is in Actions.
+    /// The phases pace the team, not the facilitator: running the room means fixing whatever the
+    /// room got wrong, whenever it comes up, so the owner is not bound by them.
     /// </summary>
-    private static void EnsureCardEditable(bool isAction, RetroPhase phase, string paramName)
+    private static void EnsureCardEditable(
+        bool isAction,
+        RetroPhase phase,
+        bool isOwner,
+        string paramName)
     {
+        if (isOwner)
+            return;
+
         if (isAction)
         {
             if (phase != RetroPhase.Actions)
@@ -850,7 +861,7 @@ public class RetrosService(
     {
         return await CardContexts(authData)
             .Where(x => x.Id == cardId)
-            .Select(CardContextSelector())
+            .Select(CardContextSelector(authData.UserId))
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw CardNotFound(cardId);
     }
@@ -871,20 +882,22 @@ public class RetrosService(
         return card;
     }
 
-    private static Expression<Func<RetroCard, CardContext>> CardContextSelector() =>
+    private static Expression<Func<RetroCard, CardContext>> CardContextSelector(Guid userId) =>
         x => new CardContext(
             x.AuthorId,
             x.Section!.RetroId,
             x.Section.Retro!.Phase,
             x.Section.SortOrder == x.Section.Retro.Sections.Max(s => s.SortOrder),
-            x.Section.Retro.FinishedAt != null);
+            x.Section.Retro.FinishedAt != null,
+            x.Section.Retro.OwnerId == userId);
 
     private record CardContext(
         Guid AuthorId,
         long RetroId,
         RetroPhase Phase,
         bool IsAction,
-        bool Finished);
+        bool Finished,
+        bool IsOwner);
 
     private Task Changed(long retroId, CancellationToken cancellationToken) =>
         retroHub.Clients
