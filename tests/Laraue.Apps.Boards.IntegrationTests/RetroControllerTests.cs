@@ -1345,6 +1345,40 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal(0, response.MyVotes);
     }
 
+    [Fact]
+    public async Task MoveCard_ShouldLeaveTheTopic_AndComeBackFromActions()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+        var sections = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == data.Retro.RetroId)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Id)
+            .ToListAsync();
+        var actionsSectionId = sections[^1];
+        var firstSectionId = sections[0];
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Actions);
+
+        await _retroController.Execute(x => x.MoveCard(
+            data.FirstId,
+            new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
+
+        var moved = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Null(moved!.Cards.Single(x => x.Id == data.FirstId).GroupId);
+        Assert.Empty(moved.Groups);
+
+        // A note that crossed into the actions by mistake has to be able to cross back.
+        await _retroController.Execute(x => x.MoveCard(
+            data.FirstId,
+            new MoveRetroCardRequest { SectionId = firstSectionId, X = 5, Y = 5 }));
+
+        var back = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Equal(firstSectionId, back!.Cards.Single(x => x.Id == data.FirstId).SectionId);
+    }
+
     /// <summary>A retro in Group with three topic notes of the facilitator.</summary>
     private async Task<TopicsTestData> CreateTopics(WebApiTestHostScope testScope)
     {

@@ -371,7 +371,8 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         double y,
         CancellationToken cancellationToken)
     {
-        var stackOrder = await NextStackOrder(await RetroIdOfSection(sectionId, cancellationToken), cancellationToken);
+        var retroId = await RetroIdOfSection(sectionId, cancellationToken);
+        var stackOrder = await NextStackOrder(retroId, cancellationToken);
 
         await context.RetroCards
             .Where(x => x.Id == cardId)
@@ -379,8 +380,13 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
                 .SetProperty(p => p.SectionId, sectionId)
                 .SetProperty(p => p.X, x)
                 .SetProperty(p => p.Y, y)
-                .SetProperty(p => p.StackOrder, stackOrder),
+                .SetProperty(p => p.StackOrder, stackOrder)
+                // A topic is a cluster inside one section: a note carried to another section is no
+                // longer part of it. Moving the topic as a whole goes through MoveGroup instead.
+                .SetProperty(p => p.GroupId, p => p.SectionId == sectionId ? p.GroupId : null),
                 cancellationToken);
+
+        await DropDegenerateGroups(retroId, cancellationToken);
     }
 
     /// <summary>Moves every card of the group together and keeps their stacking order.</summary>

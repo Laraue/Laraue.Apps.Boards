@@ -533,9 +533,10 @@ public class RetrosService(
             throw new BadRequestException(nameof(request.SectionId), ErrorMessages.RetroFinished);
 
         // Sliding a note around the board is layout, not content, so every phase allows it. Only
-        // crossing the actions border turns the note into something else, and that obeys the phase.
+        // crossing the actions border turns the note into something else - and a note that crossed
+        // it by mistake has to be able to cross back, so both ways belong to the Actions phase.
         if (targetIsAction != card.IsAction)
-            EnsureCardEditable(targetIsAction, card.Phase, nameof(request.SectionId));
+            EnsureCardEditable(isAction: true, card.Phase, nameof(request.SectionId));
         await coreRetrosService.MoveCard(
             cardId,
             request.SectionId,
