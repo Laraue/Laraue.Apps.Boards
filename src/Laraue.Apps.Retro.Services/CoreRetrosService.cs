@@ -297,8 +297,11 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         bool revealed,
         CancellationToken cancellationToken)
     {
+        // Covering notes is for what the author is still writing; a commitment the team already
+        // agreed on is never covered, however the author flips their own notes.
         return context.RetroCards
             .Where(x => x.Section!.RetroId == retroId && x.AuthorId == authorId)
+            .Where(x => x.Section!.SortOrder != x.Section.Retro!.Sections.Max(s => s.SortOrder))
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.Revealed, revealed), cancellationToken);
     }
 
@@ -311,6 +314,12 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         CancellationToken cancellationToken)
     {
         var retroId = await RetroIdOfSection(sectionId, cancellationToken);
+        // Covering a note is for what its author is still writing in Collect; an action item is
+        // something the team agreed on out loud, so it is on the board for everyone at once.
+        var isAction = await context.RetroSections
+            .Where(x => x.Id == sectionId)
+            .Select(x => x.SortOrder == x.Retro!.Sections.Max(s => s.SortOrder))
+            .FirstAsync(cancellationToken);
         var card = new RetroCard
         {
             Id = Guid.NewGuid(),
@@ -319,6 +328,7 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             Text = text,
             X = x,
             Y = y,
+            Revealed = isAction,
             StackOrder = await NextStackOrder(retroId, cancellationToken),
             CreatedAt = dateTimeProvider.UtcNow,
         };
@@ -418,9 +428,10 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
 
     public async Task<bool> SetDone(Guid cardId, bool done, CancellationToken cancellationToken)
     {
+        // Actions carried over from the last retro are the first thing a new one looks at, so
+        // ticking them off belongs to no single phase - only to the actions section.
         var updated = await context.RetroCards
             .Where(x => x.Id == cardId)
-            .Where(x => x.Section!.Retro!.Phase == RetroPhase.Actions)
             .Where(x => x.Section!.SortOrder == x.Section.Retro!.Sections.Max(s => s.SortOrder))
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.Done, done), cancellationToken);
 

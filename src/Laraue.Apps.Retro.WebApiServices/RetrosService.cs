@@ -517,11 +517,20 @@ public class RetrosService(
         if (card.Finished)
             throw new BadRequestException(nameof(request.SectionId), ErrorMessages.RetroFinished);
 
-        // Sliding a note around the board is layout, not content, so every phase allows it. Only
-        // crossing the actions border turns the note into something else - and a note that crossed
-        // it by mistake has to be able to cross back, so both ways belong to the Actions phase.
-        if (targetIsAction != card.IsAction)
-            EnsureCardEditable(isAction: true, card.Phase, card.IsOwner, nameof(request.SectionId));
+        // A topic is a cluster inside one section: pulling one of its notes into another section
+        // would quietly break the topic up and strand the votes it carries, so a topic moves as a
+        // whole through MoveGroup, and splitting one off starts with ungrouping.
+        if (card.GroupId is not null && request.SectionId != card.SectionId)
+            throw new BadRequestException(nameof(request.SectionId), ErrorMessages.RetroCardInTopic);
+
+        // A note crossing the actions border is turned into a commitment or back, so it obeys the
+        // actions rule either way; a note that stays on its side obeys the rule of what it already
+        // is. Both bind the team only - the owner runs the room and is bound by neither.
+        EnsureCardEditable(
+            targetIsAction || card.IsAction,
+            card.Phase,
+            card.IsOwner,
+            nameof(request.SectionId));
         await coreRetrosService.MoveCard(
             cardId,
             request.SectionId,
@@ -624,6 +633,9 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var card = await EnsureOwnCard(cardId, authData, cancellationToken);
+        if (card.IsAction)
+            throw new BadRequestException(nameof(cardId), ErrorMessages.RetroActionAlwaysVisible);
+
         EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
         await coreRetrosService.SetRevealed(cardId, request.Revealed, cancellationToken);
         await Changed(card.RetroId, cancellationToken);
@@ -885,6 +897,8 @@ public class RetrosService(
     private static Expression<Func<RetroCard, CardContext>> CardContextSelector(Guid userId) =>
         x => new CardContext(
             x.AuthorId,
+            x.SectionId,
+            x.GroupId,
             x.Section!.RetroId,
             x.Section.Retro!.Phase,
             x.Section.SortOrder == x.Section.Retro.Sections.Max(s => s.SortOrder),
@@ -893,6 +907,8 @@ public class RetrosService(
 
     private record CardContext(
         Guid AuthorId,
+        long SectionId,
+        long? GroupId,
         long RetroId,
         RetroPhase Phase,
         bool IsAction,

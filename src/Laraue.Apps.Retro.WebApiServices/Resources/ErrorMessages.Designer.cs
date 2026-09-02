@@ -113,6 +113,18 @@ namespace Laraue.Apps.Retro.WebApiServices.Resources {
             }
         }
 
+        internal static string RetroCardInTopic {
+            get {
+                return ResourceManager.GetString("RetroCardInTopic", resourceCulture);
+            }
+        }
+
+        internal static string RetroActionAlwaysVisible {
+            get {
+                return ResourceManager.GetString("RetroActionAlwaysVisible", resourceCulture);
+            }
+        }
+
         internal static string RetroActionsSectionOnly {
             get {
                 return ResourceManager.GetString("RetroActionsSectionOnly", resourceCulture);

@@ -42,8 +42,14 @@
     <data name="RetroGroupInvalid" xml:space="preserve">
         <value>A topic needs at least two notes of this retro outside the actions section.</value>
     </data>
+    <data name="RetroCardInTopic" xml:space="preserve">
+        <value>A note of a topic moves with it. Drag the topic itself, or split it apart first.</value>
+    </data>
     <data name="RetroActionsPhaseOnly" xml:space="preserve">
         <value>Action items can only be created and changed during Actions.</value>
+    </data>
+    <data name="RetroActionAlwaysVisible" xml:space="preserve">
+        <value>An action item the team agreed on is always visible.</value>
     </data>
     <data name="RetroActionsSectionOnly" xml:space="preserve">
         <value>Only a card of the actions section can have an assignee.</value>
