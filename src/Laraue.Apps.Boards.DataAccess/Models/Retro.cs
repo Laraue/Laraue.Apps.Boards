@@ -20,7 +20,9 @@ public class Retro
 
     public RetroPhase Phase { get; set; }
     public int VotesPerUser { get; set; }
-    public DateTime? VoteEndsAt { get; set; }
+    /// <summary>When the running timer of the current phase (or discussed topic) expires.</summary>
+    public DateTime? PhaseEndsAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? FinishedAt { get; set; }
 
@@ -30,7 +32,9 @@ public class Retro
 
 public enum RetroPhase
 {
-    Collect,
-    Vote,
-    Discuss,
+    Collect = 0,
+    Vote = 1,
+    Discuss = 2,
+    Group = 3,
+    Actions = 4,
 }

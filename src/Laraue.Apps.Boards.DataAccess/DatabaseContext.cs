@@ -37,6 +37,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<Retro> Retros { get; init; }
     public DbSet<RetroSection> RetroSections { get; init; }
     public DbSet<RetroCard> RetroCards { get; init; }
+    public DbSet<RetroCardGroup> RetroCardGroups { get; init; }
     public DbSet<RetroCardVote> RetroCardVotes { get; init; }
     public DbSet<RetroParticipant> RetroParticipants { get; init; }
     public DbSet<Status> Statuses { get; init; }
@@ -199,6 +200,29 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => new { x.RetroId, x.SortOrder })
                 .IsUnique();
+        });
+
+        modelBuilder.Entity<RetroCard>(entity =>
+        {
+            // Removing a person must not be blocked by an action they were once given; the action
+            // stays and simply loses its owner.
+            entity
+                .HasOne(x => x.Assignee)
+                .WithMany()
+                .HasForeignKey(x => x.AssigneeId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RetroCardGroup>(entity =>
+        {
+            entity.HasIndex(x => x.RetroId);
+
+            // Ungrouping is just deleting the group - the notes stay, they only lose the pointer.
+            entity
+                .HasMany(x => x.Cards)
+                .WithOne(x => x.Group!)
+                .HasForeignKey(x => x.GroupId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<RetroCardVote>(entity =>

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 
 <root>
     <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
@@ -28,7 +28,40 @@
         <value>You have used all available votes.</value>
     </data>
     <data name="RetroCardDoneUnavailable" xml:space="preserve">
-        <value>Cards can only be marked as done in the Actions section during Discuss.</value>
+        <value>Cards can only be marked as done in the Actions section during Actions.</value>
+    </data>
+    <data name="RetroPhaseTransitionInvalid" xml:space="preserve">
+        <value>The requested phase transition is not allowed.</value>
+    </data>
+    <data name="RetroFinishUnavailable" xml:space="preserve">
+        <value>The retro can only be finished from Actions.</value>
+    </data>
+    <data name="RetroCardsFrozen" xml:space="preserve">
+        <value>Notes can only be changed in Collect or Group. The facilitator has to return the retro to change them.</value>
+    </data>
+    <data name="RetroGroupInvalid" xml:space="preserve">
+        <value>A topic needs at least two notes of this retro outside the actions section.</value>
+    </data>
+    <data name="RetroCardInTopic" xml:space="preserve">
+        <value>A note of a topic moves with it. Drag the topic itself, or split it apart first.</value>
+    </data>
+    <data name="RetroActionsPhaseOnly" xml:space="preserve">
+        <value>Action items can only be created and changed during Actions.</value>
+    </data>
+    <data name="RetroActionAlwaysVisible" xml:space="preserve">
+        <value>An action item the team agreed on is always visible.</value>
+    </data>
+    <data name="RetroActionsSectionOnly" xml:space="preserve">
+        <value>Only a card of the actions section can have an assignee.</value>
+    </data>
+    <data name="RetroNameRequired" xml:space="preserve">
+        <value>A retro needs a name.</value>
+    </data>
+    <data name="RetroFacilitatorNotParticipant" xml:space="preserve">
+        <value>The retro can only be handed over to somebody who has joined it.</value>
+    </data>
+    <data name="RetroAssigneeNotParticipant" xml:space="preserve">
+        <value>An action can only be assigned to a participant of the retro.</value>
     </data>
     <data name="RetroSectionNotInRetro" xml:space="preserve">
         <value>Section does not belong to the retro.</value>

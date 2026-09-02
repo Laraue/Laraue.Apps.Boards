@@ -12,11 +12,22 @@ public class RetroCard
     public Guid AuthorId { get; set; }
     public User? Author { get; set; }
 
-    [MaxLength(4096)]
+    /// <summary>Who owns the action; only cards of the actions section ever set it.</summary>
+    public Guid? AssigneeId { get; set; }
+    public User? Assignee { get; set; }
+
+    [MaxLength(256)]
     public required string Text { get; set; }
 
     public double X { get; set; }
     public double Y { get; set; }
+
+    /// <summary>Paint order inside the retro; the card moved last sits on top for everyone.</summary>
+    public int StackOrder { get; set; }
+
+    /// <summary>The topic this note was merged into, if the team grouped it with others.</summary>
+    public long? GroupId { get; set; }
+    public RetroCardGroup? Group { get; set; }
     public bool Done { get; set; }
     public bool Revealed { get; set; }
     public DateTime CreatedAt { get; set; }
