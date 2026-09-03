@@ -12,7 +12,7 @@ namespace Laraue.Apps.Retro.WebApiHost.Controllers;
 public class RetroController(IRetrosService retrosService) : ControllerBase
 {
     [HttpPost("list")]
-    public Task<ShortPaginatedResult<RetroListItem>> Get(
+    public Task<GetRetrosResponse> Get(
         [FromBody] GetRetrosRequest request,
         CancellationToken cancellationToken = default) =>
         retrosService.Get(request, AuthData(), cancellationToken);

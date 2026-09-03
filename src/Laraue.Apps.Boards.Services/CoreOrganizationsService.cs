@@ -217,7 +217,8 @@ public class CoreOrganizationsService(
                 .SetProperty(p => p.AdminAccessLevel, userPermissions.Admin)
                 
                 .SetProperty(p => p.CanRead, userPermissions.Global.CanRead)
-                
+                .SetProperty(p => p.CanCreateRetros, userPermissions.Global.CanCreateRetros)
+
                 .SetProperty(p => p.CanCreateSpaces, userPermissions.Global.CanCreateSpaces)
                 .SetProperty(p => p.CanUpdateSpaces, userPermissions.Global.CanUpdateSpaces)
                 .SetProperty(p => p.CanDeleteSpaces, userPermissions.Global.CanDeleteSpaces)
@@ -272,6 +273,7 @@ public class CoreOrganizationsService(
             .Select(x => new 
             {
                 x.AdminAccessLevel,
+                x.CanCreateRetros,
                 x.CanCreateSpaces,
                 x.CanUpdateSpaces,
                 x.CanDeleteSpaces,
@@ -310,6 +312,7 @@ public class CoreOrganizationsService(
             Admin = organizationAccessLevel.AdminAccessLevel,
             Global = new GlobalAccessLevels
             {
+                CanCreateRetros = organizationAccessLevel.CanCreateRetros,
                 CanCreateEpics = organizationAccessLevel.CanCreateEpics,
                 CanUpdateEpics = organizationAccessLevel.CanUpdateEpics,
                 CanDeleteEpics = organizationAccessLevel.CanDeleteEpics,
@@ -604,6 +607,7 @@ public record UserPermissions
 public record GlobalAccessLevels
 {
     public bool CanRead { get; set; }
+    public bool CanCreateRetros { get; set; }
     public bool CanCreateSpaces { get; set; }
     public bool CanUpdateSpaces { get; set; }
     public bool CanDeleteSpaces { get; set; }

@@ -16,6 +16,7 @@ public class OrganizationDefaults
         var organizationUser = new OrganizationUser
         {
             CanRead = true,
+            CanCreateRetros = true,
             CanCreateSpaces = true,
             CanUpdateSpaces = true,
             CanDeleteSpaces = true,
