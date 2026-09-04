@@ -129,6 +129,15 @@ public interface IAccessService
         OrganizationAuthData authData,
         long statusId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns whether the user can manage retros in the requested organization — either via an
+    /// org-wide grant, or a direct grant on at least one space (retros aren't owned by a single
+    /// space, so a space-level grant on any space is enough).
+    /// </summary>
+    Task<bool> CanManageRetros(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
 }
 
 public class AccessService(DatabaseContext context) : IAccessService
@@ -181,9 +190,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         if (canGloballyRead)
             return await map(GetAllSpacesQuery(authData));
         
-        var query = context.DirectSpacePermissions
-            .Where(sos => sos.OrganizationUser!.OrganizationId == authData.OrganizationId)
-            .Where(sos => sos.OrganizationUser!.UserId == authData.UserId)
+        var query = GetDirectSpacePermissions(authData)
             .Where(sos => sos.CanRead)
             .Select(sos => sos.Space!);
         
@@ -255,9 +262,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         if (canGloballyCreateEpics)
             return await map(GetAllSpacesQuery(authData));
         
-        var query = context.DirectSpacePermissions
-            .Where(sos => sos.OrganizationUser!.OrganizationId == authData.OrganizationId)
-            .Where(sos => sos.OrganizationUser!.UserId == authData.UserId)
+        var query = GetDirectSpacePermissions(authData)
             .Where(whenAllowedOnSpaceLevel)
             .Select(sos => sos.Space!);
         
@@ -397,6 +402,16 @@ public class AccessService(DatabaseContext context) : IAccessService
         return accessLevels?.CanUpdateEpic ?? false;
     }
     
+    public async Task<bool> CanManageRetros(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        var canGlobally = await GetUserData(authData, x => x.CanManageRetros, cancellationToken);
+        if (canGlobally)
+            return true;
+
+        return await GetDirectSpacePermissions(authData)
+            .AnyAsyncEF(sos => sos.CanManageRetros, cancellationToken);
+    }
+
     private async Task<long?> GetEpicId(long statusId, CancellationToken cancellationToken)
     {
         var result = await context.Statuses
@@ -446,9 +461,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         long spaceId,
         CancellationToken cancellationToken)
     {
-        return context.DirectSpacePermissions
-            .Where(sos => sos.OrganizationUser!.OrganizationId == authData.OrganizationId)
-            .Where(sos => sos.OrganizationUser!.UserId == authData.UserId)
+        return GetDirectSpacePermissions(authData)
             .Where(sos => sos.SpaceId == spaceId)
             .Select(sos => new AccessLevels
             {
@@ -470,6 +483,13 @@ public class AccessService(DatabaseContext context) : IAccessService
     {
         return context.Spaces
             .Where(s => s.OrganizationId == authData.OrganizationId);
+    }
+
+    private IQueryable<DirectSpacePermission> GetDirectSpacePermissions(OrganizationAuthData authData)
+    {
+        return context.DirectSpacePermissions
+            .Where(sos => sos.OrganizationUser!.OrganizationId == authData.OrganizationId)
+            .Where(sos => sos.OrganizationUser!.UserId == authData.UserId);
     }
 }
 

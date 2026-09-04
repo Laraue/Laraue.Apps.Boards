@@ -17,6 +17,81 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     private readonly Proxy<RetroController> _retroController = retroHost.Controller<RetroController>(host.Services);
 
     [Fact]
+    public async Task Create_ShouldRequireCreateRetroPermission_WhenCallerIsNotOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participantId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, setup => setup.AddUser(participantId));
+
+        var forbidden = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(organization.Id, participantId)
+            .Execute(x => x.Create(new CreateRetroRequest { Name = "Forbidden" })));
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == participantId)
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.CanManageRetros, true));
+
+        var created = await _retroController
+            .WithOrganizationAuthorization(organization.Id, participantId)
+            .Execute(x => x.Create(new CreateRetroRequest { Name = "Allowed" }));
+        Assert.NotNull(created);
+    }
+
+    [Fact]
+    public async Task Create_ShouldSucceed_WhenCallerHasManageRetrosGrantedOnOrganizationLevel()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participantId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, setup => setup
+            .AddUser(participantId, u => u.SetGlobalAccessLevel(l => l.CanManageRetros = true)));
+
+        var created = await _retroController
+            .WithOrganizationAuthorization(organization.Id, participantId)
+            .Execute(x => x.Create(new CreateRetroRequest { Name = "Allowed via organization grant" }));
+
+        Assert.NotNull(created);
+    }
+
+    [Fact]
+    public async Task Create_ShouldSucceed_WhenCallerHasManageRetrosGrantedOnSpaceLevel()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participantId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, setup => setup
+            .AddUser(participantId, u => u.SetSpaceAccessLevel(0, l => l.CanManageRetros = true)));
+
+        var created = await _retroController
+            .WithOrganizationAuthorization(organization.Id, participantId)
+            .Execute(x => x.Create(new CreateRetroRequest { Name = "Allowed via space grant" }));
+
+        Assert.NotNull(created);
+    }
+
+    [Fact]
+    public async Task DeleteCard_ShouldAllowOwnerToDeleteAnotherUsersCard()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Remove me", X = 0, Y = 0 }));
+        var cardId = card!.Id;
+
+        await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.DeleteCard(cardId));
+
+        Assert.False(await testScope.Database.RetroCards.AnyAsync(x => x.Id == cardId));
+    }
+
+    [Fact]
     public async Task Create_ShouldLeaveParticipantsEmpty_Always()
     {
         using var testScope = host.CreateTestScope();
@@ -704,7 +779,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task MoveCard_ShouldTurnTopicIntoAction_WhenMovedToActionsDuringActionsPhase()
+    public async Task MoveCard_ShouldAllowMovingIntoAndOutOfActionsSection_WhenPhaseIsActions()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
@@ -717,12 +792,24 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
                 new CreateRetroCardRequest { SectionId = sectionId, Text = "Painful releases", X = 0, Y = 0 }));
         await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
 
-        await _retroController.Execute(x => x.MoveCard(
-            card!.Id,
-            new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
+        var cardId = card!.Id;
+        await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.MoveCard(
+                cardId,
+                new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
 
         Assert.Equal(actionsSectionId, await testScope.Database.RetroCards
-            .Where(x => x.Id == card.Id)
+            .Where(x => x.Id == cardId)
+            .Select(x => x.SectionId)
+            .SingleAsync());
+
+        await _retroController.Execute(x => x.MoveCard(
+            cardId,
+            new MoveRetroCardRequest { SectionId = sectionId, X = 0, Y = 0 }));
+
+        Assert.Equal(sectionId, await testScope.Database.RetroCards
+            .Where(x => x.Id == cardId)
             .Select(x => x.SectionId)
             .SingleAsync());
     }

@@ -3,6 +3,7 @@ using System.Linq.Expressions;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -18,7 +19,7 @@ namespace Laraue.Apps.Retro.WebApiServices;
 
 public interface IRetrosService
 {
-    Task<ShortPaginatedResult<RetroListItem>> Get(
+    Task<GetRetrosResponse> Get(
         GetRetrosRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
@@ -132,6 +133,7 @@ public interface IRetrosService
 public class RetrosService(
     DatabaseContext context,
     ICoreRetrosService coreRetrosService,
+    IAccessService accessService,
     IHubContext<RetroHub> retroHub) : IRetrosService
 {
     public async Task<RetroUser> JoinRealtime(
@@ -173,14 +175,14 @@ public class RetrosService(
         await coreRetrosService.Delete(id, cancellationToken);
     }
 
-    public async Task<ShortPaginatedResult<RetroListItem>> Get(
+    public async Task<GetRetrosResponse> Get(
         GetRetrosRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        await EnsureMember(authData, cancellationToken);
+        var canCreate = await CanCreate(authData, cancellationToken);
 
-        return await context.Retros
+        var result = await context.Retros
             .Where(x => x.OrganizationId == authData.OrganizationId)
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new RetroListItem
@@ -189,6 +191,7 @@ public class RetrosService(
                 Name = x.Name,
                 CreatedAt = x.CreatedAt,
                 FinishedAt = x.FinishedAt,
+                CanManage = x.OwnerId == authData.UserId,
                 CardCount = x.Sections.SelectMany(s => s.Cards).Count(),
                 OpenActionCount = x.Sections
                     .OrderByDescending(s => s.SortOrder)
@@ -197,6 +200,15 @@ public class RetrosService(
                     .Count(c => !c.Done),
             })
             .ShortPaginateEFAsync(request.Pagination, cancellationToken);
+
+        return new GetRetrosResponse
+        {
+            CanCreate = canCreate,
+            Data = result.Data,
+            HasNextPage = result.HasNextPage,
+            Page = result.Page,
+            PerPage = result.PerPage,
+        };
     }
 
     public async Task<GetRetroResponse> Get(
@@ -350,7 +362,12 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        await EnsureMember(authData, cancellationToken);
+        if (!await CanCreate(authData, cancellationToken))
+            throw new ForbiddenException(string.Format(
+                ErrorMessages.EntityActionForbidden,
+                "Retro",
+                authData.OrganizationId,
+                "create"));
         if (request.BasedOnRetroId.HasValue)
             await EnsureAccessible(request.BasedOnRetroId.Value, authData, cancellationToken);
 
@@ -487,7 +504,7 @@ public class RetrosService(
             request.X,
             request.Y,
             cancellationToken);
-        await Changed(id, cancellationToken);
+        await CardChanged(cardId, cancellationToken);
         return new CreateRetroCardResponse { Id = cardId };
     }
 
@@ -500,7 +517,7 @@ public class RetrosService(
         var card = await EnsureOwnCard(cardId, authData, cancellationToken);
         EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
         await coreRetrosService.UpdateCard(cardId, request.Text.Trim(), cancellationToken);
-        await Changed(card.RetroId, cancellationToken);
+        await CardChanged(cardId, cancellationToken);
     }
 
     public async Task MoveCard(
@@ -572,7 +589,14 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var card = await EnsureOwnCard(cardId, authData, cancellationToken);
+        var card = await EnsureCard(cardId, authData, cancellationToken);
+        if (!card.IsOwner && card.AuthorId != authData.UserId)
+            throw new ForbiddenException(string.Format(
+                ErrorMessages.EntityActionForbidden,
+                "Card",
+                cardId,
+                "delete"));
+
         EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
         await coreRetrosService.DeleteCard(cardId, cancellationToken);
         await Changed(card.RetroId, cancellationToken);
@@ -681,7 +705,13 @@ public class RetrosService(
         var groupId = await coreRetrosService.GroupCards(id, request.CardIds, cancellationToken)
             ?? throw new BadRequestException(nameof(request.CardIds), ErrorMessages.RetroGroupInvalid);
 
-        await Changed(id, cancellationToken);
+        await retroHub.Clients
+            .Group(RetroHub.GroupName(id))
+            .SendAsync("group-upserted", new RetroGroupChangedDto
+            {
+                Id = groupId,
+                CardIds = request.CardIds,
+            }, cancellationToken);
 
         return new GroupRetroCardsResponse { Id = groupId };
     }
@@ -738,6 +768,24 @@ public class RetrosService(
                 ErrorMessages.EntityNotFoundOrNotAccessible,
                 "Organization",
                 authData.OrganizationId));
+    }
+
+    private async Task<bool> CanCreate(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var isOwner = await context.OrganizationUsers
+            .Where(x => x.OrganizationId == authData.OrganizationId && x.UserId == authData.UserId)
+            .Select(x => (bool?)(x.Organization!.OwnerId == authData.UserId))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (isOwner is null)
+            throw new NotFoundException(string.Format(
+                ErrorMessages.EntityNotFoundOrNotAccessible,
+                "Organization",
+                authData.OrganizationId));
+
+        return isOwner.Value || await accessService.CanManageRetros(authData, cancellationToken);
     }
 
     private Task<RetroUser> GetCurrentUser(
@@ -920,6 +968,40 @@ public class RetrosService(
             .Group(RetroHub.GroupName(retroId))
             .SendAsync("changed", cancellationToken);
 
+    private async Task CardChanged(Guid cardId, CancellationToken cancellationToken)
+    {
+        var card = await context.RetroCards
+            .Where(x => x.Id == cardId)
+            .Select(x => new RetroCardChangedDto
+            {
+                Id = x.Id,
+                RetroId = x.Section!.RetroId,
+                SectionId = x.SectionId,
+                Text = x.Section.Retro!.Phase == RetroPhase.Collect && !x.Revealed
+                    ? string.Empty
+                    : x.Text,
+                X = x.X,
+                Y = x.Y,
+                Done = x.Done,
+                Covered = x.Section.Retro.Phase == RetroPhase.Collect && !x.Revealed,
+                Revealed = x.Revealed,
+                GroupId = x.GroupId,
+                Author = new RetroUser
+                {
+                    UserId = x.AuthorId,
+                    DisplayName = x.Author!.DisplayName,
+                    Initials = x.Author.Initials,
+                    Color = x.Author.Color,
+                    IsCurrentUser = false,
+                },
+            })
+            .SingleAsync(cancellationToken);
+
+        await retroHub.Clients
+            .Group(RetroHub.GroupName(card.RetroId))
+            .SendAsync("card-upserted", card, cancellationToken);
+    }
+
     private IQueryable<RetroEntity> OrganizationRetros(OrganizationAuthData authData) =>
         context.Retros.Where(x => x.OrganizationId == authData.OrganizationId);
 
@@ -958,12 +1040,22 @@ public record GetRetrosRequest : IPaginatedRequest
     public required PaginationData Pagination { get; set; }
 }
 
+public record GetRetrosResponse
+{
+    public required long Page { get; init; }
+    public required int PerPage { get; init; }
+    public required bool HasNextPage { get; init; }
+    public required IList<RetroListItem> Data { get; init; }
+    public required bool CanCreate { get; init; }
+}
+
 public record RetroListItem
 {
     public required long Id { get; init; }
     public required string Name { get; init; }
     public required DateTime CreatedAt { get; init; }
     public required DateTime? FinishedAt { get; init; }
+    public required bool CanManage { get; init; }
     public required int CardCount { get; init; }
 
     /// <summary>Actions still open here, i.e. what starting a retro from this one would carry.</summary>
@@ -1024,6 +1116,27 @@ public record RetroCardDto
     public required int Votes { get; init; }
     public required bool VotedByMe { get; init; }
     public required RetroUser Author { get; init; }
+}
+
+public record RetroCardChangedDto
+{
+    public required Guid Id { get; init; }
+    public required long RetroId { get; init; }
+    public required long SectionId { get; init; }
+    public required string Text { get; init; }
+    public required double X { get; init; }
+    public required double Y { get; init; }
+    public required bool Done { get; init; }
+    public required bool Covered { get; init; }
+    public required bool Revealed { get; init; }
+    public required long? GroupId { get; init; }
+    public required RetroUser Author { get; init; }
+}
+
+public record RetroGroupChangedDto
+{
+    public required long Id { get; init; }
+    public required IList<Guid> CardIds { get; init; }
 }
 
 public record CreateRetroRequest

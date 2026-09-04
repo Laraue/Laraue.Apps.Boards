@@ -16,6 +16,7 @@ public class DirectSpacePermission
     public bool CanRead { get; set; }
     public bool CanUpdate { get; set; }
     public bool CanDelete { get; set; }
+    public bool CanManageRetros { get; set; }
     public bool CanCreateEpics { get; set; }
     public bool CanUpdateEpics { get; set; }
     public bool CanDeleteEpics { get; set; }

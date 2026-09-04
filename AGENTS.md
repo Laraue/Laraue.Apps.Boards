@@ -117,14 +117,18 @@ Solution: `Laraue.Apps.Boards.sln`
   - These still share `Boards.DataAccess`'s `DatabaseContext`/migrations and the retro entities
     (`Retro`, `RetroSection`, `RetroCard`, `RetroCardVote`, `RetroParticipant`) — there's no
     separate `Retro.DataAccess`.
-  - `Retro.Services`/`Retro.WebApiServices` deliberately do **not** reference `Boards.Services`
-    — only `Boards.DataAccess` and `Boards.Common`. `RetrosService` doesn't take an `IAccessService`
-    dependency at all; it inlines its own trivial "is this user an org member" check directly
-    against `DatabaseContext.OrganizationUsers` rather than pulling in Boards' full space/epic/issue
-    permission engine for two methods it doesn't need. `Retro.WebApiHost`'s
+  - `Retro.Services` deliberately does **not** reference `Boards.Services` — only
+    `Boards.DataAccess` and `Boards.Common`. `Retro.WebApiServices`, however, *does* reference
+    `Boards.Services`, specifically for `IAccessService`: `RetrosService.CanCreate` reuses
+    `IAccessService.CanManageRetros` (org-wide grant, OR'd with a `DirectSpacePermission` grant on
+    any space) instead of duplicating that merge logic, since retro management permission is
+    just another flag on the same `OrganizationUser`/`DirectSpacePermission` entities Boards'
+    permission engine already understands. The org-membership-and-owner-bypass check ahead of it
+    stays a trivial inline query against `DatabaseContext.OrganizationUsers`, since owner bypass
+    isn't something `IAccessService` models. `Retro.WebApiHost`'s
     `AddDatabaseServices()`/`AddApplicationServices()`/`AddAuthentication()` are its own local
-    copies (not calls into Boards' equivalents) — registering only `ICoreRetrosService`/
-    `IRetrosService`/`DatabaseContext`/JWT auth, not Boards' Issue/Epic/Space/AI-summarizer stack.
+    copies (not calls into Boards' equivalents) — registering `ICoreRetrosService`/`IRetrosService`/
+    `IAccessService`/`DatabaseContext`/JWT auth, not Boards' Issue/Epic/Space/AI-summarizer stack.
     `Retro.WebApiHost` *does* reference `Boards.WebApiServices` directly, but only for
     `AuthService`/`IAuthService` — see the `Common` entry above for why that one dependency is kept
     rather than duplicated or split out further.
