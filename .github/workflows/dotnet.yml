@@ -99,7 +99,7 @@ jobs:
             artifact: retro-webapi-host
             archive: retro-webapi-host.tar.gz
             remote_dir: /home/laraue/retro-webapi-host
-            image: realestateapihost
+            image: retroapihost
             dockerfile: RetroWebApiHostDockerfile
             environment: retro-webapi-production
     environment: ${{ matrix.environment }}
