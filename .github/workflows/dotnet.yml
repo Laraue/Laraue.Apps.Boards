@@ -8,9 +8,10 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -26,22 +27,64 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 10.x.x
-    
+
     - name: Restore dependencies
       run: dotnet restore
-    
+
     - name: Build
       run: dotnet build --no-restore -c Release
-      
+
     - name: Run all tests
       run: dotnet test -c Release --no-build
-    
+
     - name: Pack Telegram Host
       if: github.ref == 'refs/heads/main'
       run: tar -czf telegram-host.tar.gz -C src/Laraue.Apps.Boards.TelegramHost/bin/Release/net10.0 .
 
-    - name: Upload Telegram Host
+    - name: Upload Telegram Host artifact
       if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: telegram-host
+        path: telegram-host.tar.gz
+        retention-days: 7
+
+    - name: Pack Web API Host
+      if: github.ref == 'refs/heads/main'
+      run: tar -czf webapi-host.tar.gz -C src/Laraue.Apps.Boards.WebApiHost/bin/Release/net10.0 .
+
+    - name: Upload Web API Host artifact
+      if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: webapi-host
+        path: webapi-host.tar.gz
+        retention-days: 7
+
+    - name: Pack Retro Web API Host
+      if: github.ref == 'refs/heads/main'
+      run: tar -czf retro-webapi-host.tar.gz -C src/Laraue.Apps.Retro.WebApiHost/bin/Release/net10.0 .
+
+    - name: Upload Retro Web API Host artifact
+      if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: retro-webapi-host
+        path: retro-webapi-host.tar.gz
+        retention-days: 7
+
+  deploy-telegram-host:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: telegram-production
+    steps:
+    - name: Download Telegram Host artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: telegram-host
+
+    - name: Upload Telegram Host
       uses: marcodallasanta/ssh-scp-deploy@v1.2.0
       with:
        host: ${{ secrets.SSH_HOST }} # "example.com"
@@ -54,12 +97,18 @@ jobs:
         cd /home/laraue/boards-telegram-host && find . -mindepth 1 ! -name telegram-host.tar.gz -delete &&
         tar -xzf telegram-host.tar.gz && rm telegram-host.tar.gz
 
-    - name: Pack Web API Host
-      if: github.ref == 'refs/heads/main'
-      run: tar -czf webapi-host.tar.gz -C src/Laraue.Apps.Boards.WebApiHost/bin/Release/net10.0 .
+  deploy-webapi-host:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: webapi-production
+    steps:
+    - name: Download Web API Host artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: webapi-host
 
     - name: Upload Web API Host
-      if: github.ref == 'refs/heads/main'
       uses: marcodallasanta/ssh-scp-deploy@v1.2.0
       with:
        host: ${{ secrets.SSH_HOST }} # "example.com"
@@ -72,12 +121,18 @@ jobs:
         cd /home/laraue/boards-webapi-host && find . -mindepth 1 ! -name webapi-host.tar.gz -delete &&
         tar -xzf webapi-host.tar.gz && rm webapi-host.tar.gz
 
-    - name: Pack Retro Web API Host
-      if: github.ref == 'refs/heads/main'
-      run: tar -czf retro-webapi-host.tar.gz -C src/Laraue.Apps.Retro.WebApiHost/bin/Release/net10.0 .
+  deploy-retro-webapi-host:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: retro-webapi-production
+    steps:
+    - name: Download Retro Web API Host artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: retro-webapi-host
 
     - name: Upload Retro Web API Host
-      if: github.ref == 'refs/heads/main'
       uses: marcodallasanta/ssh-scp-deploy@v1.2.0
       with:
        host: ${{ secrets.SSH_HOST }} # "example.com"
