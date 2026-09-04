@@ -31,11 +31,43 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
 
         await testScope.Database.OrganizationUsers
             .Where(x => x.OrganizationId == organization.Id && x.UserId == participantId)
-            .ExecuteUpdateAsync(x => x.SetProperty(p => p.CanCreateRetros, true));
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.CanManageRetros, true));
 
         var created = await _retroController
             .WithOrganizationAuthorization(organization.Id, participantId)
             .Execute(x => x.Create(new CreateRetroRequest { Name = "Allowed" }));
+        Assert.NotNull(created);
+    }
+
+    [Fact]
+    public async Task Create_ShouldSucceed_WhenCallerHasManageRetrosGrantedOnOrganizationLevel()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participantId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, setup => setup
+            .AddUser(participantId, u => u.SetGlobalAccessLevel(l => l.CanManageRetros = true)));
+
+        var created = await _retroController
+            .WithOrganizationAuthorization(organization.Id, participantId)
+            .Execute(x => x.Create(new CreateRetroRequest { Name = "Allowed via organization grant" }));
+
+        Assert.NotNull(created);
+    }
+
+    [Fact]
+    public async Task Create_ShouldSucceed_WhenCallerHasManageRetrosGrantedOnSpaceLevel()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participantId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, setup => setup
+            .AddUser(participantId, u => u.SetSpaceAccessLevel(0, l => l.CanManageRetros = true)));
+
+        var created = await _retroController
+            .WithOrganizationAuthorization(organization.Id, participantId)
+            .Execute(x => x.Create(new CreateRetroRequest { Name = "Allowed via space grant" }));
+
         Assert.NotNull(created);
     }
 
@@ -747,7 +779,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task MoveCard_ShouldAllowParticipantToMoveIntoAndOutOfActionsDuringActionsPhase()
+    public async Task MoveCard_ShouldAllowMovingIntoAndOutOfActionsSection_WhenPhaseIsActions()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);

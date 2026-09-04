@@ -160,6 +160,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("can_delete_issues");
 
+                    b.Property<bool>("CanManageRetros")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_manage_retros");
+
                     b.Property<bool>("CanRead")
                         .HasColumnType("boolean")
                         .HasColumnName("can_read");
@@ -894,10 +898,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("can_create_issues");
 
-                    b.Property<bool>("CanCreateRetros")
-                        .HasColumnType("boolean")
-                        .HasColumnName("can_create_retros");
-
                     b.Property<bool>("CanCreateSpaces")
                         .HasColumnType("boolean")
                         .HasColumnName("can_create_spaces");
@@ -913,6 +913,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Property<bool>("CanDeleteSpaces")
                         .HasColumnType("boolean")
                         .HasColumnName("can_delete_spaces");
+
+                    b.Property<bool>("CanManageRetros")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_manage_retros");
 
                     b.Property<bool>("CanRead")
                         .HasColumnType("boolean")

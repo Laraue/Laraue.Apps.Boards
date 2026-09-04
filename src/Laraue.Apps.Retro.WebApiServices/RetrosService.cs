@@ -3,6 +3,7 @@ using System.Linq.Expressions;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -132,6 +133,7 @@ public interface IRetrosService
 public class RetrosService(
     DatabaseContext context,
     ICoreRetrosService coreRetrosService,
+    IAccessService accessService,
     IHubContext<RetroHub> retroHub) : IRetrosService
 {
     public async Task<RetroUser> JoinRealtime(
@@ -772,19 +774,18 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var access = await context.OrganizationUsers
+        var isOwner = await context.OrganizationUsers
             .Where(x => x.OrganizationId == authData.OrganizationId && x.UserId == authData.UserId)
-            .Select(x => new
-            {
-                Allowed = x.CanCreateRetros || x.Organization!.OwnerId == authData.UserId,
-            })
+            .Select(x => (bool?)(x.Organization!.OwnerId == authData.UserId))
             .FirstOrDefaultAsync(cancellationToken);
 
-        return access?.Allowed
-            ?? throw new NotFoundException(string.Format(
+        if (isOwner is null)
+            throw new NotFoundException(string.Format(
                 ErrorMessages.EntityNotFoundOrNotAccessible,
                 "Organization",
                 authData.OrganizationId));
+
+        return isOwner.Value || await accessService.CanManageRetros(authData, cancellationToken);
     }
 
     private Task<RetroUser> GetCurrentUser(

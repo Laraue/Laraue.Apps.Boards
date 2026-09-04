@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Apps.Retro.Services;
 using Laraue.Apps.Retro.WebApiServices;
@@ -33,6 +34,7 @@ public static class WebApplicationBuilderExtensions
             builder.AddRetroServices();
 
             builder.Services.AddScoped<IRetrosService, RetrosService>();
+            builder.Services.AddScoped<IAccessService, AccessService>();
             builder.Services.AddScoped<ExceptionHandleMiddleware>();
 
             builder.Services

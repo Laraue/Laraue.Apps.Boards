@@ -217,7 +217,7 @@ public class CoreOrganizationsService(
                 .SetProperty(p => p.AdminAccessLevel, userPermissions.Admin)
                 
                 .SetProperty(p => p.CanRead, userPermissions.Global.CanRead)
-                .SetProperty(p => p.CanCreateRetros, userPermissions.Global.CanCreateRetros)
+                .SetProperty(p => p.CanManageRetros, userPermissions.Global.CanManageRetros)
 
                 .SetProperty(p => p.CanCreateSpaces, userPermissions.Global.CanCreateSpaces)
                 .SetProperty(p => p.CanUpdateSpaces, userPermissions.Global.CanUpdateSpaces)
@@ -252,6 +252,7 @@ public class CoreOrganizationsService(
                 CanRead = spaceLevel.Value.CanRead,
                 CanUpdate = spaceLevel.Value.CanUpdate,
                 CanDelete = spaceLevel.Value.CanDelete,
+                CanManageRetros = spaceLevel.Value.CanManageRetros,
                 CanCreateEpics = spaceLevel.Value.CanCreateEpics,
                 CanUpdateEpics = spaceLevel.Value.CanUpdateEpics,
                 CanDeleteEpics = spaceLevel.Value.CanDeleteEpics,
@@ -273,7 +274,7 @@ public class CoreOrganizationsService(
             .Select(x => new 
             {
                 x.AdminAccessLevel,
-                x.CanCreateRetros,
+                x.CanManageRetros,
                 x.CanCreateSpaces,
                 x.CanUpdateSpaces,
                 x.CanDeleteSpaces,
@@ -303,6 +304,7 @@ public class CoreOrganizationsService(
                     CanRead = x.CanRead,
                     CanDelete = x.CanDelete,
                     CanUpdate = x.CanUpdate,
+                    CanManageRetros = x.CanManageRetros,
                 },
             })
             .ToDictionaryAsyncEF(x => x.SpaceKey, x => x.AccessLevel, cancellationToken);
@@ -312,7 +314,7 @@ public class CoreOrganizationsService(
             Admin = organizationAccessLevel.AdminAccessLevel,
             Global = new GlobalAccessLevels
             {
-                CanCreateRetros = organizationAccessLevel.CanCreateRetros,
+                CanManageRetros = organizationAccessLevel.CanManageRetros,
                 CanCreateEpics = organizationAccessLevel.CanCreateEpics,
                 CanUpdateEpics = organizationAccessLevel.CanUpdateEpics,
                 CanDeleteEpics = organizationAccessLevel.CanDeleteEpics,
@@ -554,7 +556,10 @@ public class CoreOrganizationsService(
             
             if (global.CanDeleteSpaces)
                 direct.CanDelete = true;
-            
+
+            if (global.CanManageRetros)
+                direct.CanManageRetros = true;
+
             if (global.CanCreateEpics)
                 direct.CanCreateEpics = true;
             
@@ -607,7 +612,7 @@ public record UserPermissions
 public record GlobalAccessLevels
 {
     public bool CanRead { get; set; }
-    public bool CanCreateRetros { get; set; }
+    public bool CanManageRetros { get; set; }
     public bool CanCreateSpaces { get; set; }
     public bool CanUpdateSpaces { get; set; }
     public bool CanDeleteSpaces { get; set; }
@@ -624,6 +629,7 @@ public record DirectSpaceAccessLevel
     public bool CanRead { get; set; }
     public bool CanUpdate { get; set; }
     public bool CanDelete { get; set; }
+    public bool CanManageRetros { get; set; }
     public bool CanCreateEpics { get; set; }
     public bool CanUpdateEpics { get; set; }
     public bool CanDeleteEpics { get; set; }

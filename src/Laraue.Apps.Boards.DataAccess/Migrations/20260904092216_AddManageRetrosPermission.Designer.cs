@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260903140543_AddCreateRetroPermission")]
-    partial class AddCreateRetroPermission
+    [Migration("20260904092216_AddManageRetrosPermission")]
+    partial class AddManageRetrosPermission
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -162,6 +162,10 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                     b.Property<bool>("CanDeleteIssues")
                         .HasColumnType("boolean")
                         .HasColumnName("can_delete_issues");
+
+                    b.Property<bool>("CanManageRetros")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_manage_retros");
 
                     b.Property<bool>("CanRead")
                         .HasColumnType("boolean")
@@ -897,10 +901,6 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("can_create_issues");
 
-                    b.Property<bool>("CanCreateRetros")
-                        .HasColumnType("boolean")
-                        .HasColumnName("can_create_retros");
-
                     b.Property<bool>("CanCreateSpaces")
                         .HasColumnType("boolean")
                         .HasColumnName("can_create_spaces");
@@ -916,6 +916,10 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                     b.Property<bool>("CanDeleteSpaces")
                         .HasColumnType("boolean")
                         .HasColumnName("can_delete_spaces");
+
+                    b.Property<bool>("CanManageRetros")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_manage_retros");
 
                     b.Property<bool>("CanRead")
                         .HasColumnType("boolean")

@@ -14,7 +14,7 @@ public class OrganizationUser
     public AdminAccessLevel AdminAccessLevel { get; set; }
     
     public bool CanRead { get; set; }
-    public bool CanCreateRetros { get; set; }
+    public bool CanManageRetros { get; set; }
     public bool CanCreateSpaces { get; set; }
     public bool CanUpdateSpaces { get; set; }
     public bool CanDeleteSpaces { get; set; }
