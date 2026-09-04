@@ -121,7 +121,7 @@ jobs:
        password: ${{ secrets.SSH_PASSWORD }} # "password"
        local: ${{ matrix.archive }}
        remote: ${{ matrix.remote_dir }}
-       post_upload: |
+       post_upload: |-
         cd ${{ matrix.remote_dir }} && find . -mindepth 1 ! -name ${{ matrix.archive }} -delete &&
         tar -xzf ${{ matrix.archive }} && rm ${{ matrix.archive }}
 
