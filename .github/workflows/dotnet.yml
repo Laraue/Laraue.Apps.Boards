@@ -86,21 +86,18 @@ jobs:
             archive: telegram-host.tar.gz
             remote_dir: /home/laraue/boards-telegram-host
             image: structuredmessagestelegramhost
-            dockerfile: StructuredMessagesTelegramHostDockerfile
             environment: telegram-production
           - name: Web API Host
             artifact: webapi-host
             archive: webapi-host.tar.gz
             remote_dir: /home/laraue/boards-webapi-host
             image: structuredmessageswebapihost
-            dockerfile: StructuredMessagesWebapiHostDockerfile
             environment: webapi-production
           - name: Retro Web API Host
             artifact: retro-webapi-host
             archive: retro-webapi-host.tar.gz
             remote_dir: /home/laraue/retro-webapi-host
             image: retroapihost
-            dockerfile: RetroWebApiHostDockerfile
             environment: retro-webapi-production
     environment: ${{ matrix.environment }}
     steps:
@@ -137,7 +134,7 @@ jobs:
        password: ${{ secrets.SSH_PASSWORD }}
        script: |
         set -e
-        cd /home/laraue && docker build -f ${{ matrix.dockerfile }} -t ${{ matrix.image }} .
+        cd /home/laraue && docker compose build ${{ matrix.image }}
         docker compose up -d --force-recreate ${{ matrix.image }}
 
     - name: Notify deploy finished
