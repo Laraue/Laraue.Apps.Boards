@@ -73,74 +73,80 @@ jobs:
         path: retro-webapi-host.tar.gz
         retention-days: 7
 
-  deploy-telegram-host:
+  deploy:
     needs: build-and-test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: telegram-production
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Telegram Host
+            artifact: telegram-host
+            archive: telegram-host.tar.gz
+            remote_dir: /home/laraue/boards-telegram-host
+            image: structuredmessagestelegramhost
+            environment: telegram-production
+          - name: Web API Host
+            artifact: webapi-host
+            archive: webapi-host.tar.gz
+            remote_dir: /home/laraue/boards-webapi-host
+            image: structuredmessageswebapihost
+            environment: webapi-production
+          - name: Retro Web API Host
+            artifact: retro-webapi-host
+            archive: retro-webapi-host.tar.gz
+            remote_dir: /home/laraue/retro-webapi-host
+            image: realestateapihost
+            environment: retro-webapi-production
+    environment: ${{ matrix.environment }}
     steps:
-    - name: Download Telegram Host artifact
+    - name: Notify deploy started
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="🚀 Deploy started: ${{ matrix.name }} (${{ github.sha }})"
+
+    - name: Download artifact
       uses: actions/download-artifact@v4
       with:
-        name: telegram-host
+        name: ${{ matrix.artifact }}
 
-    - name: Upload Telegram Host
+    - name: Upload host
       uses: marcodallasanta/ssh-scp-deploy@v1.2.0
       with:
        host: ${{ secrets.SSH_HOST }} # "example.com"
        port: ${{ secrets.SSH_PORT }} # 22
        user: ${{ secrets.SSH_USER }} # "user"
        password: ${{ secrets.SSH_PASSWORD }} # "password"
-       local: telegram-host.tar.gz
-       remote: "/home/laraue/boards-telegram-host"
-       post_upload:
-        cd /home/laraue/boards-telegram-host && find . -mindepth 1 ! -name telegram-host.tar.gz -delete &&
-        tar -xzf telegram-host.tar.gz && rm telegram-host.tar.gz
+       local: ${{ matrix.archive }}
+       remote: ${{ matrix.remote_dir }}
+       post_upload: |
+        cd ${{ matrix.remote_dir }} && find . -mindepth 1 ! -name ${{ matrix.archive }} -delete &&
+        tar -xzf ${{ matrix.archive }} && rm ${{ matrix.archive }}
 
-  deploy-webapi-host:
-    needs: build-and-test
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: webapi-production
-    steps:
-    - name: Download Web API Host artifact
-      uses: actions/download-artifact@v4
+    - name: Build container
+      uses: appleboy/ssh-action@v1
       with:
-        name: webapi-host
+       host: ${{ secrets.SSH_HOST }}
+       port: ${{ secrets.SSH_PORT }}
+       username: ${{ secrets.SSH_USER }}
+       password: ${{ secrets.SSH_PASSWORD }}
+       script: |
+        set -e
+        cd /home/laraue && docker build -t ${{ matrix.image }} .
+        docker compose up -d ${{ matrix.image }}
 
-    - name: Upload Web API Host
-      uses: marcodallasanta/ssh-scp-deploy@v1.2.0
-      with:
-       host: ${{ secrets.SSH_HOST }} # "example.com"
-       port: ${{ secrets.SSH_PORT }} # 22
-       user: ${{ secrets.SSH_USER }} # "user"
-       password: ${{ secrets.SSH_PASSWORD }} # "password"
-       local: webapi-host.tar.gz
-       remote: "/home/laraue/boards-webapi-host"
-       post_upload:
-        cd /home/laraue/boards-webapi-host && find . -mindepth 1 ! -name webapi-host.tar.gz -delete &&
-        tar -xzf webapi-host.tar.gz && rm webapi-host.tar.gz
+    - name: Notify deploy finished
+      if: success()
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="✅ Deploy finished: ${{ matrix.name }} (${{ github.sha }})"
 
-  deploy-retro-webapi-host:
-    needs: build-and-test
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: retro-webapi-production
-    steps:
-    - name: Download Retro Web API Host artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: retro-webapi-host
-
-    - name: Upload Retro Web API Host
-      uses: marcodallasanta/ssh-scp-deploy@v1.2.0
-      with:
-       host: ${{ secrets.SSH_HOST }} # "example.com"
-       port: ${{ secrets.SSH_PORT }} # 22
-       user: ${{ secrets.SSH_USER }} # "user"
-       password: ${{ secrets.SSH_PASSWORD }} # "password"
-       local: retro-webapi-host.tar.gz
-       remote: "/home/laraue/retro-webapi-host"
-       post_upload:
-        cd /home/laraue/retro-webapi-host && find . -mindepth 1 ! -name retro-webapi-host.tar.gz -delete &&
-        tar -xzf retro-webapi-host.tar.gz && rm retro-webapi-host.tar.gz
+    - name: Notify deploy failed
+      if: failure()
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="❌ Deploy failed: ${{ matrix.name }} (${{ github.sha }})"
