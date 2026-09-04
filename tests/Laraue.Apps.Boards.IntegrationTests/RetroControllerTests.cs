@@ -815,6 +815,44 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
+    public async Task MoveCard_ShouldAllowCardCreatedOutsideSection()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sections = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == data.RetroId)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Id)
+            .Take(2)
+            .ToArrayAsync();
+
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.CreateCard(
+                data.RetroId,
+                new CreateRetroCardRequest
+                {
+                    SectionId = sections[0],
+                    Text = "Created outside the section",
+                    X = -1000,
+                    Y = -1000,
+                }));
+
+        await _retroController.Execute(x => x.MoveCard(
+            card!.Id,
+            new MoveRetroCardRequest { SectionId = sections[1], X = -500, Y = -500 }));
+
+        var stored = await testScope.Database.RetroCards
+            .Where(x => x.Id == card.Id)
+            .Select(x => new { x.SectionId, x.X, x.Y })
+            .SingleAsync();
+
+        Assert.Equal(sections[1], stored.SectionId);
+        Assert.Equal(-500, stored.X);
+        Assert.Equal(-500, stored.Y);
+    }
+
+    [Fact]
     public async Task SetCardDone_ShouldWork_BeforeTheTeamReachesActions()
     {
         using var testScope = host.CreateTestScope();
