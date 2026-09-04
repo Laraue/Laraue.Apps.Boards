@@ -90,8 +90,8 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
             ("Good", "#489c61"),
             ("Bad", "#d65f63"),
             ("Start", "#4774d4"),
-            ("Stop", "#c99724"),
-            ("Actions", "#8a5fc1"),
+            ("Stop", "#8a5fc1"),
+            ("Actions", "#c99724"),
         ];
 
         public static List<RetroSection> WithPreviousCards(IReadOnlyCollection<RetroCard> carriedCards)
