@@ -138,7 +138,7 @@ jobs:
        script: |
         set -e
         cd /home/laraue && docker build -f ${{ matrix.dockerfile }} -t ${{ matrix.image }} .
-        docker compose up -d ${{ matrix.image }}
+        docker compose up -d --force-recreate ${{ matrix.image }}
 
     - name: Notify deploy finished
       if: success()
