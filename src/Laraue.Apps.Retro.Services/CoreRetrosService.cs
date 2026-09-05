@@ -42,9 +42,11 @@ public interface ICoreRetrosService
     Task UpdateCard(Guid cardId, string text, CancellationToken cancellationToken);
     Task MoveCard(
         Guid cardId,
+        long retroId,
         long sectionId,
         double x,
         double y,
+        long? groupId,
         CancellationToken cancellationToken);
     Task<bool> MoveGroup(
         long retroId,
@@ -58,7 +60,7 @@ public interface ICoreRetrosService
     Task SetAssignee(Guid cardId, Guid? assigneeId, CancellationToken cancellationToken);
     Task<long?> GroupCards(
         long retroId,
-        IReadOnlyCollection<Guid> cardIds,
+        IReadOnlyCollection<RetroCardPosition> cards,
         CancellationToken cancellationToken);
     Task<bool> Ungroup(long retroId, long groupId, CancellationToken cancellationToken);
     Task<bool> SetGroupTitle(
@@ -347,26 +349,29 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
     }
 
     /// <summary>Moves the card and lifts it above every other card of the same retro.</summary>
+    /// <remarks>
+    /// Which topic the note lands in is decided by the caller - the board draws the topics, so it
+    /// is the board that knows what the note was dropped onto.
+    /// </remarks>
     public async Task MoveCard(
         Guid cardId,
+        long retroId,
         long sectionId,
         double x,
         double y,
+        long? groupId,
         CancellationToken cancellationToken)
     {
-        var retroId = await RetroIdOfSection(sectionId, cancellationToken);
         var stackOrder = await NextStackOrder(retroId, cancellationToken);
 
         await context.RetroCards
-            .Where(x => x.Id == cardId)
+            .Where(card => card.Id == cardId)
             .ExecuteUpdateAsync(update => update
                 .SetProperty(p => p.SectionId, sectionId)
                 .SetProperty(p => p.X, x)
                 .SetProperty(p => p.Y, y)
                 .SetProperty(p => p.StackOrder, stackOrder)
-                // A topic is a cluster inside one section: a note carried to another section is no
-                // longer part of it. Moving the topic as a whole goes through MoveGroup instead.
-                .SetProperty(p => p.GroupId, p => p.SectionId == sectionId ? p.GroupId : null),
+                .SetProperty(p => p.GroupId, groupId),
                 cancellationToken);
 
         await DropDegenerateGroups(retroId, cancellationToken);
@@ -439,36 +444,54 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
     }
 
     /// <summary>
-    /// Merges the given notes into one topic. Returns null when the selection does not hold up -
-    /// fewer than two notes, or a note that is not a topic of this retro.
+    /// Merges the given notes into one topic and lays them out where the board asked. Returns null
+    /// when the selection does not hold up - fewer than two notes, or notes that are not notes of
+    /// one section of this retro.
     /// </summary>
     public async Task<long?> GroupCards(
         long retroId,
-        IReadOnlyCollection<Guid> cardIds,
+        IReadOnlyCollection<RetroCardPosition> cards,
         CancellationToken cancellationToken)
     {
-        if (cardIds.Count < 2)
+        if (cards.Count < 2)
+            return null;
+
+        var cardIds = cards.Select(card => card.Id).Distinct().ToList();
+        if (cardIds.Count != cards.Count)
             return null;
 
         var actionsSortOrder = await context.RetroSections
             .Where(x => x.RetroId == retroId)
             .MaxAsync(x => (int?)x.SortOrder, cancellationToken);
-        var found = await context.RetroCards
+        // A topic is a cluster of one section, so the whole selection has to come from one.
+        var sectionIds = await context.RetroCards
             .Where(x => cardIds.Contains(x.Id)
                 && x.Section!.RetroId == retroId
                 && x.Section.SortOrder != actionsSortOrder)
-            .CountAsync(cancellationToken);
+            .Select(x => x.SectionId)
+            .ToListAsync(cancellationToken);
 
-        if (found != cardIds.Count)
+        if (sectionIds.Count != cardIds.Count || sectionIds.Distinct().Count() != 1)
             return null;
 
         var group = new RetroCardGroup { RetroId = retroId, Title = string.Empty };
         context.RetroCardGroups.Add(group);
         await context.SaveChangesAsync(cancellationToken);
 
-        await context.RetroCards
+        var positions = cards.ToDictionary(card => card.Id);
+        var entities = await context.RetroCards
             .Where(x => cardIds.Contains(x.Id))
-            .ExecuteUpdateAsync(x => x.SetProperty(p => p.GroupId, group.Id), cancellationToken);
+            .ToListAsync(cancellationToken);
+
+        foreach (var card in entities)
+        {
+            var position = positions[card.Id];
+            card.GroupId = group.Id;
+            card.X = position.X;
+            card.Y = position.Y;
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
 
         // A note pulled out of its old topic can leave it with a single member, which is no longer
         // a topic at all - drop those so the board never shows a group of one.
@@ -595,6 +618,9 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
         return RetroVoteResult.Added;
     }
 }
+
+/// <summary>A note of a new topic and where the board wants it laid out.</summary>
+public record RetroCardPosition(Guid Id, double X, double Y);
 
 public enum RetroVoteResult
 {

@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -26,14 +26,25 @@ public class RetroHub(IRetrosService retrosService) : Hub
         await Others().SendAsync("join", member, Context.ConnectionAborted);
     }
 
+    public Task<GetRetroResponse> Sync() =>
+        retrosService.Get(
+            Joined<long>(RetroIdKey),
+            Context.User!.GetOrganizationAuthData(),
+            Context.ConnectionAborted);
+
     /// <summary>Answers a newcomer so they learn who is already here.</summary>
     public Task Announce() => Others().SendAsync("presence", Member(), Context.ConnectionAborted);
 
     public Task Cursor(double x, double y) =>
         Others().SendAsync("cursor", Member(), x, y, Context.ConnectionAborted);
 
-    public Task MoveCard(Guid cardId, double x, double y) =>
-        Others().SendAsync("card-move", cardId, x, y, Context.ConnectionAborted);
+    /// <summary>
+    /// Relays a drag in progress so the other boards can follow it. Nothing here is stored - the
+    /// move is saved over the API when the drag ends - so the topic travels as the opaque id the
+    /// board sent, and the hub never has to know what a topic is.
+    /// </summary>
+    public Task MoveCard(Guid cardId, double x, double y, string? groupId = null) =>
+        Others().SendAsync("card-move", cardId, x, y, groupId, Context.ConnectionAborted);
 
     public Task SetCardText(Guid cardId, string text) =>
         Others().SendAsync("card-text", cardId, text, Context.ConnectionAborted);
