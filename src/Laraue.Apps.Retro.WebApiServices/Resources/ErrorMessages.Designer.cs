@@ -113,12 +113,6 @@ namespace Laraue.Apps.Retro.WebApiServices.Resources {
             }
         }
 
-        internal static string RetroCardInTopic {
-            get {
-                return ResourceManager.GetString("RetroCardInTopic", resourceCulture);
-            }
-        }
-
         internal static string RetroActionAlwaysVisible {
             get {
                 return ResourceManager.GetString("RetroActionAlwaysVisible", resourceCulture);
@@ -152,6 +146,12 @@ namespace Laraue.Apps.Retro.WebApiServices.Resources {
         internal static string RetroSectionNotInRetro {
             get {
                 return ResourceManager.GetString("RetroSectionNotInRetro", resourceCulture);
+            }
+        }
+
+        internal static string RetroCardCoordinatesInvalid {
+            get {
+                return ResourceManager.GetString("RetroCardCoordinatesInvalid", resourceCulture);
             }
         }
 

@@ -1,6 +1,7 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using ErrorMessages = Laraue.Apps.Retro.WebApiServices.Resources.ErrorMessages;
 
 namespace Laraue.Apps.Retro.WebApiServices;
 
@@ -26,14 +27,38 @@ public class RetroHub(IRetrosService retrosService) : Hub
         await Others().SendAsync("join", member, Context.ConnectionAborted);
     }
 
+    public Task<GetRetroResponse> Sync() =>
+        retrosService.Get(
+            Joined<long>(RetroIdKey),
+            Context.User!.GetOrganizationAuthData(),
+            Context.ConnectionAborted);
+
     /// <summary>Answers a newcomer so they learn who is already here.</summary>
     public Task Announce() => Others().SendAsync("presence", Member(), Context.ConnectionAborted);
 
     public Task Cursor(double x, double y) =>
         Others().SendAsync("cursor", Member(), x, y, Context.ConnectionAborted);
 
-    public Task MoveCard(Guid cardId, double x, double y) =>
-        Others().SendAsync("card-move", cardId, x, y, Context.ConnectionAborted);
+    /// <summary>
+    /// Relays an authorized drag preview. The API persists the final move on drop.
+    /// </summary>
+    public async Task MoveCard(Guid cardId, double x, double y, string? groupId = null)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y))
+            throw new HubException(ErrorMessages.RetroCardCoordinatesInvalid);
+        long? parsedGroupId = null;
+        if (groupId is not null)
+        {
+            if (!long.TryParse(groupId, out var id))
+                throw new HubException(ErrorMessages.RetroGroupInvalid);
+            parsedGroupId = id;
+        }
+
+        var allowedGroupId = await retrosService.ValidateLiveCardMove(
+            Joined<long>(RetroIdKey), cardId, parsedGroupId,
+            Context.User!.GetOrganizationAuthData(), Context.ConnectionAborted);
+        await Others().SendAsync("card-move", cardId, x, y, allowedGroupId?.ToString(), Context.ConnectionAborted);
+    }
 
     public Task SetCardText(Guid cardId, string text) =>
         Others().SendAsync("card-text", cardId, text, Context.ConnectionAborted);

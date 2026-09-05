@@ -1,10 +1,12 @@
 ﻿using System.Net;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Retro.WebApiHost.Controllers;
 using Laraue.Apps.Retro.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
+using Laraue.Core.Exceptions.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -553,13 +555,63 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task MoveCard_ShouldKeepANoteOfATopicInItsSection()
+    public async Task MoveCard_ShouldRejectOrganizationAdmin_WhenMovingAnotherUsersCard()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sections = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == data.RetroId)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Id)
+            .Take(2)
+            .ToArrayAsync();
+        var card = await _retroController.Execute(x => x.CreateCard(
+            data.RetroId,
+            new CreateRetroCardRequest { SectionId = sections[0], Text = "Move me", X = 0, Y = 0 }));
+        await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.AdminId)
+            .Execute(x => x.MoveCard(
+                card!.Id,
+                new MoveRetroCardRequest { SectionId = sections[1], X = 5, Y = 5 })));
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+
+        var moved = await testScope.Database.RetroCards
+            .Where(x => x.Id == card.Id)
+            .Select(x => new { x.SectionId, x.X, x.Y })
+            .SingleAsync();
+        Assert.Equal(sections[0], moved.SectionId);
+        Assert.Equal((0, 0), (moved.X, moved.Y));
+    }
+
+    [Fact]
+    public async Task Ungroup_ShouldRejectOrganizationAdmin_WhenNotRetroOwner()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateTopics(testScope);
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.AdminId)
+            .Execute(x => x.Ungroup(data.Retro.RetroId, group!.Id)));
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Single(response!.Groups);
+        Assert.False(response.CanManage);
+    }
+
+    [Fact]
+    public async Task MoveCard_ShouldRemoveANoteFromATopic_WhenMovedToAnotherSection()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
         var otherSectionId = await testScope.Database.RetroSections
             .Where(x => x.RetroId == data.Retro.RetroId)
             .OrderBy(x => x.SortOrder)
@@ -567,18 +619,15 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .Skip(1)
             .FirstAsync();
 
-        // Pulling one note out would break the topic up and strand the votes it holds, so the
-        // topic travels as a whole and splitting one off starts with ungrouping.
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
-            .Execute(x => x.MoveCard(
-                data.FirstId,
-                new MoveRetroCardRequest { SectionId = otherSectionId, X = 5, Y = 5 })));
-
-        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+        await _retroController.Execute(x => x.MoveCard(
+            data.FirstId,
+            new MoveRetroCardRequest { SectionId = otherSectionId, X = 5, Y = 5 }));
 
         var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
-        Assert.Equal(group!.Id, response!.Cards.Single(x => x.Id == data.FirstId).GroupId);
-        Assert.Equal(2, response.Groups.Single().CardIds.Length);
+        Assert.Equal(otherSectionId, response!.Cards.Single(x => x.Id == data.FirstId).SectionId);
+        Assert.Null(response.Cards.Single(x => x.Id == data.FirstId).GroupId);
+        Assert.Null(response.Cards.Single(x => x.Id == data.SecondId).GroupId);
+        Assert.Empty(response.Groups);
     }
 
     [Fact]
@@ -779,39 +828,56 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task MoveCard_ShouldAllowMovingIntoAndOutOfActionsSection_WhenPhaseIsActions()
+    public async Task MoveCard_ShouldAllowAParticipantToMoveTheirActionWithinActions()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var actionsSectionId = await ActionsSectionId(testScope, data.RetroId);
+        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
+        var participant = _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId);
+        var card = await participant.Execute(x => x.CreateCard(
+            data.RetroId,
+            new CreateRetroCardRequest { SectionId = actionsSectionId, Text = "Painful releases", X = 0, Y = 0 }));
+
+        await participant.Execute(x => x.MoveCard(
+            card!.Id,
+            new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
+
+        var moved = await testScope.Database.RetroCards
+            .Where(x => x.Id == card!.Id)
+            .Select(x => new { x.SectionId, x.X, x.Y })
+            .SingleAsync();
+        Assert.Equal(actionsSectionId, moved.SectionId);
+        Assert.Equal((5, 5), (moved.X, moved.Y));
+
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => participant.Execute(x => x.MoveCard(
+            card!.Id,
+            new MoveRetroCardRequest { SectionId = sectionId, X = 0, Y = 0 })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task MoveCard_ShouldKeepAParticipantFromMovingAnotherUsersCard()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateRetro(testScope);
         var sectionId = await FirstSectionId(testScope, data.RetroId);
-        var actionsSectionId = await ActionsSectionId(testScope, data.RetroId);
         var card = await _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
             .Execute(x => x.CreateCard(
                 data.RetroId,
-                new CreateRetroCardRequest { SectionId = sectionId, Text = "Painful releases", X = 0, Y = 0 }));
-        await SetPhase(testScope, data.RetroId, RetroPhase.Actions);
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Not theirs", X = 0, Y = 0 }));
 
-        var cardId = card!.Id;
-        await _retroController
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
             .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
             .Execute(x => x.MoveCard(
-                cardId,
-                new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
+                card!.Id,
+                new MoveRetroCardRequest { SectionId = sectionId, X = 5, Y = 5 })));
 
-        Assert.Equal(actionsSectionId, await testScope.Database.RetroCards
-            .Where(x => x.Id == cardId)
-            .Select(x => x.SectionId)
-            .SingleAsync());
-
-        await _retroController.Execute(x => x.MoveCard(
-            cardId,
-            new MoveRetroCardRequest { SectionId = sectionId, X = 0, Y = 0 }));
-
-        Assert.Equal(sectionId, await testScope.Database.RetroCards
-            .Where(x => x.Id == cardId)
-            .Select(x => x.SectionId)
-            .SingleAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
     }
 
     [Fact]
@@ -1100,17 +1166,34 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             data.RetroId,
             new SetRetroPhaseRequest { Phase = RetroPhase.Group }));
 
-        // ...and the previous one is left with no control at all.
+        // ...while a plain participant of the room has no control at all.
+        var outsiderId = await testScope.CreateUser();
+        await testScope.Database.OrganizationUsers.AddAsync(new OrganizationUser
+        {
+            OrganizationId = data.OrganizationId,
+            UserId = outsiderId,
+            CanRead = true,
+        });
+        await testScope.Database.SaveChangesAsync();
+
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
-            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .WithOrganizationAuthorization(data.OrganizationId, outsiderId)
             .Execute(x => x.AdvancePhase(
                 data.RetroId,
                 new SetRetroPhaseRequest { Phase = RetroPhase.Vote })));
         Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        Assert.False((await _retroController.Execute(x => x.Get(data.RetroId)))!.CanManage);
 
-        var mine = await _retroController.Execute(x => x.Get(data.RetroId));
+        // Organization privileges do not preserve control after handing the retro over.
+        var mine = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.OwnerId)
+            .Execute(x => x.Get(data.RetroId));
         Assert.False(mine!.CanManage);
         Assert.Equal(data.ParticipantId, mine.Owner.UserId);
+        var previousOwnerException = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.AdvancePhase(data.RetroId,
+                new SetRetroPhaseRequest { Phase = RetroPhase.Vote })));
+        Assert.Equal(HttpStatusCode.Forbidden, previousOwnerException.StatusCode);
     }
 
     [Fact]
@@ -1324,10 +1407,15 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateTopics(testScope);
+        var sectionId = await FirstSectionId(testScope, data.Retro.RetroId);
+
+        await _retroController.Execute(x => x.MoveCard(
+            data.SecondId,
+            new MoveRetroCardRequest { SectionId = sectionId, X = 600, Y = 400 }));
 
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
 
         var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
         var topic = Assert.Single(response!.Groups);
@@ -1341,6 +1429,162 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         Assert.Equal(
             new[] { data.FirstId, data.SecondId }.Order(),
             response.Cards.Where(x => x.GroupId == topic.Id).Select(x => x.Id).Order());
+        // Where a topic lays its notes out is the board's call, so the notes land where it asked.
+        Assert.Equal(
+            new (double X, double Y)[] { (0, 0), (200, 0) },
+            response.Cards
+                .Where(x => x.GroupId == topic.Id)
+                .OrderBy(x => x.X)
+                .Select(x => (x.X, x.Y)));
+    }
+
+    [Fact]
+    public async Task MoveCard_ShouldJoinAndLeaveATopic_WhenTheBoardSaysSo()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var sectionId = await FirstSectionId(testScope, data.Retro.RetroId);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
+
+        await _retroController.Execute(x => x.MoveCard(
+            data.ThirdId,
+            new MoveRetroCardRequest
+            {
+                SectionId = sectionId,
+                X = 20,
+                Y = 20,
+                GroupId = group!.Id,
+            }));
+
+        var joined = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Equal(group.Id, joined!.Cards.Single(x => x.Id == data.ThirdId).GroupId);
+        Assert.Equal(3, joined.Groups.Single(x => x.Id == group.Id).CardIds.Length);
+
+        await _retroController.Execute(x => x.MoveCard(
+            data.FirstId,
+            new MoveRetroCardRequest { SectionId = sectionId, X = 500, Y = 500 }));
+
+        var split = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Null(split!.Cards.Single(x => x.Id == data.FirstId).GroupId);
+        Assert.Equal(
+            new[] { data.SecondId, data.ThirdId }.Order(),
+            split.Groups.Single(x => x.Id == group.Id).CardIds.Order());
+    }
+
+    [Fact]
+    public async Task MoveCard_ShouldFail_WhenTheTopicIsNotInTheTargetSection()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
+        var otherSectionId = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == data.Retro.RetroId)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Id)
+            .Skip(1)
+            .FirstAsync();
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.MoveCard(
+                data.ThirdId,
+                new MoveRetroCardRequest
+                {
+                    SectionId = otherSectionId,
+                    X = 5,
+                    Y = 5,
+                    GroupId = group!.Id,
+                })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task MoveCard_ShouldIgnoreTheTopicAParticipantAsksFor()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var sectionId = await FirstSectionId(testScope, data.Retro.RetroId);
+        var group = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Collect);
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.ParticipantId)
+            .Execute(x => x.CreateCard(
+                data.Retro.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Mine", X = 0, Y = 0 }));
+
+        // Only someone who may rearrange the board may say what belongs to a topic.
+        await _retroController.Execute(x => x.MoveCard(
+            card!.Id,
+            new MoveRetroCardRequest
+            {
+                SectionId = sectionId,
+                X = 20,
+                Y = 20,
+                GroupId = group!.Id,
+            }));
+
+        var response = await _retroController
+            .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.OwnerId)
+            .Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Null(response!.Cards.Single(x => x.Id == card.Id).GroupId);
+        Assert.Equal(2, response.Groups.Single(x => x.Id == group.Id).CardIds.Length);
+    }
+
+    [Fact]
+    public async Task GroupCards_ShouldMergeNotesThatAlreadyBelongToOtherTopics()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var sectionId = await FirstSectionId(testScope, data.Retro.RetroId);
+        var fourth = await _retroController.Execute(x => x.CreateCard(
+            data.Retro.RetroId,
+            new CreateRetroCardRequest { SectionId = sectionId, Text = "Fourth", X = 0, Y = 0 }));
+        var first = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
+        var second = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.ThirdId, fourth!.Id) }));
+
+        var merged = await _retroController.Execute(x => x.GroupCards(
+            data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.ThirdId) }));
+
+        var response = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
+        Assert.Equal(
+            new[] { data.FirstId, data.ThirdId }.Order(),
+            response!.Groups.Single(x => x.Id == merged!.Id).CardIds.Order());
+        // Both topics were left with a single note, which is no topic at all.
+        Assert.DoesNotContain(response.Groups, x => x.Id == first!.Id || x.Id == second!.Id);
+    }
+
+    [Fact]
+    public async Task GroupCards_ShouldFail_WhenNotesComeFromDifferentSections()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var otherSectionId = await testScope.Database.RetroSections
+            .Where(x => x.RetroId == data.Retro.RetroId)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Id)
+            .Skip(1)
+            .FirstAsync();
+        await _retroController.Execute(x => x.MoveCard(
+            data.SecondId,
+            new MoveRetroCardRequest { SectionId = otherSectionId, X = 5, Y = 5 }));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
+            .Execute(x => x.GroupCards(
+                data.Retro.RetroId,
+                new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
     }
 
     [Fact]
@@ -1352,7 +1596,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
             .Execute(x => x.GroupCards(
                 data.Retro.RetroId,
-                new GroupRetroCardsRequest { CardIds = new[] { data.FirstId } })));
+                new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId) })));
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
     }
@@ -1367,7 +1611,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.ParticipantId)
             .Execute(x => x.GroupCards(
                 data.Retro.RetroId,
-                new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } })));
+                new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) })));
 
         Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
     }
@@ -1382,7 +1626,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         // Notes that turn out to say the same thing get merged whenever the room notices.
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
 
         var participant = _retroController
             .WithOrganizationAuthorization(data.Retro.OrganizationId, data.Retro.ParticipantId);
@@ -1403,7 +1647,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
             new MoveRetroCardRequest { SectionId = sectionId, X = 20, Y = 30 }));
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
 
         var otherSectionId = await testScope.Database.RetroSections
             .Where(x => x.RetroId == data.Retro.RetroId && x.Id != sectionId)
@@ -1421,8 +1665,9 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var second = response.Cards.Single(x => x.Id == data.SecondId);
         var third = response.Cards.Single(x => x.Id == data.ThirdId);
 
+        // Merging laid the topic out - the move then carries that layout across as a whole.
         Assert.Equal((10, 15), (first.X, first.Y));
-        Assert.Equal((30, 45), (second.X, second.Y));
+        Assert.Equal((210, 15), (second.X, second.Y));
         Assert.Equal((0, 0), (third.X, third.Y));
         Assert.True(first.StackOrder < second.StackOrder);
         // The whole topic belongs to the section it was dropped on, colour and all.
@@ -1437,7 +1682,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var data = await CreateTopics(testScope);
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
 
         await _retroController.Execute(x => x.Ungroup(data.Retro.RetroId, group!.Id));
 
@@ -1448,7 +1693,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
 
         var regrouped = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
         await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Discuss);
 
         // A topic cut the wrong way has to be fixable while the team is already talking about it.
@@ -1492,7 +1737,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var data = await CreateTopics(testScope);
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
 
         await _retroController.Execute(x => x.SetGroupTitle(
             data.Retro.RetroId,
@@ -1510,7 +1755,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var data = await CreateTopics(testScope);
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
         await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
         await _retroController.Execute(x => x.SetPhaseTimer(
             data.Retro.RetroId,
@@ -1549,7 +1794,7 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Group);
         var group = await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
         await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Vote);
 
         // The vote sits on the second note, new votes would land on the first - the topic still
@@ -1568,13 +1813,13 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     }
 
     [Fact]
-    public async Task MoveCard_ShouldReachTheActions_OnceTheNoteLeftItsTopic()
+    public async Task MoveCard_ShouldLeaveTheTopicAndReachTheActions()
     {
         using var testScope = host.CreateTestScope();
         var data = await CreateTopics(testScope);
-        var group = await _retroController.Execute(x => x.GroupCards(
+        await _retroController.Execute(x => x.GroupCards(
             data.Retro.RetroId,
-            new GroupRetroCardsRequest { CardIds = new[] { data.FirstId, data.SecondId } }));
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
         var sections = await testScope.Database.RetroSections
             .Where(x => x.RetroId == data.Retro.RetroId)
             .OrderBy(x => x.SortOrder)
@@ -1584,21 +1829,16 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         var firstSectionId = sections[0];
         await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Actions);
 
-        // While it is part of a topic the note stays with it, votes and all.
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _retroController
-            .Execute(x => x.MoveCard(
-                data.FirstId,
-                new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 })));
-
-        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
-
-        await _retroController.Execute(x => x.Ungroup(data.Retro.RetroId, group!.Id));
+        // Crossing into Actions intentionally splits the note from its topic.
         await _retroController.Execute(x => x.MoveCard(
             data.FirstId,
             new MoveRetroCardRequest { SectionId = actionsSectionId, X = 5, Y = 5 }));
 
         var moved = await _retroController.Execute(x => x.Get(data.Retro.RetroId));
         Assert.Equal(actionsSectionId, moved!.Cards.Single(x => x.Id == data.FirstId).SectionId);
+        Assert.Null(moved.Cards.Single(x => x.Id == data.FirstId).GroupId);
+        Assert.Null(moved.Cards.Single(x => x.Id == data.SecondId).GroupId);
+        Assert.Empty(moved.Groups);
 
         // A note that crossed into the actions by mistake has to be able to cross back.
         await _retroController.Execute(x => x.MoveCard(
@@ -1630,7 +1870,86 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
         return new TopicsTestData(data, ids[0], ids[1], ids[2]);
     }
 
+    [Fact]
+    public async Task Manage_ShouldRejectOrganizationAdmin_WhenNotRetroOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var admin = _retroController.WithOrganizationAuthorization(data.OrganizationId, data.AdminId);
+        var board = await admin.Execute(x => x.Get(data.RetroId));
+        Assert.False(board!.CanManage);
+        var list = await admin.Execute(x => x.Get(new GetRetrosRequest
+        {
+            Pagination = new PaginationData { Page = 0, PerPage = 10 },
+        }));
+        Assert.False(list!.Data.Single(x => x.Id == data.RetroId).CanManage);
+
+        var delete = await Assert.ThrowsAsync<HttpRequestException>(() => admin.Execute(x => x.Delete(data.RetroId)));
+        Assert.Equal(HttpStatusCode.Forbidden, delete.StatusCode);
+        var reset = await Assert.ThrowsAsync<HttpRequestException>(() => admin.Execute(x => x.ResetVotes(data.RetroId)));
+        Assert.Equal(HttpStatusCode.Forbidden, reset.StatusCode);
+        var transfer = await Assert.ThrowsAsync<HttpRequestException>(() => admin.Execute(x => x.TransferOwnership(
+            data.RetroId, new TransferRetroOwnershipRequest { UserId = data.AdminId })));
+        Assert.Equal(HttpStatusCode.Forbidden, transfer.StatusCode);
+    }
+
+    [Fact]
+    public async Task ValidateLiveCardMove_ShouldRejectOtherAuthors_ExceptRetroOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateRetro(testScope);
+        var sectionId = await FirstSectionId(testScope, data.RetroId);
+        var card = await _retroController
+            .WithOrganizationAuthorization(data.OrganizationId, data.ParticipantId)
+            .Execute(x => x.CreateCard(data.RetroId,
+                new CreateRetroCardRequest { SectionId = sectionId, Text = "Mine", X = 0, Y = 0 }));
+        using var scope = retroHost.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IRetrosService>();
+        var author = new OrganizationAuthData { OrganizationId = data.OrganizationId, UserId = data.ParticipantId };
+        var owner = new OrganizationAuthData { OrganizationId = data.OrganizationId, UserId = data.OwnerId };
+        var admin = new OrganizationAuthData { OrganizationId = data.OrganizationId, UserId = data.AdminId };
+
+        Assert.Null(await service.ValidateLiveCardMove(data.RetroId, card!.Id, null, author, default));
+        // A participant cannot assign a topic through the preview channel.
+        Assert.Null(await service.ValidateLiveCardMove(data.RetroId, card.Id, long.MaxValue, author, default));
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.ValidateLiveCardMove(data.RetroId, card.Id, null, admin, default));
+        await SetPhase(testScope, data.RetroId, RetroPhase.Vote);
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            service.ValidateLiveCardMove(data.RetroId, card.Id, null, author, default));
+        Assert.Null(await service.ValidateLiveCardMove(data.RetroId, card.Id, null, owner, default));
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.ValidateLiveCardMove(long.MaxValue, card.Id, null, owner, default));
+    }
+
+    [Fact]
+    public async Task ValidateLiveCardMove_ShouldValidateTopics_AndRejectFinishedRetros()
+    {
+        using var testScope = host.CreateTestScope();
+        var data = await CreateTopics(testScope);
+        var group = await _retroController.Execute(x => x.GroupCards(data.Retro.RetroId,
+            new GroupRetroCardsRequest { Cards = TopicOf(data.FirstId, data.SecondId) }));
+        using var scope = retroHost.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IRetrosService>();
+        var owner = new OrganizationAuthData { OrganizationId = data.Retro.OrganizationId, UserId = data.Retro.OwnerId };
+        Assert.Equal(group!.Id, await service.ValidateLiveCardMove(
+            data.Retro.RetroId, data.ThirdId, group.Id, owner, default));
+        await Assert.ThrowsAsync<NotFoundException>(() => service.ValidateLiveCardMove(
+            data.Retro.RetroId, data.ThirdId, long.MaxValue, owner, default));
+
+        await SetPhase(testScope, data.Retro.RetroId, RetroPhase.Actions);
+        await _retroController.Execute(x => x.Finish(data.Retro.RetroId));
+        await Assert.ThrowsAsync<NotFoundException>(() => service.ValidateLiveCardMove(
+            data.Retro.RetroId, data.ThirdId, group.Id, owner, default));
+    }
+
     private record TopicsTestData(RetroTestData Retro, Guid FirstId, Guid SecondId, Guid ThirdId);
+
+    /// <summary>Lays the notes of a new topic out in a row, the way the board would.</summary>
+    private static GroupRetroCardRequest[] TopicOf(params Guid[] cardIds) =>
+        cardIds
+            .Select((id, index) => new GroupRetroCardRequest { Id = id, X = index * 200, Y = 0 })
+            .ToArray();
 
     private static Task<long> FirstSectionId(WebApiTestHostScope testScope, long retroId) =>
         testScope.Database.RetroSections
@@ -1651,13 +1970,23 @@ public class RetroControllerTests(WebApiTestHost host, RetroWebApiTestHost retro
     {
         var ownerId = await testScope.CreateUser();
         var participantId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, setup => setup.AddUser(participantId));
+        var adminId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, setup => setup
+            .AddUser(participantId)
+            .AddUser(adminId, user => user
+                .SetAdminAccessLevel(AdminAccessLevel.Manage)
+                .SetGlobalAccessLevel(level => level.CanRead = true)));
         var response = await _retroController
             .WithOrganizationAuthorization(organization.Id, ownerId)
             .Execute(x => x.Create(new CreateRetroRequest { Name = "Sprint retro" }));
 
-        return new RetroTestData(organization.Id, response!.Id, ownerId, participantId);
+        return new RetroTestData(organization.Id, response!.Id, ownerId, participantId, adminId);
     }
 
-    private record RetroTestData(long OrganizationId, long RetroId, Guid OwnerId, Guid ParticipantId);
+    private record RetroTestData(
+        long OrganizationId,
+        long RetroId,
+        Guid OwnerId,
+        Guid ParticipantId,
+        Guid AdminId);
 }

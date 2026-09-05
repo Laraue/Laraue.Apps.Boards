@@ -90,6 +90,12 @@ public interface IRetrosService
         MoveRetroGroupRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
+    Task<long?> ValidateLiveCardMove(
+        long retroId,
+        Guid cardId,
+        long? groupId,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
     Task ResetVotes(long id, OrganizationAuthData authData, CancellationToken cancellationToken);
     Task DeleteCard(Guid cardId, OrganizationAuthData authData, CancellationToken cancellationToken);
     Task SetCardVote(
@@ -479,7 +485,11 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var retro = await EnsureEditable(id, authData, cancellationToken);
-        EnsureCardEditable(isAction: false, retro.Phase, retro.IsOwner, nameof(id));
+        EnsureCardEditable(
+            isAction: false,
+            retro.Phase,
+            retro.IsOwner,
+            nameof(id));
         await coreRetrosService.SetCardsRevealed(
             id,
             authData.UserId,
@@ -496,7 +506,11 @@ public class RetrosService(
     {
         var retro = await EnsureEditable(id, authData, cancellationToken);
         var isAction = await EnsureSectionInRetro(id, request.SectionId, cancellationToken);
-        EnsureCardEditable(isAction, retro.Phase, retro.IsOwner, nameof(request.SectionId));
+        EnsureCardEditable(
+            isAction,
+            retro.Phase,
+            retro.IsOwner,
+            nameof(request.SectionId));
         var cardId = await coreRetrosService.CreateCard(
             request.SectionId,
             authData.UserId,
@@ -515,7 +529,11 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var card = await EnsureOwnCard(cardId, authData, cancellationToken);
-        EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
+        EnsureCardEditable(
+            card.IsAction,
+            card.Phase,
+            card.IsOwner,
+            nameof(cardId));
         await coreRetrosService.UpdateCard(cardId, request.Text.Trim(), cancellationToken);
         await CardChanged(cardId, cancellationToken);
     }
@@ -531,30 +549,58 @@ public class RetrosService(
             card.RetroId,
             request.SectionId,
             cancellationToken);
-        if (card.Finished)
-            throw new BadRequestException(nameof(request.SectionId), ErrorMessages.RetroFinished);
 
-        // A topic is a cluster inside one section: pulling one of its notes into another section
-        // would quietly break the topic up and strand the votes it carries, so a topic moves as a
-        // whole through MoveGroup, and splitting one off starts with ungrouping.
-        if (card.GroupId is not null && request.SectionId != card.SectionId)
-            throw new BadRequestException(nameof(request.SectionId), ErrorMessages.RetroCardInTopic);
-
-        // A note crossing the actions border is turned into a commitment or back, so it obeys the
-        // actions rule either way; a note that stays on its side obeys the rule of what it already
-        // is. Both bind the team only - the owner runs the room and is bound by neither.
-        EnsureCardEditable(
-            targetIsAction || card.IsAction,
-            card.Phase,
-            card.IsOwner,
-            nameof(request.SectionId));
+        EnsureCardMoveAllowed(cardId, card, targetIsAction, authData.UserId);
         await coreRetrosService.MoveCard(
             cardId,
+            card.RetroId,
             request.SectionId,
             request.X,
             request.Y,
+            await EnsureCardGroup(cardId, card, request, cancellationToken),
             cancellationToken);
         await Changed(card.RetroId, cancellationToken);
+    }
+
+    public async Task<long?> ValidateLiveCardMove(
+        long retroId,
+        Guid cardId,
+        long? groupId,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        await EnsureMember(authData, cancellationToken);
+        var card = await EnsureCard(cardId, authData, cancellationToken);
+        if (card.RetroId != retroId)
+            throw CardNotFound(cardId);
+
+        // Live coordinates are previews; the target section is validated by REST on drop.
+        EnsureCardMoveAllowed(cardId, card, card.IsAction, authData.UserId);
+        if (!card.IsOwner)
+            return card.GroupId;
+
+        if (groupId.HasValue && !await context.RetroCardGroups.AnyAsync(
+                x => x.Id == groupId.Value && x.RetroId == retroId,
+                cancellationToken))
+            throw GroupNotFound(groupId.Value);
+
+        return groupId;
+    }
+
+    private static void EnsureCardMoveAllowed(
+        Guid cardId,
+        CardContext card,
+        bool targetIsAction,
+        Guid userId)
+    {
+        if (!card.IsOwner && card.AuthorId != userId)
+            throw new ForbiddenException(string.Format(
+                ErrorMessages.EntityActionForbidden, "Card", cardId, "move"));
+
+        if (!card.IsOwner && card.Phase == RetroPhase.Actions && (!card.IsAction || !targetIsAction))
+            throw new BadRequestException(nameof(MoveRetroCardRequest.SectionId), ErrorMessages.RetroActionsSectionOnly);
+
+        EnsureCardEditable(targetIsAction || card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
     }
 
     public async Task MoveGroup(
@@ -565,10 +611,14 @@ public class RetrosService(
         CancellationToken cancellationToken)
     {
         var retro = await EnsureEditable(id, authData, cancellationToken);
-        // A topic is notes of one category, so it lands in a section as a whole - and the actions
-        // section stays as closed to it as it is to a single note.
-        if (await EnsureSectionInRetro(id, request.SectionId, cancellationToken))
-            EnsureCardEditable(isAction: true, retro.Phase, retro.IsOwner, nameof(request.SectionId));
+        if (!retro.IsOwner)
+            throw new ForbiddenException(string.Format(
+                ErrorMessages.EntityActionForbidden,
+                "Retro group",
+                groupId,
+                "move"));
+
+        await EnsureSectionInRetro(id, request.SectionId, cancellationToken);
 
         if (!await coreRetrosService.MoveGroup(
                 id,
@@ -660,7 +710,11 @@ public class RetrosService(
         if (card.IsAction)
             throw new BadRequestException(nameof(cardId), ErrorMessages.RetroActionAlwaysVisible);
 
-        EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
+        EnsureCardEditable(
+            card.IsAction,
+            card.Phase,
+            card.IsOwner,
+            nameof(cardId));
         await coreRetrosService.SetRevealed(cardId, request.Revealed, cancellationToken);
         await Changed(card.RetroId, cancellationToken);
     }
@@ -675,7 +729,11 @@ public class RetrosService(
         if (!card.IsAction)
             throw new BadRequestException(nameof(cardId), ErrorMessages.RetroActionsSectionOnly);
 
-        EnsureCardEditable(card.IsAction, card.Phase, card.IsOwner, nameof(cardId));
+        EnsureCardEditable(
+            card.IsAction,
+            card.Phase,
+            card.IsOwner,
+            nameof(cardId));
 
         if (request.AssigneeId.HasValue)
         {
@@ -700,18 +758,15 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        await EnsureGroupingAllowed(id, authData, cancellationToken);
+        await EnsureOwner(id, authData, cancellationToken);
 
-        var groupId = await coreRetrosService.GroupCards(id, request.CardIds, cancellationToken)
-            ?? throw new BadRequestException(nameof(request.CardIds), ErrorMessages.RetroGroupInvalid);
+        var cards = request.Cards
+            .Select(card => new RetroCardPosition(card.Id, card.X, card.Y))
+            .ToList();
+        var groupId = await coreRetrosService.GroupCards(id, cards, cancellationToken)
+            ?? throw new BadRequestException(nameof(request.Cards), ErrorMessages.RetroGroupInvalid);
 
-        await retroHub.Clients
-            .Group(RetroHub.GroupName(id))
-            .SendAsync("group-upserted", new RetroGroupChangedDto
-            {
-                Id = groupId,
-                CardIds = request.CardIds,
-            }, cancellationToken);
+        await Changed(id, cancellationToken);
 
         return new GroupRetroCardsResponse { Id = groupId };
     }
@@ -722,7 +777,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        await EnsureGroupingAllowed(id, authData, cancellationToken);
+        await EnsureOwner(id, authData, cancellationToken);
 
         if (!await coreRetrosService.Ungroup(id, groupId, cancellationToken))
             throw GroupNotFound(groupId);
@@ -737,25 +792,12 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        await EnsureGroupingAllowed(id, authData, cancellationToken);
+        await EnsureOwner(id, authData, cancellationToken);
 
         if (!await coreRetrosService.SetGroupTitle(id, groupId, request.Title.Trim(), cancellationToken))
             throw GroupNotFound(groupId);
 
         await Changed(id, cancellationToken);
-    }
-
-    /// <summary>
-    /// Topics are the facilitator's tool for running the room, not a step of it: a wrongly cut
-    /// topic has to be fixable while the team is already discussing it.
-    /// </summary>
-    private async Task EnsureGroupingAllowed(
-        long retroId,
-        OrganizationAuthData authData,
-        CancellationToken cancellationToken)
-    {
-        await EnsureOwner(retroId, authData, cancellationToken);
-        await EnsureEditable(retroId, authData, cancellationToken);
     }
 
     private async Task EnsureMember(OrganizationAuthData authData, CancellationToken cancellationToken)
@@ -841,11 +883,11 @@ public class RetrosService(
     private record RetroContext(RetroPhase Phase, bool IsOwner);
 
     /// <summary>
-    /// Topics are written in Collect/Group and freeze from Vote on, so everyone votes on and
+    /// Topics are written in Collect and freeze from Group on, so everyone votes on and
     /// discusses the same set; the facilitator has to revert the retro to change them again.
     /// Action items are the mirror image - they only exist once the team is in Actions.
     /// The phases pace the team, not the facilitator: running the room means fixing whatever the
-    /// room got wrong, whenever it comes up, so the owner is not bound by them.
+    /// room got wrong, whenever it comes up, so only the retro owner bypasses phase restrictions.
     /// </summary>
     private static void EnsureCardEditable(
         bool isAction,
@@ -864,11 +906,13 @@ public class RetrosService(
             return;
         }
 
-        if (phase is not (RetroPhase.Collect or RetroPhase.Group))
+        if (phase != RetroPhase.Collect)
             throw new BadRequestException(paramName, ErrorMessages.RetroCardsFrozen);
     }
 
-    /// <summary>Running the retro is the facilitator's job; returns when it was finished, if it was.</summary>
+    /// <summary>
+    /// Only the retro owner may manage it. Returns when the retro was finished, if it was.
+    /// </summary>
     private async Task<DateTime?> EnsureRetroOwner(
         long retroId,
         OrganizationAuthData authData,
@@ -888,6 +932,37 @@ public class RetrosService(
                 "manage"));
 
         return retro.FinishedAt;
+    }
+
+    /// <summary>
+    /// The board draws the topics, so the board decides which one a note was dropped onto; the
+    /// server only checks the topic is real and lives in the section the note landed in.
+    /// </summary>
+    private async Task<long?> EnsureCardGroup(
+        Guid cardId,
+        CardContext card,
+        MoveRetroCardRequest request,
+        CancellationToken cancellationToken)
+    {
+        // A topic is a cluster inside one section: a note carried to another section leaves it,
+        // and re-picking the topic of a note is rearranging the board.
+        if (!card.IsOwner)
+            return card.SectionId == request.SectionId ? card.GroupId : null;
+
+        if (request.GroupId is not { } groupId)
+            return null;
+
+        var isTopicOfSection = await context.RetroCards.AnyAsync(
+            x => x.GroupId == groupId
+                && x.Id != cardId
+                && x.SectionId == request.SectionId
+                && x.Section!.RetroId == card.RetroId,
+            cancellationToken);
+
+        if (!isTopicOfSection)
+            throw new BadRequestException(nameof(request.GroupId), ErrorMessages.RetroGroupInvalid);
+
+        return groupId;
     }
 
     private async Task EnsureOwner(
@@ -950,7 +1025,6 @@ public class RetrosService(
             x.Section!.RetroId,
             x.Section.Retro!.Phase,
             x.Section.SortOrder == x.Section.Retro.Sections.Max(s => s.SortOrder),
-            x.Section.Retro.FinishedAt != null,
             x.Section.Retro.OwnerId == userId);
 
     private record CardContext(
@@ -960,7 +1034,6 @@ public class RetrosService(
         long RetroId,
         RetroPhase Phase,
         bool IsAction,
-        bool Finished,
         bool IsOwner);
 
     private Task Changed(long retroId, CancellationToken cancellationToken) =>
@@ -1133,12 +1206,6 @@ public record RetroCardChangedDto
     public required RetroUser Author { get; init; }
 }
 
-public record RetroGroupChangedDto
-{
-    public required long Id { get; init; }
-    public required IList<Guid> CardIds { get; init; }
-}
-
 public record CreateRetroRequest
 {
     [MaxLength(128)]
@@ -1186,6 +1253,9 @@ public record MoveRetroCardRequest
     public required long SectionId { get; init; }
     public required double X { get; init; }
     public required double Y { get; init; }
+
+    /// <summary>The topic the note was dropped onto; null leaves it on its own.</summary>
+    public long? GroupId { get; init; }
 }
 
 public record MoveRetroGroupRequest
@@ -1243,8 +1313,18 @@ public record SetRetroCardRevealedRequest
 
 public record GroupRetroCardsRequest
 {
-    /// <summary>The notes to merge; at least two, all topics of this retro.</summary>
-    public required Guid[] CardIds { get; init; }
+    /// <summary>
+    /// The notes to merge and where the board laid them out; at least two, all of one section of
+    /// this retro.
+    /// </summary>
+    public required GroupRetroCardRequest[] Cards { get; init; }
+}
+
+public record GroupRetroCardRequest
+{
+    public required Guid Id { get; init; }
+    public required double X { get; init; }
+    public required double Y { get; init; }
 }
 
 public record GroupRetroCardsResponse
