@@ -37,10 +37,13 @@
         <value>The retro can only be finished from Actions.</value>
     </data>
     <data name="RetroCardsFrozen" xml:space="preserve">
-        <value>Notes can only be changed in Collect or Group. The facilitator has to return the retro to change them.</value>
+        <value>Notes can only be changed in Collect. The facilitator has to return the retro to change them.</value>
     </data>
     <data name="RetroGroupInvalid" xml:space="preserve">
         <value>A topic needs at least two notes of one section of this retro, outside the actions section.</value>
+    </data>
+    <data name="RetroCardCoordinatesInvalid" xml:space="preserve">
+        <value>Card coordinates must be finite numbers.</value>
     </data>
     <data name="RetroActionsPhaseOnly" xml:space="preserve">
         <value>Action items can only be created and changed during Actions.</value>

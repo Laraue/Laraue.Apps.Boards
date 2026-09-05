@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using ErrorMessages = Laraue.Apps.Retro.WebApiServices.Resources.ErrorMessages;
 
 namespace Laraue.Apps.Retro.WebApiServices;
 
@@ -39,12 +40,25 @@ public class RetroHub(IRetrosService retrosService) : Hub
         Others().SendAsync("cursor", Member(), x, y, Context.ConnectionAborted);
 
     /// <summary>
-    /// Relays a drag in progress so the other boards can follow it. Nothing here is stored - the
-    /// move is saved over the API when the drag ends - so the topic travels as the opaque id the
-    /// board sent, and the hub never has to know what a topic is.
+    /// Relays an authorized drag preview. The API persists the final move on drop.
     /// </summary>
-    public Task MoveCard(Guid cardId, double x, double y, string? groupId = null) =>
-        Others().SendAsync("card-move", cardId, x, y, groupId, Context.ConnectionAborted);
+    public async Task MoveCard(Guid cardId, double x, double y, string? groupId = null)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y))
+            throw new HubException(ErrorMessages.RetroCardCoordinatesInvalid);
+        long? parsedGroupId = null;
+        if (groupId is not null)
+        {
+            if (!long.TryParse(groupId, out var id))
+                throw new HubException(ErrorMessages.RetroGroupInvalid);
+            parsedGroupId = id;
+        }
+
+        var allowedGroupId = await retrosService.ValidateLiveCardMove(
+            Joined<long>(RetroIdKey), cardId, parsedGroupId,
+            Context.User!.GetOrganizationAuthData(), Context.ConnectionAborted);
+        await Others().SendAsync("card-move", cardId, x, y, allowedGroupId?.ToString(), Context.ConnectionAborted);
+    }
 
     public Task SetCardText(Guid cardId, string text) =>
         Others().SendAsync("card-text", cardId, text, Context.ConnectionAborted);

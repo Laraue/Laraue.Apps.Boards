@@ -149,6 +149,12 @@ namespace Laraue.Apps.Retro.WebApiServices.Resources {
             }
         }
 
+        internal static string RetroCardCoordinatesInvalid {
+            get {
+                return ResourceManager.GetString("RetroCardCoordinatesInvalid", resourceCulture);
+            }
+        }
+
         internal static string EntityNotFound {
             get {
                 return ResourceManager.GetString("EntityNotFound", resourceCulture);
