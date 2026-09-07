@@ -16,10 +16,12 @@
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4"/>
         <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.2" />
         <PackageReference Include="Laraue.Telegram.NET.Testing" Version="$(LaraueTelegramNetVersion)" />
+        <PackageReference Include="Laraue.Core.Testing" Version="$(LaraueCoreTestingVersion)" />
     </ItemGroup>
 
     <ItemGroup>
         <Using Include="Xunit"/>
+        <Using Include="Laraue.Core.Testing.Http"/>
     </ItemGroup>
 
     <ItemGroup>
