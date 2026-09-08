@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DateTime.Services.Impl;
@@ -81,6 +82,18 @@ public static class WebApplicationBuilderExtensions
                         "Bearer",
                         aiOptions.ApiKey);
                 });
+
+            builder.Services.AddOptions<IdentityOptions>();
+            builder.Services.Configure<IdentityOptions>(
+                builder.Configuration.GetSection(nameof(IdentityOptions)));
+
+            builder.Services
+                .AddGrpcClient<UserIdentityService.UserIdentityServiceClient>((sp, o) =>
+                {
+                    var identityOptions = sp.GetRequiredService<IOptions<IdentityOptions>>().Value;
+                    o.Address = new Uri(identityOptions.GrpcUrl);
+                })
+                .AddInterceptor(() => new ServiceIdInterceptor(ServiceId.LaraueBoards));
 
             return builder;
         }

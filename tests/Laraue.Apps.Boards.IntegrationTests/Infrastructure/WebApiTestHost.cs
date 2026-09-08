@@ -1,8 +1,10 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using Grpc.Core;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.WebApiHost;
+using Laraue.Apps.Identity.Internal.Contracts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +37,20 @@ public class WebApiTestHost
         {
             services.AddSingleton(TelegramBotClientMockFactory.GetInstance());
             services.AddSingleton(AiContentSummarizerMock.Object);
+
+            // Overrides the real gRPC-backed client, which would otherwise try to reach a live
+            // Laraue.Apps.Identity instance. Always resolves to a fresh global id - tests that care
+            // about the returned id should re-Setup it (via Mock.Get on the resolved instance).
+            var identityClientMock = new Mock<UserIdentityService.UserIdentityServiceClient>();
+            identityClientMock
+                .Setup(x => x.CreateUserIfNotExistsAsync(
+                    It.IsAny<CreateUserIfNotExistsRequest>(),
+                    It.IsAny<Metadata>(),
+                    It.IsAny<DateTime?>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((CreateUserIfNotExistsRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
+            services.AddSingleton(identityClientMock.Object);
         });
 
         return base.CreateHost(builder);
