@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
@@ -22,7 +23,10 @@ public interface ICoreUserService
     Task<Guid> CreateIfTelegramIdNotExists(User user, CancellationToken cancellationToken);
 }
 
-public class CoreUserService(DatabaseContext context, IDateTimeProvider dateTimeProvider) : ICoreUserService
+public class CoreUserService(
+    DatabaseContext context,
+    IDateTimeProvider dateTimeProvider,
+    UserIdentityService.UserIdentityServiceClient identityClient) : ICoreUserService
 {
     public async Task UpdatePreferences(
         Guid userId,
@@ -72,6 +76,11 @@ public class CoreUserService(DatabaseContext context, IDateTimeProvider dateTime
         user.DisplayName = initials.DisplayName;
         user.Initials = initials.Initials;
 
+        // Resolve/create the global Laraue identity for this Telegram account before touching our
+        // own DB - if Laraue.Apps.Identity is unreachable, registration fails outright rather than
+        // creating a Boards user with no global identity.
+        user.GlobalUserId = await GetGlobalUserIdAsync(user, cancellationToken);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         
         var insertedCount = await context.Users
@@ -110,6 +119,29 @@ public class CoreUserService(DatabaseContext context, IDateTimeProvider dateTime
         await transaction.CommitAsync(cancellationToken);
 
         return user.Id;
+    }
+
+    /// <summary>
+    /// Calls Laraue.Apps.Identity to resolve (or create) this Telegram account's global user id.
+    /// Lets any failure (including <see cref="Grpc.Core.RpcException"/>) propagate - a Boards user
+    /// isn't created without one.
+    /// </summary>
+    private async Task<Guid> GetGlobalUserIdAsync(User user, CancellationToken cancellationToken)
+    {
+        var request = new CreateUserIfNotExistsRequest
+        {
+            TelegramId = user.TelegramId,
+            ServiceId = ServiceId.LaraueBoards,
+        };
+
+        if (user.TelegramUserName is { } userName) request.TelegramUsername = userName;
+        if (user.TelegramFirstName is { } firstName) request.TelegramFirstName = firstName;
+        if (user.TelegramLastName is { } lastName) request.TelegramLastName = lastName;
+        if (user.TelegramLanguageCode is { } languageCode) request.TelegramLanguageCode = languageCode;
+
+        var response = await identityClient.CreateUserIfNotExistsAsync(request, cancellationToken: cancellationToken);
+
+        return Guid.Parse(response.UserId);
     }
 
     private static UserPreferences GetDefaultPreferences(Guid userId)

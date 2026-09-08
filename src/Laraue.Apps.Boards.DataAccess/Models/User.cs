@@ -6,6 +6,7 @@ namespace Laraue.Apps.Boards.DataAccess.Models;
 public class User : ITelegramUser<Guid>
 {
     public Guid Id { get; set; }
+    public Guid GlobalUserId { get; set; }
     public long TelegramId { get; set; }
     public string? TelegramUserName { get; set; }
     public string? TelegramLanguageCode { get; set; }
