@@ -131,7 +131,6 @@ public class CoreUserService(
         var request = new CreateUserIfNotExistsRequest
         {
             TelegramId = user.TelegramId,
-            ServiceId = ServiceId.LaraueBoards,
         };
 
         if (user.TelegramUserName is { } userName) request.TelegramUsername = userName;

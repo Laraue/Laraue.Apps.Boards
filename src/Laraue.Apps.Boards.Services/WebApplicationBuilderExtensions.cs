@@ -87,11 +87,13 @@ public static class WebApplicationBuilderExtensions
             builder.Services.Configure<IdentityOptions>(
                 builder.Configuration.GetSection(nameof(IdentityOptions)));
 
-            builder.Services.AddGrpcClient<UserIdentityService.UserIdentityServiceClient>((sp, o) =>
-            {
-                var identityOptions = sp.GetRequiredService<IOptions<IdentityOptions>>().Value;
-                o.Address = new Uri(identityOptions.GrpcUrl);
-            });
+            builder.Services
+                .AddGrpcClient<UserIdentityService.UserIdentityServiceClient>((sp, o) =>
+                {
+                    var identityOptions = sp.GetRequiredService<IOptions<IdentityOptions>>().Value;
+                    o.Address = new Uri(identityOptions.GrpcUrl);
+                })
+                .AddInterceptor(() => new ServiceIdInterceptor(ServiceId.LaraueBoards));
 
             return builder;
         }
