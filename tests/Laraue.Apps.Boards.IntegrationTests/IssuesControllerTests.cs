@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -1456,6 +1457,89 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 })));
 
         Assert.Equal(System.Net.HttpStatusCode.ServiceUnavailable, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldCommitActualUsage_WhenSummarizationSucceeds()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var tokenTransactionId = Guid.NewGuid();
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(tokenTransactionId);
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult("Title\n---\nContent", InputTokensCount: 10, OutputTokensCount: 42));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "notes",
+                }));
+
+        host.BillingTokenClientMock.Verify(
+            x => x.CommitTokensSpentAsync(tokenTransactionId, 42, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldReturn402_WhenTokenBalanceInsufficient()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InsufficientTokenBalanceException("insufficient balance"));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "notes",
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldCancelReservation_WhenAiSummarizerFails()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var tokenTransactionId = Guid.NewGuid();
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(tokenTransactionId);
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "notes",
+                })));
+
+        host.BillingTokenClientMock.Verify(
+            x => x.CancelTokensReservationAsync(tokenTransactionId, It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

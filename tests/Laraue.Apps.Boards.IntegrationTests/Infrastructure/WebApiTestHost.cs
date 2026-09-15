@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiHost;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -24,6 +25,13 @@ public class WebApiTestHost
     /// </summary>
     public Mock<IAiContentSummarizer> AiContentSummarizerMock { get; } = new();
 
+    /// <summary>
+    /// Overrides the real gRPC-backed implementation, which would otherwise try to reach a live
+    /// Billing service. Defaults to a random successful reservation - tests that care about the
+    /// reserve/commit/cancel calls made should re-<c>Setup</c>/<c>Verify</c> it themselves.
+    /// </summary>
+    public Mock<IBillingTokenClient> BillingTokenClientMock { get; } = new();
+
     protected override IHost CreateHost(IHostBuilder builder)
     {
         builder.ConfigureHostConfiguration(config =>
@@ -35,6 +43,7 @@ public class WebApiTestHost
         {
             services.AddSingleton(TelegramBotClientMockFactory.GetInstance());
             services.AddSingleton(AiContentSummarizerMock.Object);
+            services.AddSingleton(BillingTokenClientMock.Object);
         });
 
         return base.CreateHost(builder);

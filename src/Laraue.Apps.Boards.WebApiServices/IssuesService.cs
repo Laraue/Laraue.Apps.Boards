@@ -10,6 +10,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
@@ -97,6 +98,7 @@ public class IssuesService(
     ICoreFilesService coreFilesService,
     ICoreSpacesService coreSpacesService,
     IAiContentSummarizer aiContentSummarizer,
+    IBillingTokenClient billingTokenClient,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -403,17 +405,43 @@ public class IssuesService(
 
     public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
     {
+        Guid tokenTransactionId;
+        try
+        {
+            tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+                request.AuthData.OrganizationId,
+                request.AuthData.UserId,
+                EstimateTokenCount(request.Content),
+                aiContentSummarizer.MaxOutputTokensCount,
+                cancellationToken);
+        }
+        catch (InsufficientTokenBalanceException)
+        {
+            throw new InsufficientTokenBalanceHttpException(ErrorMessages.InsufficientTokenBalance);
+        }
+
         try
         {
             var result = await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
             return result.Content;
         }
         catch (AiContentSummarizationException ex)
         {
+            await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
             logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
             throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
         }
     }
+
+    /// <summary>
+    /// A rough, deliberately generous pre-call estimate of input token count for reserving Billing
+    /// tokens before the AI provider is actually called - refined at commit time with the
+    /// provider's own reported usage (<see cref="AiSummarizationResult.InputTokensCount"/>), so
+    /// this only needs to be in the right ballpark, not exact. ~4 characters per token is a common
+    /// rough approximation for English text.
+    /// </summary>
+    private static int EstimateTokenCount(string content) => Math.Max(1, content.Length / 4);
 
     private static bool FilesHasError(IEnumerable<IFormFile> files, [NotNullWhen(true)] out string? error)
     {
