@@ -36,17 +36,24 @@ public class OpenAiCompatibleContentSummarizerTests
     }
 
     [Fact]
-    public async Task SummarizeAsync_ShouldReturnTrimmedCompletionContent_WhenApiRespondsSuccessfully()
+    public async Task SummarizeAsync_ShouldReturnTrimmedCompletionContentAndUsage_WhenApiRespondsSuccessfully()
     {
         var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
             HttpStatusCode.OK,
-            """{"choices":[{"message":{"role":"assistant","content":"  Fix login bug\n---\nBeautified content  "}}]}""")));
+            """
+            {
+                "choices":[{"message":{"role":"assistant","content":"  Fix login bug\n---\nBeautified content  "}}],
+                "usage":{"prompt_tokens":42,"completion_tokens":17}
+            }
+            """)));
 
         var summarizer = CreateSummarizer(handler);
 
         var result = await summarizer.SummarizeAsync("fix login bug pls", CancellationToken.None);
 
-        Assert.Equal("Fix login bug\n---\nBeautified content", result);
+        Assert.Equal("Fix login bug\n---\nBeautified content", result.Content);
+        Assert.Equal(42, result.InputTokensCount);
+        Assert.Equal(17, result.OutputTokensCount);
     }
 
     [Fact]
@@ -54,7 +61,7 @@ public class OpenAiCompatibleContentSummarizerTests
     {
         var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
             HttpStatusCode.OK,
-            """{"choices":[{"message":{"role":"assistant","content":"Title\n---\nContent"}}]}""")));
+            """{"choices":[{"message":{"role":"assistant","content":"Title\n---\nContent"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""")));
 
         var summarizer = CreateSummarizer(handler, thinking: false);
 
@@ -68,7 +75,7 @@ public class OpenAiCompatibleContentSummarizerTests
     {
         var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
             HttpStatusCode.OK,
-            """{"choices":[{"message":{"role":"assistant","content":"Title\n---\nContent"}}]}""")));
+            """{"choices":[{"message":{"role":"assistant","content":"Title\n---\nContent"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""")));
 
         var summarizer = CreateSummarizer(handler, thinking: true);
 
@@ -97,7 +104,20 @@ public class OpenAiCompatibleContentSummarizerTests
     {
         var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
             HttpStatusCode.OK,
-            """{"choices":[]}""")));
+            """{"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}""")));
+
+        var summarizer = CreateSummarizer(handler);
+
+        await Assert.ThrowsAsync<AiContentSummarizationException>(
+            () => summarizer.SummarizeAsync("notes", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_ShouldThrowAiContentSummarizationException_WhenApiReturnsNoUsage()
+    {
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
+            HttpStatusCode.OK,
+            """{"choices":[{"message":{"role":"assistant","content":"Title\n---\nContent"}}]}""")));
 
         var summarizer = CreateSummarizer(handler);
 

@@ -37,9 +37,10 @@ public abstract class TelegramIntegrationTest
         // provider. Defaults to echoing the input back unchanged - /aisave tests should re-Setup
         // it (via Mock.Get on the resolved instance) for their own expectations.
         var aiContentSummarizerMock = new Mock<IAiContentSummarizer>();
+        aiContentSummarizerMock.Setup(x => x.MaxOutputTokensCount).Returns(2048);
         aiContentSummarizerMock
             .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string notes, CancellationToken _) => notes);
+            .ReturnsAsync((string notes, CancellationToken _) => new AiSummarizationResult(notes, InputTokensCount: 10, OutputTokensCount: 10));
         builder.Services.AddSingleton(aiContentSummarizerMock.Object);
 
         return new AppTelegramTestHost(builder.Services);

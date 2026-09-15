@@ -118,7 +118,7 @@ public class TelegramSaveMessageService(
         var content = ComposeReplyContent(request.Note, cardMessage.Text);
 
         if (request.Summarize && content is not null)
-            content = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
+            content = (await aiContentSummarizer.SummarizeAsync(content, cancellationToken)).Content;
 
         if (cardMessage.IssueId is not null)
         {

@@ -1423,7 +1423,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(beautified);
+            .ReturnsAsync(new AiSummarizationResult(beautified, InputTokensCount: 10, OutputTokensCount: 20));
 
         var result = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)

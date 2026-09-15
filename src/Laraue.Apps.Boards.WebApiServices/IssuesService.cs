@@ -405,7 +405,8 @@ public class IssuesService(
     {
         try
         {
-            return await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            var result = await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            return result.Content;
         }
         catch (AiContentSummarizationException ex)
         {

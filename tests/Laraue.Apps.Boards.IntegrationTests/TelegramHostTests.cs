@@ -1576,7 +1576,10 @@ public class TelegramHostTests : TelegramIntegrationTest
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync("Fix login bug\n---\n- Login fails on retry\n- Add logging");
+            .ReturnsAsync(new AiSummarizationResult(
+                "Fix login bug\n---\n- Login fails on retry\n- Add logging",
+                InputTokensCount: 10,
+                OutputTokensCount: 20));
 
         await host.SendUpdateAsync(new Update
         {
