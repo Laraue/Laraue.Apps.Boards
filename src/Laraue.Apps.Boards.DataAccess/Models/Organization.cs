@@ -25,6 +25,15 @@ public class Organization
     /// Type. Organization can be a personal (single user) or organization (multiple users).
     /// </summary>
     public OrganizationType Type { get; set; }
+
+    /// <summary>
+    /// Stable identity this organization is billed under in the Billing service (its
+    /// <c>PaidEntityId</c>) - generated once on creation and never reused, unlike <see cref="OwnerId"/>
+    /// which can be transferred to a different user. Null for a personal organization - its one
+    /// user bills under their own <see cref="User.Id"/> instead, since that's already a stable
+    /// per-user Guid and a personal org has no separate billing identity of its own.
+    /// </summary>
+    public Guid? BillingId { get; set; }
     
     /// <summary>
     /// Epic creation date.

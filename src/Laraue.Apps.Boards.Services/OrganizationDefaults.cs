@@ -38,6 +38,7 @@ public class OrganizationDefaults
         return new Organization
         {
             OwnerId = userId,
+            BillingId = isPersonal ? null : Guid.NewGuid(),
             Name = organizationName,
             Color = organizationColor,
             CreatedAt = timestamp,

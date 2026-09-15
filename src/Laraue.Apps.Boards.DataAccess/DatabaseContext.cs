@@ -186,6 +186,10 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => new { x.SlugPostfix, x.Slug })
                 .IsUnique();
+
+            entity
+                .HasIndex(x => x.BillingId)
+                .IsUnique();
         });
 
         modelBuilder.Entity<Retro>(entity =>

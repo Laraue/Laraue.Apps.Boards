@@ -63,6 +63,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreFilesService, CoreFilesService>()
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
+                .AddScoped<IBillingTokenClient, BillingTokenClient>()
                 .AddSingleton<IFileStorage, FileStorage>();
 
             builder.Services.AddMemoryCache();
