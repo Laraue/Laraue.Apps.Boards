@@ -1,4 +1,5 @@
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
@@ -95,6 +96,11 @@ public class SaveCommandService(
         {
             logger.LogWarning(ex, "AI summarization failed for chat {ExternalChatId}", message.Chat.Id);
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.AiSummarizationUnavailable, cancellationToken);
+            return;
+        }
+        catch (InsufficientTokenBalanceException)
+        {
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InsufficientTokenBalance, cancellationToken);
             return;
         }
 

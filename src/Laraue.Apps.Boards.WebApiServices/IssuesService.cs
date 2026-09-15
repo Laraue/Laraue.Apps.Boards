@@ -411,7 +411,7 @@ public class IssuesService(
             tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
                 request.AuthData.OrganizationId,
                 request.AuthData.UserId,
-                EstimateTokenCount(request.Content),
+                TokenEstimate.EstimateInputTokenCount(request.Content),
                 aiContentSummarizer.MaxOutputTokensCount,
                 cancellationToken);
         }
@@ -433,15 +433,6 @@ public class IssuesService(
             throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
         }
     }
-
-    /// <summary>
-    /// A rough, deliberately generous pre-call estimate of input token count for reserving Billing
-    /// tokens before the AI provider is actually called - refined at commit time with the
-    /// provider's own reported usage (<see cref="AiSummarizationResult.InputTokensCount"/>), so
-    /// this only needs to be in the right ballpark, not exact. ~4 characters per token is a common
-    /// rough approximation for English text.
-    /// </summary>
-    private static int EstimateTokenCount(string content) => Math.Max(1, content.Length / 4);
 
     private static bool FilesHasError(IEnumerable<IFormFile> files, [NotNullWhen(true)] out string? error)
     {

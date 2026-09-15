@@ -492,6 +492,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Not enough tokens left for AI summarization - try /save instead to save without it..
+        /// </summary>
+        internal static string InsufficientTokenBalance {
+            get {
+                return ResourceManager.GetString("InsufficientTokenBalance", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to New Category.
         /// </summary>
         internal static string NewCategory {

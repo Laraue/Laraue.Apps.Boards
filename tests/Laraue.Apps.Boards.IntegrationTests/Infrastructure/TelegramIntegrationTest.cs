@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramHost;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Microsoft.AspNetCore.Builder;
@@ -42,6 +43,15 @@ public abstract class TelegramIntegrationTest
             .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string notes, CancellationToken _) => new AiSummarizationResult(notes, InputTokensCount: 10, OutputTokensCount: 10));
         builder.Services.AddSingleton(aiContentSummarizerMock.Object);
+
+        // Overrides the real gRPC-backed implementation, which would otherwise try to reach a
+        // live Billing service. Defaults to a random successful reservation - /aisave tests that
+        // care about the reserve/commit/cancel calls made should re-Setup/Verify it themselves.
+        var billingTokenClientMock = new Mock<IBillingTokenClient>();
+        billingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Guid.NewGuid());
+        builder.Services.AddSingleton(billingTokenClientMock.Object);
 
         return new AppTelegramTestHost(builder.Services);
     }
