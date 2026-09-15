@@ -1,9 +1,12 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Billing.Internal.Contracts;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DateTime.Services.Impl;
+using Laraue.Grpc.Client;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -81,6 +84,23 @@ public static class WebApplicationBuilderExtensions
                         "Bearer",
                         aiOptions.ApiKey);
                 });
+
+            builder.Services.AddOptions<BillingOptions>();
+            builder.Services.Configure<BillingOptions>(
+                builder.Configuration.GetSection("Billing"));
+
+            // AddLaraueGrpcClient's configureClient callback has no IServiceProvider access (see
+            // its signature in Laraue.Grpc.Client), so the URL is read directly off configuration
+            // here rather than through IOptions<BillingOptions> like the AI client above.
+            var billingOptions = builder.Configuration.GetSection("Billing").Get<BillingOptions>()
+                ?? throw new InvalidOperationException("Missing 'Billing' configuration section.");
+
+            builder.Services
+                .AddLaraueGrpcClient<TokenService.TokenServiceClient>(o =>
+                {
+                    o.Address = new Uri(billingOptions.GrpcUrl);
+                })
+                .AddInterceptor(() => new ServiceIdInterceptor(ServiceId.LaraueBoards));
 
             return builder;
         }
