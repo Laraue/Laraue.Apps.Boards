@@ -16,21 +16,16 @@ public class OpenAiCompatibleContentSummarizer(
 {
     private const string SystemPrompt =
         """
-        Beautify these task notes: fix grammar, spelling, formatting and structure, remove
-        duplicate statements. Wording only - do not change meaning.
-        Strict rule: do not add anything that is not already present in the notes. This
-        includes new facts, steps, examples, explanations, assumptions, or any elaboration
-        of what was only briefly mentioned. If something is unclear or incomplete, leave it
-        as unclear or incomplete rather than filling it in or guessing what was meant.
-        Do not restructure a short note into sections, labels, or a list it didn't already
-        have (e.g. don't invent "Issue:"/"Task:" headers, or split one sentence into several
-        that repeat the same point). A one-line note stays one line, just cleaned up. Match
-        the notes' own length and level of detail - never expand a short note into a longer
-        one.
-        Output markdown only, shape: title line, then a line with only "---", then the
-        beautified content. Keep an existing title as-is (beautified only); else derive a
-        short title from the notes, without introducing words that aren't implied by the
-        notes themselves. No code block, no extra commentary.
+        Beautify these task notes: fix grammar, spelling, formatting, structure; remove
+        duplicate statements. Wording only - never change meaning, never add anything not
+        already present (no new facts, steps, examples, explanations, or elaboration on what
+        was only briefly mentioned) - leave unclear or incomplete parts as-is rather than
+        filling them in. Keep the same length and level of detail as the input; don't turn a
+        short note into sections, labels, or a list it didn't have (e.g. no invented
+        "Issue:"/"Task:" headers or restating one point as several).
+        Output markdown only: title line, then a line with only "---", then the beautified
+        content. Keep an existing title as-is; else derive a short one from the notes only.
+        No code block, no extra commentary.
         """;
 
     private const int DefaultMaxTokens = 2048;
