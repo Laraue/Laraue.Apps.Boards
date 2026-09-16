@@ -22,6 +22,11 @@ public class OpenAiCompatibleContentSummarizer(
         includes new facts, steps, examples, explanations, assumptions, or any elaboration
         of what was only briefly mentioned. If something is unclear or incomplete, leave it
         as unclear or incomplete rather than filling it in or guessing what was meant.
+        Do not restructure a short note into sections, labels, or a list it didn't already
+        have (e.g. don't invent "Issue:"/"Task:" headers, or split one sentence into several
+        that repeat the same point). A one-line note stays one line, just cleaned up. Match
+        the notes' own length and level of detail - never expand a short note into a longer
+        one.
         Output markdown only, shape: title line, then a line with only "---", then the
         beautified content. Keep an existing title as-is (beautified only); else derive a
         short title from the notes, without introducing words that aren't implied by the
