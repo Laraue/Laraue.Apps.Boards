@@ -1,6 +1,8 @@
 using System.Net;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
@@ -24,7 +26,7 @@ public class OpenAiCompatibleContentSummarizerTests
             Thinking = thinking,
         });
 
-        return new OpenAiCompatibleContentSummarizer(httpClient, options);
+        return new OpenAiCompatibleContentSummarizer(httpClient, options, new TokenEstimate(NullLogger<TokenEstimate>.Instance));
     }
 
     private static HttpResponseMessage JsonResponse(HttpStatusCode statusCode, string body)
@@ -33,6 +35,20 @@ public class OpenAiCompatibleContentSummarizerTests
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
         };
+    }
+
+    [Fact]
+    public void EstimateInputTokenCount_ShouldIncludeSystemPromptOverhead_Always()
+    {
+        // Regression guard for a real production gap: this used to only estimate the caller's own
+        // content, so a short note (e.g. ~9 estimated tokens) silently under-reserved by the
+        // system prompt's own cost (observed as high as ~97 tokens in practice - DeepSeek's
+        // reported prompt_tokens includes the whole request, not just the caller's content).
+        var summarizer = CreateSummarizer(new FakeHttpMessageHandler(_ => throw new InvalidOperationException("not used")));
+
+        var estimate = summarizer.EstimateInputTokenCount(string.Empty);
+
+        Assert.True(estimate > 20);
     }
 
     [Fact]

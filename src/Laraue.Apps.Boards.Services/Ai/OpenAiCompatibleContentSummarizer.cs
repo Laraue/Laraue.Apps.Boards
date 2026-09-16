@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using Laraue.Apps.Boards.Services.Billing;
 using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.Services.Ai;
@@ -7,7 +8,10 @@ namespace Laraue.Apps.Boards.Services.Ai;
 /// <summary>
 /// Calls an OpenAI-compatible chat-completions API (DeepSeek, Ollama, ...) to summarize notes.
 /// </summary>
-public class OpenAiCompatibleContentSummarizer(HttpClient httpClient, IOptions<AiSummarizerOptions> options)
+public class OpenAiCompatibleContentSummarizer(
+    HttpClient httpClient,
+    IOptions<AiSummarizerOptions> options,
+    ITokenEstimate tokenEstimate)
     : IAiContentSummarizer
 {
     private const string SystemPrompt =
@@ -23,6 +27,14 @@ public class OpenAiCompatibleContentSummarizer(HttpClient httpClient, IOptions<A
     private const int DefaultMaxTokens = 2048;
 
     public int MaxOutputTokensCount => DefaultMaxTokens;
+
+    // SystemPrompt is a compile-time constant sent unchanged on every call, so its estimate never
+    // changes either - cheap enough (a ~400-char string) that recomputing it per access isn't
+    // worth caching.
+    private int SystemPromptTokensCount => tokenEstimate.EstimateInputTokenCount(SystemPrompt);
+
+    public int EstimateInputTokenCount(string content) =>
+        SystemPromptTokensCount + tokenEstimate.EstimateInputTokenCount(content);
 
     public async Task<AiSummarizationResult> SummarizeAsync(string notes, CancellationToken cancellationToken)
     {

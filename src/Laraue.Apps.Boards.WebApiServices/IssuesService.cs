@@ -406,7 +406,7 @@ public class IssuesService(
 
     public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
     {
-        var estimatedInputTokens = tokenEstimate.EstimateInputTokenCount(request.Content);
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(request.Content);
 
         Guid tokenTransactionId;
         try

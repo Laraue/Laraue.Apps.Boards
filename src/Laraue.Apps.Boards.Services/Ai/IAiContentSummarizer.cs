@@ -13,6 +13,19 @@ public interface IAiContentSummarizer
     int MaxOutputTokensCount { get; }
 
     /// <summary>
+    /// Estimated total input tokens a call to <see cref="SummarizeAsync"/> with
+    /// <paramref name="content"/> will cost - <em>not</em> just an estimate of
+    /// <paramref name="content"/> itself, since this implementation also sends its own fixed
+    /// overhead on every call (a system prompt, chat-formatting overhead, etc.) that a caller has
+    /// no visibility into. A caller reserving Billing tokens before calling
+    /// <see cref="SummarizeAsync"/> should use this rather than estimating the content on its own,
+    /// or the reservation silently undercounts by however large that fixed overhead is. Discovered
+    /// from a real run where a content-only estimate was 9 tokens but the provider's actual
+    /// reported usage was 106 - the ~97-token gap was entirely the missing overhead.
+    /// </summary>
+    int EstimateInputTokenCount(string content);
+
+    /// <summary>
     /// Runs <paramref name="notes"/> through the AI provider and returns the beautified content
     /// (a markdown document: a title line, then a "---" separator line, then the structured task
     /// content) alongside the actual input/output token counts the provider billed for.

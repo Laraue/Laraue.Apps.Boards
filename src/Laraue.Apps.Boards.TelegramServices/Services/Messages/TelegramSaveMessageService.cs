@@ -328,7 +328,7 @@ public class TelegramSaveMessageService(
         string content,
         CancellationToken cancellationToken)
     {
-        var estimatedInputTokens = tokenEstimate.EstimateInputTokenCount(content);
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content);
 
         var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
             organizationId,
