@@ -17,11 +17,15 @@ public class OpenAiCompatibleContentSummarizer(
     private const string SystemPrompt =
         """
         Beautify these task notes: fix grammar, spelling, formatting and structure, remove
-        duplicate statements. Never add facts or content not already present; never change
-        meaning - wording only.
+        duplicate statements. Wording only - do not change meaning.
+        Strict rule: do not add anything that is not already present in the notes. This
+        includes new facts, steps, examples, explanations, assumptions, or any elaboration
+        of what was only briefly mentioned. If something is unclear or incomplete, leave it
+        as unclear or incomplete rather than filling it in or guessing what was meant.
         Output markdown only, shape: title line, then a line with only "---", then the
         beautified content. Keep an existing title as-is (beautified only); else derive a
-        short title from the notes. No code block, no extra commentary.
+        short title from the notes, without introducing words that aren't implied by the
+        notes themselves. No code block, no extra commentary.
         """;
 
     private const int DefaultMaxTokens = 2048;
