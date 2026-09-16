@@ -597,6 +597,19 @@ public class OrganizationInitializer(
         public EpicBuilder AddIssue(Guid creatorId, int statusIndex, Action<IssueBuilder> issueBuilder)
         {
             var builder = new IssueBuilder(creatorId);
+
+            // Default to a rank strictly after whatever was last added to this status, so tests
+            // that add several issues without an explicit WithLexoRank still get a deterministic
+            // default order - IssuesService sorts by LexoRank when no sorting is requested, and
+            // every un-ranked issue previously defaulted to the same LexoRank.Middle(), leaving
+            // their relative order on a tie up to Postgres (undefined, and observed to flip
+            // between runs/environments - see User_ShouldSearchIssues_WhenSortingIsNotSet).
+            // A caller's own WithLexoRank call below still wins - this only sets the default.
+            if (Issues.TryGetValue(statusIndex, out var existingIssues) && existingIssues.Count > 0)
+            {
+                builder.WithLexoRank(existingIssues[^1].LexoRank.GenNext());
+            }
+
             issueBuilder(builder);
 
             if (!Issues.ContainsKey(statusIndex))
