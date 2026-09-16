@@ -1012,6 +1012,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var column = Assert.Single(result!);
         var issues = column.Items.Data;
         Assert.Equal(4, issues.Count);
-        Assert.Equal(["2", "4", "3", "1"], issues.Select(i => i.Content));
+        // Only issue3/issue1 were moved (to right after issue2) - issue4 was never touched by the
+        // request, so it stays last rather than ending up between issue2 and the moved issues.
+        Assert.Equal(["2", "3", "1", "4"], issues.Select(i => i.Content));
     }
 }

@@ -5,6 +5,8 @@
     <PackageReference Include="EFCore.NamingConventions" Version="$(EfCoreNamingConventionsVersion)" />
     <PackageReference Include="Laraue.Core.DateTime" Version="$(LaraueCoreDateTimeVersion)" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="$(MicrosoftExtensionsHttpVersion)" />
+    <PackageReference Include="Laraue.Apps.Billing.Internal.Contracts" Version="$(LaraueBillingInternalContractsVersion)" />
+    <PackageReference Include="Laraue.Grpc.Client" Version="$(LaraueGrpcVersion)" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />

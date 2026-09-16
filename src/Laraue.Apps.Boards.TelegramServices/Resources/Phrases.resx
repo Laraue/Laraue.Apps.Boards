@@ -211,4 +211,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="AiSummarizationUnavailable" xml:space="preserve">
         <value>AI summarization is temporarily unavailable - try /save instead, or try /aisave again later.</value>
     </data>
+    <data name="InsufficientTokenBalance" xml:space="preserve">
+        <value>Not enough tokens left for AI summarization - try /save instead to save without it.</value>
+    </data>
 </root>

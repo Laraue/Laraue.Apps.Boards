@@ -33,6 +33,9 @@
     <data name="AiSummarizationUnavailable" xml:space="preserve">
         <value>AI summarization is temporarily unavailable, please try again later.</value>
     </data>
+    <data name="InsufficientTokenBalance" xml:space="preserve">
+        <value>Not enough tokens left to complete this request.</value>
+    </data>
     <data name="SpaceCreationForbiddenCannotMove" xml:space="preserve">
         <value>Organization: {0} space creation is forbidden, cannot move space here</value>
     </data>

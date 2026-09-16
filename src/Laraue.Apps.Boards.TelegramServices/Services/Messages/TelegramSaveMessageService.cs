@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
@@ -61,7 +62,9 @@ public class TelegramSaveMessageService(
     IAccessService accessService,
     IIssuePreviewBuilder issuePreviewBuilder,
     IDateTimeProvider dateTimeProvider,
-    IAiContentSummarizer aiContentSummarizer)
+    IAiContentSummarizer aiContentSummarizer,
+    IBillingTokenClient billingTokenClient,
+    ITokenEstimate tokenEstimate)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -118,7 +121,7 @@ public class TelegramSaveMessageService(
         var content = ComposeReplyContent(request.Note, cardMessage.Text);
 
         if (request.Summarize && content is not null)
-            content = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
+            content = await SummarizeAndSpendTokens(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
 
         if (cardMessage.IssueId is not null)
         {
@@ -308,6 +311,44 @@ public class TelegramSaveMessageService(
     {
         public required bool Tracked { get; init; }
         public long? IssueId { get; init; }
+    }
+
+    /// <summary>
+    /// Reserves Billing tokens, runs <paramref name="content"/> through the AI summarizer, and
+    /// commits the actual usage - or, if summarization fails, cancels the reservation before
+    /// rethrowing so <see cref="SaveByReply"/>'s caller (<c>SaveCommandService</c>) still sees the
+    /// same <see cref="AiContentSummarizationException"/> it already handles today. A thrown
+    /// <see cref="InsufficientTokenBalanceException"/> from the reservation itself is left
+    /// uncaught here - nothing to cancel yet, and <c>SaveCommandService</c> handles it the same
+    /// way.
+    /// </summary>
+    private async Task<string> SummarizeAndSpendTokens(
+        long organizationId,
+        Guid userId,
+        string content,
+        CancellationToken cancellationToken)
+    {
+        var estimatedInputTokens = tokenEstimate.EstimateInputTokenCount(content);
+
+        var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+            organizationId,
+            userId,
+            estimatedInputTokens,
+            aiContentSummarizer.MaxOutputTokensCount,
+            cancellationToken);
+
+        try
+        {
+            var result = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
+            tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
+            await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
+            return result.Content;
+        }
+        catch (AiContentSummarizationException ex)
+        {
+            await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
+            throw;
+        }
     }
 
     /// <summary>

@@ -10,6 +10,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
@@ -97,6 +98,8 @@ public class IssuesService(
     ICoreFilesService coreFilesService,
     ICoreSpacesService coreSpacesService,
     IAiContentSummarizer aiContentSummarizer,
+    IBillingTokenClient billingTokenClient,
+    ITokenEstimate tokenEstimate,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -403,12 +406,33 @@ public class IssuesService(
 
     public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
     {
+        var estimatedInputTokens = tokenEstimate.EstimateInputTokenCount(request.Content);
+
+        Guid tokenTransactionId;
         try
         {
-            return await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+                request.AuthData.OrganizationId,
+                request.AuthData.UserId,
+                estimatedInputTokens,
+                aiContentSummarizer.MaxOutputTokensCount,
+                cancellationToken);
+        }
+        catch (InsufficientTokenBalanceException)
+        {
+            throw new InsufficientTokenBalanceHttpException(ErrorMessages.InsufficientTokenBalance);
+        }
+
+        try
+        {
+            var result = await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
+            await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
+            return result.Content;
         }
         catch (AiContentSummarizationException ex)
         {
+            await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
             logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
             throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
         }

@@ -22,7 +22,9 @@ public class OpenAiCompatibleContentSummarizer(HttpClient httpClient, IOptions<A
 
     private const int DefaultMaxTokens = 2048;
 
-    public async Task<string> SummarizeAsync(string notes, CancellationToken cancellationToken)
+    public int MaxOutputTokensCount => DefaultMaxTokens;
+
+    public async Task<AiSummarizationResult> SummarizeAsync(string notes, CancellationToken cancellationToken)
     {
         var request = new ChatCompletionRequest
         {
@@ -60,7 +62,14 @@ public class OpenAiCompatibleContentSummarizer(HttpClient httpClient, IOptions<A
             throw new AiContentSummarizationException("AI summarization API returned no completion content.");
         }
 
-        return content.Trim();
+        // Billing needs the provider's own token accounting to commit an accurate amount rather
+        // than a guess - fail loud instead of committing made-up numbers if it's ever missing.
+        if (completion.Usage is not { } usage)
+        {
+            throw new AiContentSummarizationException("AI summarization API returned no usage data.");
+        }
+
+        return new AiSummarizationResult(content.Trim(), usage.PromptTokens, usage.CompletionTokens);
     }
 
     private record ChatCompletionRequest
@@ -100,11 +109,23 @@ public class OpenAiCompatibleContentSummarizer(HttpClient httpClient, IOptions<A
     {
         [JsonPropertyName("choices")]
         public required ChatCompletionChoice[] Choices { get; init; }
+
+        [JsonPropertyName("usage")]
+        public ChatCompletionUsage? Usage { get; init; }
     }
 
     private record ChatCompletionChoice
     {
         [JsonPropertyName("message")]
         public required ChatMessage Message { get; init; }
+    }
+
+    private record ChatCompletionUsage
+    {
+        [JsonPropertyName("prompt_tokens")]
+        public required int PromptTokens { get; init; }
+
+        [JsonPropertyName("completion_tokens")]
+        public required int CompletionTokens { get; init; }
     }
 }

@@ -204,4 +204,7 @@
     <data name="AiSummarizationUnavailable" xml:space="preserve">
         <value>ИИ-обработка временно недоступна — попробуйте /save, либо повторите /aisave позже.</value>
     </data>
+    <data name="InsufficientTokenBalance" xml:space="preserve">
+        <value>Недостаточно токенов для ИИ-обработки — используйте /save, чтобы сохранить без неё.</value>
+    </data>
 </root>
