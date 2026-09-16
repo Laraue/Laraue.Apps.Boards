@@ -63,7 +63,8 @@ public class TelegramSaveMessageService(
     IIssuePreviewBuilder issuePreviewBuilder,
     IDateTimeProvider dateTimeProvider,
     IAiContentSummarizer aiContentSummarizer,
-    IBillingTokenClient billingTokenClient)
+    IBillingTokenClient billingTokenClient,
+    ITokenEstimate tokenEstimate)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -327,16 +328,19 @@ public class TelegramSaveMessageService(
         string content,
         CancellationToken cancellationToken)
     {
+        var estimatedInputTokens = tokenEstimate.EstimateInputTokenCount(content);
+
         var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
             organizationId,
             userId,
-            TokenEstimate.EstimateInputTokenCount(content),
+            estimatedInputTokens,
             aiContentSummarizer.MaxOutputTokensCount,
             cancellationToken);
 
         try
         {
             var result = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
+            tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
             return result.Content;
         }

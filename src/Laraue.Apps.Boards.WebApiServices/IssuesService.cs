@@ -99,6 +99,7 @@ public class IssuesService(
     ICoreSpacesService coreSpacesService,
     IAiContentSummarizer aiContentSummarizer,
     IBillingTokenClient billingTokenClient,
+    ITokenEstimate tokenEstimate,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -405,13 +406,15 @@ public class IssuesService(
 
     public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
     {
+        var estimatedInputTokens = tokenEstimate.EstimateInputTokenCount(request.Content);
+
         Guid tokenTransactionId;
         try
         {
             tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
                 request.AuthData.OrganizationId,
                 request.AuthData.UserId,
-                TokenEstimate.EstimateInputTokenCount(request.Content),
+                estimatedInputTokens,
                 aiContentSummarizer.MaxOutputTokensCount,
                 cancellationToken);
         }
@@ -423,6 +426,7 @@ public class IssuesService(
         try
         {
             var result = await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
             return result.Content;
         }
