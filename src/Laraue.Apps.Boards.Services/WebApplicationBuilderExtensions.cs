@@ -64,6 +64,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
                 .AddScoped<IBillingTokenClient, BillingTokenClient>()
+                .AddScoped<IBillingSubscriptionClient, BillingSubscriptionClient>()
                 .AddSingleton<ITokenEstimate, TokenEstimate>()
                 .AddSingleton<IFileStorage, FileStorage>();
 
@@ -103,6 +104,14 @@ public static class WebApplicationBuilderExtensions
                     o.Address = new Uri(billingOptions.GrpcUrl);
                 })
                 .AddInterceptor(() => new ServiceIdInterceptor(ServiceId.LaraueBoards));
+
+            // subscription.proto identifies the calling service via a request field instead of
+            // the header interceptor above (see that proto's own note) - no interceptor needed.
+            builder.Services
+                .AddLaraueGrpcClient<SubscriptionService.SubscriptionServiceClient>(o =>
+                {
+                    o.Address = new Uri(billingOptions.GrpcUrl);
+                });
 
             return builder;
         }

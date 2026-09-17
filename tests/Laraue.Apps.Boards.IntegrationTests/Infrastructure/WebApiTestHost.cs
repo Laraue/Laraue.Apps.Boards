@@ -32,6 +32,13 @@ public class WebApiTestHost
     /// </summary>
     public Mock<IBillingTokenClient> BillingTokenClientMock { get; } = new();
 
+    /// <summary>
+    /// Same rationale as <see cref="BillingTokenClientMock"/> - overrides the real gRPC-backed
+    /// implementation. Defaults to a Free-tariff-shaped subscription; tests asserting on plan
+    /// details should re-<c>Setup</c> it themselves.
+    /// </summary>
+    public Mock<IBillingSubscriptionClient> BillingSubscriptionClientMock { get; } = new();
+
     protected override IHost CreateHost(IHostBuilder builder)
     {
         builder.ConfigureHostConfiguration(config =>
@@ -44,6 +51,7 @@ public class WebApiTestHost
             services.AddSingleton(TelegramBotClientMockFactory.GetInstance());
             services.AddSingleton(AiContentSummarizerMock.Object);
             services.AddSingleton(BillingTokenClientMock.Object);
+            services.AddSingleton(BillingSubscriptionClientMock.Object);
         });
 
         return base.CreateHost(builder);
