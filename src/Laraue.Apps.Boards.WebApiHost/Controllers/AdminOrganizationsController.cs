@@ -1,6 +1,7 @@
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Telegram.NET.Abstractions.Request;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -183,6 +184,19 @@ public class AdminOrganizationsController(IAdminOrganizationsService adminOrgani
             {
                 Id = id,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
+    [HttpPost("billing/transactions")]
+    public Task<ShortPaginatedResult<AdminBillingTransaction>> GetBillingTransactions(
+        [FromBody] GetAdminBillingTransactionsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return adminOrganizationsService.GetTransactions(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);
     }

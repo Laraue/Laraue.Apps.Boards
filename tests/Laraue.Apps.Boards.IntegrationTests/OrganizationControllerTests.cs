@@ -139,6 +139,107 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
+    public async Task GetBillingTransactions_ShouldReturnTransactionsWithDisplayNames_WhenCallerHasViewBillingAccess()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser(x => x.TelegramUserName = "member1");
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        var transactionId = Guid.NewGuid();
+        var createdAt = DateTime.UtcNow;
+        host.BillingTokenClientMock
+            .Setup(x => x.GetOrganizationTransactionsAsync(
+                organization.Id, null, It.IsAny<PaginationData>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ShortPaginatedResult<TokenTransactionItem>(
+                page: 0,
+                perPage: 10,
+                hasNextPage: false,
+                data:
+                [
+                    new TokenTransactionItem
+                    {
+                        Id = transactionId,
+                        OwnerId = memberId,
+                        Status = TokenTransactionStatus.Confirmed,
+                        Reason = TokenTransactionReason.Spend,
+                        CreatedAt = createdAt,
+                        Delta = -42,
+                    },
+                ]));
+
+        var page = await _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } }));
+
+        var item = Assert.Single(page!.Data);
+        Assert.Equal(transactionId, item.Id);
+        Assert.Equal(memberId, item.OwnerUserId);
+        Assert.Equal("member1", item.OwnerDisplayName);
+    }
+
+    [Fact]
+    public async Task GetBillingTransactions_ShouldPassUserIdFilterThrough_WhenProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        host.BillingTokenClientMock
+            .Setup(x => x.GetOrganizationTransactionsAsync(
+                organization.Id, memberId, It.IsAny<PaginationData>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ShortPaginatedResult<TokenTransactionItem>(0, 10, false, []));
+
+        await _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest
+                {
+                    UserId = memberId,
+                    Pagination = new PaginationData { Page = 0, PerPage = 10 },
+                }));
+
+        host.BillingTokenClientMock.Verify(
+            x => x.GetOrganizationTransactionsAsync(organization.Id, memberId, It.IsAny<PaginationData>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetBillingTransactions_ShouldReturn404_WhenCallerHasNoViewBillingAccess()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(participatorId, builder => builder.SetAdminAccessLevel(AdminAccessLevel.None)));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } })));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetBillingTransactions_ShouldReturn404_WhenOrganizationIsPersonal()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(userId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } })));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
     public async Task User_ShouldViewOwnedAndParticipatingOrganizations_Always()
     {
         using var testScope = host.CreateTestScope();

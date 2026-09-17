@@ -70,6 +70,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                     new TokenTransactionItem
                     {
                         Id = transactionId,
+                        OwnerId = userId,
                         Status = TokenTransactionStatus.Confirmed,
                         Reason = TokenTransactionReason.Spend,
                         CreatedAt = createdAt,

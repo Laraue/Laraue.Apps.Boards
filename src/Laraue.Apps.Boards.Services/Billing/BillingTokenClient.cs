@@ -50,11 +50,27 @@ public interface IBillingTokenClient
 
     /// <summary>
     /// Paginated token transaction ledger for <paramref name="organizationId"/>'s billed entity
-    /// (the user, if personal, or the organization's own <see cref="Organization.BillingId"/>).
+    /// (the user, if personal, or the organization's own <see cref="Organization.BillingId"/>). A
+    /// user's own spending - no owner filter, since there's only ever one relevant owner (them,
+    /// or the whole org if personal).
     /// </summary>
     Task<ShortPaginatedResult<TokenTransactionItem>> GetTransactionsAsync(
         long organizationId,
         Guid userId,
+        PaginationData pagination,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Admin counterpart to <see cref="GetTransactionsAsync"/>: the full ledger for a *team*
+    /// organization, optionally narrowed to one member via <paramref name="ownerId"/> - callers
+    /// need admin access to the organization to see every member's spend, not just their own.
+    /// Throws <see cref="PersonalOrganizationTransactionsNotSupportedException"/> for a personal
+    /// organization - it has no "team" to break down, and its owner already sees the same ledger
+    /// via <see cref="GetTransactionsAsync"/>.
+    /// </summary>
+    Task<ShortPaginatedResult<TokenTransactionItem>> GetOrganizationTransactionsAsync(
+        long organizationId,
+        Guid? ownerId,
         PaginationData pagination,
         CancellationToken cancellationToken);
 }
@@ -69,6 +85,7 @@ public sealed record TokenBalance
 public sealed record TokenTransactionItem
 {
     public required Guid Id { get; init; }
+    public required Guid OwnerId { get; init; }
     public required TokenTransactionStatus Status { get; init; }
     public required TokenTransactionReason Reason { get; init; }
     public required DateTime CreatedAt { get; init; }
@@ -119,6 +136,7 @@ public class BillingTokenClient(DatabaseContext context, TokenService.TokenServi
                     new ReserveOrganizationTokensRequest
                     {
                         OrganizationId = organization.BillingId!.Value.ToString(),
+                        UserId = userId.ToString(),
                         InputTokensCount = inputTokensCount,
                         MaxOutputTokensCount = maxOutputTokensCount,
                     },
@@ -161,10 +179,36 @@ public class BillingTokenClient(DatabaseContext context, TokenService.TokenServi
         var organization = await GetOrganizationBillingInfoAsync(organizationId, cancellationToken);
         var paidEntityId = organization.Type == OrganizationType.Personal ? userId : organization.BillingId!.Value;
 
+        return await GetTransactionsCoreAsync(paidEntityId, ownerId: null, pagination, cancellationToken);
+    }
+
+    public async Task<ShortPaginatedResult<TokenTransactionItem>> GetOrganizationTransactionsAsync(
+        long organizationId,
+        Guid? ownerId,
+        PaginationData pagination,
+        CancellationToken cancellationToken)
+    {
+        var organization = await GetOrganizationBillingInfoAsync(organizationId, cancellationToken);
+
+        if (organization.Type == OrganizationType.Personal)
+        {
+            throw new PersonalOrganizationTransactionsNotSupportedException(organizationId);
+        }
+
+        return await GetTransactionsCoreAsync(organization.BillingId!.Value, ownerId, pagination, cancellationToken);
+    }
+
+    private async Task<ShortPaginatedResult<TokenTransactionItem>> GetTransactionsCoreAsync(
+        Guid paidEntityId,
+        Guid? ownerId,
+        PaginationData pagination,
+        CancellationToken cancellationToken)
+    {
         var response = await client.GetTokenTransactionsAsync(
             new GetTokenTransactionsRequest
             {
                 PaidEntityId = paidEntityId.ToString(),
+                OwnerId = ownerId?.ToString() ?? string.Empty,
                 Page = pagination.Page,
                 PerPage = pagination.PerPage,
             },
@@ -173,6 +217,7 @@ public class BillingTokenClient(DatabaseContext context, TokenService.TokenServi
         var items = response.Items.Select(item => new TokenTransactionItem
         {
             Id = Guid.Parse(item.Id),
+            OwnerId = Guid.Parse(item.OwnerId),
             Status = ToStatus(item.Status),
             Reason = ToReason(item.Reason),
             CreatedAt = item.CreatedAt.ToDateTime(),
