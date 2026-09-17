@@ -33,6 +33,7 @@ public interface IUsageLimitService
 public class UsageLimitService(
     DatabaseContext context,
     IBillingSubscriptionClient subscriptionClient,
+    IIssueMonthlyCountService issueMonthlyCountService,
     IDateTimeProvider dateTimeProvider) : IUsageLimitService
 {
     public async Task EnsureCanCreateIssueAsync(long organizationId, Guid userId, CancellationToken cancellationToken)
@@ -43,11 +44,10 @@ public class UsageLimitService(
             return;
 
         var now = dateTimeProvider.UtcNow;
-        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        var issuesThisMonth = await context.Issues
-            .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId && x.CreatedAt >= monthStart)
-            .CountAsync(cancellationToken);
+        // A materialized counter (see IssueMonthlyCount) rather than counting Issues on every
+        // check - this runs on every issue creation.
+        var issuesThisMonth = await issueMonthlyCountService.GetCount(organizationId, now.Year, now.Month, cancellationToken);
 
         if (issuesThisMonth >= limit)
             throw new IssueLimitExceededException(limit);
