@@ -100,6 +100,7 @@ public class IssuesService(
     IAiContentSummarizer aiContentSummarizer,
     IBillingTokenClient billingTokenClient,
     ITokenEstimate tokenEstimate,
+    IUsageLimitService usageLimitService,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -331,6 +332,15 @@ public class IssuesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Status", request.StatusId))
             .EnsureOrThrowNotFound(a => a.CanCreateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Status", request.StatusId, "issue creation"));
 
+        try
+        {
+            await usageLimitService.EnsureCanCreateIssueAsync(request.AuthData.OrganizationId, request.AuthData.UserId, ct);
+        }
+        catch (IssueLimitExceededException)
+        {
+            throw new PaymentRequiredException(ErrorMessages.IssueLimitExceeded);
+        }
+
         if (FilesHasError(request.Files, out var error))
             throw new BadRequestException(nameof(request.Files), error);
         
@@ -420,7 +430,7 @@ public class IssuesService(
         }
         catch (InsufficientTokenBalanceException)
         {
-            throw new InsufficientTokenBalanceHttpException(ErrorMessages.InsufficientTokenBalance);
+            throw new PaymentRequiredException(ErrorMessages.InsufficientTokenBalance);
         }
 
         try

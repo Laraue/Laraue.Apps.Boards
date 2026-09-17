@@ -34,10 +34,24 @@ public class WebApiTestHost
 
     /// <summary>
     /// Same rationale as <see cref="BillingTokenClientMock"/> - overrides the real gRPC-backed
-    /// implementation. Defaults to a Free-tariff-shaped subscription; tests asserting on plan
-    /// details should re-<c>Setup</c> it themselves.
+    /// implementation. Defaults to an unlimited subscription (both limits null) so existing tests
+    /// that don't care about plan limits aren't tripped up by <see cref="IUsageLimitService"/>;
+    /// tests asserting on plan/limit details should re-<c>Setup</c> it themselves.
     /// </summary>
-    public Mock<IBillingSubscriptionClient> BillingSubscriptionClientMock { get; } = new();
+    public Mock<IBillingSubscriptionClient> BillingSubscriptionClientMock { get; } = CreateDefaultSubscriptionClientMock();
+
+    private static Mock<IBillingSubscriptionClient> CreateDefaultSubscriptionClientMock()
+    {
+        var mock = new Mock<IBillingSubscriptionClient>();
+        var unlimited = new ActiveSubscriptionInfo { Code = "test" };
+
+        mock.Setup(x => x.GetActiveSubscriptionAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(unlimited);
+        mock.Setup(x => x.GetActivePersonalSubscriptionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(unlimited);
+
+        return mock;
+    }
 
     protected override IHost CreateHost(IHostBuilder builder)
     {

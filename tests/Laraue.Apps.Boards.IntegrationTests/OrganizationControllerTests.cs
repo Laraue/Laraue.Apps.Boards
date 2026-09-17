@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -12,6 +13,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Moq;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -83,7 +85,59 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.True(epic.TouchedAt != default);
         Assert.True(epic.IsDefault);
     }
-    
+
+    [Fact]
+    public async Task CreateOrganization_ShouldReturn402_WhenFreeTeamOrganizationLimitReached()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        await testScope.InitializeOrganization(userId, org => org.WithName("Existing team org"));
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", LimitFreeTeamOrganizationsCount = 1 });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Create(
+                new CreateOrganizationRequest
+                {
+                    Name = "One too many",
+                    Color = "#ffffff",
+                    Slug = "orgtwo",
+                })));
+
+        Assert.Equal(HttpStatusCode.PaymentRequired, ex.StatusCode);
+
+        var organizationCount = await testScope.Database.Organizations.CountAsyncEF();
+        Assert.Equal(1, organizationCount);
+    }
+
+    [Fact]
+    public async Task CreateOrganization_ShouldCreateOrganization_WhenBelowFreeTeamOrganizationLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        await testScope.InitializeOrganization(userId, org => org.WithName("Existing team org"));
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", LimitFreeTeamOrganizationsCount = 2 });
+
+        await _organizationsController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Create(
+                new CreateOrganizationRequest
+                {
+                    Name = "Still within limit",
+                    Color = "#ffffff",
+                    Slug = "orgtwo",
+                }));
+
+        var organizationCount = await testScope.Database.Organizations.CountAsyncEF();
+        Assert.Equal(2, organizationCount);
+    }
+
     [Fact]
     public async Task User_ShouldViewOwnedAndParticipatingOrganizations_Always()
     {

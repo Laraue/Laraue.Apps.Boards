@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
@@ -53,7 +54,8 @@ public class OrganizationsService(
     ICoreSpacesService coreSpacesService,
     DatabaseContext context,
     IAuthService authService,
-    IAccessService accessService)
+    IAccessService accessService,
+    IUsageLimitService usageLimitService)
     : IOrganizationsService
 {
     public async Task<OrganizationListDto[]> GetOrganizations(
@@ -112,9 +114,18 @@ public class OrganizationsService(
         return organization;
     }
 
-    public Task<CreateOrganizationResponse> Create(CreateOrganizationRequest request, CancellationToken cancellationToken)
+    public async Task<CreateOrganizationResponse> Create(CreateOrganizationRequest request, CancellationToken cancellationToken)
     {
-        return coreOrganizationsService.Create(
+        try
+        {
+            await usageLimitService.EnsureCanCreateOrganizationAsync(request.UserId, cancellationToken);
+        }
+        catch (OrganizationLimitExceededException)
+        {
+            throw new PaymentRequiredException(ErrorMessages.OrganizationLimitExceeded);
+        }
+
+        return await coreOrganizationsService.Create(
             request.UserId,
             request.Slug,
             request.Name,

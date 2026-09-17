@@ -16,6 +16,16 @@ public interface IBillingSubscriptionClient
         long organizationId,
         Guid userId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Same as <see cref="GetActiveSubscriptionAsync"/>'s personal branch, but without resolving
+    /// it from an existing organization's <c>Type</c> - needed when checking a limit tied to the
+    /// user's own personal plan before an organization (the thing that would normally let us
+    /// resolve personal-vs-team) exists yet, e.g. "can this user create one more team org".
+    /// </summary>
+    Task<ActiveSubscriptionInfo> GetActivePersonalSubscriptionAsync(
+        Guid userId,
+        CancellationToken cancellationToken);
 }
 
 public sealed record ActiveSubscriptionInfo
@@ -63,27 +73,44 @@ public class BillingSubscriptionClient(
                 },
                 cancellationToken: cancellationToken);
 
-        return response.PayloadCase switch
-        {
-            ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsPersonal => new ActiveSubscriptionInfo
-            {
-                Code = response.Code,
-                LimitIssuesPerMonth = response.LaraueBoardsPersonal.HasLimitIssuesPerMonth
-                    ? response.LaraueBoardsPersonal.LimitIssuesPerMonth
-                    : null,
-                LimitFreeTeamOrganizationsCount = response.LaraueBoardsPersonal.HasLimitFreeTeamOrganizationsCount
-                    ? response.LaraueBoardsPersonal.LimitFreeTeamOrganizationsCount
-                    : null,
-            },
-            ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsTeam => new ActiveSubscriptionInfo
-            {
-                Code = response.Code,
-                LimitIssuesPerMonth = response.LaraueBoardsTeam.HasLimitIssuesPerMonth
-                    ? response.LaraueBoardsTeam.LimitIssuesPerMonth
-                    : null,
-            },
-            _ => throw new InvalidOperationException(
-                $"Unexpected subscription payload '{response.PayloadCase}' for LaraueBoards."),
-        };
+        return ToInfo(response);
     }
+
+    public async Task<ActiveSubscriptionInfo> GetActivePersonalSubscriptionAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var response = await client.GetActivePersonalSubscriptionAsync(
+            new GetActivePersonalSubscriptionRequest
+            {
+                ServiceId = ServiceId.LaraueBoards,
+                UserId = userId.ToString(),
+            },
+            cancellationToken: cancellationToken);
+
+        return ToInfo(response);
+    }
+
+    private static ActiveSubscriptionInfo ToInfo(ActiveSubscriptionResponse response) => response.PayloadCase switch
+    {
+        ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsPersonal => new ActiveSubscriptionInfo
+        {
+            Code = response.Code,
+            LimitIssuesPerMonth = response.LaraueBoardsPersonal.HasLimitIssuesPerMonth
+                ? response.LaraueBoardsPersonal.LimitIssuesPerMonth
+                : null,
+            LimitFreeTeamOrganizationsCount = response.LaraueBoardsPersonal.HasLimitFreeTeamOrganizationsCount
+                ? response.LaraueBoardsPersonal.LimitFreeTeamOrganizationsCount
+                : null,
+        },
+        ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsTeam => new ActiveSubscriptionInfo
+        {
+            Code = response.Code,
+            LimitIssuesPerMonth = response.LaraueBoardsTeam.HasLimitIssuesPerMonth
+                ? response.LaraueBoardsTeam.LimitIssuesPerMonth
+                : null,
+        },
+        _ => throw new InvalidOperationException(
+            $"Unexpected subscription payload '{response.PayloadCase}' for LaraueBoards."),
+    };
 }

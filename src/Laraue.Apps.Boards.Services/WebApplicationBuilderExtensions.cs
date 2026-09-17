@@ -65,6 +65,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
                 .AddScoped<IBillingTokenClient, BillingTokenClient>()
                 .AddScoped<IBillingSubscriptionClient, BillingSubscriptionClient>()
+                .AddScoped<IUsageLimitService, UsageLimitService>()
                 .AddSingleton<ITokenEstimate, TokenEstimate>()
                 .AddSingleton<IFileStorage, FileStorage>();
 

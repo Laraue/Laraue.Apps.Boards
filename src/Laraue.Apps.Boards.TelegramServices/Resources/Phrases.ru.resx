@@ -124,6 +124,9 @@
     <data name="IssueCreationForbidden" xml:space="preserve">
         <value>Это действие недоступно — у вас нет прав на создание карточек здесь.</value>
     </data>
+    <data name="IssueLimitExceeded" xml:space="preserve">
+        <value>Эта организация достигла месячного лимита карточек. Обновите план или подождите до следующего месяца.</value>
+    </data>
     <data name="LinkItemNotFound" xml:space="preserve">
         <value>Этот элемент больше не существует — возможно, он был переименован, перемещён или удалён. Пожалуйста, начните заново с /link.</value>
     </data>
