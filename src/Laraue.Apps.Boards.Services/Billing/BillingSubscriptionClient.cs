@@ -26,6 +26,16 @@ public interface IBillingSubscriptionClient
     Task<ActiveSubscriptionInfo> GetActivePersonalSubscriptionAsync(
         Guid userId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Just the tariff's display name, for a caller that doesn't need its limits too - same
+    /// personal-vs-team resolution as <see cref="GetActiveSubscriptionAsync"/>, but a lighter
+    /// wire response.
+    /// </summary>
+    Task<string> GetTariffNameAsync(
+        long organizationId,
+        Guid userId,
+        CancellationToken cancellationToken);
 }
 
 public sealed record ActiveSubscriptionInfo
@@ -67,10 +77,7 @@ public class BillingSubscriptionClient(
         Guid userId,
         CancellationToken cancellationToken)
     {
-        var organization = await context.Organizations
-            .Where(o => o.Id == organizationId)
-            .Select(o => new { o.Type, o.BillingId })
-            .SingleAsync(cancellationToken);
+        var organization = await GetOrganizationBillingInfoAsync(organizationId, cancellationToken);
 
         var response = organization.Type == OrganizationType.Personal
             ? await client.GetActivePersonalSubscriptionAsync(
@@ -105,6 +112,44 @@ public class BillingSubscriptionClient(
 
         return ToInfo(response);
     }
+
+    public async Task<string> GetTariffNameAsync(
+        long organizationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var organization = await GetOrganizationBillingInfoAsync(organizationId, cancellationToken);
+
+        var response = organization.Type == OrganizationType.Personal
+            ? await client.GetPersonalTariffNameAsync(
+                new GetActivePersonalSubscriptionRequest
+                {
+                    ServiceId = ServiceId.LaraueBoards,
+                    UserId = userId.ToString(),
+                },
+                cancellationToken: cancellationToken)
+            : await client.GetOrganizationTariffNameAsync(
+                new GetActiveOrganizationSubscriptionRequest
+                {
+                    ServiceId = ServiceId.LaraueBoards,
+                    OrganizationId = organization.BillingId!.Value.ToString(),
+                },
+                cancellationToken: cancellationToken);
+
+        return response.Name;
+    }
+
+    private async Task<OrganizationBillingInfo> GetOrganizationBillingInfoAsync(
+        long organizationId,
+        CancellationToken cancellationToken)
+    {
+        return await context.Organizations
+            .Where(o => o.Id == organizationId)
+            .Select(o => new OrganizationBillingInfo(o.Type, o.BillingId))
+            .SingleAsync(cancellationToken);
+    }
+
+    private readonly record struct OrganizationBillingInfo(OrganizationType Type, Guid? BillingId);
 
     private static ActiveSubscriptionInfo ToInfo(ActiveSubscriptionResponse response) => response.PayloadCase switch
     {

@@ -54,7 +54,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
             .FirstOrThrowNotFoundEFAsync("User is not found", cancellationToken);
 
         user.Preferences = await coreService.GetPreferences(userId, cancellationToken);
-        
+
         return user;
     }
 }

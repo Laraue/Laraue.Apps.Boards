@@ -49,6 +49,8 @@ public class WebApiTestHost
             .ReturnsAsync(unlimited);
         mock.Setup(x => x.GetActivePersonalSubscriptionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(unlimited);
+        mock.Setup(x => x.GetTariffNameAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(unlimited.Code);
 
         return mock;
     }

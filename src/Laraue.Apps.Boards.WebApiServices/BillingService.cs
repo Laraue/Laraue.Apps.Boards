@@ -71,8 +71,20 @@ public sealed record BillingTransaction
     public string? Error { get; init; }
 }
 
+public sealed record TariffName
+{
+    public required string Name { get; init; }
+}
+
 public interface IBillingService
 {
+    /// <summary>
+    /// Just the tariff's display name - kept separate from <see cref="GetSummary"/> (which already
+    /// includes it as <c>SubscriptionCode</c>) for a caller that wants a cheap "your plan: X" label
+    /// without paying for the balance/limit round trips <see cref="GetSummary"/> also does.
+    /// </summary>
+    Task<TariffName> GetTariffName(OrganizationAuthData authData, CancellationToken cancellationToken);
+
     /// <summary>
     /// Current plan and remaining token balance for the caller's organization - one round trip
     /// combining <see cref="IBillingSubscriptionClient"/> and <see cref="IBillingTokenClient"/>
@@ -97,6 +109,14 @@ public class BillingService(
     IUsageLimitService usageLimitService,
     IDateTimeProvider dateTimeProvider) : IBillingService
 {
+    public async Task<TariffName> GetTariffName(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        var name = await subscriptionClient.GetTariffNameAsync(
+            authData.OrganizationId, authData.UserId, cancellationToken);
+
+        return new TariffName { Name = name };
+    }
+
     public async Task<BillingSummary> GetSummary(OrganizationAuthData authData, CancellationToken cancellationToken)
     {
         var subscription = await subscriptionClient.GetActiveSubscriptionAsync(

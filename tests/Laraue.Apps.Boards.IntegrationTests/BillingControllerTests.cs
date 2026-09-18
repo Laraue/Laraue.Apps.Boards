@@ -14,6 +14,24 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
     private readonly Proxy<BillingController> _billingController = host.Controller<BillingController>();
 
     [Fact]
+    public async Task GetTariffName_ShouldReturnTariffCode_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetTariffNameAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Team");
+
+        var tariff = await _billingController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetTariffName());
+
+        Assert.Equal("Team", tariff!.Name);
+    }
+
+    [Fact]
     public async Task GetSummary_ShouldCombineSubscriptionAndBalance_Always()
     {
         using var testScope = host.CreateTestScope();

@@ -11,6 +11,12 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/billing")]
 public class BillingController(IBillingService billingService) : ControllerBase
 {
+    [HttpGet("tariff")]
+    public Task<TariffName> GetTariffName(CancellationToken cancellationToken = default)
+    {
+        return billingService.GetTariffName(HttpContext.User.GetOrganizationAuthData(), cancellationToken);
+    }
+
     [HttpGet("summary")]
     public Task<BillingSummary> GetSummary(CancellationToken cancellationToken = default)
     {
