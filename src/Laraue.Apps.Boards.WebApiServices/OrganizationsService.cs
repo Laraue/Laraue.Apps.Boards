@@ -101,6 +101,7 @@ public class OrganizationsService(
                     CanManage = x.AdminAccessLevel.HasFlag(AdminAccessLevel.Manage),
                     CanMassMove = x.AdminAccessLevel.HasFlag(AdminAccessLevel.MassMove),
                     CanManageAttributes = x.AdminAccessLevel.HasFlag(AdminAccessLevel.ManageAttributes),
+                    CanViewBilling = x.AdminAccessLevel.HasFlag(AdminAccessLevel.ViewBilling),
                     Slug = x.Organization.Slug,
                     SlugPostfix = x.Organization.SlugPostfix,
                 })
@@ -297,6 +298,7 @@ public record OrganizationDto
     public required bool CanMassMove { get; set; }
     public required bool CanManage { get; set; }
     public required bool CanManageAttributes { get; set; }
+    public required bool CanViewBilling { get; set; }
     public required string Slug { get; set; }
     public required string SlugPostfix { get; set; }
     public UserOrganizationPreferencesResponse Preferences { get; set; } = new();

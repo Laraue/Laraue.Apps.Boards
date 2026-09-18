@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260917123514_AddViewBillingPermissionToOwners")]
-    partial class AddViewBillingPermissionToOwners
+    [Migration("20260918023900_AddIssueMonthlyCountsAndBillingViewPermission")]
+    partial class AddIssueMonthlyCountsAndBillingViewPermission
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -611,6 +611,30 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                         .HasDatabaseName("ix_issue_comments_attachments_attachment_id");
 
                     b.ToTable("issue_comments_attachments", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueMonthlyCount", b =>
+                {
+                    b.Property<long>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("integer")
+                        .HasColumnName("year");
+
+                    b.Property<int>("Month")
+                        .HasColumnType("integer")
+                        .HasColumnName("month");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer")
+                        .HasColumnName("count");
+
+                    b.HasKey("OrganizationId", "Year", "Month")
+                        .HasName("pk_issue_monthly_counts");
+
+                    b.ToTable("issue_monthly_counts", (string)null);
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueNumber", b =>
@@ -1956,6 +1980,18 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                     b.Navigation("Attachment");
 
                     b.Navigation("Comment");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueMonthlyCount", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_monthly_counts_organizations_organization_id");
+
+                    b.Navigation("Organization");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueNumber", b =>
