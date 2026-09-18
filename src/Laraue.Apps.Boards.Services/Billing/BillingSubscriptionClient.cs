@@ -33,6 +33,14 @@ public sealed record ActiveSubscriptionInfo
     public required string Code { get; init; }
 
     /// <summary>
+    /// Which of Billing's two Boards subscription shapes this came from - lets a caller build a
+    /// discriminated response (e.g. a personal vs. team billing summary) rather than relying on a
+    /// nullable field like <see cref="LimitFreeTeamOrganizationsCount"/> being null for two
+    /// different reasons (not applicable vs. genuinely unlimited).
+    /// </summary>
+    public required bool IsPersonal { get; init; }
+
+    /// <summary>
     /// Null means unlimited - Billing only sets this for tariffs that actually cap it.
     /// </summary>
     public int? LimitIssuesPerMonth { get; init; }
@@ -41,6 +49,13 @@ public sealed record ActiveSubscriptionInfo
     /// Personal subscriptions only - always null for a team's own subscription.
     /// </summary>
     public int? LimitFreeTeamOrganizationsCount { get; init; }
+
+    /// <summary>
+    /// The tariff's own monthly token grant (not the current remaining balance - see
+    /// <see cref="IBillingTokenClient.GetBalanceAsync"/> for that). Used together with
+    /// <c>SubscriptionTokensCount</c> to compute how much of the plan's allowance has been spent.
+    /// </summary>
+    public required long IncludedTokensCount { get; init; }
 }
 
 public class BillingSubscriptionClient(
@@ -96,19 +111,23 @@ public class BillingSubscriptionClient(
         ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsPersonal => new ActiveSubscriptionInfo
         {
             Code = response.Code,
+            IsPersonal = true,
             LimitIssuesPerMonth = response.LaraueBoardsPersonal.HasLimitIssuesPerMonth
                 ? response.LaraueBoardsPersonal.LimitIssuesPerMonth
                 : null,
             LimitFreeTeamOrganizationsCount = response.LaraueBoardsPersonal.HasLimitFreeTeamOrganizationsCount
                 ? response.LaraueBoardsPersonal.LimitFreeTeamOrganizationsCount
                 : null,
+            IncludedTokensCount = response.LaraueBoardsPersonal.IncludedTokensCount,
         },
         ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsTeam => new ActiveSubscriptionInfo
         {
             Code = response.Code,
+            IsPersonal = false,
             LimitIssuesPerMonth = response.LaraueBoardsTeam.HasLimitIssuesPerMonth
                 ? response.LaraueBoardsTeam.LimitIssuesPerMonth
                 : null,
+            IncludedTokensCount = response.LaraueBoardsTeam.IncludedTokensCount,
         },
         _ => throw new InvalidOperationException(
             $"Unexpected subscription payload '{response.PayloadCase}' for LaraueBoards."),

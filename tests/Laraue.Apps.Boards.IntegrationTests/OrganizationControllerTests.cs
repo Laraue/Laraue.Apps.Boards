@@ -95,7 +95,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", LimitFreeTeamOrganizationsCount = 1 });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 1, IncludedTokensCount = 2_500_000 });
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
             .WithUserAuthorization(userId)
@@ -122,7 +122,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", LimitFreeTeamOrganizationsCount = 2 });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 2, IncludedTokensCount = 2_500_000 });
 
         await _organizationsController
             .WithUserAuthorization(userId)

@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.Extensions;
+using Laraue.Core.DateTime.Services.Abstractions;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -11,15 +14,51 @@ public record GetBillingTransactionsRequest : IPaginatedRequest
     public required PaginationData Pagination { get; set; }
 }
 
-public sealed record BillingSummary
+/// <summary>
+/// A capped resource's total allowance, how much of it has been used, and how much is left.
+/// <see cref="Remaining"/> isn't always just <see cref="Limit"/> minus <see cref="Used"/> - the
+/// token bucket's <see cref="Remaining"/> is the full currently-spendable balance (plan tokens
+/// plus any purchased top-ups), while <see cref="Used"/> only tracks spend against the plan's own
+/// grant, since a purchased pack has no single "included" figure to count against.
+/// </summary>
+public sealed record LimitUsage
+{
+    public required long Limit { get; init; }
+    public required long Used { get; init; }
+    public required long Remaining { get; init; }
+}
+
+/// <summary>
+/// Split personal/team rather than one flat shape with an always-nullable
+/// <c>FreeTeamOrganizations</c> field, since a null there would otherwise mean two different
+/// things depending on context (team org - not applicable at all, vs. personal org - genuinely
+/// unlimited) with nothing in the shape itself to tell them apart. Mirrors how Billing's own
+/// subscription rpc already discriminates <c>LaraueBoardsPersonalSubscription</c> vs.
+/// <c>LaraueBoardsTeamSubscription</c>.
+/// </summary>
+[JsonDerivedType(typeof(PersonalBillingSummary), "personal")]
+[JsonDerivedType(typeof(TeamBillingSummary), "team")]
+public abstract record BillingSummary
 {
     public required string SubscriptionCode { get; init; }
-    public int? LimitIssuesPerMonth { get; init; }
-    public int? LimitFreeTeamOrganizationsCount { get; init; }
-    public required long FreeTokensCount { get; init; }
-    public required long SubscriptionTokensCount { get; init; }
-    public required long PurchasedTokensCount { get; init; }
+
+    /// <summary>
+    /// Null means unlimited - nothing to show.
+    /// </summary>
+    public LimitUsage? IssuesPerMonth { get; init; }
+
+    public required LimitUsage Tokens { get; init; }
 }
+
+public sealed record PersonalBillingSummary : BillingSummary
+{
+    /// <summary>
+    /// Null means the plan doesn't cap it.
+    /// </summary>
+    public LimitUsage? FreeTeamOrganizations { get; init; }
+}
+
+public sealed record TeamBillingSummary : BillingSummary;
 
 public sealed record BillingTransaction
 {
@@ -53,7 +92,10 @@ public interface IBillingService
 
 public class BillingService(
     IBillingSubscriptionClient subscriptionClient,
-    IBillingTokenClient tokenClient) : IBillingService
+    IBillingTokenClient tokenClient,
+    IIssueMonthlyCountService issueMonthlyCountService,
+    IUsageLimitService usageLimitService,
+    IDateTimeProvider dateTimeProvider) : IBillingService
 {
     public async Task<BillingSummary> GetSummary(OrganizationAuthData authData, CancellationToken cancellationToken)
     {
@@ -63,14 +105,61 @@ public class BillingService(
         var balance = await tokenClient.GetBalanceAsync(
             authData.OrganizationId, authData.UserId, cancellationToken);
 
-        return new BillingSummary
+        LimitUsage? issuesPerMonth = null;
+        if (subscription.LimitIssuesPerMonth is { } issuesLimit)
+        {
+            var now = dateTimeProvider.UtcNow;
+            var issuesUsed = await issueMonthlyCountService.GetCount(
+                authData.OrganizationId, now.Year, now.Month, cancellationToken);
+
+            issuesPerMonth = new LimitUsage
+            {
+                Limit = issuesLimit,
+                Used = issuesUsed,
+                Remaining = Math.Max(0, issuesLimit - issuesUsed),
+            };
+        }
+
+        var tokensUsed = Math.Max(0, subscription.IncludedTokensCount - balance.SubscriptionTokensCount);
+        var tokensRemaining = balance.SubscriptionTokensCount + balance.FreeTokensCount + balance.PurchasedTokensCount;
+
+        var tokens = new LimitUsage
+        {
+            Limit = subscription.IncludedTokensCount,
+            Used = tokensUsed,
+            Remaining = tokensRemaining,
+        };
+
+        if (!subscription.IsPersonal)
+        {
+            return new TeamBillingSummary
+            {
+                SubscriptionCode = subscription.Code,
+                IssuesPerMonth = issuesPerMonth,
+                Tokens = tokens,
+            };
+        }
+
+        LimitUsage? freeTeamOrganizations = null;
+        if (subscription.LimitFreeTeamOrganizationsCount is { } organizationsLimit)
+        {
+            var organizationsUsed = await usageLimitService.GetOwnedTeamOrganizationsCountAsync(
+                authData.UserId, cancellationToken);
+
+            freeTeamOrganizations = new LimitUsage
+            {
+                Limit = organizationsLimit,
+                Used = organizationsUsed,
+                Remaining = Math.Max(0, organizationsLimit - organizationsUsed),
+            };
+        }
+
+        return new PersonalBillingSummary
         {
             SubscriptionCode = subscription.Code,
-            LimitIssuesPerMonth = subscription.LimitIssuesPerMonth,
-            LimitFreeTeamOrganizationsCount = subscription.LimitFreeTeamOrganizationsCount,
-            FreeTokensCount = balance.FreeTokensCount,
-            SubscriptionTokensCount = balance.SubscriptionTokensCount,
-            PurchasedTokensCount = balance.PurchasedTokensCount,
+            IssuesPerMonth = issuesPerMonth,
+            Tokens = tokens,
+            FreeTeamOrganizations = freeTeamOrganizations,
         };
     }
 

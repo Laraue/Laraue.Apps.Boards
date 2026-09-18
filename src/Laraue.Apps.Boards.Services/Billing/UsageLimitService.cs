@@ -28,6 +28,13 @@ public interface IUsageLimitService
     /// directly since the organization being created doesn't exist yet to resolve type from.
     /// </summary>
     Task EnsureCanCreateOrganizationAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// How many team organizations <paramref name="userId"/> currently owns - the same count
+    /// <see cref="EnsureCanCreateOrganizationAsync"/> checks against the limit, exposed separately
+    /// for read-only "used/remaining" display (e.g. a billing summary) that shouldn't throw.
+    /// </summary>
+    Task<int> GetOwnedTeamOrganizationsCountAsync(Guid userId, CancellationToken cancellationToken);
 }
 
 public class UsageLimitService(
@@ -60,11 +67,16 @@ public class UsageLimitService(
         if (subscription.LimitFreeTeamOrganizationsCount is not { } limit)
             return;
 
-        var ownedTeamOrganizationsCount = await context.Organizations
-            .Where(o => o.OwnerId == userId && o.Type == OrganizationType.Organization)
-            .CountAsync(cancellationToken);
+        var ownedTeamOrganizationsCount = await GetOwnedTeamOrganizationsCountAsync(userId, cancellationToken);
 
         if (ownedTeamOrganizationsCount >= limit)
             throw new OrganizationLimitExceededException(limit);
+    }
+
+    public Task<int> GetOwnedTeamOrganizationsCountAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        return context.Organizations
+            .Where(o => o.OwnerId == userId && o.Type == OrganizationType.Organization)
+            .CountAsync(cancellationToken);
     }
 }
