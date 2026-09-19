@@ -1599,4 +1599,91 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var historyChanges = await testScope.Database.OrganizationLogs.ToListAsyncEF();
         Assert.Single(historyChanges);
     }
+
+    [Fact]
+    public async Task Create_ShouldReturn402_WhenMonthlyIssueLimitReached()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Existing")));
+
+        var status = organization.GetStatus(0, 0, 0);
+
+        // AddIssueToDefaultStatus seeds the Issue row directly, bypassing CoreIssuesService.Create
+        // (and so IssueMonthlyCount, which only that code path increments) - seed the counter
+        // to match, same as it would be after a real creation.
+        var now = DateTime.UtcNow;
+        testScope.Database.IssueMonthlyCounts.Add(new IssueMonthlyCount
+        {
+            OrganizationId = organization.Id,
+            Year = now.Year,
+            Month = now.Month,
+            Count = 1,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 1, IncludedTokensCount = 2_500_000 });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "One too many",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+
+        var issueCount = await testScope.Database.Issues.CountAsyncEF();
+        Assert.Equal(1, issueCount);
+    }
+
+    [Fact]
+    public async Task Create_ShouldCreateIssue_WhenBelowMonthlyIssueLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Existing")));
+
+        var status = organization.GetStatus(0, 0, 0);
+
+        var now = DateTime.UtcNow;
+        testScope.Database.IssueMonthlyCounts.Add(new IssueMonthlyCount
+        {
+            OrganizationId = organization.Id,
+            Year = now.Year,
+            Month = now.Month,
+            Count = 1,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 2, IncludedTokensCount = 2_500_000 });
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "Still within limit",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                }));
+
+        var issueCount = await testScope.Database.Issues.CountAsyncEF();
+        Assert.Equal(2, issueCount);
+
+        var monthlyCount = await testScope.Database.IssueMonthlyCounts
+            .SingleAsyncEF(x => x.OrganizationId == organization.Id && x.Year == now.Year && x.Month == now.Month);
+        Assert.Equal(2, monthlyCount.Count);
+    }
 }

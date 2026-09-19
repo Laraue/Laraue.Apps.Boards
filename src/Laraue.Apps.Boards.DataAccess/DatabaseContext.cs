@@ -31,6 +31,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<Space> Spaces { get; init; }
     public DbSet<File> Files { get; init; }
     public DbSet<SpaceCounter> SpaceCounters { get; init; }
+    public DbSet<IssueMonthlyCount> IssueMonthlyCounts { get; init; }
     public DbSet<DirectSpacePermission> DirectSpacePermissions { get; init; }
     public DbSet<Organization> Organizations { get; init; }
     public DbSet<OrganizationUser> OrganizationUsers { get; init; }
@@ -72,7 +73,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasOperators("gin_trgm_ops");
 
             entity.HasIndex(x => x.AssigneeId);
-            
+
             entity.Property(x => x.LexoRank)
                 .HasMaxLength(34)
                 .IsFixedLength()
@@ -141,6 +142,11 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         modelBuilder.Entity<SpaceCounter>(entity =>
         {
             entity.HasKey(x => x.SpaceId);
+        });
+
+        modelBuilder.Entity<IssueMonthlyCount>(entity =>
+        {
+            entity.HasKey(x => new { x.OrganizationId, x.Year, x.Month });
         });
         
         modelBuilder.Entity<TelegramMediaGroup>(entity =>

@@ -103,6 +103,11 @@ public class SaveCommandService(
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InsufficientTokenBalance, cancellationToken);
             return;
         }
+        catch (IssueLimitExceededException)
+        {
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueLimitExceeded, cancellationToken);
+            return;
+        }
 
         switch (result.Outcome)
         {

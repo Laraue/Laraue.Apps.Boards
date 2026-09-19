@@ -35,6 +35,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ISpacesService, SpacesService>()
                 .AddScoped<IOrganizationsService, OrganizationsService>()
                 .AddScoped<IAdminOrganizationsService, AdminOrganizationsService>()
+                .AddScoped<IBillingService, BillingService>()
                 .AddScoped<IMovementService, MovementService>();
 
             builder.Services

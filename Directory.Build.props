@@ -18,9 +18,9 @@
   <PropertyGroup>
     <LaraueTelegramNetVersion>4.10.0</LaraueTelegramNetVersion>
     <LaraueGrpcVersion>0.0.3</LaraueGrpcVersion>
-    <LaraueBillingInternalContractsVersion>0.0.2</LaraueBillingInternalContractsVersion>
+    <LaraueBillingInternalContractsVersion>0.0.6</LaraueBillingInternalContractsVersion>
     <LaraueCoreDataAccessVersion>10.8.0</LaraueCoreDataAccessVersion>
-    <LaraueCoreExceptionsVersion>10.4.0</LaraueCoreExceptionsVersion>
+    <LaraueCoreExceptionsVersion>10.5.0</LaraueCoreExceptionsVersion>
     <LaraueCoreDateTimeVersion>10.0.0</LaraueCoreDateTimeVersion>
     <LaraueCoreTestingVersion>10.1.0</LaraueCoreTestingVersion>
     <EfCoreVersion>10.0.0</EfCoreVersion>

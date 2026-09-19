@@ -64,7 +64,8 @@ public class TelegramSaveMessageService(
     IDateTimeProvider dateTimeProvider,
     IAiContentSummarizer aiContentSummarizer,
     IBillingTokenClient billingTokenClient,
-    ITokenEstimate tokenEstimate)
+    ITokenEstimate tokenEstimate,
+    IUsageLimitService usageLimitService)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -833,6 +834,8 @@ public class TelegramSaveMessageService(
 
         if (accessLevels?.CanCreateIssue != true)
             throw new IssueCreationForbiddenException(externalChatId);
+
+        await usageLimitService.EnsureCanCreateIssueAsync(linkedChat.OrganizationId, userId, cancellationToken);
     }
     
     private async Task<long> GetOrCreateTelegramMediaGroupId(

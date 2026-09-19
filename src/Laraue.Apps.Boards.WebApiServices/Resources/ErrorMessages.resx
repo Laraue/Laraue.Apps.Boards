@@ -36,6 +36,12 @@
     <data name="InsufficientTokenBalance" xml:space="preserve">
         <value>Not enough tokens left to complete this request.</value>
     </data>
+    <data name="IssueLimitExceeded" xml:space="preserve">
+        <value>Monthly issue limit reached for this organization's plan.</value>
+    </data>
+    <data name="OrganizationLimitExceeded" xml:space="preserve">
+        <value>Free team organization limit reached for your plan.</value>
+    </data>
     <data name="SpaceCreationForbiddenCannotMove" xml:space="preserve">
         <value>Organization: {0} space creation is forbidden, cannot move space here</value>
     </data>

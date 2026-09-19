@@ -83,6 +83,7 @@ public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
     ISpaceCounterService spaceCounterService,
+    IIssueMonthlyCountService issueMonthlyCountService,
     IOrganizationConcurrencyControlService organizationConcurrencyControlService,
     IIssueNumbersService issueNumbersService,
     IIssueHistoryService historyService,
@@ -156,6 +157,11 @@ public class CoreIssuesService(
         context.Add(issueNumber);
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // Kept in sync with the issue insert above rather than derived by counting Issues on
+        // every read - UsageLimitService checks this on every issue creation.
+        await issueMonthlyCountService.IncrementAndGetCount(
+            issueData.OrganizationId, issue.CreatedAt.Year, issue.CreatedAt.Month, cancellationToken);
 
         var items = new List<OrganizationLogItem>
         {

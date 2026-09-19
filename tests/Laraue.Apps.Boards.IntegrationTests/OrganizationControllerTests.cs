@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -12,6 +13,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Moq;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -83,7 +85,160 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.True(epic.TouchedAt != default);
         Assert.True(epic.IsDefault);
     }
-    
+
+    [Fact]
+    public async Task CreateOrganization_ShouldReturn402_WhenFreeTeamOrganizationLimitReached()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        await testScope.InitializeOrganization(userId, org => org.WithName("Existing team org"));
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 1, IncludedTokensCount = 2_500_000 });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Create(
+                new CreateOrganizationRequest
+                {
+                    Name = "One too many",
+                    Color = "#ffffff",
+                    Slug = "orgtwo",
+                })));
+
+        Assert.Equal(HttpStatusCode.PaymentRequired, ex.StatusCode);
+
+        var organizationCount = await testScope.Database.Organizations.CountAsyncEF();
+        Assert.Equal(1, organizationCount);
+    }
+
+    [Fact]
+    public async Task CreateOrganization_ShouldCreateOrganization_WhenBelowFreeTeamOrganizationLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        await testScope.InitializeOrganization(userId, org => org.WithName("Existing team org"));
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 2, IncludedTokensCount = 2_500_000 });
+
+        await _organizationsController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Create(
+                new CreateOrganizationRequest
+                {
+                    Name = "Still within limit",
+                    Color = "#ffffff",
+                    Slug = "orgtwo",
+                }));
+
+        var organizationCount = await testScope.Database.Organizations.CountAsyncEF();
+        Assert.Equal(2, organizationCount);
+    }
+
+    [Fact]
+    public async Task GetBillingTransactions_ShouldReturnTransactionsWithDisplayNames_WhenCallerHasViewBillingAccess()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser(x => x.TelegramUserName = "member1");
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        var transactionId = Guid.NewGuid();
+        var createdAt = DateTime.UtcNow;
+        host.BillingTokenClientMock
+            .Setup(x => x.GetOrganizationTransactionsAsync(
+                organization.Id, null, It.IsAny<PaginationData>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ShortPaginatedResult<TokenTransactionItem>(
+                page: 0,
+                perPage: 10,
+                hasNextPage: false,
+                data:
+                [
+                    new TokenTransactionItem
+                    {
+                        Id = transactionId,
+                        OwnerId = memberId,
+                        Status = TokenTransactionStatus.Confirmed,
+                        Reason = TokenTransactionReason.Spend,
+                        CreatedAt = createdAt,
+                        Delta = -42,
+                    },
+                ]));
+
+        var page = await _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } }));
+
+        var item = Assert.Single(page!.Data);
+        Assert.Equal(transactionId, item.Id);
+        Assert.Equal(memberId, item.OwnerUserId);
+        Assert.Equal("member1", item.OwnerDisplayName);
+    }
+
+    [Fact]
+    public async Task GetBillingTransactions_ShouldPassUserIdFilterThrough_WhenProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        host.BillingTokenClientMock
+            .Setup(x => x.GetOrganizationTransactionsAsync(
+                organization.Id, memberId, It.IsAny<PaginationData>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ShortPaginatedResult<TokenTransactionItem>(0, 10, false, []));
+
+        await _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest
+                {
+                    UserId = memberId,
+                    Pagination = new PaginationData { Page = 0, PerPage = 10 },
+                }));
+
+        host.BillingTokenClientMock.Verify(
+            x => x.GetOrganizationTransactionsAsync(organization.Id, memberId, It.IsAny<PaginationData>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetBillingTransactions_ShouldReturn404_WhenCallerHasNoViewBillingAccess()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(participatorId, builder => builder.SetAdminAccessLevel(AdminAccessLevel.None)));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } })));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetBillingTransactions_ShouldReturn404_WhenOrganizationIsPersonal()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(userId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetBillingTransactions(
+                new GetAdminBillingTransactionsRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } })));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
     [Fact]
     public async Task User_ShouldViewOwnedAndParticipatingOrganizations_Always()
     {
