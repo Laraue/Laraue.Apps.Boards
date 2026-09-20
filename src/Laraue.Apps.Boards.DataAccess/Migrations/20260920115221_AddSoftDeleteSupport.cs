@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     /// <inheritdoc />
-    public partial class AddSpaceEpicStatusDeletedAt : Migration
+    public partial class AddSoftDeleteSupport : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -41,6 +41,42 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
 
             migrationBuilder.AddColumn<DateTime>(
                 name: "deleted_at",
+                table: "organizations",
+                type: "timestamp with time zone",
+                nullable: true);
+
+            migrationBuilder.AddColumn<Guid>(
+                name: "deleted_by_user_id",
+                table: "organizations",
+                type: "uuid",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "deleted_at",
+                table: "issues",
+                type: "timestamp with time zone",
+                nullable: true);
+
+            migrationBuilder.AddColumn<Guid>(
+                name: "deleted_by_user_id",
+                table: "issues",
+                type: "uuid",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "deleted_at",
+                table: "issue_comments",
+                type: "timestamp with time zone",
+                nullable: true);
+
+            migrationBuilder.AddColumn<Guid>(
+                name: "deleted_by_user_id",
+                table: "issue_comments",
+                type: "uuid",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "deleted_at",
                 table: "epics",
                 type: "timestamp with time zone",
                 nullable: true);
@@ -69,6 +105,21 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                 filter: "deleted_at IS NULL");
 
             migrationBuilder.CreateIndex(
+                name: "ix_organizations_deleted_by_user_id",
+                table: "organizations",
+                column: "deleted_by_user_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_issues_deleted_by_user_id",
+                table: "issues",
+                column: "deleted_by_user_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_issue_comments_deleted_by_user_id",
+                table: "issue_comments",
+                column: "deleted_by_user_id");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_epics_deleted_by_user_id",
                 table: "epics",
                 column: "deleted_by_user_id");
@@ -76,6 +127,30 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
             migrationBuilder.AddForeignKey(
                 name: "fk_epics_users_deleted_by_user_id",
                 table: "epics",
+                column: "deleted_by_user_id",
+                principalTable: "users",
+                principalColumn: "id",
+                onDelete: ReferentialAction.SetNull);
+
+            migrationBuilder.AddForeignKey(
+                name: "fk_issue_comments_users_deleted_by_user_id",
+                table: "issue_comments",
+                column: "deleted_by_user_id",
+                principalTable: "users",
+                principalColumn: "id",
+                onDelete: ReferentialAction.SetNull);
+
+            migrationBuilder.AddForeignKey(
+                name: "fk_issues_users_deleted_by_user_id",
+                table: "issues",
+                column: "deleted_by_user_id",
+                principalTable: "users",
+                principalColumn: "id",
+                onDelete: ReferentialAction.SetNull);
+
+            migrationBuilder.AddForeignKey(
+                name: "fk_organizations_users_deleted_by_user_id",
+                table: "organizations",
                 column: "deleted_by_user_id",
                 principalTable: "users",
                 principalColumn: "id",
@@ -106,6 +181,18 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                 table: "epics");
 
             migrationBuilder.DropForeignKey(
+                name: "fk_issue_comments_users_deleted_by_user_id",
+                table: "issue_comments");
+
+            migrationBuilder.DropForeignKey(
+                name: "fk_issues_users_deleted_by_user_id",
+                table: "issues");
+
+            migrationBuilder.DropForeignKey(
+                name: "fk_organizations_users_deleted_by_user_id",
+                table: "organizations");
+
+            migrationBuilder.DropForeignKey(
                 name: "fk_spaces_users_deleted_by_user_id",
                 table: "spaces");
 
@@ -126,6 +213,18 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                 table: "spaces");
 
             migrationBuilder.DropIndex(
+                name: "ix_organizations_deleted_by_user_id",
+                table: "organizations");
+
+            migrationBuilder.DropIndex(
+                name: "ix_issues_deleted_by_user_id",
+                table: "issues");
+
+            migrationBuilder.DropIndex(
+                name: "ix_issue_comments_deleted_by_user_id",
+                table: "issue_comments");
+
+            migrationBuilder.DropIndex(
                 name: "ix_epics_deleted_by_user_id",
                 table: "epics");
 
@@ -144,6 +243,30 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
             migrationBuilder.DropColumn(
                 name: "deleted_by_user_id",
                 table: "spaces");
+
+            migrationBuilder.DropColumn(
+                name: "deleted_at",
+                table: "organizations");
+
+            migrationBuilder.DropColumn(
+                name: "deleted_by_user_id",
+                table: "organizations");
+
+            migrationBuilder.DropColumn(
+                name: "deleted_at",
+                table: "issues");
+
+            migrationBuilder.DropColumn(
+                name: "deleted_by_user_id",
+                table: "issues");
+
+            migrationBuilder.DropColumn(
+                name: "deleted_at",
+                table: "issue_comments");
+
+            migrationBuilder.DropColumn(
+                name: "deleted_by_user_id",
+                table: "issue_comments");
 
             migrationBuilder.DropColumn(
                 name: "deleted_at",

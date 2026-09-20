@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260920113406_AddIssueCommentDeletedAt")]
-    partial class AddIssueCommentDeletedAt
+    [Migration("20260920115221_AddSoftDeleteSupport")]
+    partial class AddSoftDeleteSupport
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
