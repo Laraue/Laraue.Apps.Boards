@@ -374,7 +374,128 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(LogAction.Delete, historyChange.Action);
         Assert.Empty(historyChange.Items!);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldSoftDeleteIssue_WhenIsOrganizationOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        // The row itself must survive the delete - only FindIssueByKey (which excludes
+        // soft-deleted rows) should treat it as gone.
+        var issue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(issue.DeletedAt);
+        Assert.Equal(userId, issue.DeletedByUserId);
+    }
+
+    [Fact]
+    public async Task Create_ShouldComputeInitialLexoRankIgnoringSoftDeletedIssues_WhenOnlyExistingIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("First")));
+
+        var firstIssue = organization.GetIssueData(0, 0, 0, 0);
+        var status = organization.GetStatus(0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(firstIssue.Key));
+
+        var secondIssueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(new CreateIssueRequest
+            {
+                Content = "Second",
+                StatusId = status.Id,
+                AssigneeId = userId,
+            }));
+
+        var secondIssue = await testScope.Database.FindIssueByKey(organization.Id, secondIssueKey!);
+        Assert.NotNull(secondIssue);
+        // Same rank a very first issue in the organization would get - proves the deleted
+        // issue's LexoRank was not used as the base to compute this one.
+        Assert.Equal("0|hzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", secondIssue.LexoRank);
+    }
+
+    [Fact]
+    public async Task GetIssuesByStatus_ShouldNotReturnSoftDeletedIssue_WhenIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Kept"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Deleted")));
+
+        var status = organization.GetStatus(0, 0, 0);
+        var deletedIssue = organization.GetIssueData(0, 0, 0, 1);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(deletedIssue.Key));
+
+        var result = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssuesByStatus(status.Id, new GetIssuesRequest { Take = 20 }));
+
+        var issue = Assert.Single(result!.Data);
+        Assert.Equal("Kept", issue.Content);
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldStillReturnHistory_WhenIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Doomed issue")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Updated before delete",
+            }));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        var request = new GetIssueHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(issueData.Key, request));
+
+        Assert.Equal(2, historyData!.Data.Count);
+        Assert.Equal(LogAction.Delete, historyData.Data[0].Action);
+        Assert.Equal(LogAction.Update, historyData.Data[1].Action);
+    }
+
     [Fact]
     public async Task User_ShouldNotDeleteIssue_WhenHasNotAccess()
     {

@@ -124,7 +124,7 @@ public class GroupChatLinkService(
 
         var organization = await LoadOrAnswerNotFound(
             query,
-            () => context.Organizations
+            () => context.ActiveOrganizations()
                 .Where(x => x.Id == organizationId)
                 .Select(x => new { x.Name })
                 .FirstOrDefaultAsyncEF(cancellationToken),
@@ -138,7 +138,8 @@ public class GroupChatLinkService(
             x => x
                 .Select(y => new { y.Id, y.Name })
                 .ToListAsyncEF(cancellationToken),
-            cancellationToken);
+            includeDeleted: false,
+            cancellationToken: cancellationToken);
 
         var spaceButtons = spaces
             .Select(space => new[]
@@ -177,7 +178,7 @@ public class GroupChatLinkService(
 
         var space = await LoadOrAnswerNotFound(
             query,
-            () => context.Spaces
+            () => context.ActiveSpaces()
                 .Where(x => x.Id == spaceId)
                 .Select(x => new
                 {
@@ -193,8 +194,8 @@ public class GroupChatLinkService(
 
         if (!await IsAllowedToLink(query, userId, space.OrganizationId, cancellationToken))
             return;
-        
-        var epics = await context.Epics
+
+        var epics = await context.ActiveEpics()
             .Where(x => x.SpaceId == spaceId)
             .OrderByDescending(x => x.IsDefault)
             .ThenBy(x => x.Id)
@@ -234,7 +235,7 @@ public class GroupChatLinkService(
         var chatId = query.Message!.Chat.Id;
         var epic = await LoadOrAnswerNotFound(
             query,
-            () => context.Epics
+            () => context.ActiveEpics()
                 .Where(x => x.Id == epicId)
                 .Select(x => new
                 {
@@ -254,7 +255,7 @@ public class GroupChatLinkService(
         if (!await IsAllowedToLink(query, userId, epic.OrganizationId, cancellationToken))
             return;
 
-        var statuses = await context.Statuses
+        var statuses = await context.ActiveStatuses()
             .Where(x => x.EpicId == epicId)
             .OrderBy(x => x.Id)
             .Select(x => new { x.Id, x.Name })
@@ -472,7 +473,7 @@ public class GroupChatLinkService(
 
     private Task<LinkDestination?> LoadDestinationByStatusId(long statusId, CancellationToken cancellationToken)
     {
-        return context.Statuses
+        return context.ActiveStatuses()
             .Where(x => x.Id == statusId)
             .Select(x => new LinkDestination
             {

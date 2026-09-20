@@ -12,8 +12,8 @@ public class TelegramMessageService(
 {
     public async Task HandleSaveMessage(
         SaveMessageTelegramRequest request,
-        CancellationToken cancellationToken,
-        bool notifyOnFailure = true)
+        bool notifyOnFailure,
+        CancellationToken cancellationToken)
     {
         GetOrCreateMessageResult result;
         try

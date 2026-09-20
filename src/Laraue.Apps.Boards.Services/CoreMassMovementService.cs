@@ -50,43 +50,51 @@ public class CoreMovementService(
     {
         context.Database.EnsureTransactionStarted();
         
-        var sourceData = await context.Spaces
+        var sourceData = await context.ActiveSpaces()
             .Where(x => x.Id == spaceId)
             .Select(x => new { x.IsDefault, x.Key })
             .FirstOrThrowNotFoundEFAsync($"Space: {spaceId} is not found", cancellationToken);
-        
+
         if (sourceData.IsDefault)
             throw new ForbiddenException("Default space cannot be moved.");
-        
-        var suchSpaceKeyExists = await context.Spaces
+
+        // Active-only: the Space.Key unique index is itself filtered to active rows, so a
+        // soft-deleted space's key is already free to reuse - this check must agree with the DB.
+        var suchSpaceKeyExists = await context.ActiveSpaces()
             .Where(x => x.OrganizationId == newOrganizationId)
             .Where(x => x.Key == sourceData.Key)
             .AnyAsyncEF(cancellationToken);
-        
+
         if (suchSpaceKeyExists)
             throw new BadRequestException(
                 nameof(newOrganizationId),
                 $"Space key {sourceData.Key} already exists in target organization.");
-        
+
         var lastIssueInNewOrganization = await GetLastOrganizationIssue(newOrganizationId, cancellationToken);
 
-        await context.Spaces
+        await context.ActiveSpaces()
             .Where(x => x.Id == spaceId)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.OrganizationId, newOrganizationId),
                 cancellationToken);
 
+        // Raw (includes soft-deleted issues) so their OrganizationLog rows stay accurate too.
         var affectedIssueIds = await context.Issues
             .Where(x => x.Status!.Epic!.SpaceId == spaceId)
             .Select(x => x.Id)
             .ToArrayAsyncEF(cancellationToken);
-        
+
         await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
-        
+
         if (lastIssueInNewOrganization.HasValue)
         {
+            var activeIssueIds = await context.ActiveIssues()
+                .Where(x => x.Status!.Epic!.SpaceId == spaceId)
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(cancellationToken);
+
             await issuesService.UpdateIssuesOrder(
-                affectedIssueIds,
+                activeIssueIds,
                 lastIssueInNewOrganization.Value,
                 OrderTargetType.After,
                 cancellationToken);
@@ -100,18 +108,18 @@ public class CoreMovementService(
     {
         context.Database.EnsureTransactionStarted();
         
-        var organizationIdBySpaceId = await context.Spaces
+        var organizationIdBySpaceId = await context.ActiveSpaces()
             .Where(x => x.Id == spaceId || x.Id == newSpaceId)
             .ToDictionaryAsyncEF(x => x.Id, x => x.OrganizationId, cancellationToken);
 
         var newOrganizationId = organizationIdBySpaceId[newSpaceId];
         var organizationWillChanged = organizationIdBySpaceId[spaceId] != newOrganizationId;
-        
+
         long? lastIssueInNewOrganization = null;
         if (organizationWillChanged)
             lastIssueInNewOrganization = await GetLastOrganizationIssue(newOrganizationId, cancellationToken);
-        
-        var epicsIdsToUpdate = await context.Epics
+
+        var epicsIdsToUpdate = await context.ActiveEpics()
             .Where(x => x.SpaceId == spaceId)
             .Where(x => x.IsDefault == false)
             .Select(x => x.Id)
@@ -122,7 +130,7 @@ public class CoreMovementService(
             .ExecuteUpdateAsync(u => u
                 .SetProperty(epic => epic.SpaceId, newSpaceId),
                 cancellationToken);
-        
+
         if (updatedCount == 0)
             return;
 
@@ -130,23 +138,29 @@ public class CoreMovementService(
             .Where(i => i.SpaceId == spaceId);
 
         await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, newSpaceId, cancellationToken);
-        
+
+        // Raw (includes soft-deleted issues) so their OrganizationLog rows stay accurate too.
         var affectedIssueIds = await context.Issues
             .Where(x => ((IEnumerable<long>)epicsIdsToUpdate).Contains(x.Status!.EpicId))
             .Select(x => x.Id)
             .ToArrayAsyncEF(cancellationToken);
-        
+
         if (organizationWillChanged)
             await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
-        
+
         if (lastIssueInNewOrganization.HasValue)
         {
+            var activeIssueIds = await context.ActiveIssues()
+                .Where(x => ((IEnumerable<long>)epicsIdsToUpdate).Contains(x.Status!.EpicId))
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(cancellationToken);
+
             await issuesService.UpdateIssuesOrder(
-                affectedIssueIds,
+                activeIssueIds,
                 lastIssueInNewOrganization.Value,
                 OrderTargetType.After,
                 cancellationToken);
-        }  
+        }
     }
 
     public async Task MoveEpic(
@@ -156,12 +170,12 @@ public class CoreMovementService(
     {
         context.Database.EnsureTransactionStarted();
 
-        var oldOrganizationId = await context.Epics
+        var oldOrganizationId = await context.ActiveEpics()
             .Where(x => x.Id == epicId)
             .Select(x => x.Space!.OrganizationId)
             .FirstAsyncEF(cancellationToken);
-        
-        var newOrganizationId = await context.Spaces
+
+        var newOrganizationId = await context.ActiveSpaces()
             .Where(x => x.Id == newSpaceId)
             .Select(x => x.OrganizationId)
             .FirstAsyncEF(cancellationToken);
@@ -171,28 +185,29 @@ public class CoreMovementService(
         if (organizationWillChanged)
             lastIssueInNewOrganization = await GetLastOrganizationIssue(newOrganizationId, cancellationToken);
 
-        var sourceData = await context.Epics
+        var sourceData = await context.ActiveEpics()
             .Where(x => x.Id == epicId)
             .Select(x => new { x.IsDefault })
             .FirstOrThrowNotFoundEFAsync($"Epic: {epicId} is not found", cancellationToken);
-        
+
         if (sourceData.IsDefault)
             throw new ForbiddenException("Default epic cannot be moved.");
-        
+
         var updatedCount = await context.Epics
             .Where(x => x.Id == epicId)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(epic => epic.SpaceId, newSpaceId),
                 cancellationToken);
-        
+
         if (updatedCount == 0)
             return;
-        
+
         var affectedIssueNumbers = context.IssueNumbers
             .Where(i => i.Issue!.Status!.EpicId == epicId);
 
         await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, newSpaceId, cancellationToken);
-        
+
+        // Raw (includes soft-deleted issues) so their OrganizationLog rows stay accurate too.
         var affectedIssueIds = await context.Issues
             .Where(x => x.Status!.EpicId == epicId)
             .Select(x => x.Id)
@@ -200,11 +215,16 @@ public class CoreMovementService(
 
         if (oldOrganizationId != newOrganizationId)
             await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
-        
+
         if (lastIssueInNewOrganization.HasValue)
         {
+            var activeIssueIds = await context.ActiveIssues()
+                .Where(x => x.Status!.EpicId == epicId)
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(cancellationToken);
+
             await issuesService.UpdateIssuesOrder(
-                affectedIssueIds,
+                activeIssueIds,
                 lastIssueInNewOrganization.Value,
                 OrderTargetType.After,
                 cancellationToken);
@@ -236,7 +256,7 @@ public class CoreMovementService(
 
     private async Task<long?> GetLastOrganizationIssue(long organizationId, CancellationToken cancellationToken)
     {
-        var lastIssueInNewOrganization = await context.Issues
+        var lastIssueInNewOrganization = await context.ActiveIssues()
             .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
             .OrderByDescending(x => x.LexoRank)
             .ThenByDescending(x => x.Id)

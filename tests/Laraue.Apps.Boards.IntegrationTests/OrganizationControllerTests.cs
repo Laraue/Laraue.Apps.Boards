@@ -401,10 +401,48 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithUserAuthorization(userId)
             .Execute(x => x.Delete(entity.Id));
 
-        var organizations = await testScope.Database.Organizations.ToListAsyncEF();
-        Assert.Empty(organizations);
+        var organization = await testScope.Database.Organizations.SingleAsyncEF(x => x.Id == entity.Id);
+        Assert.NotNull(organization.DeletedAt);
+        Assert.Equal(userId, organization.DeletedByUserId);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldSoftDeleteOrganizationAndAllDescendants_WhenOrganizationIsDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, space => space
+                .AddEpic(userId, epic => epic
+                    .AddIssue(userId, 0, issue => issue.WithContent("Doomed issue")))));
+
+        var space = organization.GetSpace(1);
+        var epic = organization.GetEpic(1, 1);
+        var status = organization.GetStatus(1, 1, 0);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        await _adminOrganizationsController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Delete(organization.Id));
+
+        var deletedOrganization = await testScope.Database.Organizations.SingleAsyncEF(x => x.Id == organization.Id);
+        Assert.NotNull(deletedOrganization.DeletedAt);
+        Assert.Equal(userId, deletedOrganization.DeletedByUserId);
+
+        var deletedSpace = await testScope.Database.Spaces.SingleAsyncEF(x => x.Id == space.Id);
+        Assert.NotNull(deletedSpace.DeletedAt);
+
+        var deletedEpic = await testScope.Database.Epics.SingleAsyncEF(x => x.Id == epic.Id);
+        Assert.NotNull(deletedEpic.DeletedAt);
+
+        var deletedStatus = await testScope.Database.Statuses.SingleAsyncEF(x => x.Id == status.Id);
+        Assert.NotNull(deletedStatus.DeletedAt);
+
+        var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(deletedIssue.DeletedAt);
+    }
+
     [Fact]
     public async Task User_ShouldDeleteOrganization_WhenHasAccess()
     {
@@ -420,10 +458,11 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithUserAuthorization(userId)
             .Execute(x => x.Delete(entity.Id));
         
-        var organizations = await testScope.Database.Organizations.ToListAsyncEF();
-        Assert.Empty(organizations);
+        var organization = await testScope.Database.Organizations.SingleAsyncEF(x => x.Id == entity.Id);
+        Assert.NotNull(organization.DeletedAt);
+        Assert.Equal(userId, organization.DeletedByUserId);
     }
-    
+
     [Fact]
     public async Task User_ShouldNotDeleteOrganization_WhenHasNotAccess()
     {
@@ -995,6 +1034,97 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var historyItem = Assert.Single(historyData!.Data);
         Assert.Equal(secondSpaceIssue.Key, historyItem.IssueKey);
         Assert.Equal(LogEntityType.Issue, historyItem.EntityType);
+        Assert.Equal(LogAction.Update, historyItem.Action);
+    }
+
+    [Fact]
+    public async Task GetOrganizationHistory_ShouldStillShowIssueHistory_WhenIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Doomed issue")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        // The issue row itself must survive (soft-deleted, not gone) for the history join below
+        // to keep matching it.
+        var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(deletedIssue.DeletedAt);
+        Assert.Equal(userId, deletedIssue.DeletedByUserId);
+
+        var request = new GetOrganizationHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        // Test seeding (AddIssueToDefaultStatus) writes the issue directly, bypassing
+        // CoreIssuesService.Create - so only the explicit Delete call below produces a log entry.
+        var historyItem = Assert.Single(historyData!.Data);
+        Assert.Equal(issueData.Key, historyItem.IssueKey);
+        Assert.Equal(LogAction.Delete, historyItem.Action);
+        Assert.Equal(LogEntityType.Issue, historyItem.EntityType);
+    }
+
+    [Fact]
+    public async Task GetOrganizationHistory_ShouldStillShowIssueHistory_WhenIssueSpaceWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, space => space
+                .AddEpic(userId, epic => epic
+                    .AddIssue(userId, 0, issue => issue.WithContent("Original")))));
+
+        var space = organization.GetSpace(1);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        // Go through CoreIssuesService.Update (not the raw seed) so a real history entry exists
+        // to still find after the space is deleted.
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Updated before space deletion",
+            }));
+
+        await _spacesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(space.Key));
+
+        var deletedSpace = await testScope.Database.Spaces.SingleAsyncEF(x => x.Id == space.Id);
+        Assert.NotNull(deletedSpace.DeletedAt);
+
+        var request = new GetOrganizationHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        var historyItem = Assert.Single(historyData!.Data);
+        Assert.Equal(issueData.Key, historyItem.IssueKey);
         Assert.Equal(LogAction.Update, historyItem.Action);
     }
 

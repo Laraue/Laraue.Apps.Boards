@@ -81,8 +81,16 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsRequired();
 
             entity.HasIndex(x => x.LexoRank);
+
+            // Deleting the user who deleted an issue must not be blocked by, or wipe out, the
+            // issue's own audit trail - the issue stays and simply loses that attribution.
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
-        
+
         modelBuilder.Entity<IssueNumber>(entity =>
         {
             entity.HasKey(x => x.IssueId);
@@ -134,11 +142,38 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         
         modelBuilder.Entity<Space>(entity =>
         {
+            // Filtered so a soft-deleted space's key can be reused - a hard unique index would
+            // otherwise permanently reserve it.
             entity
                 .HasIndex(x => new { x.OrganizationId, x.Key })
-                .IsUnique();
+                .IsUnique()
+                .HasFilter("deleted_at IS NULL");
+
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
-        
+
+        modelBuilder.Entity<Epic>(entity =>
+        {
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Status>(entity =>
+        {
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<SpaceCounter>(entity =>
         {
             entity.HasKey(x => x.SpaceId);
@@ -196,6 +231,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => x.BillingId)
                 .IsUnique();
+
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Retro>(entity =>
@@ -259,7 +300,16 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             builder.HasKey(x => new { x.CommentId, x.AttachmentId });
         });
-        
+
+        modelBuilder.Entity<IssueComment>(entity =>
+        {
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<OrganizationLog>(builder =>
         {
             builder

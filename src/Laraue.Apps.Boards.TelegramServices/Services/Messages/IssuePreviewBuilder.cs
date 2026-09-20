@@ -24,7 +24,7 @@ public class IssuePreviewBuilder(
 {
     public async Task<IssuePreview> Build(long issueId, CancellationToken cancellationToken)
     {
-        var issueData = await context.Issues
+        var issueData = await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .Select(x => new
             {

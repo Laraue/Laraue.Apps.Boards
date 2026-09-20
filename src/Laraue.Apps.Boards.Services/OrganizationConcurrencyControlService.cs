@@ -46,7 +46,7 @@ public class OrganizationConcurrencyControlService(
 
     private async Task RebalanceOrganizationLexoRank(long organizationId, CancellationToken ct)
     {
-        var issues = await context.Issues
+        var issues = await context.ActiveIssues()
             .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
             .OrderBy(x => x.LexoRank)
             .Select(x => new Issue { Id = x.Id, LexoRank = x.LexoRank })

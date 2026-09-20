@@ -69,7 +69,7 @@ public class SearchService(
             inlineQuery,
             filterRegistry.Keys);
 
-        var issuesQuery = context.Issues
+        var issuesQuery = context.ActiveIssues()
             .Where(x => readableSpaceIds.Contains(x.Status!.Epic!.SpaceId));
 
         var isKeyLookup = false;
@@ -362,7 +362,7 @@ public class SearchService(
             .Where(x => x.UserId == requestContext.UserId)
             .Select(x => new { x.CanRead, x.OrganizationId });
 
-        return await context.Spaces
+        return await context.ActiveSpaces()
             .InnerJoin(
                 organizationsData,
                 (space, organizationData) => space.OrganizationId == organizationData.OrganizationId,
@@ -385,7 +385,7 @@ public class SearchService(
             .Select(x => x.OrganizationId)
             .Distinct();
 
-        return await context.Organizations
+        return await context.ActiveOrganizations()
             .Where(s => organizationIds.Contains(s.Id))
             .Select(s => new OrganizationInfo(
                 s.Id,

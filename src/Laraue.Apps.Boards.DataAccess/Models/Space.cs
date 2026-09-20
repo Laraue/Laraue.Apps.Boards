@@ -33,7 +33,18 @@ public class Space
     /// Epic attribute update date.
     /// </summary>
     public DateTime UpdatedAt { get; set; }
-    
+
+    /// <summary>
+    /// UTC timestamp the space was soft-deleted at, or null if it is active.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who soft-deleted the space, if any.
+    /// </summary>
+    public Guid? DeletedByUserId { get; set; }
+    public User? DeletedByUser { get; set; }
+
     public bool IsDefault { get; set; }
     
     /// <summary>

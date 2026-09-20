@@ -90,7 +90,68 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
                 })));
         Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldSoftDeleteSpaceAndAllDescendants_WhenSpaceIsDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, space => space
+                .AddEpic(userId, epic => epic
+                    .AddIssue(userId, 0, issue => issue.WithContent("Doomed issue")))));
+
+        var space = organization.GetSpace(1);
+        var epic = organization.GetEpic(1, 1);
+        var status = organization.GetStatus(1, 1, 0);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        await _spacesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(space.Key));
+
+        var deletedSpace = await testScope.Database.Spaces.SingleAsyncEF(x => x.Id == space.Id);
+        Assert.NotNull(deletedSpace.DeletedAt);
+        Assert.Equal(userId, deletedSpace.DeletedByUserId);
+
+        var deletedEpic = await testScope.Database.Epics.SingleAsyncEF(x => x.Id == epic.Id);
+        Assert.NotNull(deletedEpic.DeletedAt);
+
+        var deletedStatus = await testScope.Database.Statuses.SingleAsyncEF(x => x.Id == status.Id);
+        Assert.NotNull(deletedStatus.DeletedAt);
+
+        var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(deletedIssue.DeletedAt);
+    }
+
+    [Fact]
+    public async Task User_ShouldAllowReusingSpaceKey_WhenPreviousSpaceWithSameKeyWasSoftDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        await _spacesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(new CreateSpaceRequest { Name = "First", Color = "#ffffff", Key = "REU" }));
+
+        await _spacesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete("REU"));
+
+        var newSpaceKey = await _spacesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(new CreateSpaceRequest { Name = "Second", Color = "#000000", Key = "REU" }));
+
+        Assert.Equal("REU", newSpaceKey);
+
+        var spaces = await testScope.Database.Spaces.Where(x => x.Key == "REU").ToListAsyncEF();
+        Assert.Equal(2, spaces.Count);
+        Assert.Single(spaces, x => x.DeletedAt != null);
+        Assert.Single(spaces, x => x.DeletedAt == null && x.Name == "Second");
+    }
+
     [Fact]
     public async Task User_ShouldViewSpacesInOwnedOrganization_Always()
     {

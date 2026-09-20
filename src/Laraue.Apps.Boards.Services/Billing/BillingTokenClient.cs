@@ -250,7 +250,7 @@ public class BillingTokenClient(DatabaseContext context, TokenService.TokenServi
 
     private async Task<OrganizationBillingInfo> GetOrganizationBillingInfoAsync(long organizationId, CancellationToken cancellationToken)
     {
-        return await context.Organizations
+        return await context.ActiveOrganizations()
             .Where(o => o.Id == organizationId)
             .Select(o => new OrganizationBillingInfo(o.Type, o.BillingId))
             .SingleAsync(cancellationToken);

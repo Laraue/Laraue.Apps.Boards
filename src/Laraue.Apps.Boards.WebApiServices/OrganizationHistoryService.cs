@@ -135,7 +135,9 @@ public class OrganizationHistoryService(
             new IssueKey(request.IssueKey),
             ct);
 
-        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+        // includeDeleted: true - a soft-deleted issue's own history must stay viewable to anyone
+        // who could already read it.
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, includeDeleted: true, cancellationToken: ct)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey))
             .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey));
 
@@ -201,10 +203,13 @@ public class OrganizationHistoryService(
         GetOrganizationHistoryRequest request,
         CancellationToken ct)
     {
+        // includeDeleted: a soft-deleted space's history must stay visible to whoever could
+        // already read it - the read-permission computation itself should still "see" the space.
         var readableSpaceIds = await accessService.GetAvailableSpaces(
             request.AuthData,
             query => query.Select(s => s.Id).ToArrayAsyncEF(ct),
-            ct);
+            includeDeleted: true,
+            cancellationToken: ct);
 
         var query = context.OrganizationLogs
             .Where(x => x.OrganizationId == request.AuthData.OrganizationId)

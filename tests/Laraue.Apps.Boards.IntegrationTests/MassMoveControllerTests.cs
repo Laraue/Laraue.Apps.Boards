@@ -12,7 +12,35 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
 {
     private readonly Proxy<MovementController> _controller = host.Controller<MovementController>();
-    
+    private readonly Proxy<SpacesController> _spacesController = host.Controller<SpacesController>();
+
+    [Fact]
+    public async Task MoveSpace_ShouldAllowMove_WhenTargetOrganizationHasSoftDeletedSpaceWithSameKey()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var sourceOrganization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o.AddSpace(userId, "DUP"));
+        var targetOrganization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, "DUP"));
+
+        var spaceToMove = sourceOrganization.GetSpace(1);
+        var conflictingSpace = targetOrganization.GetSpace(1);
+
+        await _spacesController
+            .WithOrganizationAuthorization(targetOrganization.Id, userId)
+            .Execute(x => x.Delete(conflictingSpace.Key));
+
+        await _controller
+            .WithOrganizationAuthorization(sourceOrganization.Id, userId)
+            .Execute(x => x.MoveSpace(spaceToMove.Key, targetOrganization.Id));
+
+        var movedSpace = await testScope.Database.Spaces.SingleAsyncEF(x => x.Id == spaceToMove.Id);
+        Assert.Equal(targetOrganization.Id, movedSpace.OrganizationId);
+    }
+
     [Fact]
     public async Task User_ShouldMoveNotDefaultSpace_WhenHasMassMovePermission()
     {

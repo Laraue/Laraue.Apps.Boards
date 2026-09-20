@@ -35,7 +35,7 @@ public class StatusesService(
         CreateStatusRequest request,
         CancellationToken cancellationToken)
     {
-        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.EpicId, cancellationToken)
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.EpicId, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.EpicId))
             .EnsureOrThrowForbidden(a => a.CanUpdateEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.EpicId));
 
@@ -63,6 +63,7 @@ public class StatusesService(
             new Boards.Services.DeleteStatusRequest
             {
                 Id = request.Id,
+                DeleterId = request.AuthData.UserId,
             },
             cancellationToken);
     }

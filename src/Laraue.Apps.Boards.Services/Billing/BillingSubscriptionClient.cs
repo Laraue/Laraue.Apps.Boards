@@ -143,7 +143,7 @@ public class BillingSubscriptionClient(
         long organizationId,
         CancellationToken cancellationToken)
     {
-        return await context.Organizations
+        return await context.ActiveOrganizations()
             .Where(o => o.Id == organizationId)
             .Select(o => new OrganizationBillingInfo(o.Type, o.BillingId))
             .SingleAsync(cancellationToken);

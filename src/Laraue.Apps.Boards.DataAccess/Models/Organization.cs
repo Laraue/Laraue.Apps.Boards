@@ -44,7 +44,18 @@ public class Organization
     /// Epic attribute update date.
     /// </summary>
     public DateTime UpdatedAt { get; set; }
-    
+
+    /// <summary>
+    /// UTC timestamp the organization was soft-deleted at, or null if it is active.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who soft-deleted the organization, if any.
+    /// </summary>
+    public Guid? DeletedByUserId { get; set; }
+    public User? DeletedByUser { get; set; }
+
     /// <summary>
     /// Spaces linked to the organization.
     /// </summary>

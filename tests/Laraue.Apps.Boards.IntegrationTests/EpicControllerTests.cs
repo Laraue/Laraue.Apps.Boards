@@ -289,8 +289,9 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Delete(epicId));
         
-        var epic = await testScope.Database.Epics.FirstOrDefaultAsyncEF(x => x.Id == epicId);
-        Assert.Null(epic);
+        var epic = await testScope.Database.Epics.SingleAsyncEF(x => x.Id == epicId);
+        Assert.NotNull(epic.DeletedAt);
+        Assert.Equal(participatorId, epic.DeletedByUserId);
     }
 
     [Fact]

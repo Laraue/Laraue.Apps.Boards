@@ -88,7 +88,7 @@ public class EpicsService(
         ChangeEpicStatusRequest request,
         CancellationToken cancellationToken)
     {
-        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.Id))
             .EnsureOrThrowForbidden(a => a.CanUpdateEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.Id));
 
@@ -125,7 +125,7 @@ public class EpicsService(
                 .FirstOrThrowNotFoundLinq2DbAsync(string.Format(ErrorMessages.EntityNotFound, "Epic", request.Id), cancellationToken),
             cancellationToken);
         
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.Id));
 
         var result = new EpicDto
@@ -212,14 +212,15 @@ public class EpicsService(
                     })
                     .ShortPaginateEFAsync(request.Pagination, cancellationToken);
             },
-            cancellationToken);
+            includeDeleted: false,
+            cancellationToken: cancellationToken);
     }
 
     public async Task ChangeStatusesOrder(
         ChangeStatusesOrderRequest request,
         CancellationToken cancellationToken)
     {
-        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.EpicId, cancellationToken)
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.EpicId, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.EpicId))
             .EnsureOrThrowForbidden(a => a.CanUpdateEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.EpicId));
 
@@ -234,7 +235,7 @@ public class EpicsService(
 
     public async Task Update(UpdateEpicRequest request, CancellationToken cancellationToken)
     {
-        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.Id))
             .EnsureOrThrowForbidden(a => a.CanUpdateEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.Id));
 
@@ -248,12 +249,12 @@ public class EpicsService(
 
     public async Task Delete(DeleteEpicRequest request, CancellationToken cancellationToken)
     {
-        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, cancellationToken)
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.Id))
             .EnsureOrThrowForbidden(a => a.CanDeleteEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.Id));
 
         await coreEpicsService.Delete(
-            new DeleteRequest { Id = request.Id },
+            new DeleteRequest { Id = request.Id, DeleterId = request.AuthData.UserId },
             cancellationToken);
     }
 }

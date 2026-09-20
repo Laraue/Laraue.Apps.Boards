@@ -205,7 +205,8 @@ public class OrganizationsService(
             spaceIds = await accessService.GetAvailableSpaces(
                 request.AuthData,
                 query => query.Select(s => s.Id).ToArrayAsyncEF(cancellationToken),
-                cancellationToken);
+                includeDeleted: false,
+                cancellationToken: cancellationToken);
         }
 
         return await accessService.GetVisibleUsers(

@@ -47,7 +47,7 @@ public class HandlePrivateMessagesMiddleware(
             var request = SaveMessageTelegramRequestFactory.Create(message, context.UserId, externalChatId);
 
             if (request is not null)
-                await telegramMessageService.HandleSaveMessage(request, ct);
+                await telegramMessageService.HandleSaveMessage(request, notifyOnFailure: true, ct);
 
             context.SetExecutedRoute(
                 new ExecutedRouteInfo("HandleAllMessagesMiddleware", text));
