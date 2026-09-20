@@ -3,17 +3,20 @@ using System;
 using Laraue.Apps.Boards.DataAccess;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
+namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    partial class DatabaseContextModelSnapshot : ModelSnapshot
+    [Migration("20260920104910_AddOrganizationDeletedAt")]
+    partial class AddOrganizationDeletedAt
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -583,14 +586,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("deleted_at");
-
-                    b.Property<Guid?>("DeletedByUserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("deleted_by_user_id");
-
                     b.Property<long>("IssueId")
                         .HasColumnType("bigint")
                         .HasColumnName("issue_id");
@@ -611,9 +606,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_issue_comments");
-
-                    b.HasIndex("DeletedByUserId")
-                        .HasDatabaseName("ix_issue_comments_deleted_by_user_id");
 
                     b.HasIndex("IssueId")
                         .HasDatabaseName("ix_issue_comments_issue_id");
@@ -2022,12 +2014,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueComment", b =>
                 {
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
-                        .WithMany()
-                        .HasForeignKey("DeletedByUserId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_issue_comments_users_deleted_by_user_id");
-
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "Issue")
                         .WithMany("IssueComments")
                         .HasForeignKey("IssueId")
@@ -2041,8 +2027,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_issue_comments_users_owner_id");
-
-                    b.Navigation("DeletedByUser");
 
                     b.Navigation("Issue");
 

@@ -244,6 +244,34 @@ yourself — ask the user to stop it, then retry the build once they confirm.
   query (or translates it inefficiently) and LinqToDB can. Don't reach for LinqToDB by default —
   it's the fallback, not the first choice.
 
+## Soft delete
+
+`Organization`, `Space`, `Epic`, `Status`, `Issue`, and `IssueComment` are soft-deletable (nullable
+`DeletedAt`/`DeletedByUserId` columns) — deleting one of these sets `DeletedAt` instead of removing
+the row, and cascades the same flag down to its descendants in that list (e.g. deleting a `Space`
+also soft-deletes its `Epic`s, `Status`es, `Issue`s). Nothing else in the schema is soft-deletable;
+everything else stays hard-deleted.
+
+There is deliberately **no EF Core global query filter** (`HasQueryFilter`) for this — every query
+against one of these six entities states its own choice explicitly:
+
+- For normal reads that should hide soft-deleted rows, query `context.ActiveIssues()`/
+  `ActiveSpaces()`/`ActiveEpics()`/`ActiveStatuses()`/`ActiveOrganizations()`/`ActiveIssueComments()`
+  (`Laraue.Apps.Boards.DataAccess.DatabaseContextActiveEntityExtensions`) instead of the raw
+  `context.Issues`/etc. DbSet.
+- For audit/history features that must keep working after the row is soft-deleted (e.g.
+  `OrganizationHistoryService`), query the raw `context.Issues`/etc. DbSet directly - the row is
+  still there, so an ordinary join/read finds it exactly as before.
+- `IAccessService.GetAccessLevelsBySpaceId`/`GetAccessLevelsByEpicId`/`GetAccessLevelsByIssueId`/
+  `GetAvailableSpaces` take an explicit `includeDeleted` parameter (no default value) for the same
+  reason - pass `true` only from an audit/history caller, `false` everywhere else.
+
+This was chosen over a global filter specifically because this repo also queries through
+`LinqToDB.EntityFrameworkCore`, and it was never verified whether LinqToDB's bridge honors EF's
+`HasQueryFilter` model metadata - an explicit `.Where(x => x.DeletedAt == null)` (which is what the
+`Active*()` helpers do) has no such question mark, since it's an ordinary predicate already baked
+into the query before either provider translates it.
+
 ## Query shape: project, don't load-then-map
 
 - Don't `Include`/`ThenInclude` a full entity graph just to read a handful of fields off it.

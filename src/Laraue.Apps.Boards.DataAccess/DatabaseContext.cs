@@ -231,6 +231,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => x.BillingId)
                 .IsUnique();
+
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Retro>(entity =>
@@ -294,7 +300,16 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             builder.HasKey(x => new { x.CommentId, x.AttachmentId });
         });
-        
+
+        modelBuilder.Entity<IssueComment>(entity =>
+        {
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<OrganizationLog>(builder =>
         {
             builder

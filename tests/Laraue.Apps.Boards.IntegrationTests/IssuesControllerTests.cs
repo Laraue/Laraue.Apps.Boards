@@ -456,6 +456,47 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task GetIssueHistory_ShouldStillReturnHistory_WhenIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Doomed issue")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Updated before delete",
+            }));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        var request = new GetIssueHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(issueData.Key, request));
+
+        Assert.Equal(2, historyData!.Data.Count);
+        Assert.Equal(LogAction.Delete, historyData.Data[0].Action);
+        Assert.Equal(LogAction.Update, historyData.Data[1].Action);
+    }
+
+    [Fact]
     public async Task User_ShouldNotDeleteIssue_WhenHasNotAccess()
     {
         using var testScope = host.CreateTestScope();

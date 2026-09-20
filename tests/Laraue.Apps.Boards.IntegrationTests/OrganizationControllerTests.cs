@@ -401,10 +401,48 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithUserAuthorization(userId)
             .Execute(x => x.Delete(entity.Id));
 
-        var organizations = await testScope.Database.Organizations.ToListAsyncEF();
-        Assert.Empty(organizations);
+        var organization = await testScope.Database.Organizations.SingleAsyncEF(x => x.Id == entity.Id);
+        Assert.NotNull(organization.DeletedAt);
+        Assert.Equal(userId, organization.DeletedByUserId);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldSoftDeleteOrganizationAndAllDescendants_WhenOrganizationIsDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, space => space
+                .AddEpic(userId, epic => epic
+                    .AddIssue(userId, 0, issue => issue.WithContent("Doomed issue")))));
+
+        var space = organization.GetSpace(1);
+        var epic = organization.GetEpic(1, 1);
+        var status = organization.GetStatus(1, 1, 0);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        await _adminOrganizationsController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Delete(organization.Id));
+
+        var deletedOrganization = await testScope.Database.Organizations.SingleAsyncEF(x => x.Id == organization.Id);
+        Assert.NotNull(deletedOrganization.DeletedAt);
+        Assert.Equal(userId, deletedOrganization.DeletedByUserId);
+
+        var deletedSpace = await testScope.Database.Spaces.SingleAsyncEF(x => x.Id == space.Id);
+        Assert.NotNull(deletedSpace.DeletedAt);
+
+        var deletedEpic = await testScope.Database.Epics.SingleAsyncEF(x => x.Id == epic.Id);
+        Assert.NotNull(deletedEpic.DeletedAt);
+
+        var deletedStatus = await testScope.Database.Statuses.SingleAsyncEF(x => x.Id == status.Id);
+        Assert.NotNull(deletedStatus.DeletedAt);
+
+        var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(deletedIssue.DeletedAt);
+    }
+
     [Fact]
     public async Task User_ShouldDeleteOrganization_WhenHasAccess()
     {
@@ -420,10 +458,11 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithUserAuthorization(userId)
             .Execute(x => x.Delete(entity.Id));
         
-        var organizations = await testScope.Database.Organizations.ToListAsyncEF();
-        Assert.Empty(organizations);
+        var organization = await testScope.Database.Organizations.SingleAsyncEF(x => x.Id == entity.Id);
+        Assert.NotNull(organization.DeletedAt);
+        Assert.Equal(userId, organization.DeletedByUserId);
     }
-    
+
     [Fact]
     public async Task User_ShouldNotDeleteOrganization_WhenHasNotAccess()
     {

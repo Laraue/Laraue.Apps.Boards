@@ -123,7 +123,7 @@ public class AdminOrganizationsService(
             "Deleting organization",
             cancellationToken);
 
-        await coreOrganizationsService.Delete(request.Id, cancellationToken);
+        await coreOrganizationsService.Delete(request.Id, request.UserId, cancellationToken);
     }
 
     public async Task RevokeAccess(RevokeAccessRequest request, CancellationToken cancellationToken)
@@ -159,7 +159,7 @@ public class AdminOrganizationsService(
             cancellationToken);
 
         var newCode = StringGenerator.GenerateJoinCode();
-        await context.Organizations
+        await context.ActiveOrganizations()
             .Where(x => x.Id == request.AuthData.OrganizationId)
             .ExecuteUpdateAsync(u => u
                     .SetProperty(p => p.JoinCode, newCode),
@@ -284,7 +284,7 @@ public class AdminOrganizationsService(
             "Reading organization join code",
             cancellationToken);
 
-        return await context.Organizations
+        return await context.ActiveOrganizations()
             .Where(o => o.Id == request.AuthData.OrganizationId)
             .Select(x => x.JoinCode)
             .FirstOrDefaultAsyncEF(cancellationToken);

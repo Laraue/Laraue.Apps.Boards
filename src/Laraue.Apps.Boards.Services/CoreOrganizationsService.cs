@@ -27,6 +27,7 @@ public interface ICoreOrganizationsService
     
     Task Delete(
         long id,
+        Guid deleterId,
         CancellationToken cancellationToken);
     
     Task<bool> HasMember(
@@ -124,7 +125,7 @@ public class CoreOrganizationsService(
     {
         var date = dateTimeProvider.UtcNow;
 
-        return context.Organizations
+        return context.ActiveOrganizations()
             .Where(x => x.Id == id)
             .ExecuteUpdateAsync(
                 update =>
@@ -136,7 +137,7 @@ public class CoreOrganizationsService(
                 cancellationToken);
     }
 
-    public async Task Delete(long id, CancellationToken cancellationToken)
+    public async Task Delete(long id, Guid deleterId, CancellationToken cancellationToken)
     {
         var isPersonalOrganization = await context.Organizations
             .Where(o => o.Type == OrganizationType.Personal)
@@ -145,24 +146,57 @@ public class CoreOrganizationsService(
 
         if (isPersonalOrganization)
             throw new ForbiddenException("Personal organization cannot be deleted.");
-        
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var deletedAt = dateTimeProvider.UtcNow;
 
         var spaceIds = context.Spaces
             .Where(c => c.OrganizationId == id)
             .Select(x => (long?)x.Id);
 
+        var epicIds = context.Epics
+            .Where(x => spaceIds.Contains(x.SpaceId))
+            .Select(x => (long?)x.Id);
+
+        var statusIds = context.Statuses
+            .Where(x => epicIds.Contains(x.EpicId))
+            .Select(x => (long?)x.Id);
+
+        await context.Issues
+            .Where(x => statusIds.Contains(x.StatusId))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
+
+        await context.Statuses
+            .Where(x => epicIds.Contains(x.EpicId))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
+
         await context.Epics
             .Where(x => spaceIds.Contains(x.SpaceId))
-            .ExecuteDeleteAsync(cancellationToken);
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
 
         await context.Spaces
             .Where(c => c.OrganizationId == id)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
 
         await context.Organizations
             .Where(c => c.Id == id)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
     }
@@ -192,7 +226,7 @@ public class CoreOrganizationsService(
 
     public async Task<long?> GetOrganizationIdByJoinCode(string code, CancellationToken cancellationToken)
     {
-        return (await context.Organizations
+        return (await context.ActiveOrganizations()
             .Where(x => x.JoinCode == code)
             .Select(x => new { x.Id })
             .FirstOrDefaultAsyncEF(cancellationToken))?.Id;

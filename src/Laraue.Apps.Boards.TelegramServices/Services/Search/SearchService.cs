@@ -385,7 +385,7 @@ public class SearchService(
             .Select(x => x.OrganizationId)
             .Distinct();
 
-        return await context.Organizations
+        return await context.ActiveOrganizations()
             .Where(s => organizationIds.Contains(s.Id))
             .Select(s => new OrganizationInfo(
                 s.Id,

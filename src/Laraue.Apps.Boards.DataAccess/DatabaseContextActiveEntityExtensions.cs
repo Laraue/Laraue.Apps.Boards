@@ -21,4 +21,10 @@ public static class DatabaseContextActiveEntityExtensions
 
     public static IQueryable<Status> ActiveStatuses(this DatabaseContext context) =>
         context.Statuses.Where(x => x.DeletedAt == null);
+
+    public static IQueryable<Organization> ActiveOrganizations(this DatabaseContext context) =>
+        context.Organizations.Where(x => x.DeletedAt == null);
+
+    public static IQueryable<IssueComment> ActiveIssueComments(this DatabaseContext context) =>
+        context.IssueComments.Where(x => x.DeletedAt == null);
 }

@@ -701,7 +701,7 @@ public class IssuesService(
         UpdateCommentRequest request,
         CancellationToken cancellationToken)
     {
-        var comment = await context.IssueComments
+        var comment = await context.ActiveIssueComments()
             .Where(x => x.Id == request.CommentId)
             .Select(x => new
             {
@@ -733,7 +733,7 @@ public class IssuesService(
 
     public async Task DeleteIssueComment(DeleteCommentRequest request, CancellationToken cancellationToken)
     {
-        var entity = await context.IssueComments
+        var entity = await context.ActiveIssueComments()
             .Where(x => x.Id == request.CommentId)
             .Select(x => new
             {
@@ -828,7 +828,7 @@ public class IssuesService(
             .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey));
 
         var commentsData = await context
-            .IssueComments
+            .ActiveIssueComments()
             .Where(x => x.IssueId == issueId)
             .OrderBy(x => x.Id)
             .Select(x => new

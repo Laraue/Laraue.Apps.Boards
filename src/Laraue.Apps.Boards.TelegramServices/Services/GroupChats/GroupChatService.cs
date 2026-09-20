@@ -47,7 +47,7 @@ public class GroupChatService(
         // nagging every message.
         await telegramMessageService.HandleSaveMessage(
             request,
-            cancellationToken,
-            notifyOnFailure: false);
+            notifyOnFailure: false,
+            cancellationToken: cancellationToken);
     }
 }

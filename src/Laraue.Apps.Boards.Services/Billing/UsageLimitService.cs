@@ -75,7 +75,7 @@ public class UsageLimitService(
 
     public Task<int> GetOwnedTeamOrganizationsCountAsync(Guid userId, CancellationToken cancellationToken)
     {
-        return context.Organizations
+        return context.ActiveOrganizations()
             .Where(o => o.OwnerId == userId && o.Type == OrganizationType.Organization)
             .CountAsync(cancellationToken);
     }

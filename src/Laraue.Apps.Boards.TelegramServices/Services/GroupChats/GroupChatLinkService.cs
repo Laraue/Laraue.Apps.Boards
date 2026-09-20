@@ -124,7 +124,7 @@ public class GroupChatLinkService(
 
         var organization = await LoadOrAnswerNotFound(
             query,
-            () => context.Organizations
+            () => context.ActiveOrganizations()
                 .Where(x => x.Id == organizationId)
                 .Select(x => new { x.Name })
                 .FirstOrDefaultAsyncEF(cancellationToken),

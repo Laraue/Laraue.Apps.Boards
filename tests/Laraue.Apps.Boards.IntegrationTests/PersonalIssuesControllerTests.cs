@@ -952,9 +952,10 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.DeleteComment(comment.Id));
         
-        var comments = await testScope.Database.IssueComments.ToListAsyncEF();
-        Assert.Empty(comments);
-        
+        var deletedComment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == comment.Id);
+        Assert.NotNull(deletedComment.DeletedAt);
+        Assert.Equal(userId, deletedComment.DeletedByUserId);
+
         var attachments = await testScope.Database.Attachments.ToListAsyncEF();
         Assert.Empty(attachments);
         

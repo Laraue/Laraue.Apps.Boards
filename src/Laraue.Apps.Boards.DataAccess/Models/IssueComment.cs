@@ -11,7 +11,18 @@ public class IssueComment
     
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    
+
+    /// <summary>
+    /// UTC timestamp the comment was soft-deleted at, or null if it is active.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who soft-deleted the comment, if any.
+    /// </summary>
+    public Guid? DeletedByUserId { get; set; }
+    public User? DeletedByUser { get; set; }
+
     public Guid OwnerId { get; set; }
     public User? Owner { get; set; }
     

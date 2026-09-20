@@ -489,7 +489,7 @@ public class CoreIssuesService(
     {
         context.Database.EnsureTransactionStarted();
         
-        var commentData = await context.IssueComments
+        var commentData = await context.ActiveIssueComments()
             .Where(x => x.Id == commentId)
             .Select(x => new
             {
@@ -498,12 +498,12 @@ public class CoreIssuesService(
                 x.Text,
             })
             .FirstAsyncEF(cancellationToken);
-        
+
         var items = new List<OrganizationLogItem>();
 
         if (commentData.Text != comment)
         {
-            await context.IssueComments
+            await context.ActiveIssueComments()
                 .Where(x => x.Id == commentId)
                 .ExecuteUpdateAsync(u => u
                     .SetProperty(p => p.Text, _ => comment),
@@ -580,7 +580,7 @@ public class CoreIssuesService(
     {
         context.Database.EnsureTransactionStarted();
         
-        var commentData = await context.IssueComments
+        var commentData = await context.ActiveIssueComments()
             .Where(x => x.Id == id)
             .Select(x => new
             {
@@ -594,11 +594,16 @@ public class CoreIssuesService(
             .Where(x => x.CommentId == id)
             .Select(x => x.Attachment)
             .ExecuteDeleteAsync(cancellationToken);
-        
-        await context.IssueComments
+
+        var deletedAt = dateTimeProvider.UtcNow;
+
+        await context.ActiveIssueComments()
             .Where(x => x.Id == id)
-            .ExecuteDeleteAsync(cancellationToken);
-        
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
+
         await historyService.Record(
             id,
             LogEntityType.Comment,

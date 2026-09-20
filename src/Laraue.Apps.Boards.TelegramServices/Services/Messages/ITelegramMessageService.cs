@@ -15,6 +15,6 @@ public interface ITelegramMessageService
     /// </param>
     Task HandleSaveMessage(
         SaveMessageTelegramRequest request,
-        CancellationToken cancellationToken,
-        bool notifyOnFailure = true);
+        bool notifyOnFailure,
+        CancellationToken cancellationToken);
 }
