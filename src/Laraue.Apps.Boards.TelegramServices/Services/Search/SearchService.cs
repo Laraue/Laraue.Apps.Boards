@@ -69,7 +69,7 @@ public class SearchService(
             inlineQuery,
             filterRegistry.Keys);
 
-        var issuesQuery = context.Issues
+        var issuesQuery = context.ActiveIssues()
             .Where(x => readableSpaceIds.Contains(x.Status!.Epic!.SpaceId));
 
         var isKeyLookup = false;

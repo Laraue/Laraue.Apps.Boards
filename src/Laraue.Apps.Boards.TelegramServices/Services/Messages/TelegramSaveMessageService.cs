@@ -198,7 +198,7 @@ public class TelegramSaveMessageService(
 
         // Permission is checked against the card's own epic, not the chat's current link state -
         // a chat can be unlinked/relinked later, but the card and its access rules don't change.
-        var issueAccessData = await context.Issues
+        var issueAccessData = await context.ActiveIssues()
             .Where(x => x.Id == lookup.IssueId)
             .Select(x => new { x.Status!.EpicId, OrganizationId = x.Status.Epic!.Space!.OrganizationId })
             .FirstAsyncEF(cancellationToken);
@@ -294,7 +294,7 @@ public class TelegramSaveMessageService(
 
     private async Task<bool> CanDeleteIssue(long issueId, Guid userId, CancellationToken cancellationToken)
     {
-        var issueAccessData = await context.Issues
+        var issueAccessData = await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .Select(x => new { OrganizationId = x.Status!.Epic!.Space!.OrganizationId })
             .FirstOrDefaultAsyncEF(cancellationToken);

@@ -118,7 +118,7 @@ public class CoreIssuesService(
             issueData.OrganizationId,
             async () =>
             {
-                var lastLexoRankString = await context.Issues
+                var lastLexoRankString = await context.ActiveIssues()
                     .Where(x => x.Status!.Epic!.Space!.OrganizationId == issueData.OrganizationId)
                     .OrderByDescending(x => x.LexoRank)
                     .Select(x => x.LexoRank)
@@ -242,7 +242,7 @@ public class CoreIssuesService(
     {
         var date = dateTimeProvider.UtcNow;
 
-        var issueData = await context.Issues
+        var issueData = await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .Select(x => new
             {
@@ -288,7 +288,7 @@ public class CoreIssuesService(
                 new IdName<Guid>(assigneeId, usersData[assigneeId].DisplayName)));
         }
 
-        await context.Issues
+        await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .ExecuteUpdateAsync(settersBuilder, cancellationToken);
 
@@ -380,7 +380,7 @@ public class CoreIssuesService(
         Guid deleterId,
         CancellationToken cancellationToken)
     {
-        var issueData = await context.Issues
+        var issueData = await context.ActiveIssues()
             .Where(x => x.Id == id)
             .Select(x => new
             {
@@ -388,7 +388,7 @@ public class CoreIssuesService(
                 x.Status.Epic.Space.OrganizationId,
             })
             .FirstAsyncEF(cancellationToken);
-        
+
         await historyService.Record(
             id,
             LogEntityType.Issue,
@@ -399,9 +399,14 @@ public class CoreIssuesService(
             items: null,
             cancellationToken);
 
-        await context.Issues
+        var deletedAt = dateTimeProvider.UtcNow;
+
+        await context.ActiveIssues()
             .Where(x => x.Id == id)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
     }
 
     public async Task<long> AddComment(
@@ -413,14 +418,14 @@ public class CoreIssuesService(
     {
         context.Database.EnsureTransactionStarted();
         
-        var issueData = await context.Issues
+        var issueData = await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .Select(x => new
             {
                 x.Status!.Epic!.Space!.OrganizationId,
             })
             .FirstAsyncEF(cancellationToken);
-        
+
         var issueComment = new IssueComment
         {
             Text = comment,
@@ -611,7 +616,7 @@ public class CoreIssuesService(
         OrderTargetType targetType,
         CancellationToken ct)
     {
-        var organizationData = await context.Issues
+        var organizationData = await context.ActiveIssues()
             .Where(x => x.Id == targetIssueId)
             .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
             .FirstAsyncEF(ct);
@@ -631,7 +636,7 @@ public class CoreIssuesService(
     {
         context.Database.EnsureTransactionStarted();
         
-        var issuesToUpdate = await context.Issues
+        var issuesToUpdate = await context.ActiveIssues()
             .Where(i => ((IEnumerable<long>)issueIds).Contains(i.Id))
             .Where(i => i.StatusId != newStatusId)
             .Select(i => new
@@ -668,7 +673,7 @@ public class CoreIssuesService(
         if (issuesToUpdate.Any(x => x.OrganizationId != newStatusData.OrganizationId))
             throw new InvalidOperationException("Change issue status works only inside the organization");
         
-        await context.Issues
+        await context.ActiveIssues()
             .Where(i => ((IEnumerable<long>)issueIds).Contains(i.Id))
             .ExecuteUpdateAsync(
                 upd =>
@@ -736,7 +741,7 @@ public class CoreIssuesService(
         
         await issueNumbersService.UpdateIssueNumbers(affectedIssueNumbers, newStatusData.SpaceId, ct);
 
-        var updatedIssueKeyByIssueId = await context.Issues
+        var updatedIssueKeyByIssueId = await context.ActiveIssues()
             .Where(x => issuesWithUpdatedSpace.Select(y => y.Id).Contains(x.Id))
             .Select(x => new
             {
@@ -768,12 +773,12 @@ public class CoreIssuesService(
             .Concat([targetIssueId])
             .ToArray();
         
-        var targetRank = await context.Issues
+        var targetRank = await context.ActiveIssues()
             .Where(x => x.Id == targetIssueId)
             .Select(x => x.LexoRank)
             .FirstOrDefaultAsyncEF(ct);
-        
-        var closestRank = await context.Issues
+
+        var closestRank = await context.ActiveIssues()
             .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
             .Where(x => !((IEnumerable<long>)allIds).Contains(x.Id))
             .Where(x => targetType == OrderTargetType.After

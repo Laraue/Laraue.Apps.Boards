@@ -120,7 +120,7 @@ public class InfoCommandService(
         {
             var issueKeyText = $"{link.SpaceKey}-{link.IssueNumber}";
 
-            var issueData = await context.Issues
+            var issueData = await context.ActiveIssues()
                 .Where(x => x.IssueNumber!.Space!.Key == link.SpaceKey
                     && x.IssueNumber.Number == link.IssueNumber
                     && x.IssueNumber.Space.Organization!.Slug + "-" + x.IssueNumber.Space.Organization.SlugPostfix == link.OrganizationKey)

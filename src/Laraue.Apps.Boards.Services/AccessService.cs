@@ -359,7 +359,8 @@ public class AccessService(DatabaseContext context) : IAccessService
             authData,
             epics => map(epics
                 .SelectMany(e => e.Statuses!
-                    .SelectMany(i => i.Issues!))),
+                    .SelectMany(i => i.Issues!))
+                .Where(i => i.DeletedAt == null)),
             cancellationToken);
     }
 

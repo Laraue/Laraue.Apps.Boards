@@ -999,6 +999,48 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
+    public async Task GetOrganizationHistory_ShouldStillShowIssueHistory_WhenIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Doomed issue")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        // The issue row itself must survive (soft-deleted, not gone) for the history join below
+        // to keep matching it.
+        var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(deletedIssue.DeletedAt);
+        Assert.Equal(userId, deletedIssue.DeletedByUserId);
+
+        var request = new GetOrganizationHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        // Test seeding (AddIssueToDefaultStatus) writes the issue directly, bypassing
+        // CoreIssuesService.Create - so only the explicit Delete call below produces a log entry.
+        var historyItem = Assert.Single(historyData!.Data);
+        Assert.Equal(issueData.Key, historyItem.IssueKey);
+        Assert.Equal(LogAction.Delete, historyItem.Action);
+        Assert.Equal(LogEntityType.Issue, historyItem.EntityType);
+    }
+
+    [Fact]
     public async Task GetOrganizationHistory_ShouldOnlyIncludeEntriesInDateRange_WhenDateFromAndDateToProvided()
     {
         using var testScope = host.CreateTestScope();

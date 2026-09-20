@@ -4106,7 +4106,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var editRequest = host.Requests().Single<EditMessageTextRequest>();
         Assert.Equal("🗑 Card deleted.", editRequest.Text);
 
-        Assert.Empty(await db.Issues.AsNoTracking().Where(x => x.Id == issue.Id).ToListAsyncLinqToDB());
+        var deletedIssue = Assert.Single(await db.Issues.AsNoTracking().Where(x => x.Id == issue.Id).ToListAsyncLinqToDB());
+        Assert.NotNull(deletedIssue.DeletedAt);
     }
 
     [Fact]

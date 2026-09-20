@@ -16,6 +16,7 @@ public static class DbExtensions
             .Where(n => n.Number == number.Number)
             .Where(n => n.Space!.OrganizationId == organizationId)
             .Where(n => n.Space!.Key == number.SpaceKey)
+            .Where(n => n.Issue!.DeletedAt == null)
             .Select(n => n.Issue!)
             .FirstOrDefaultAsyncEF();
     }

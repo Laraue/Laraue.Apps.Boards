@@ -81,8 +81,16 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsRequired();
 
             entity.HasIndex(x => x.LexoRank);
+
+            // Deleting the user who deleted an issue must not be blocked by, or wipe out, the
+            // issue's own audit trail - the issue stays and simply loses that attribution.
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
-        
+
         modelBuilder.Entity<IssueNumber>(entity =>
         {
             entity.HasKey(x => x.IssueId);

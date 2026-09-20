@@ -120,7 +120,7 @@ public class IssuesService(
                 .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Status", request.StatusId), cancellationToken),
             cancellationToken);
 
-        var query = context.Issues
+        var query = context.ActiveIssues()
             .Where(i => i.StatusId == request.StatusId);
 
         query = await ApplyFilters(query, request, cancellationToken);
@@ -189,7 +189,7 @@ public class IssuesService(
 
         var result = new List<ColumnIssues>();
         
-        var commonQuery = context.Issues.AsQueryable();
+        var commonQuery = context.ActiveIssues();
         commonQuery = await ApplyFilters(commonQuery, request, cancellationToken);
         commonQuery = await ApplySorting(commonQuery, request, cancellationToken);
         
@@ -274,7 +274,7 @@ public class IssuesService(
             .ToArrayAsyncEF(cancellationToken))
          .ToLookup(x => x.MessageCategoryId);
         
-        var counts = (await context.Issues
+        var counts = (await context.ActiveIssues()
             .Where(x =>  epics.Select(e => e.Id).Contains(x.Status!.EpicId))
             .Select(x => x)
             .GroupBy(x => x.StatusId)
@@ -365,7 +365,7 @@ public class IssuesService(
 
         await transaction.CommitAsync(ct);
 
-        var issueKey = await context.Issues
+        var issueKey = await context.ActiveIssues()
             .Where(x => x.Id == id)
             .Select(x => new IssueKey(x.IssueNumber!.Space!.Key, x.IssueNumber.Number))
             .FirstAsyncEF(ct);
@@ -544,7 +544,7 @@ public class IssuesService(
         var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey));
 
-        var result = await context.Issues
+        var result = await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .Select(x => new IssueDetailDtoData
             {
@@ -664,6 +664,7 @@ public class IssuesService(
             .Where(x => x.Number == issueKey.Number)
             .Where(x => x.Space!.Key == issueKey.SpaceKey)
             .Where(x => x.Space!.OrganizationId == organizationId)
+            .Where(x => x.Issue!.DeletedAt == null)
             .Select(x => x.IssueId)
             .FirstOrThrowNotFoundEFAsync($"Issue: {issueKey} is not found in organization", cancellationToken);
     }

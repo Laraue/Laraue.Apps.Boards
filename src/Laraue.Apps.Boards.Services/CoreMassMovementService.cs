@@ -236,7 +236,7 @@ public class CoreMovementService(
 
     private async Task<long?> GetLastOrganizationIssue(long organizationId, CancellationToken cancellationToken)
     {
-        var lastIssueInNewOrganization = await context.Issues
+        var lastIssueInNewOrganization = await context.ActiveIssues()
             .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
             .OrderByDescending(x => x.LexoRank)
             .ThenByDescending(x => x.Id)
