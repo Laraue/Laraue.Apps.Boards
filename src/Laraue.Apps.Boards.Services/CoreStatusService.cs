@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Core.DataAccess.EFCore.Extensions;
+using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -27,13 +28,13 @@ public interface ICoreStatusService
         CancellationToken cancellationToken);
 }
 
-public class CoreStatusService(DatabaseContext context) : ICoreStatusService
+public class CoreStatusService(DatabaseContext context, IDateTimeProvider dateTimeProvider) : ICoreStatusService
 {
     public async Task<long> Create(
         CreateMessageCategoryStatusRequest request,
         CancellationToken cancellationToken)
     {
-        var previousMaxOrder = await context.Statuses
+        var previousMaxOrder = await context.ActiveStatuses()
             .Where(x => x.EpicId == request.CategoryId)
             .MaxAsyncEF(x => x.SortOrder, cancellationToken);
         
@@ -55,7 +56,7 @@ public class CoreStatusService(DatabaseContext context) : ICoreStatusService
         long epicId,
         CancellationToken cancellationToken)
     {
-        return context.Statuses
+        return context.ActiveStatuses()
             .Where(x => x.EpicId == epicId)
             .OrderBy(x => x.SortOrder)
             .Select(x => new MessageStatusDto
@@ -72,32 +73,39 @@ public class CoreStatusService(DatabaseContext context) : ICoreStatusService
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var categoryData = await context.Statuses
+        var categoryData = await context.ActiveStatuses()
             .Where(x => x.Id == request.Id)
             .Select(x => new { MessageCategoryId = x.EpicId })
             .FirstOrThrowNotFoundEFAsync($"Status: {request.Id} is not found", cancellationToken);
-        
-        var newStatusId = await context.Statuses
+
+        var otherStatusExists = await context.ActiveStatuses()
             .Where(x => x.EpicId == categoryData.MessageCategoryId)
             .Where(x => x.Id != request.Id)
-            .OrderBy(x => x.SortOrder)
-            .Select(x => new { x.Id })
-            .FirstOrDefaultAsyncEF(cancellationToken);
+            .AnyAsyncEF(cancellationToken);
 
-        if (newStatusId is null)
+        if (!otherStatusExists)
             throw new BadRequestException(
                 nameof(request.Id),
                 "Deleting the single status in category is not allowed");
-        
+
+        var deletedAt = dateTimeProvider.UtcNow;
+
+        // Deleting a status also soft-deletes its issues - consistent with how deleting a
+        // Space/Epic/Organization cascades to its descendants, rather than re-pointing them to
+        // a fallback status.
         await context.Issues
             .Where(x => x.StatusId == request.Id)
             .ExecuteUpdateAsync(u => u
-                .SetProperty(p => p.StatusId, newStatusId.Id),
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
                 cancellationToken);
-        
+
         await context.Statuses
             .Where(x => x.Id == request.Id)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
+                cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
     }
@@ -107,7 +115,7 @@ public class CoreStatusService(DatabaseContext context) : ICoreStatusService
         Action<UpdateSettersBuilder<Laraue.Apps.Boards.DataAccess.Models.Status>> setters,
         CancellationToken cancellationToken)
     {
-        return context.Statuses
+        return context.ActiveStatuses()
             .Where(x => x.Id == id)
             .ExecuteUpdateAsync(setters, cancellationToken);
     }
@@ -131,4 +139,5 @@ public class MessageStatusDto
 public class DeleteStatusRequest
 {
     public long Id { get; set; }
+    public Guid DeleterId { get; set; }
 }

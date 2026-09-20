@@ -108,7 +108,7 @@ public class IssuesService(
         GetIssuesRequest request,
         CancellationToken cancellationToken)
     {
-        var statusData = await context.Statuses
+        var statusData = await context.ActiveStatuses()
             .Where(x => x.Id == request.StatusId)
             .Select(x => new { x.EpicId })
             .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Status", request.StatusId), cancellationToken);
@@ -182,7 +182,7 @@ public class IssuesService(
                 .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Epic", request.EpicId), cancellationToken),
             cancellationToken);
         
-        var statusIds = await context.Statuses
+        var statusIds = await context.ActiveStatuses()
             .Where(x => x.EpicId == request.EpicId)
             .Select(x => x.Id)
             .ToListAsyncEF(cancellationToken);
@@ -261,7 +261,7 @@ public class IssuesService(
 
         var epicById = epics.ToDictionary(x => x.Id);
         
-        var statusByCategoryId = (await context.Statuses
+        var statusByCategoryId = (await context.ActiveStatuses()
             .Where(x => epicById.Keys.Contains(x.EpicId))
             .Select(x => new
             {
@@ -314,7 +314,7 @@ public class IssuesService(
     {
         var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, ct);
         
-        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, includeDeleted: false, cancellationToken: ct)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Issue", request.IssueKey))
             .EnsureOrThrowForbidden(a => a.CanDeleteIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", request.IssueKey, "delete"));
 
@@ -323,12 +323,12 @@ public class IssuesService(
 
     public async Task<string> Create(CreateIssueRequest request, CancellationToken ct)
     {
-        var validationData = await context.Statuses
+        var validationData = await context.ActiveStatuses()
             .Where(s => s.Id == request.StatusId)
             .Select(x => new { x.EpicId })
             .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Status", request.StatusId), ct);
         
-        await accessService.GetAccessLevelsByEpicId(request.AuthData, validationData.EpicId, ct)
+        await accessService.GetAccessLevelsByEpicId(request.AuthData, validationData.EpicId, includeDeleted: false, cancellationToken: ct)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Status", request.StatusId))
             .EnsureOrThrowNotFound(a => a.CanCreateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Status", request.StatusId, "issue creation"));
 
@@ -380,7 +380,7 @@ public class IssuesService(
             request.IssueKey.GetValueOrDefault(),
             ct);
         
-        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, includeDeleted: false, cancellationToken: ct)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Issue", request.IssueKey))
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", request.IssueKey, "update"));
 
@@ -503,7 +503,7 @@ public class IssuesService(
 
                 if (request.SpaceKeys.Length > 0)
                 {
-                    var spaceIds = await context.Spaces
+                    var spaceIds = await context.ActiveSpaces()
                         .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
                         .Where(x => ((IEnumerable<string>)request.SpaceKeys).Contains(x.Key))
                         .Select(x => x.Id)
@@ -541,7 +541,7 @@ public class IssuesService(
     {
         var issueId = await GetIssueIdByIssueKey(request.AuthData.OrganizationId, request.IssueKey, cancellationToken);
         
-        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, cancellationToken)
+        var issueAccessLevels = await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey));
 
         var result = await context.ActiveIssues()
@@ -823,7 +823,7 @@ public class IssuesService(
             new IssueKey(request.IssueKey),
             ct);
         
-        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, ct)
+        await accessService.GetAccessLevelsByIssueId(request.AuthData, issueId, includeDeleted: false, cancellationToken: ct)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey))
             .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey));
 
@@ -884,7 +884,7 @@ public class IssuesService(
             issueKey,
             cancellationToken);
 
-        await accessService.GetAccessLevelsByIssueId(authData, issueId, cancellationToken)
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", issueKey))
             .EnsureOrThrowForbidden(isAccessible, $"Issue: {issueKey} is not available for this action");
 

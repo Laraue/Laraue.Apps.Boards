@@ -24,6 +24,7 @@ public interface ICoreSpacesService
     
     Task Delete(
         long id,
+        Guid deleterId,
         CancellationToken cancellationToken);
 
     Task<long> GetSpaceIdBySpaceKey(
@@ -72,7 +73,7 @@ public class CoreSpacesService(
     {
         var date = dateTimeProvider.UtcNow;
         
-        return context.Spaces
+        return context.ActiveSpaces()
             .Where(x => x.Id == id)
             .ExecuteUpdateAsync(
                 update =>
@@ -84,24 +85,54 @@ public class CoreSpacesService(
                 cancellationToken);
     }
 
-    public async Task Delete(long id, CancellationToken cancellationToken)
+    public async Task Delete(long id, Guid deleterId, CancellationToken cancellationToken)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        await context.IssueNumbers
-            .Where(x => x.Issue!.Status!.Epic!.SpaceId == id)
-            .ExecuteDeleteAsync(cancellationToken);
-        
+        var deletedAt = dateTimeProvider.UtcNow;
+
+        var epicIds = context.Epics
+            .Where(x => x.SpaceId == id)
+            .Select(x => (long?)x.Id);
+
+        var statusIds = context.Statuses
+            .Where(x => epicIds.Contains(x.EpicId))
+            .Select(x => (long?)x.Id);
+
+        await context.Issues
+            .Where(x => statusIds.Contains(x.StatusId))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
+
+        await context.Statuses
+            .Where(x => epicIds.Contains(x.EpicId))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
+
+        await context.Epics
+            .Where(x => x.SpaceId == id)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
+
         await context.Spaces
             .Where(c => c.Id == id)
-            .ExecuteDeleteAsync(cancellationToken);
-        
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, deleterId),
+                cancellationToken);
+
         await transaction.CommitAsync(cancellationToken);
     }
 
     public Task<long> GetSpaceIdBySpaceKey(long organizationId, string spaceKey, CancellationToken cancellationToken)
     {
-        return context.Spaces
+        return context.ActiveSpaces()
             .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.Key == spaceKey)
             .Select(x => x.Id)

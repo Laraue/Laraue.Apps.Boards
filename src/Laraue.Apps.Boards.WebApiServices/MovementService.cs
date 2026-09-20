@@ -74,7 +74,7 @@ public class MovementService(
         if (spaceId == newSpaceId)
             throw new BadRequestException(nameof(request.NewSpaceKey), ErrorMessages.SourceDestinationSpaceSame);
 
-        var sourceSpaceBelongsToCurrentOrganization = await context.Spaces
+        var sourceSpaceBelongsToCurrentOrganization = await context.ActiveSpaces()
             .Where(x => x.Id == spaceId)
             .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
             .AnyAsyncEF(cancellationToken);
@@ -93,7 +93,7 @@ public class MovementService(
     {
         await HasMassMovePermissionOrThrow(request.AuthData, cancellationToken);
         
-        var sourceEpicBelongsToCurrentOrganization = await context.Epics
+        var sourceEpicBelongsToCurrentOrganization = await context.ActiveEpics()
             .Where(x => x.Id == request.SourceEpicId)
             .Where(x => x.Space!.OrganizationId == request.AuthData.OrganizationId)
             .AnyAsyncEF(cancellationToken);
@@ -138,7 +138,7 @@ public class MovementService(
         long spaceId,
         CancellationToken cancellationToken)
     {
-        var organizationId = await context.Spaces
+        var organizationId = await context.ActiveSpaces()
             .Where(x => x.Id == spaceId)
             .Select(x => x.OrganizationId)
             .FirstOrThrowNotFoundEFAsync(SpaceIsNotExistsError(spaceKey), cancellationToken);

@@ -1041,6 +1041,55 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
+    public async Task GetOrganizationHistory_ShouldStillShowIssueHistory_WhenIssueSpaceWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, space => space
+                .AddEpic(userId, epic => epic
+                    .AddIssue(userId, 0, issue => issue.WithContent("Original")))));
+
+        var space = organization.GetSpace(1);
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+
+        // Go through CoreIssuesService.Update (not the raw seed) so a real history entry exists
+        // to still find after the space is deleted.
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Updated before space deletion",
+            }));
+
+        await _spacesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(space.Key));
+
+        var deletedSpace = await testScope.Database.Spaces.SingleAsyncEF(x => x.Id == space.Id);
+        Assert.NotNull(deletedSpace.DeletedAt);
+
+        var request = new GetOrganizationHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        var historyItem = Assert.Single(historyData!.Data);
+        Assert.Equal(issueData.Key, historyItem.IssueKey);
+        Assert.Equal(LogAction.Update, historyItem.Action);
+    }
+
+    [Fact]
     public async Task GetOrganizationHistory_ShouldOnlyIncludeEntriesInDateRange_WhenDateFromAndDateToProvided()
     {
         using var testScope = host.CreateTestScope();

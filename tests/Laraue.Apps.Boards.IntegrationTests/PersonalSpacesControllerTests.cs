@@ -89,9 +89,9 @@ public class PersonalSpacesControllerTests(WebApiTestHost host) : IClassFixture<
             .Execute(x => x.Delete(spaceKey));
 
         var spaces = await testScope.Database.Spaces.ToListAsyncEF();
-        
-        var space = spaces.FirstOrDefault(x => x.Key == spaceKey);
-        Assert.Null(space);
+
+        var space = spaces.Single(x => x.Key == spaceKey);
+        Assert.NotNull(space.DeletedAt);
     }
     
     [Fact]

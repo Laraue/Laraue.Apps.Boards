@@ -204,7 +204,7 @@ public class TelegramSaveMessageService(
             .FirstAsyncEF(cancellationToken);
 
         var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = request.UserId };
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, cancellationToken);
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, includeDeleted: false, cancellationToken: cancellationToken);
 
         if (accessLevels?.CanRead != true)
             return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
@@ -303,7 +303,7 @@ public class TelegramSaveMessageService(
             return false;
 
         var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = userId };
-        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, cancellationToken);
+        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken: cancellationToken);
 
         return accessLevels?.CanDeleteIssue == true;
     }
@@ -830,7 +830,7 @@ public class TelegramSaveMessageService(
         CancellationToken cancellationToken)
     {
         var authData = new OrganizationAuthData { OrganizationId = linkedChat.OrganizationId, UserId = userId };
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, linkedChat.EpicId, cancellationToken);
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, linkedChat.EpicId, includeDeleted: false, cancellationToken: cancellationToken);
 
         if (accessLevels?.CanCreateIssue != true)
             throw new IssueCreationForbiddenException(externalChatId);

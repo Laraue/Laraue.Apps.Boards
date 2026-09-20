@@ -142,11 +142,38 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         
         modelBuilder.Entity<Space>(entity =>
         {
+            // Filtered so a soft-deleted space's key can be reused - a hard unique index would
+            // otherwise permanently reserve it.
             entity
                 .HasIndex(x => new { x.OrganizationId, x.Key })
-                .IsUnique();
+                .IsUnique()
+                .HasFilter("deleted_at IS NULL");
+
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
-        
+
+        modelBuilder.Entity<Epic>(entity =>
+        {
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Status>(entity =>
+        {
+            entity
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<SpaceCounter>(entity =>
         {
             entity.HasKey(x => x.SpaceId);

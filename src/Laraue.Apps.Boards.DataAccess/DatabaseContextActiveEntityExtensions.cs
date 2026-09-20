@@ -12,4 +12,13 @@ public static class DatabaseContextActiveEntityExtensions
 {
     public static IQueryable<Issue> ActiveIssues(this DatabaseContext context) =>
         context.Issues.Where(x => x.DeletedAt == null);
+
+    public static IQueryable<Space> ActiveSpaces(this DatabaseContext context) =>
+        context.Spaces.Where(x => x.DeletedAt == null);
+
+    public static IQueryable<Epic> ActiveEpics(this DatabaseContext context) =>
+        context.Epics.Where(x => x.DeletedAt == null);
+
+    public static IQueryable<Status> ActiveStatuses(this DatabaseContext context) =>
+        context.Statuses.Where(x => x.DeletedAt == null);
 }

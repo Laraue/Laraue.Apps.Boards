@@ -157,7 +157,7 @@ public class InfoCommandService(
         CancellationToken cancellationToken)
     {
         var authData = new OrganizationAuthData { OrganizationId = organizationId, UserId = userId };
-        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, cancellationToken);
+        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken: cancellationToken);
 
         return accessLevels?.CanRead == true;
     }

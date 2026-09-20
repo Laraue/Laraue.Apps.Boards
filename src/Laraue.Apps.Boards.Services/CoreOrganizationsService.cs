@@ -237,7 +237,7 @@ public class CoreOrganizationsService(
             .Select(x => new { x.OrganizationId })
             .FirstAsyncEF(cancellationToken);
 
-        var spaceIdsByKeys = await context.Spaces
+        var spaceIdsByKeys = await context.ActiveSpaces()
             .Where(x => x.OrganizationId == organizationData.OrganizationId)
             .Where(x => userPermissions.Direct.Select(p => p.Key).Contains(x.Key))
             .ToDictionaryAsyncEF(x => x.Key, x => x.Id, cancellationToken);
@@ -338,7 +338,7 @@ public class CoreOrganizationsService(
         long organizationId,
         CancellationToken cancellationToken)
     {
-        var spaces = await context.Spaces
+        var spaces = await context.ActiveSpaces()
             .Where(x => x.OrganizationId == organizationId)
             .ToDictionaryAsyncEF(x => x.Key, x => new { x.Name, x.Color, x.IsDefault }, cancellationToken);
 

@@ -2,7 +2,6 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
-using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
@@ -83,7 +82,7 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
         ChangeStatusesOrderRequest request,
         CancellationToken cancellationToken)
     {
-        var existsStatuses = await context.Statuses
+        var existsStatuses = await context.ActiveStatuses()
             .Where(x => x.EpicId == request.CategoryId)
             .Select(x => new Laraue.Apps.Boards.DataAccess.Models.Status
             {
@@ -116,27 +115,50 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var defaultEpic = await context.Epics
+        var defaultEpic = await context.ActiveEpics()
             .Where(x => x.Id == request.Id)
             .Select(x => x.Space!)
             .Select(o => o.Epics!.First(y => y.IsDefault))
             .Select(e => new
             {
-                EpicId = e.Id, 
+                EpicId = e.Id,
                 NewStatusId = (long?)e.Statuses!.OrderBy(o => o.SortOrder).FirstOrDefault()!.Id, // Status should be taken from FE in future iterations
             })
             .FirstOrDefaultAsyncEF(cancellationToken);
-        
+
         if (defaultEpic is null)
             throw new NotFoundException($"Backlog for space with Epic:{request.Id} is not found");
-            
+
         if (defaultEpic.EpicId == request.Id)
             throw new ForbiddenException("Default Epic can not be deleted");
-        
+
+        var deletedAt = dateTimeProvider.UtcNow;
+
+        var statusIds = context.Statuses
+            .Where(x => x.EpicId == request.Id)
+            .Select(x => (long?)x.Id);
+
+        await context.Issues
+            .Where(x => statusIds.Contains(x.StatusId))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
+                cancellationToken);
+
+        await context.Statuses
+            .Where(x => x.EpicId == request.Id)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
+                cancellationToken);
+
         await context.Epics
             .Where(c => c.Id == request.Id)
-            .DeleteAsync(cancellationToken);
-        
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
+                cancellationToken);
+
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -146,8 +168,8 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
         CancellationToken cancellationToken)
     {
         var date = dateTimeProvider.UtcNow;
-        
-        return context.Epics
+
+        return context.ActiveEpics()
             .Where(x => x.Id == id)
             .ExecuteUpdateAsync(
                 update =>
@@ -180,4 +202,5 @@ public class Status
 public record DeleteRequest
 {
     public required long Id { get; set; }
+    public required Guid DeleterId { get; set; }
 }

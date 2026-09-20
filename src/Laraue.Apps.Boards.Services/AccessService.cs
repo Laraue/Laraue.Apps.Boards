@@ -41,11 +41,15 @@ public interface IAccessService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Returns spaces available to read for the user.
+    /// Returns spaces available to read for the user. Pass <paramref name="includeDeleted"/> as
+    /// <c>true</c> only for audit/history features that must keep resolving a space's readability
+    /// after it was soft-deleted - every other caller should pass <c>false</c> to exclude
+    /// soft-deleted spaces.
     /// </summary>
     Task<T> GetAvailableSpaces<T>(
         OrganizationAuthData authData,
         Func<IQueryable<Space>, Task<T>> map,
+        bool includeDeleted,
         CancellationToken cancellationToken);
     
     /// <summary>
@@ -76,11 +80,14 @@ public interface IAccessService
         CancellationToken cancellationToken);
     
     /// <summary>
-    /// Return access level of the requested space.
+    /// Return access level of the requested space. Pass <paramref name="includeDeleted"/> as
+    /// <c>true</c> only for audit/history features that must keep resolving access after the
+    /// space was soft-deleted - every other caller should pass <c>false</c>.
     /// </summary>
     Task<AccessLevels?> GetAccessLevelsBySpaceId(
         OrganizationAuthData authData,
         long spaceId,
+        bool includeDeleted,
         CancellationToken cancellationToken);
     
     /// <summary>
@@ -100,11 +107,14 @@ public interface IAccessService
         CancellationToken cancellationToken);
     
     /// <summary>
-    /// Returns issues access level in the specified epic.
+    /// Returns issues access level in the specified epic. Pass <paramref name="includeDeleted"/>
+    /// as <c>true</c> only for audit/history features that must keep resolving access after the
+    /// epic - or its space - was soft-deleted; every other caller should pass <c>false</c>.
     /// </summary>
     Task<AccessLevels?> GetAccessLevelsByEpicId(
         OrganizationAuthData authData,
         long epicId,
+        bool includeDeleted,
         CancellationToken cancellationToken);
     
     /// <summary>
@@ -115,9 +125,15 @@ public interface IAccessService
         Func<IQueryable<Issue>, Task<T>> map,
         CancellationToken cancellationToken);
     
+    /// <summary>
+    /// Return access level for the requested issue. Pass <paramref name="includeDeleted"/> as
+    /// <c>true</c> only for audit/history features that must keep resolving access after the
+    /// issue - or its space - was soft-deleted; every other caller should pass <c>false</c>.
+    /// </summary>
     Task<AccessLevels?> GetAccessLevelsByIssueId(
         OrganizationAuthData authData,
         long issueId,
+        bool includeDeleted,
         CancellationToken cancellationToken);
     
     Task<bool> CanMoveToStatus(
@@ -184,17 +200,21 @@ public class AccessService(DatabaseContext context) : IAccessService
     public async Task<T> GetAvailableSpaces<T>(
         OrganizationAuthData authData,
         Func<IQueryable<Space>, Task<T>> map,
+        bool includeDeleted,
         CancellationToken cancellationToken)
     {
         var canGloballyRead = await GetUserData(authData, x => x.CanRead, cancellationToken);
         if (canGloballyRead)
-            return await map(GetAllSpacesQuery(authData));
-        
+            return await map(GetAllSpacesQuery(authData, includeDeleted));
+
         var query = GetDirectSpacePermissions(authData)
             .Where(sos => sos.CanRead)
             .Select(sos => sos.Space!);
-        
-        return await map(query); 
+
+        if (!includeDeleted)
+            query = query.Where(s => s.DeletedAt == null);
+
+        return await map(query);
     }
 
     public async Task<T> GetVisibleUsers<T>(
@@ -260,18 +280,20 @@ public class AccessService(DatabaseContext context) : IAccessService
     {
         var canGloballyCreateEpics = await GetUserData(authData, whenAllowedOnOrganizationLevel, cancellationToken);
         if (canGloballyCreateEpics)
-            return await map(GetAllSpacesQuery(authData));
-        
+            return await map(GetAllSpacesQuery(authData, includeDeleted: false));
+
         var query = GetDirectSpacePermissions(authData)
             .Where(whenAllowedOnSpaceLevel)
-            .Select(sos => sos.Space!);
-        
-        return await map(query); 
+            .Select(sos => sos.Space!)
+            .Where(s => s.DeletedAt == null);
+
+        return await map(query);
     }
 
     public async Task<AccessLevels?> GetAccessLevelsBySpaceId(
         OrganizationAuthData authData,
         long spaceId,
+        bool includeDeleted,
         CancellationToken cancellationToken)
     {
         var spaceData = await GetAvailableSpaces(
@@ -280,6 +302,7 @@ public class AccessService(DatabaseContext context) : IAccessService
                 .Where(s => s.Id == spaceId)
                 .Select(s => new { s.IsDefault })
                 .FirstOrDefaultAsyncEF(cancellationToken),
+            includeDeleted,
             cancellationToken);
         
         if (spaceData == null)
@@ -317,35 +340,42 @@ public class AccessService(DatabaseContext context) : IAccessService
             authData,
             query =>
             {
-                var epicsQuery = query.SelectMany(x => x.Epics!);
+                var epicsQuery = query
+                    .SelectMany(x => x.Epics!)
+                    .Where(e => e.DeletedAt == null);
                 return map(epicsQuery);
             },
-            cancellationToken);
+            includeDeleted: false,
+            cancellationToken: cancellationToken);
     }
 
     public async Task<AccessLevels?> GetAccessLevelsByEpicId(
         OrganizationAuthData authData,
         long epicId,
+        bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var epicData = await GetEpicData(epicId, cancellationToken);
+        var epicData = await GetEpicData(epicId, includeDeleted, cancellationToken);
 
-        var accessLevels = await GetAccessLevelsBySpaceId(authData, epicData.SpaceId, cancellationToken);
+        if (epicData is null)
+            return null;
+
+        var accessLevels = await GetAccessLevelsBySpaceId(authData, epicData.SpaceId, includeDeleted, cancellationToken);
 
         if (accessLevels is not null && epicData.IsDefault)
             accessLevels.CanDeleteEpic = false;
-        
+
         return accessLevels;
     }
 
-    private async Task<EpicData> GetEpicData(long epicId, CancellationToken cancellationToken)
+    private Task<EpicData?> GetEpicData(long epicId, bool includeDeleted, CancellationToken cancellationToken)
     {
-        var epic = await context.Epics
+        var epicsQuery = includeDeleted ? context.Epics : context.ActiveEpics();
+
+        return epicsQuery
             .Where(e => e.Id == epicId)
             .Select(x => new EpicData(x.SpaceId, x.IsDefault))
-            .FirstOrThrowNotFoundEFAsync("Epic is not found", cancellationToken);
-
-        return epic;
+            .FirstOrDefaultAsyncEF(cancellationToken);
     }
 
     private record EpicData(long SpaceId, bool IsDefault);
@@ -359,6 +389,7 @@ public class AccessService(DatabaseContext context) : IAccessService
             authData,
             epics => map(epics
                 .SelectMany(e => e.Statuses!
+                    .Where(s => s.DeletedAt == null)
                     .SelectMany(i => i.Issues!))
                 .Where(i => i.DeletedAt == null)),
             cancellationToken);
@@ -367,9 +398,12 @@ public class AccessService(DatabaseContext context) : IAccessService
     public async Task<AccessLevels?> GetAccessLevelsByIssueId(
         OrganizationAuthData authData,
         long issueId,
+        bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var epicData = await context.Issues
+        var issuesQuery = includeDeleted ? context.Issues : context.ActiveIssues();
+
+        var epicData = await issuesQuery
             .Where(i => i.Id == issueId)
             .Select(x => new { x.Status!.Epic!.SpaceId })
             .FirstOrDefaultAsyncEF(cancellationToken);
@@ -380,6 +414,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         return await GetAccessLevelsBySpaceId(
             authData,
             epicData.SpaceId,
+            includeDeleted,
             cancellationToken);
     }
 
@@ -389,7 +424,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         if (epicId is null)
             return false;
 
-        var accessLevels = await GetAccessLevelsByEpicId(authData, epicId.Value, cancellationToken);
+        var accessLevels = await GetAccessLevelsByEpicId(authData, epicId.Value, includeDeleted: false, cancellationToken: cancellationToken);
         return accessLevels?.CanCreateIssue ?? false;
     }
 
@@ -399,7 +434,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         if (epicId is null)
             return false;
 
-        var accessLevels = await GetAccessLevelsByEpicId(authData, epicId.Value, cancellationToken);
+        var accessLevels = await GetAccessLevelsByEpicId(authData, epicId.Value, includeDeleted: false, cancellationToken: cancellationToken);
         return accessLevels?.CanUpdateEpic ?? false;
     }
     
@@ -415,7 +450,7 @@ public class AccessService(DatabaseContext context) : IAccessService
 
     private async Task<long?> GetEpicId(long statusId, CancellationToken cancellationToken)
     {
-        var result = await context.Statuses
+        var result = await context.ActiveStatuses()
             .Where(s => s.Id == statusId)
             .Select(s => new { s.EpicId })
             .FirstOrDefaultAsyncEF(cancellationToken);
@@ -480,10 +515,12 @@ public class AccessService(DatabaseContext context) : IAccessService
             .FirstOrDefaultAsyncEF(cancellationToken);
     }
     
-    private IQueryable<Space> GetAllSpacesQuery(OrganizationAuthData authData)
+    private IQueryable<Space> GetAllSpacesQuery(OrganizationAuthData authData, bool includeDeleted)
     {
-        return context.Spaces
+        var query = context.Spaces
             .Where(s => s.OrganizationId == authData.OrganizationId);
+
+        return includeDeleted ? query : query.Where(s => s.DeletedAt == null);
     }
 
     private IQueryable<DirectSpacePermission> GetDirectSpacePermissions(OrganizationAuthData authData)

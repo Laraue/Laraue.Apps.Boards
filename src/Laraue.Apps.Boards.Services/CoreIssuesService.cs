@@ -98,7 +98,7 @@ public class CoreIssuesService(
     {
         var assigneeId = request.AssigneeId.GetValueOrDefault(ownerId);
 
-        var issueData = await context.Statuses
+        var issueData = await context.ActiveStatuses()
             .Where(x => x.Id == request.StatusId)
             .Select(x => new
             {
@@ -655,7 +655,7 @@ public class CoreIssuesService(
             })
             .ToListAsyncEF(ct);
         
-        var newStatusData = await context.Statuses
+        var newStatusData = await context.ActiveStatuses()
             .Where(i => i.Id == newStatusId)
             .Select(i => new
             {

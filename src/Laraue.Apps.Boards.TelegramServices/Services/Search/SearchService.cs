@@ -362,7 +362,7 @@ public class SearchService(
             .Where(x => x.UserId == requestContext.UserId)
             .Select(x => new { x.CanRead, x.OrganizationId });
 
-        return await context.Spaces
+        return await context.ActiveSpaces()
             .InnerJoin(
                 organizationsData,
                 (space, organizationData) => space.OrganizationId == organizationData.OrganizationId,
