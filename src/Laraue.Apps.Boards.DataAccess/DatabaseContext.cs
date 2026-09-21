@@ -46,6 +46,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<TelegramMessage> TelegramMessages { get; init; }
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
     public DbSet<LinkedTelegramChat> LinkedTelegramChats { get; init; }
+    public DbSet<ApiKey> ApiKeys { get; init; }
     
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
@@ -237,6 +238,27 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .WithMany()
                 .HasForeignKey(x => x.DeletedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ApiKey>(entity =>
+        {
+            entity
+                .HasIndex(x => x.KeyHash)
+                .IsUnique();
+
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedByUserId });
+
+            entity
+                .HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity
+                .HasOne(x => x.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Retro>(entity =>
