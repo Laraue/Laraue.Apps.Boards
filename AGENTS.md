@@ -155,6 +155,16 @@ Solution: `Laraue.Apps.Boards.sln`
 - `Laraue.Apps.Boards.Services` holds **core** business logic shared by both hosts (e.g.
   `CoreIssuesService`, `CoreFilesService`, `CoreMassMovementService`) — anything that isn't
   specific to how the web API or the Telegram bot happens to expose it.
+- **Core services are for mutations, not reads.** A `Core*Service` should only expose methods that
+  change data (create/update/delete, or a validate-and-touch-a-timestamp method like
+  `ICoreApiKeysService.ValidateAsync`). A plain read (list/get/search) doesn't belong there, even
+  if both hosts need it — inject `DatabaseContext` directly into the `WebApiServices`/
+  `TelegramServices` class instead and query it there. See `IssuesService` (`WebApiServices`),
+  which injects both `ICoreIssuesService` (for its mutating calls) and `DatabaseContext` (for
+  `GetIssues` and its other reads) side by side in the same class. Reads have no transaction/
+  cross-entity-consistency concerns a shared core method would protect, so there's nothing to gain
+  from routing them through core, and duplicating a `Core*Service`'s read method for TelegramServices/
+  WebApiServices when only one host actually calls it is dead-weight API surface.
 - `WebApiServices` and `TelegramServices` sit on top of core and hold logic specific to their own
   surface (request/response shaping, Telegram formatting and commands, permission checks tied to
   that surface's flow, etc.). They call into core services rather than duplicating their logic.
@@ -164,6 +174,9 @@ Solution: `Laraue.Apps.Boards.sln`
 - **Keep controllers clean**: a controller action should parse the request, call into a service,
   and shape the response — no business logic in the controller itself. If a controller method is
   doing more than that, move the logic into the appropriate service.
+- **Route segments are kebab-case**, not camelCase — `/api/api-keys`, not `/api/apiKeys`. A
+  single-word segment (`/api/spaces`, `/api/billing`) has no casing to get wrong; the rule matters
+  once a segment is more than one word.
 - Core services don't open/commit/rollback transactions themselves — that's the caller's call to
   make, since only the caller knows the full scope of what needs to be atomic. A core service can
   require that it's called within an already-open transaction, but it doesn't manage the
@@ -175,6 +188,12 @@ Solution: `Laraue.Apps.Boards.sln`
   `ITelegramBotClient`/`ILogger<T>`) rather than an extension on `ITelegramBotClient`, precisely
   because it needs a logger; `IssuePreviewReplySender.SendIssuePreviewReply` stays a plain
   extension because it only needs the `ITelegramBotClient` it's called on plus its own arguments.
+- **No tuples in public method signatures** (params or return type) — use a named `record`
+  instead, even for a throwaway two-field shape. A tuple's `Item1`/`Item2` (or unlabeled
+  deconstruction) forces every call site to re-derive what each value means; a record gives it a
+  name once. E.g. `ICoreApiKeysService.CreateAsync` returns `ApiKeyCreationResult(Guid Id, string
+  RawKey)`, not `(Guid, string)`. Tuples are fine as a private/internal implementation detail
+  (e.g. a local variable inside a method body) — the rule is about what a public signature exposes.
 
 ## Workflow for new features
 
@@ -271,6 +290,19 @@ This was chosen over a global filter specifically because this repo also queries
 `HasQueryFilter` model metadata - an explicit `.Where(x => x.DeletedAt == null)` (which is what the
 `Active*()` helpers do) has no such question mark, since it's an ordinary predicate already baked
 into the query before either provider translates it.
+
+## No unpaginated list endpoints
+
+Every endpoint that returns a collection whose size depends on user data (not a small fixed set)
+must be paginated - never return a bare array/`.ToListAsync()` result straight to the client, even
+if today's data volumes make it seem harmless. Follow the existing `PaginationData`/
+`ShortPaginatedResult<T>` (`Laraue.Core.DataAccess.Contracts`) convention already used throughout
+(`IssuesController.Search`, `BillingController.GetTransactions`, `EpicsController.SearchEpicsWithStatuses`,
+`ApiKeysController.GetAll`): the request implements `IPaginatedRequest` (a `Pagination` property),
+the endpoint is a `[HttpPost("search")]` taking that request as its body (a `GET` can't carry a
+JSON body for pagination params), and the query ends in `.ShortPaginateEFAsync(request.Pagination,
+cancellationToken)` (or the LinqToDB equivalent, `ShortPaginateLinq2DbAsync`) instead of
+`.ToListAsync()`.
 
 ## Query shape: project, don't load-then-map
 

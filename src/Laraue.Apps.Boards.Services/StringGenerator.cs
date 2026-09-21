@@ -15,7 +15,16 @@ public static class StringGenerator
     {
         return GenerateRandomString(4);
     }
-    
+
+    /// <summary>
+    /// A raw API key secret - a static, greppable prefix (so a leaked key is easy to recognize in
+    /// logs/scans, same convention as e.g. GitHub's <c>ghp_</c>) plus 32 random characters.
+    /// </summary>
+    public static string GenerateApiKey()
+    {
+        return "brdk_" + GenerateRandomString(32);
+    }
+
     private static string GenerateRandomString(int length)
     {
         return string.Create(length, (chars: Chars, length), (span, state) =>
