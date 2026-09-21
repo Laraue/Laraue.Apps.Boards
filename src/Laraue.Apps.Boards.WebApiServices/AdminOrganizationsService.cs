@@ -9,7 +9,6 @@ using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DataAccess.Extensions;
-using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;

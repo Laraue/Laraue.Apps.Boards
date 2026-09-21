@@ -1,5 +1,4 @@
-﻿using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 

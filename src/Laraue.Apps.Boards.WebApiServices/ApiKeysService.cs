@@ -5,7 +5,6 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
-using Laraue.Core.DataAccess.Extensions;
 using Laraue.Core.Exceptions.Web;
 
 namespace Laraue.Apps.Boards.WebApiServices;

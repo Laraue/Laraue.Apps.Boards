@@ -2,7 +2,6 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using LinqToDB.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;

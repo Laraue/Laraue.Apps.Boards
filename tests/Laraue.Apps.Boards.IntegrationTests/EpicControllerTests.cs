@@ -4,7 +4,6 @@ using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
-using LinqToDB.Async;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
