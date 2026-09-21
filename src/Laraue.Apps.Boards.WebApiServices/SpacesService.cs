@@ -56,8 +56,9 @@ public class SpacesService(
                     IsDefault = x.IsDefault,
                 })
                 .ToArrayAsyncLinqToDB(cancellationToken),
-            cancellationToken);
-        
+            includeDeleted: false,
+            cancellationToken: cancellationToken);
+
         return spaces;
     }
 
@@ -68,7 +69,7 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        var spaceAccessLevel = await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+        var spaceAccessLevel = await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.Key));
 
         return new SpaceDetailsDto
@@ -105,7 +106,7 @@ public class SpacesService(
             request.OldKey,
             cancellationToken);
         
-        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.OldKey))
             .EnsureOrThrowForbidden(a => a.CanUpdateSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.OldKey));
 
@@ -125,11 +126,11 @@ public class SpacesService(
             request.Key,
             cancellationToken);
         
-        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, cancellationToken)
+        await accessService.GetAccessLevelsBySpaceId(request.AuthData, spaceId, includeDeleted: false, cancellationToken: cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.Key))
             .EnsureOrThrowForbidden(a => a.CanDeleteSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.Key));
 
-        await coreSpacesService.Delete(spaceId, cancellationToken);
+        await coreSpacesService.Delete(spaceId, request.AuthData.UserId, cancellationToken);
     }
 
     public async Task<SpaceMember[]> GetMembers(GetSpaceMembersRequest request, CancellationToken cancellationToken)

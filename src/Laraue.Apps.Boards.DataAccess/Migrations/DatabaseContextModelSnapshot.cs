@@ -219,6 +219,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_user_id");
+
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean")
                         .HasColumnName("is_default");
@@ -251,6 +259,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_epics");
+
+                    b.HasIndex("DeletedByUserId")
+                        .HasDatabaseName("ix_epics_deleted_by_user_id");
 
                     b.HasIndex("SpaceId")
                         .HasDatabaseName("ix_epics_space_id");
@@ -310,6 +321,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_user_id");
+
                     b.Property<string>("LexoRank")
                         .IsRequired()
                         .HasMaxLength(34)
@@ -345,6 +364,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Content"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Content"), new[] { "gin_trgm_ops" });
+
+                    b.HasIndex("DeletedByUserId")
+                        .HasDatabaseName("ix_issues_deleted_by_user_id");
 
                     b.HasIndex("LexoRank")
                         .HasDatabaseName("ix_issues_lexo_rank");
@@ -561,6 +583,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_user_id");
+
                     b.Property<long>("IssueId")
                         .HasColumnType("bigint")
                         .HasColumnName("issue_id");
@@ -581,6 +611,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_issue_comments");
+
+                    b.HasIndex("DeletedByUserId")
+                        .HasDatabaseName("ix_issue_comments_deleted_by_user_id");
 
                     b.HasIndex("IssueId")
                         .HasDatabaseName("ix_issue_comments_issue_id");
@@ -608,6 +641,30 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasDatabaseName("ix_issue_comments_attachments_attachment_id");
 
                     b.ToTable("issue_comments_attachments", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueMonthlyCount", b =>
+                {
+                    b.Property<long>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("integer")
+                        .HasColumnName("year");
+
+                    b.Property<int>("Month")
+                        .HasColumnType("integer")
+                        .HasColumnName("month");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer")
+                        .HasColumnName("count");
+
+                    b.HasKey("OrganizationId", "Year", "Month")
+                        .HasName("pk_issue_monthly_counts");
+
+                    b.ToTable("issue_monthly_counts", (string)null);
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueNumber", b =>
@@ -703,6 +760,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<Guid?>("BillingId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("billing_id");
+
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(7)
@@ -712,6 +773,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_user_id");
 
                     b.Property<string>("JoinCode")
                         .HasMaxLength(8)
@@ -750,6 +819,13 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_organizations");
+
+                    b.HasIndex("BillingId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_organizations_billing_id");
+
+                    b.HasIndex("DeletedByUserId")
+                        .HasDatabaseName("ix_organizations_deleted_by_user_id");
 
                     b.HasIndex("JoinCode")
                         .IsUnique()
@@ -1215,6 +1291,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("creator_id");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_user_id");
+
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean")
                         .HasColumnName("is_default");
@@ -1245,9 +1329,13 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.HasIndex("CreatorId")
                         .HasDatabaseName("ix_spaces_creator_id");
 
+                    b.HasIndex("DeletedByUserId")
+                        .HasDatabaseName("ix_spaces_deleted_by_user_id");
+
                     b.HasIndex("OrganizationId", "Key")
                         .IsUnique()
-                        .HasDatabaseName("ix_spaces_organization_id_key");
+                        .HasDatabaseName("ix_spaces_organization_id_key")
+                        .HasFilter("deleted_at IS NULL");
 
                     b.ToTable("spaces", (string)null);
                 });
@@ -1286,6 +1374,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("character varying(7)")
                         .HasColumnName("color");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_user_id");
+
                     b.Property<long>("EpicId")
                         .HasColumnType("bigint")
                         .HasColumnName("epic_id");
@@ -1302,6 +1398,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_statuses");
+
+                    b.HasIndex("DeletedByUserId")
+                        .HasDatabaseName("ix_statuses_deleted_by_user_id");
 
                     b.HasIndex("EpicId")
                         .HasDatabaseName("ix_statuses_epic_id");
@@ -1697,6 +1796,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Epic", b =>
                 {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_epics_users_deleted_by_user_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Space", "Space")
                         .WithMany("Epics")
                         .HasForeignKey("SpaceId")
@@ -1711,6 +1816,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_epics_users_user_id");
 
+                    b.Navigation("DeletedByUser");
+
                     b.Navigation("Space");
 
                     b.Navigation("User");
@@ -1724,6 +1831,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_issues_users_assignee_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_issues_users_deleted_by_user_id");
 
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
                         .WithMany()
@@ -1745,6 +1858,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasConstraintName("fk_issues_telegram_messages_telegram_message_id");
 
                     b.Navigation("Assignee");
+
+                    b.Navigation("DeletedByUser");
 
                     b.Navigation("Owner");
 
@@ -1911,6 +2026,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueComment", b =>
                 {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_issue_comments_users_deleted_by_user_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "Issue")
                         .WithMany("IssueComments")
                         .HasForeignKey("IssueId")
@@ -1924,6 +2045,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_issue_comments_users_owner_id");
+
+                    b.Navigation("DeletedByUser");
 
                     b.Navigation("Issue");
 
@@ -1949,6 +2072,18 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Attachment");
 
                     b.Navigation("Comment");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueMonthlyCount", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_monthly_counts_organizations_organization_id");
+
+                    b.Navigation("Organization");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueNumber", b =>
@@ -1993,12 +2128,20 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
                 {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_organizations_users_deleted_by_user_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
                         .WithMany("Organizations")
                         .HasForeignKey("OwnerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_organizations_users_owner_id");
+
+                    b.Navigation("DeletedByUser");
 
                     b.Navigation("Owner");
                 });
@@ -2190,6 +2333,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_spaces_users_creator_id");
 
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_spaces_users_deleted_by_user_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
                         .WithMany("Spaces")
                         .HasForeignKey("OrganizationId")
@@ -2199,17 +2348,27 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.Navigation("Creator");
 
+                    b.Navigation("DeletedByUser");
+
                     b.Navigation("Organization");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Status", b =>
                 {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_statuses_users_deleted_by_user_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Epic", "Epic")
                         .WithMany("Statuses")
                         .HasForeignKey("EpicId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_statuses_epics_epic_id");
+
+                    b.Navigation("DeletedByUser");
 
                     b.Navigation("Epic");
                 });

@@ -124,6 +124,9 @@
     <data name="IssueCreationForbidden" xml:space="preserve">
         <value>Это действие недоступно — у вас нет прав на создание карточек здесь.</value>
     </data>
+    <data name="IssueLimitExceeded" xml:space="preserve">
+        <value>Эта организация достигла месячного лимита карточек. Обновите план или подождите до следующего месяца.</value>
+    </data>
     <data name="LinkItemNotFound" xml:space="preserve">
         <value>Этот элемент больше не существует — возможно, он был переименован, перемещён или удалён. Пожалуйста, начните заново с /link.</value>
     </data>
@@ -203,5 +206,8 @@
     </data>
     <data name="AiSummarizationUnavailable" xml:space="preserve">
         <value>ИИ-обработка временно недоступна — попробуйте /save, либо повторите /aisave позже.</value>
+    </data>
+    <data name="InsufficientTokenBalance" xml:space="preserve">
+        <value>Недостаточно токенов для ИИ-обработки — используйте /save, чтобы сохранить без неё.</value>
     </data>
 </root>

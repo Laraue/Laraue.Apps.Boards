@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
@@ -53,7 +54,8 @@ public class OrganizationsService(
     ICoreSpacesService coreSpacesService,
     DatabaseContext context,
     IAuthService authService,
-    IAccessService accessService)
+    IAccessService accessService,
+    IUsageLimitService usageLimitService)
     : IOrganizationsService
 {
     public async Task<OrganizationListDto[]> GetOrganizations(
@@ -99,6 +101,7 @@ public class OrganizationsService(
                     CanManage = x.AdminAccessLevel.HasFlag(AdminAccessLevel.Manage),
                     CanMassMove = x.AdminAccessLevel.HasFlag(AdminAccessLevel.MassMove),
                     CanManageAttributes = x.AdminAccessLevel.HasFlag(AdminAccessLevel.ManageAttributes),
+                    CanViewBilling = x.AdminAccessLevel.HasFlag(AdminAccessLevel.ViewBilling),
                     Slug = x.Organization.Slug,
                     SlugPostfix = x.Organization.SlugPostfix,
                 })
@@ -112,9 +115,18 @@ public class OrganizationsService(
         return organization;
     }
 
-    public Task<CreateOrganizationResponse> Create(CreateOrganizationRequest request, CancellationToken cancellationToken)
+    public async Task<CreateOrganizationResponse> Create(CreateOrganizationRequest request, CancellationToken cancellationToken)
     {
-        return coreOrganizationsService.Create(
+        try
+        {
+            await usageLimitService.EnsureCanCreateOrganizationAsync(request.UserId, cancellationToken);
+        }
+        catch (OrganizationLimitExceededException)
+        {
+            throw new PaymentRequiredException(ErrorMessages.OrganizationLimitExceeded);
+        }
+
+        return await coreOrganizationsService.Create(
             request.UserId,
             request.Slug,
             request.Name,
@@ -193,7 +205,8 @@ public class OrganizationsService(
             spaceIds = await accessService.GetAvailableSpaces(
                 request.AuthData,
                 query => query.Select(s => s.Id).ToArrayAsyncEF(cancellationToken),
-                cancellationToken);
+                includeDeleted: false,
+                cancellationToken: cancellationToken);
         }
 
         return await accessService.GetVisibleUsers(
@@ -286,6 +299,7 @@ public record OrganizationDto
     public required bool CanMassMove { get; set; }
     public required bool CanManage { get; set; }
     public required bool CanManageAttributes { get; set; }
+    public required bool CanViewBilling { get; set; }
     public required string Slug { get; set; }
     public required string SlugPostfix { get; set; }
     public UserOrganizationPreferencesResponse Preferences { get; set; } = new();

@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Telegram.NET.Testing;
 using LinqToDB.EntityFrameworkCore;
@@ -1576,7 +1577,10 @@ public class TelegramHostTests : TelegramIntegrationTest
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync("Fix login bug\n---\n- Login fails on retry\n- Add logging");
+            .ReturnsAsync(new AiSummarizationResult(
+                "Fix login bug\n---\n- Login fails on retry\n- Add logging",
+                InputTokensCount: 10,
+                OutputTokensCount: 20));
 
         await host.SendUpdateAsync(new Update
         {
@@ -1713,6 +1717,127 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleAiSave_ShouldSendInsufficientBalanceNotice_WhenTokenBalanceInsufficient()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 787, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        var billingTokenClient = host.CreateScope().ServiceProvider.GetRequiredService<IBillingTokenClient>();
+        Mock.Get(billingTokenClient)
+            .Setup(x => x.ReserveTokensAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InsufficientTokenBalanceException("insufficient balance"));
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/aisave",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(
+            "Not enough tokens left for AI summarization - try /save instead to save without it.",
+            request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleAiSave_ShouldCancelReservation_WhenAiSummarizationFails()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 788, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        var tokenTransactionId = Guid.NewGuid();
+        var billingTokenClient = host.CreateScope().ServiceProvider.GetRequiredService<IBillingTokenClient>();
+        Mock.Get(billingTokenClient)
+            .Setup(x => x.ReserveTokensAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(tokenTransactionId);
+
+        var summarizer = host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>();
+        Mock.Get(summarizer)
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AiContentSummarizationException("AI summarization API request failed."));
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/aisave",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        Mock.Get(billingTokenClient).Verify(
+            x => x.CancelTokensReservationAsync(tokenTransactionId, It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -3981,7 +4106,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var editRequest = host.Requests().Single<EditMessageTextRequest>();
         Assert.Equal("🗑 Card deleted.", editRequest.Text);
 
-        Assert.Empty(await db.Issues.AsNoTracking().Where(x => x.Id == issue.Id).ToListAsyncLinqToDB());
+        var deletedIssue = Assert.Single(await db.Issues.AsNoTracking().Where(x => x.Id == issue.Id).ToListAsyncLinqToDB());
+        Assert.NotNull(deletedIssue.DeletedAt);
     }
 
     [Fact]

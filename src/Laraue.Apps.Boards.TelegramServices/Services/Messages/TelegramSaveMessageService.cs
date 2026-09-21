@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
@@ -61,7 +62,10 @@ public class TelegramSaveMessageService(
     IAccessService accessService,
     IIssuePreviewBuilder issuePreviewBuilder,
     IDateTimeProvider dateTimeProvider,
-    IAiContentSummarizer aiContentSummarizer)
+    IAiContentSummarizer aiContentSummarizer,
+    IBillingTokenClient billingTokenClient,
+    ITokenEstimate tokenEstimate,
+    IUsageLimitService usageLimitService)
     : ITelegramSaveMessageService
 {
     public Task<GetOrCreateMessageResult> Save(
@@ -118,7 +122,7 @@ public class TelegramSaveMessageService(
         var content = ComposeReplyContent(request.Note, cardMessage.Text);
 
         if (request.Summarize && content is not null)
-            content = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
+            content = await SummarizeAndSpendTokens(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
 
         if (cardMessage.IssueId is not null)
         {
@@ -194,13 +198,13 @@ public class TelegramSaveMessageService(
 
         // Permission is checked against the card's own epic, not the chat's current link state -
         // a chat can be unlinked/relinked later, but the card and its access rules don't change.
-        var issueAccessData = await context.Issues
+        var issueAccessData = await context.ActiveIssues()
             .Where(x => x.Id == lookup.IssueId)
             .Select(x => new { x.Status!.EpicId, OrganizationId = x.Status.Epic!.Space!.OrganizationId })
             .FirstAsyncEF(cancellationToken);
 
         var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = request.UserId };
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, cancellationToken);
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, issueAccessData.EpicId, includeDeleted: false, cancellationToken: cancellationToken);
 
         if (accessLevels?.CanRead != true)
             return new InfoByReplyResult { Outcome = InfoByReplyOutcome.Forbidden };
@@ -290,7 +294,7 @@ public class TelegramSaveMessageService(
 
     private async Task<bool> CanDeleteIssue(long issueId, Guid userId, CancellationToken cancellationToken)
     {
-        var issueAccessData = await context.Issues
+        var issueAccessData = await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .Select(x => new { OrganizationId = x.Status!.Epic!.Space!.OrganizationId })
             .FirstOrDefaultAsyncEF(cancellationToken);
@@ -299,7 +303,7 @@ public class TelegramSaveMessageService(
             return false;
 
         var authData = new OrganizationAuthData { OrganizationId = issueAccessData.OrganizationId, UserId = userId };
-        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, cancellationToken);
+        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken: cancellationToken);
 
         return accessLevels?.CanDeleteIssue == true;
     }
@@ -308,6 +312,44 @@ public class TelegramSaveMessageService(
     {
         public required bool Tracked { get; init; }
         public long? IssueId { get; init; }
+    }
+
+    /// <summary>
+    /// Reserves Billing tokens, runs <paramref name="content"/> through the AI summarizer, and
+    /// commits the actual usage - or, if summarization fails, cancels the reservation before
+    /// rethrowing so <see cref="SaveByReply"/>'s caller (<c>SaveCommandService</c>) still sees the
+    /// same <see cref="AiContentSummarizationException"/> it already handles today. A thrown
+    /// <see cref="InsufficientTokenBalanceException"/> from the reservation itself is left
+    /// uncaught here - nothing to cancel yet, and <c>SaveCommandService</c> handles it the same
+    /// way.
+    /// </summary>
+    private async Task<string> SummarizeAndSpendTokens(
+        long organizationId,
+        Guid userId,
+        string content,
+        CancellationToken cancellationToken)
+    {
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content);
+
+        var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+            organizationId,
+            userId,
+            estimatedInputTokens,
+            aiContentSummarizer.MaxOutputTokensCount,
+            cancellationToken);
+
+        try
+        {
+            var result = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
+            tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
+            await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
+            return result.Content;
+        }
+        catch (AiContentSummarizationException ex)
+        {
+            await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
+            throw;
+        }
     }
 
     /// <summary>
@@ -788,10 +830,12 @@ public class TelegramSaveMessageService(
         CancellationToken cancellationToken)
     {
         var authData = new OrganizationAuthData { OrganizationId = linkedChat.OrganizationId, UserId = userId };
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, linkedChat.EpicId, cancellationToken);
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, linkedChat.EpicId, includeDeleted: false, cancellationToken: cancellationToken);
 
         if (accessLevels?.CanCreateIssue != true)
             throw new IssueCreationForbiddenException(externalChatId);
+
+        await usageLimitService.EnsureCanCreateIssueAsync(linkedChat.OrganizationId, userId, cancellationToken);
     }
     
     private async Task<long> GetOrCreateTelegramMediaGroupId(

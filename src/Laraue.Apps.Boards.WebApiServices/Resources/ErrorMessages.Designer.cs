@@ -78,6 +78,33 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Not enough tokens left to complete this request..
+        /// </summary>
+        internal static string InsufficientTokenBalance {
+            get {
+                return ResourceManager.GetString("InsufficientTokenBalance", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Monthly issue limit reached for this organization's plan..
+        /// </summary>
+        internal static string IssueLimitExceeded {
+            get {
+                return ResourceManager.GetString("IssueLimitExceeded", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Free team organization limit reached for your plan..
+        /// </summary>
+        internal static string OrganizationLimitExceeded {
+            get {
+                return ResourceManager.GetString("OrganizationLimitExceeded", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Organization: {0} space creation is forbidden, cannot move space here.
         /// </summary>
         internal static string SpaceCreationForbiddenCannotMove {

@@ -7,6 +7,8 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="$(MicrosoftExtensionsHttpVersion)" />
     <PackageReference Include="Laraue.Apps.Identity.Internal.Contracts" Version="$(LaraueIdentityInternalContractsVersion)" />
     <PackageReference Include="Grpc.Net.ClientFactory" Version="$(GrpcNetClientFactoryVersion)" />
+    <PackageReference Include="Laraue.Apps.Billing.Internal.Contracts" Version="$(LaraueBillingInternalContractsVersion)" />
+    <PackageReference Include="Laraue.Grpc.Client" Version="$(LaraueGrpcVersion)" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Laraue.Apps.Boards.DataAccess\Laraue.Apps.Boards.DataAccess.csproj" />

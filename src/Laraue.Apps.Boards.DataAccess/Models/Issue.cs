@@ -21,7 +21,18 @@ public class Issue
     /// Issue update date.
     /// </summary>
     public DateTime UpdatedAt { get; set; }
-    
+
+    /// <summary>
+    /// UTC timestamp the issue was soft-deleted at, or null if it is active.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who soft-deleted the issue, if any.
+    /// </summary>
+    public Guid? DeletedByUserId { get; set; }
+    public User? DeletedByUser { get; set; }
+
     /// <summary>
     /// The user which created the issue.
     /// </summary>

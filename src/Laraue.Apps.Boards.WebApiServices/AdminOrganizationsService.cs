@@ -4,8 +4,11 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiServices.Resources;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
+using Laraue.Core.DataAccess.Extensions;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -68,12 +71,23 @@ public interface IAdminOrganizationsService
     Task DeleteAttribute(
         DeleteAttributeRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The organization's full token spend ledger, optionally narrowed to one member -
+    /// distinct from <c>BillingController.GetTransactions</c>, which only ever shows the
+    /// caller's own spend. Requires <see cref="AdminAccessLevel.ViewBilling"/>. Not supported for
+    /// a personal organization (see <see cref="PersonalOrganizationTransactionsNotSupportedException"/>).
+    /// </summary>
+    Task<ShortPaginatedResult<AdminBillingTransaction>> GetTransactions(
+        GetAdminBillingTransactionsRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class AdminOrganizationsService(
     ICoreOrganizationsService coreOrganizationsService,
     DatabaseContext context,
-    IAccessService accessService)
+    IAccessService accessService,
+    IBillingTokenClient billingTokenClient)
     : IAdminOrganizationsService
 {
     public async Task Update(EditOrganizationRequest request, CancellationToken cancellationToken)
@@ -109,7 +123,7 @@ public class AdminOrganizationsService(
             "Deleting organization",
             cancellationToken);
 
-        await coreOrganizationsService.Delete(request.Id, cancellationToken);
+        await coreOrganizationsService.Delete(request.Id, request.UserId, cancellationToken);
     }
 
     public async Task RevokeAccess(RevokeAccessRequest request, CancellationToken cancellationToken)
@@ -145,7 +159,7 @@ public class AdminOrganizationsService(
             cancellationToken);
 
         var newCode = StringGenerator.GenerateJoinCode();
-        await context.Organizations
+        await context.ActiveOrganizations()
             .Where(x => x.Id == request.AuthData.OrganizationId)
             .ExecuteUpdateAsync(u => u
                     .SetProperty(p => p.JoinCode, newCode),
@@ -270,7 +284,7 @@ public class AdminOrganizationsService(
             "Reading organization join code",
             cancellationToken);
 
-        return await context.Organizations
+        return await context.ActiveOrganizations()
             .Where(o => o.Id == request.AuthData.OrganizationId)
             .Select(x => x.JoinCode)
             .FirstOrDefaultAsyncEF(cancellationToken);
@@ -355,6 +369,50 @@ public class AdminOrganizationsService(
         await EnsureAttributeExists(request.AuthData.OrganizationId, request.Id, cancellationToken);
 
         await coreOrganizationsService.DeleteAttribute(request.Id, cancellationToken);
+    }
+
+    public async Task<ShortPaginatedResult<AdminBillingTransaction>> GetTransactions(
+        GetAdminBillingTransactionsRequest request,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAdminAccess(
+            request.AuthData,
+            AdminAccessLevel.ViewBilling,
+            "Viewing organization billing transactions",
+            cancellationToken);
+
+        ShortPaginatedResult<TokenTransactionItem> page;
+        try
+        {
+            page = await billingTokenClient.GetOrganizationTransactionsAsync(
+                request.AuthData.OrganizationId,
+                request.UserId,
+                request.Pagination,
+                cancellationToken);
+        }
+        catch (PersonalOrganizationTransactionsNotSupportedException)
+        {
+            throw new NotFoundException(
+                string.Format(ErrorMessages.EntityNotFound, "Organization", request.AuthData.OrganizationId));
+        }
+
+        var ownerIds = page.Data.Select(x => x.OwnerId).Distinct().ToArray();
+        var displayNames = await context.Users
+            .Where(u => ownerIds.Contains(u.Id))
+            .ToDictionaryAsyncEF(u => u.Id, u => u.DisplayName, cancellationToken);
+
+        return page.MapTo(item => new AdminBillingTransaction
+        {
+            Id = item.Id,
+            OwnerUserId = item.OwnerId,
+            OwnerDisplayName = displayNames.GetValueOrDefault(item.OwnerId),
+            Status = item.Status,
+            Reason = item.Reason,
+            CreatedAt = item.CreatedAt,
+            FinishedAt = item.FinishedAt,
+            Delta = item.Delta,
+            Error = item.Error,
+        });
     }
 
     private async Task EnsureAttributeExists(long organizationId, long attributeId, CancellationToken cancellationToken)
@@ -504,4 +562,34 @@ public record NewAttributeListValueDto
 public record UpdateAttributeListValueDto : NewAttributeListValueDto
 {
     public long? Id { get; set; }
+}
+
+public record GetAdminBillingTransactionsRequest : IPaginatedRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+
+    /// <summary>
+    /// Optionally narrows the ledger to one team member's own spend.
+    /// </summary>
+    public Guid? UserId { get; set; }
+
+    public required PaginationData Pagination { get; set; }
+}
+
+public sealed record AdminBillingTransaction
+{
+    public required Guid Id { get; init; }
+    public required Guid OwnerUserId { get; init; }
+
+    /// <summary>
+    /// Null if the owning user no longer exists.
+    /// </summary>
+    public string? OwnerDisplayName { get; init; }
+
+    public required TokenTransactionStatus Status { get; init; }
+    public required TokenTransactionReason Reason { get; init; }
+    public required DateTime CreatedAt { get; init; }
+    public DateTime? FinishedAt { get; init; }
+    public required long Delta { get; init; }
+    public string? Error { get; init; }
 }

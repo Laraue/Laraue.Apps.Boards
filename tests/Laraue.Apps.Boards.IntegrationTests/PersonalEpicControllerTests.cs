@@ -116,11 +116,11 @@ public class PersonalEpicControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Delete(epicId));
 
-        var epic = await testScope.Database.Epics.FirstOrDefaultAsyncEF(e => e.Id == epicId);
-        Assert.Null(epic);
-     
+        var epic = await testScope.Database.Epics.SingleAsyncEF(e => e.Id == epicId);
+        Assert.NotNull(epic.DeletedAt);
+
         var issues = await testScope.Database.Issues.ToListAsyncEF();
-        Assert.Empty(issues);
+        Assert.All(issues, i => Assert.NotNull(i.DeletedAt));
     }
     
     [Fact]

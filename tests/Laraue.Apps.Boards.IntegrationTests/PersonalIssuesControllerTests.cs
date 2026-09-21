@@ -952,9 +952,10 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.DeleteComment(comment.Id));
         
-        var comments = await testScope.Database.IssueComments.ToListAsyncEF();
-        Assert.Empty(comments);
-        
+        var deletedComment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == comment.Id);
+        Assert.NotNull(deletedComment.DeletedAt);
+        Assert.Equal(userId, deletedComment.DeletedByUserId);
+
         var attachments = await testScope.Database.Attachments.ToListAsyncEF();
         Assert.Empty(attachments);
         
@@ -1012,6 +1013,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var column = Assert.Single(result!);
         var issues = column.Items.Data;
         Assert.Equal(4, issues.Count);
-        Assert.Equal(["2", "4", "3", "1"], issues.Select(i => i.Content));
+        // Only issue3/issue1 were moved (to right after issue2) - issue4 was never touched by the
+        // request, so it stays last rather than ending up between issue2 and the moved issues.
+        Assert.Equal(["2", "3", "1", "4"], issues.Select(i => i.Content));
     }
 }

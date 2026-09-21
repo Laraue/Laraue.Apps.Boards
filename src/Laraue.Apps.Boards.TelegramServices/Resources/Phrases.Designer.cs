@@ -262,6 +262,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to This organization has reached its monthly card limit. Upgrade the plan or wait until next month..
+        /// </summary>
+        internal static string IssueLimitExceeded {
+            get {
+                return ResourceManager.GetString("IssueLimitExceeded", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link..
         /// </summary>
         internal static string LinkItemNotFound {
@@ -488,6 +497,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         internal static string AiSummarizationUnavailable {
             get {
                 return ResourceManager.GetString("AiSummarizationUnavailable", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Not enough tokens left for AI summarization - try /save instead to save without it..
+        /// </summary>
+        internal static string InsufficientTokenBalance {
+            get {
+                return ResourceManager.GetString("InsufficientTokenBalance", resourceCulture);
             }
         }
 

@@ -37,7 +37,18 @@ public class Epic
     /// Property to sort epics.
     /// </summary>
     public DateTime TouchedAt { get; set; }
-    
+
+    /// <summary>
+    /// UTC timestamp the epic was soft-deleted at, or null if it is active.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who soft-deleted the epic, if any.
+    /// </summary>
+    public Guid? DeletedByUserId { get; set; }
+    public User? DeletedByUser { get; set; }
+
     public bool IsDefault { get; set; }
 
     public EpicStatus Status { get; set; }

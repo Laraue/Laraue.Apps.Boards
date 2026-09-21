@@ -131,6 +131,9 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="IssueCreationForbidden" xml:space="preserve">
         <value>This action is not available - you don't have permission to create cards here.</value>
     </data>
+    <data name="IssueLimitExceeded" xml:space="preserve">
+        <value>This organization has reached its monthly card limit. Upgrade the plan or wait until next month.</value>
+    </data>
     <data name="LinkItemNotFound" xml:space="preserve">
         <value>This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.</value>
     </data>
@@ -210,5 +213,8 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     </data>
     <data name="AiSummarizationUnavailable" xml:space="preserve">
         <value>AI summarization is temporarily unavailable - try /save instead, or try /aisave again later.</value>
+    </data>
+    <data name="InsufficientTokenBalance" xml:space="preserve">
+        <value>Not enough tokens left for AI summarization - try /save instead to save without it.</value>
     </data>
 </root>

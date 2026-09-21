@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -373,7 +374,128 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(LogAction.Delete, historyChange.Action);
         Assert.Empty(historyChange.Items!);
     }
-    
+
+    [Fact]
+    public async Task User_ShouldSoftDeleteIssue_WhenIsOrganizationOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        // The row itself must survive the delete - only FindIssueByKey (which excludes
+        // soft-deleted rows) should treat it as gone.
+        var issue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(issue.DeletedAt);
+        Assert.Equal(userId, issue.DeletedByUserId);
+    }
+
+    [Fact]
+    public async Task Create_ShouldComputeInitialLexoRankIgnoringSoftDeletedIssues_WhenOnlyExistingIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("First")));
+
+        var firstIssue = organization.GetIssueData(0, 0, 0, 0);
+        var status = organization.GetStatus(0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(firstIssue.Key));
+
+        var secondIssueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(new CreateIssueRequest
+            {
+                Content = "Second",
+                StatusId = status.Id,
+                AssigneeId = userId,
+            }));
+
+        var secondIssue = await testScope.Database.FindIssueByKey(organization.Id, secondIssueKey!);
+        Assert.NotNull(secondIssue);
+        // Same rank a very first issue in the organization would get - proves the deleted
+        // issue's LexoRank was not used as the base to compute this one.
+        Assert.Equal("0|hzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", secondIssue.LexoRank);
+    }
+
+    [Fact]
+    public async Task GetIssuesByStatus_ShouldNotReturnSoftDeletedIssue_WhenIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Kept"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Deleted")));
+
+        var status = organization.GetStatus(0, 0, 0);
+        var deletedIssue = organization.GetIssueData(0, 0, 0, 1);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(deletedIssue.Key));
+
+        var result = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssuesByStatus(status.Id, new GetIssuesRequest { Take = 20 }));
+
+        var issue = Assert.Single(result!.Data);
+        Assert.Equal("Kept", issue.Content);
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldStillReturnHistory_WhenIssueWasDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Doomed issue")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
+            {
+                AssigneeId = userId,
+                Content = "Updated before delete",
+            }));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        var request = new GetIssueHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(issueData.Key, request));
+
+        Assert.Equal(2, historyData!.Data.Count);
+        Assert.Equal(LogAction.Delete, historyData.Data[0].Action);
+        Assert.Equal(LogAction.Update, historyData.Data[1].Action);
+    }
+
     [Fact]
     public async Task User_ShouldNotDeleteIssue_WhenHasNotAccess()
     {
@@ -1423,7 +1545,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(beautified);
+            .ReturnsAsync(new AiSummarizationResult(beautified, InputTokensCount: 10, OutputTokensCount: 20));
 
         var result = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -1456,6 +1578,89 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 })));
 
         Assert.Equal(System.Net.HttpStatusCode.ServiceUnavailable, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldCommitActualUsage_WhenSummarizationSucceeds()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var tokenTransactionId = Guid.NewGuid();
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(tokenTransactionId);
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult("Title\n---\nContent", InputTokensCount: 10, OutputTokensCount: 42));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "notes",
+                }));
+
+        host.BillingTokenClientMock.Verify(
+            x => x.CommitTokensSpentAsync(tokenTransactionId, 42, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldReturn402_WhenTokenBalanceInsufficient()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InsufficientTokenBalanceException("insufficient balance"));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "notes",
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldCancelReservation_WhenAiSummarizerFails()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var tokenTransactionId = Guid.NewGuid();
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(tokenTransactionId);
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(
+                new SummarizeIssueContentRequest
+                {
+                    Content = "notes",
+                })));
+
+        host.BillingTokenClientMock.Verify(
+            x => x.CancelTokensReservationAsync(tokenTransactionId, It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -1514,5 +1719,92 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         // second update should not have produced a row at all, since nothing actually changed.
         var historyChanges = await testScope.Database.OrganizationLogs.ToListAsyncEF();
         Assert.Single(historyChanges);
+    }
+
+    [Fact]
+    public async Task Create_ShouldReturn402_WhenMonthlyIssueLimitReached()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Existing")));
+
+        var status = organization.GetStatus(0, 0, 0);
+
+        // AddIssueToDefaultStatus seeds the Issue row directly, bypassing CoreIssuesService.Create
+        // (and so IssueMonthlyCount, which only that code path increments) - seed the counter
+        // to match, same as it would be after a real creation.
+        var now = DateTime.UtcNow;
+        testScope.Database.IssueMonthlyCounts.Add(new IssueMonthlyCount
+        {
+            OrganizationId = organization.Id,
+            Year = now.Year,
+            Month = now.Month,
+            Count = 1,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 1, IncludedTokensCount = 2_500_000 });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "One too many",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+
+        var issueCount = await testScope.Database.Issues.CountAsyncEF();
+        Assert.Equal(1, issueCount);
+    }
+
+    [Fact]
+    public async Task Create_ShouldCreateIssue_WhenBelowMonthlyIssueLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Existing")));
+
+        var status = organization.GetStatus(0, 0, 0);
+
+        var now = DateTime.UtcNow;
+        testScope.Database.IssueMonthlyCounts.Add(new IssueMonthlyCount
+        {
+            OrganizationId = organization.Id,
+            Year = now.Year,
+            Month = now.Month,
+            Count = 1,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 2, IncludedTokensCount = 2_500_000 });
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "Still within limit",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                }));
+
+        var issueCount = await testScope.Database.Issues.CountAsyncEF();
+        Assert.Equal(2, issueCount);
+
+        var monthlyCount = await testScope.Database.IssueMonthlyCounts
+            .SingleAsyncEF(x => x.OrganizationId == organization.Id && x.Year == now.Year && x.Month == now.Month);
+        Assert.Equal(2, monthlyCount.Count);
     }
 }

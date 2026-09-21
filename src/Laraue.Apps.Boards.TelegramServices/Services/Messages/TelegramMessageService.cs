@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.TelegramServices.Resources;
+﻿using Laraue.Apps.Boards.Services.Billing;
+using Laraue.Apps.Boards.TelegramServices.Resources;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -11,8 +12,8 @@ public class TelegramMessageService(
 {
     public async Task HandleSaveMessage(
         SaveMessageTelegramRequest request,
-        CancellationToken cancellationToken,
-        bool notifyOnFailure = true)
+        bool notifyOnFailure,
+        CancellationToken cancellationToken)
     {
         GetOrCreateMessageResult result;
         try
@@ -38,6 +39,18 @@ public class TelegramMessageService(
                 await client.SendMessage(
                     request.ExternalChatId,
                     Phrases.IssueCreationForbidden,
+                    cancellationToken: cancellationToken);
+            }
+
+            return;
+        }
+        catch (IssueLimitExceededException)
+        {
+            if (notifyOnFailure)
+            {
+                await client.SendMessage(
+                    request.ExternalChatId,
+                    Phrases.IssueLimitExceeded,
                     cancellationToken: cancellationToken);
             }
 

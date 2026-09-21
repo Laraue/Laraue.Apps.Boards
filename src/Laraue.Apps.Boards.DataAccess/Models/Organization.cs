@@ -25,6 +25,15 @@ public class Organization
     /// Type. Organization can be a personal (single user) or organization (multiple users).
     /// </summary>
     public OrganizationType Type { get; set; }
+
+    /// <summary>
+    /// Stable identity this organization is billed under in the Billing service (its
+    /// <c>PaidEntityId</c>) - generated once on creation and never reused, unlike <see cref="OwnerId"/>
+    /// which can be transferred to a different user. Null for a personal organization - its one
+    /// user bills under their own <see cref="User.Id"/> instead, since that's already a stable
+    /// per-user Guid and a personal org has no separate billing identity of its own.
+    /// </summary>
+    public Guid? BillingId { get; set; }
     
     /// <summary>
     /// Epic creation date.
@@ -35,7 +44,18 @@ public class Organization
     /// Epic attribute update date.
     /// </summary>
     public DateTime UpdatedAt { get; set; }
-    
+
+    /// <summary>
+    /// UTC timestamp the organization was soft-deleted at, or null if it is active.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who soft-deleted the organization, if any.
+    /// </summary>
+    public Guid? DeletedByUserId { get; set; }
+    public User? DeletedByUser { get; set; }
+
     /// <summary>
     /// Spaces linked to the organization.
     /// </summary>

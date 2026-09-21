@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +26,36 @@ public class WebApiTestHost
     /// a previous test.
     /// </summary>
     public Mock<IAiContentSummarizer> AiContentSummarizerMock { get; } = new();
+
+    /// <summary>
+    /// Overrides the real gRPC-backed implementation, which would otherwise try to reach a live
+    /// Billing service. Defaults to a random successful reservation - tests that care about the
+    /// reserve/commit/cancel calls made should re-<c>Setup</c>/<c>Verify</c> it themselves.
+    /// </summary>
+    public Mock<IBillingTokenClient> BillingTokenClientMock { get; } = new();
+
+    /// <summary>
+    /// Same rationale as <see cref="BillingTokenClientMock"/> - overrides the real gRPC-backed
+    /// implementation. Defaults to an unlimited subscription (both limits null) so existing tests
+    /// that don't care about plan limits aren't tripped up by <see cref="IUsageLimitService"/>;
+    /// tests asserting on plan/limit details should re-<c>Setup</c> it themselves.
+    /// </summary>
+    public Mock<IBillingSubscriptionClient> BillingSubscriptionClientMock { get; } = CreateDefaultSubscriptionClientMock();
+
+    private static Mock<IBillingSubscriptionClient> CreateDefaultSubscriptionClientMock()
+    {
+        var mock = new Mock<IBillingSubscriptionClient>();
+        var unlimited = new ActiveSubscriptionInfo { Code = "test", IsPersonal = true, IncludedTokensCount = 2_500_000 };
+
+        mock.Setup(x => x.GetActiveSubscriptionAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(unlimited);
+        mock.Setup(x => x.GetActivePersonalSubscriptionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(unlimited);
+        mock.Setup(x => x.GetTariffNameAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(unlimited.Code);
+
+        return mock;
+    }
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
@@ -51,6 +82,9 @@ public class WebApiTestHost
                 .Returns((CreateUserIfNotExistsRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
                     GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
             services.AddSingleton(identityClientMock.Object);
+
+            services.AddSingleton(BillingTokenClientMock.Object);
+            services.AddSingleton(BillingSubscriptionClientMock.Object);
         });
 
         return base.CreateHost(builder);
