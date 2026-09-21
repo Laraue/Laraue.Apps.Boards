@@ -247,18 +247,6 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsUnique();
 
             entity.HasIndex(x => new { x.OrganizationId, x.CreatedByUserId });
-
-            entity
-                .HasOne(x => x.Organization)
-                .WithMany()
-                .HasForeignKey(x => x.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity
-                .HasOne(x => x.CreatedByUser)
-                .WithMany()
-                .HasForeignKey(x => x.CreatedByUserId)
-                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Retro>(entity =>

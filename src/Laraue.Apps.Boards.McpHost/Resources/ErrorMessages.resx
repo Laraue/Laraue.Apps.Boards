@@ -30,13 +30,16 @@
     <data name="IssueNotFoundInOrganization" xml:space="preserve">
         <value>Issue: {0} is not found in organization</value>
     </data>
-    <data name="StatusNotFoundInIssueEpic" xml:space="preserve">
-        <value>Status: {0} is not found in issue {1}'s epic</value>
-    </data>
     <data name="StatusNotFoundInSpace" xml:space="preserve">
         <value>Status: {0} is not found in space {1}</value>
     </data>
-    <data name="SpaceHasNoDefaultStatus" xml:space="preserve">
-        <value>Space: {0} has no default status to create the issue in</value>
+    <data name="AttributeValueTooLong" xml:space="preserve">
+        <value>Attribute '{0}': value must be at most 255 characters</value>
+    </data>
+    <data name="AttributeValueInvalid" xml:space="preserve">
+        <value>Attribute '{0}': value is not a valid {1}</value>
+    </data>
+    <data name="AttributeListValueNotFound" xml:space="preserve">
+        <value>Attribute '{0}': '{1}' is not one of its allowed values</value>
     </data>
 </root>

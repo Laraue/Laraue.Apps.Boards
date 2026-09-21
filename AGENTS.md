@@ -488,14 +488,44 @@ browser session. Three pieces:
   rather than driving the real MCP HTTP/SSE transport - not worth the effort for what's otherwise
   already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
   tests, same reason a controller doesn't usually get tested separately from the service it calls.
-  Tools cover `list_issues`/`get_issue`/`move_issue_status` plus `create_issue`/`edit_issue`/
-  `add_comment`/`edit_comment` - each still just the REST API's own permission/mutation path
-  (`CanCreateIssue` off the resolved space, `CanUpdateIssue` for edits/comments, owner-only for
-  editing a comment - same as `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
-  `create_issue` takes a `spaceKey` and an optional `statusName` rather than a raw status id (which
-  the REST API's frontend already knows from its own status picker, but an MCP caller doesn't) -
-  when omitted, it resolves to the space's default epic's first status by sort order, the same
-  "somewhere for a new card to land" every space/epic already has for its own default.
+  Tools cover `list_issues`/`get_issue`/`update_issue_status` plus `create_issue`/`edit_issue`/
+  `add_comment`/`edit_comment` and the two discovery tools `list_statuses`/`list_attributes` -
+  each still just the REST API's own permission/mutation path (`CanCreateIssue` off the resolved
+  space, `CanUpdateIssue` for edits/comments, owner-only for editing a comment - same as
+  `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
+  `update_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
+  `IssuesService.Create` also just takes a raw `StatusId`, no separate space concept at all) - and
+  `list_statuses` exists to make that id discoverable, since an MCP caller has no status-picker UI
+  the way the REST API's frontend does. `update_issue_status` accepts *any* status id the caller
+  can move issues to, not necessarily one in the issue's current epic - moving an issue to a
+  different epic's status is real REST API behavior too (an issue's epic is entirely derived from
+  its `StatusId`), not something worth artificially restricting just because MCP takes an id.
+  `create_issue`'s `spaceKey` **is** still required, though (unlike the REST API, which has no
+  `spaceKey` concept for `Create` at all) - since a given `statusId` must belong to that same
+  space (checked explicitly), otherwise the `CanCreateIssue` check against `spaceKey` and the
+  issue's real destination (derived from `statusId`'s own space) could silently disagree, letting
+  a caller sneak an issue into a space they never had create access to just by naming a status
+  from it. `create_issue`'s `statusId` is **required**, not defaulted - `list_statuses` always
+  has to be called first, which also means a caller always knows and states exactly which status
+  a new issue lands in, rather than relying on an implicit "space's default" a caller can't see
+  without a separate lookup anyway. `list_attributes` plays the equivalent discovery
+  role for `create_issue`/`edit_issue`'s `attributes` map, whose keys are still plain attribute
+  **names**, not ids - attribute names are already unique per organization (nothing like the
+  epic-scoping ambiguity a status name has), so there's no matching reason to switch those to ids.
+- **Attributes** (custom per-organization fields - `Attribute`/`AttributeListValue`,
+  `Laraue.Apps.Boards.DataAccess.Models`) are flat and org-wide, never scoped to a space/epic -
+  `list_attributes` and `create_issue`/`edit_issue`'s `attributes` map (attribute name → plain
+  text value) both just filter `context.Attributes` by `OrganizationId`. Unlike the REST API,
+  which sends an **already-typed** value per attribute (a real `decimal`/`DateOnly`/list-value-id
+  - see `IssuesService.GetAttributeUpdateRequests`, which only validates/maps, never parses a raw
+  string), MCP callers can only produce plain text, so `IssueMcpService.BuildAttributeRequest`
+  does the parsing existing code never had to: `long`/`decimal`/`DateOnly`/`DateTime.TryParse`
+  per `AttributeType`, and for `AttributeType.List`, resolving the caller's text against
+  `AttributeListValue.Value` (existing code only ever resolves list attributes by id, never by
+  matching text - this resolution is new, not reused). Omitting `attributes` on `edit_issue`
+  leaves every attribute untouched (not cleared) - there's no "clear all attributes" MCP
+  operation, since `IssueChange<TSelf>.SetAttributes([])` (clear) vs never calling it (don't
+  touch) is exactly the distinction an omitted/empty MCP dictionary can't disambiguate.
 
 ## User-facing text
 

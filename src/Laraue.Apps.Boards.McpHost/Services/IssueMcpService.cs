@@ -1,7 +1,9 @@
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
@@ -30,29 +32,62 @@ public interface IIssueMcpService
         string issueKey,
         CancellationToken cancellationToken);
 
-    Task MoveIssueStatus(
+    /// <summary>
+    /// Moves the issue to <paramref name="statusId"/> - any status the caller can move issues to
+    /// (via <see cref="IAccessService.CanMoveToStatus"/>), not necessarily one in the issue's
+    /// current epic; moving to a different epic's status is the REST API's own behavior too,
+    /// nothing MCP-specific. Call <see cref="ListStatuses"/> first to find a valid id.
+    /// </summary>
+    Task UpdateIssueStatus(
         OrganizationAuthData authData,
         string issueKey,
-        string statusName,
+        long statusId,
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Creates an issue in <paramref name="spaceKey"/>. When <paramref name="statusName"/> is
-    /// omitted, the space's default epic's first status (by sort order) is used - the same
-    /// "somewhere for a new card to land" concept every space/epic already has for its own
-    /// default. Returns the new issue's key.
+    /// Creates an issue in <paramref name="spaceKey"/>. <paramref name="statusId"/> must belong
+    /// to that space - call <see cref="ListStatuses"/> first to find one.
+    /// <paramref name="attributes"/> maps attribute name to a plain-text value (see
+    /// <see cref="ListAttributes"/> for what's available and its expected format per type) -
+    /// omit or pass null/empty to leave every attribute unset. Returns the new issue's key.
     /// </summary>
     Task<string> CreateIssue(
         OrganizationAuthData authData,
         string spaceKey,
         string content,
-        string? statusName,
+        long statusId,
+        IReadOnlyDictionary<string, string>? attributes,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// <paramref name="attributes"/> maps attribute name to a plain-text value, same as
+    /// <see cref="CreateIssue"/> - omitting it (null/empty) leaves every attribute untouched
+    /// rather than clearing them.
+    /// </summary>
     Task EditIssue(
         OrganizationAuthData authData,
         string issueKey,
         string content,
+        IReadOnlyDictionary<string, string>? attributes,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists the statuses available in a space, grouped by epic - the ids a caller can pass to
+    /// <see cref="CreateIssue"/>/<see cref="UpdateIssueStatus"/>.
+    /// </summary>
+    Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
+        OrganizationAuthData authData,
+        string spaceKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists every custom attribute defined for the caller's organization (attributes are
+    /// org-wide, not scoped to a space/epic) - the names/types a caller can pass to
+    /// <see cref="CreateIssue"/>/<see cref="EditIssue"/>'s <c>attributes</c> map, and for
+    /// list-typed attributes, the allowed values.
+    /// </summary>
+    Task<IReadOnlyList<AttributeSummary>> ListAttributes(
+        OrganizationAuthData authData,
         CancellationToken cancellationToken);
 
     /// <summary>Returns the new comment's id.</summary>
@@ -87,6 +122,18 @@ public sealed record IssueDetail(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyList<IssueCommentSummary> Comments);
+
+public sealed record StatusSummary(long Id, string Name);
+
+public sealed record EpicStatusSummary(string EpicName, IReadOnlyList<StatusSummary> Statuses);
+
+/// <summary>
+/// <see cref="Type"/> is <see cref="AttributeType"/>'s name (e.g. "Text", "Integer", "Date") -
+/// the expected format for the plain-text value <see cref="IIssueMcpService.CreateIssue"/>/
+/// <see cref="IIssueMcpService.EditIssue"/> take per attribute. <see cref="ListValues"/> is only
+/// populated for <see cref="AttributeType.List"/> - null otherwise.
+/// </summary>
+public sealed record AttributeSummary(string Name, string Type, IReadOnlyList<string>? ListValues);
 
 public class IssueMcpService(
     DatabaseContext context,
@@ -183,10 +230,10 @@ public class IssueMcpService(
             comments);
     }
 
-    public async Task MoveIssueStatus(
+    public async Task UpdateIssueStatus(
         OrganizationAuthData authData,
         string issueKey,
-        string statusName,
+        long statusId,
         CancellationToken cancellationToken)
     {
         var key = new IssueKey(issueKey);
@@ -197,19 +244,9 @@ public class IssueMcpService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
 
-        var epicId = await context.ActiveIssues()
-            .Where(i => i.Id == issueId)
-            .Select(i => i.Status!.EpicId)
-            .SingleAsync(cancellationToken);
-
-        var statusId = await context.ActiveStatuses()
-            .Where(s => s.EpicId == epicId && s.Name == statusName)
-            .Select(s => s.Id)
-            .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.StatusNotFoundInIssueEpic, statusName, key), cancellationToken);
-
         var canMove = await accessService.CanMoveToStatus(authData, statusId, cancellationToken);
         if (!canMove)
-            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", statusName));
+            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", statusId));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.UpdateIssuesStatus([issueId], statusId, authData.UserId, cancellationToken);
@@ -220,7 +257,8 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string spaceKey,
         string content,
-        string? statusName,
+        long statusId,
+        IReadOnlyDictionary<string, string>? attributes,
         CancellationToken cancellationToken)
     {
         var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
@@ -229,24 +267,24 @@ public class IssueMcpService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
             .EnsureOrThrowForbidden(a => a.CanCreateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Space", spaceKey, "issue creation"));
 
-        var statusId = string.IsNullOrWhiteSpace(statusName)
-            ? await context.ActiveEpics()
-                .Where(e => e.SpaceId == spaceId && e.IsDefault)
-                .SelectMany(e => e.Statuses!.Where(s => s.DeletedAt == null))
-                .OrderBy(s => s.SortOrder)
-                .Select(s => s.Id)
-                .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.SpaceHasNoDefaultStatus, spaceKey), cancellationToken)
-            : await context.ActiveStatuses()
-                .Where(s => s.Epic!.SpaceId == spaceId && s.Name == statusName)
-                .Select(s => s.Id)
-                .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.StatusNotFoundInSpace, statusName, spaceKey), cancellationToken);
+        // statusId must actually belong to spaceKey's space - otherwise the permission check
+        // above (against spaceKey) and the issue's real destination (derived from statusId's own
+        // epic/space) could silently disagree, letting a caller create an issue in a space they
+        // never had create access to just by naming a status from it.
+        var resolvedStatusId = await context.ActiveStatuses()
+            .Where(s => s.Id == statusId && s.Epic!.SpaceId == spaceId)
+            .Select(s => s.Id)
+            .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.StatusNotFoundInSpace, statusId, spaceKey), cancellationToken);
+
+        var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
+
+        var issueCreate = new IssueCreateRequest(resolvedStatusId, dateTimeProvider.UtcNow).SetContent(content);
+        if (attributeRequests.Count > 0)
+            issueCreate = issueCreate.SetAttributes(attributeRequests);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueId = await coreIssuesService.Create(
-            authData.UserId,
-            new IssueCreateRequest(statusId, dateTimeProvider.UtcNow).SetContent(content),
-            cancellationToken);
+        var issueId = await coreIssuesService.Create(authData.UserId, issueCreate, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
 
@@ -260,6 +298,7 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string issueKey,
         string content,
+        IReadOnlyDictionary<string, string>? attributes,
         CancellationToken cancellationToken)
     {
         var key = new IssueKey(issueKey);
@@ -270,9 +309,124 @@ public class IssueMcpService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
 
+        var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
+
+        var issueUpdate = new IssueUpdateRequest().SetContent(content);
+        if (attributeRequests.Count > 0)
+            issueUpdate = issueUpdate.SetAttributes(attributeRequests);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.Update(issueId, authData.UserId, new IssueUpdateRequest().SetContent(content), cancellationToken);
+        await coreIssuesService.Update(issueId, authData.UserId, issueUpdate, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
+        OrganizationAuthData authData,
+        string spaceKey,
+        CancellationToken cancellationToken)
+    {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
+
+        await accessService.GetAccessLevelsBySpaceId(authData, spaceId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
+            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Space", spaceKey, "read"));
+
+        return await context.ActiveEpics()
+            .Where(e => e.SpaceId == spaceId)
+            .OrderBy(e => e.Id)
+            .Select(e => new EpicStatusSummary(
+                e.Name,
+                e.Statuses!
+                    .Where(s => s.DeletedAt == null)
+                    .OrderBy(s => s.SortOrder)
+                    .Select(s => new StatusSummary(s.Id, s.Name))
+                    .ToList()))
+            .ToListAsyncEF(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AttributeSummary>> ListAttributes(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        return await context.Attributes
+            .Where(a => a.OrganizationId == authData.OrganizationId)
+            .OrderBy(a => a.Id)
+            .Select(a => new AttributeSummary(
+                a.Name,
+                a.AttributeType.ToString(),
+                a.AttributeType == AttributeType.List
+                    ? a.AttributeListValues!.Select(v => v.Value).ToList()
+                    : null))
+            .ToListAsyncEF(cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<SetIssueAttributeRequest>> ResolveAttributeRequests(
+        long organizationId,
+        IReadOnlyDictionary<string, string>? attributes,
+        CancellationToken cancellationToken)
+    {
+        if (attributes is null || attributes.Count == 0)
+            return [];
+
+        var requests = new List<SetIssueAttributeRequest>();
+
+        foreach (var (name, value) in attributes)
+        {
+            var attribute = await context.Attributes
+                .Where(a => a.OrganizationId == organizationId && a.Name == name)
+                .Select(a => new { a.Id, a.AttributeType })
+                .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Attribute", name), cancellationToken);
+
+            requests.Add(await BuildAttributeRequest(attribute.Id, attribute.AttributeType, name, value, cancellationToken));
+        }
+
+        return requests;
+    }
+
+    private async Task<SetIssueAttributeRequest> BuildAttributeRequest(
+        long attributeId,
+        AttributeType attributeType,
+        string attributeName,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        switch (attributeType)
+        {
+            case AttributeType.Text:
+                if (value.Length > 255)
+                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueTooLong, attributeName));
+                return new SetIssueTextAttributeRequest { Id = attributeId, Value = value };
+
+            case AttributeType.Integer:
+                if (!long.TryParse(value, out var integerValue))
+                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "integer"));
+                return new SetIssueIntegerAttributeRequest { Id = attributeId, Value = integerValue };
+
+            case AttributeType.Decimal:
+                if (!decimal.TryParse(value, out var decimalValue))
+                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "decimal"));
+                return new SetIssueDecimalAttributeRequest { Id = attributeId, Value = decimalValue };
+
+            case AttributeType.Date:
+                if (!DateOnly.TryParse(value, out var dateValue))
+                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "date (e.g. 2026-01-01)"));
+                return new SetIssueDateAttributeRequest { Id = attributeId, Value = dateValue };
+
+            case AttributeType.DateTime:
+                if (!DateTime.TryParse(value, out var dateTimeValue))
+                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "date-time (e.g. 2026-01-01 12:00)"));
+                return new SetIssueDateTimeAttributeRequest { Id = attributeId, Value = dateTimeValue };
+
+            case AttributeType.List:
+                var listValueId = await context.AttributeListValues
+                    .Where(v => v.AttributeId == attributeId && v.Value == value)
+                    .Select(v => v.Id)
+                    .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.AttributeListValueNotFound, attributeName, value), cancellationToken);
+                return new SetIssueListAttributeRequest { Id = attributeId, ListValueId = listValueId };
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(attributeType), attributeType, null);
+        }
     }
 
     public async Task<long> AddComment(

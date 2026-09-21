@@ -96,15 +96,6 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Status: {0} is not found in issue {1}'s epic.
-        /// </summary>
-        internal static string StatusNotFoundInIssueEpic {
-            get {
-                return ResourceManager.GetString("StatusNotFoundInIssueEpic", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   Looks up a localized string similar to Status: {0} is not found in space {1}.
         /// </summary>
         internal static string StatusNotFoundInSpace {
@@ -114,11 +105,29 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Space: {0} has no default status to create the issue in.
+        ///   Looks up a localized string similar to Attribute '{0}': value must be at most 255 characters.
         /// </summary>
-        internal static string SpaceHasNoDefaultStatus {
+        internal static string AttributeValueTooLong {
             get {
-                return ResourceManager.GetString("SpaceHasNoDefaultStatus", resourceCulture);
+                return ResourceManager.GetString("AttributeValueTooLong", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute '{0}': value is not a valid {1}.
+        /// </summary>
+        internal static string AttributeValueInvalid {
+            get {
+                return ResourceManager.GetString("AttributeValueInvalid", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Attribute '{0}': '{1}' is not one of its allowed values.
+        /// </summary>
+        internal static string AttributeListValueNotFound {
+            get {
+                return ResourceManager.GetString("AttributeListValueNotFound", resourceCulture);
             }
         }
     }
