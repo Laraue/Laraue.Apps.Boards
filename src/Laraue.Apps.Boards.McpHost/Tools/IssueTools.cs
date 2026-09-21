@@ -65,7 +65,11 @@ public class IssueTools(
                 .ToListAsyncEF(cancellationToken);
 
             return rows
-                .Select(x => new IssueSummary($"{x.SpaceKey}-{x.Number}", ContentSnippet(x.Content), x.Status, x.Assignee))
+                .Select(x => new IssueSummary(
+                    new IssueKey(x.SpaceKey, x.Number).ToString(),
+                    ContentSnippet(x.Content),
+                    x.Status,
+                    x.Assignee))
                 .ToList();
         }, cancellationToken);
     }
@@ -174,9 +178,7 @@ public class IssueTools(
 
         var firstLine = content.Split('\n', 2)[0];
 
-        return firstLine.Length > TitleSnippetLength
-            ? firstLine[..TitleSnippetLength] + "…"
-            : firstLine;
+        return TextTruncation.Truncate(firstLine, TitleSnippetLength);
     }
 }
 

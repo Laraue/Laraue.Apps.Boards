@@ -118,7 +118,7 @@ public class InfoCommandService(
     {
         foreach (var link in issueLinks)
         {
-            var issueKeyText = $"{link.SpaceKey}-{link.IssueNumber}";
+            var issueKeyText = new IssueKey(link.SpaceKey, link.IssueNumber).ToString();
 
             var issueData = await context.ActiveIssues()
                 .Where(x => x.IssueNumber!.Space!.Key == link.SpaceKey
