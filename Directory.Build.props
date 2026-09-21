@@ -38,5 +38,6 @@
     <OpenTelemetryInstrumentationHttpVersion>1.18.0</OpenTelemetryInstrumentationHttpVersion>
     <OpenTelemetryInstrumentationRuntimeVersion>1.18.0</OpenTelemetryInstrumentationRuntimeVersion>
     <ScalarVersion>2.16.16</ScalarVersion>
+    <ModelContextProtocolAspNetCoreVersion>1.4.0</ModelContextProtocolAspNetCoreVersion>
   </PropertyGroup>
 </Project>

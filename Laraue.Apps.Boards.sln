@@ -28,6 +28,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Laraue.Apps.Retro.WebApiHos
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Laraue.Apps.Boards.Common", "src\Laraue.Apps.Boards.Common\Laraue.Apps.Boards.Common.csproj", "{15E7B4B5-6B97-4417-9DFA-89B225070826}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Laraue.Apps.Boards.McpHost", "src\Laraue.Apps.Boards.McpHost\Laraue.Apps.Boards.McpHost.csproj", "{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -170,6 +172,18 @@ Global
 		{15E7B4B5-6B97-4417-9DFA-89B225070826}.Release|x64.Build.0 = Release|Any CPU
 		{15E7B4B5-6B97-4417-9DFA-89B225070826}.Release|x86.ActiveCfg = Release|Any CPU
 		{15E7B4B5-6B97-4417-9DFA-89B225070826}.Release|x86.Build.0 = Release|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Debug|x64.Build.0 = Debug|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Debug|x86.Build.0 = Debug|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Release|x64.ActiveCfg = Release|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Release|x64.Build.0 = Release|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Release|x86.ActiveCfg = Release|Any CPU
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -186,5 +200,6 @@ Global
 		{EE5C0A4C-B912-4167-AB89-3010BACC3A74} = {E66D8188-7DF1-4581-B431-7A2A06826342}
 		{EB231750-8071-486C-B1B4-9DE25C10D2D5} = {743A9981-A9CD-42E7-B10B-FFF787337D50}
 		{15E7B4B5-6B97-4417-9DFA-89B225070826} = {E66D8188-7DF1-4581-B431-7A2A06826342}
+		{F773BA4A-EFF8-4173-9605-A2652FEEE3E2} = {743A9981-A9CD-42E7-B10B-FFF787337D50}
 	EndGlobalSection
 EndGlobal
