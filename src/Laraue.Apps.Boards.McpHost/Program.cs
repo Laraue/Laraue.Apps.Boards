@@ -1,5 +1,6 @@
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Auth;
 using Microsoft.EntityFrameworkCore;
@@ -37,6 +38,8 @@ public sealed class Program
         builder
             .AddCoreServices()
             .AddDatabaseServices(dbConnectionStringName);
+
+        builder.Services.AddScoped<IIssueMcpService, IssueMcpService>();
 
         builder.Services
             .AddMcpServer(options => options.ServerInstructions = McpServerInstructions.Text)

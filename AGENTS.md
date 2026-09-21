@@ -71,6 +71,35 @@ they trust the data/ids they're given and just act on them. Don't add `IAccessSe
 inside a core service — if a new core service needs a permission check, that check belongs in
 its caller.
 
+## Choosing 404 vs 403
+
+`IAccessService.GetAccessLevelsBy*` returns null only when the entity itself doesn't exist -
+if it exists but the caller has zero access to it, it still returns a real (all-flags-false)
+`AccessLevels`. That distinction matters for which exception to throw, because the two failure
+modes must map to different HTTP statuses:
+
+- **Entity doesn't exist, or exists but the caller can't even read it → 404 `NotFoundException`.**
+  Returning 403 here would leak that the entity exists to someone who isn't supposed to know
+  that - an org member with zero access to a private space shouldn't be able to tell "no such
+  issue" apart from "an issue I'm not allowed to see" by watching for a 403 instead of a 404.
+- **Entity is readable, but the specific action is denied → 403 `ForbiddenException`.** Only
+  reachable once the caller has already been shown the entity exists (they can read it), so
+  there's nothing left to leak.
+
+The correct pattern is therefore always two checks, in this order:
+```csharp
+var accessLevels = await accessService.GetAccessLevelsByXxxId(authData, id, includeDeleted: false, ct)
+    .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Xxx", id))
+    .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Xxx", id, "read"));
+```
+then a *second*, separate check for the specific action (`CanUpdateIssue`, comment-ownership,
+etc.) once `CanRead` is confirmed true - see `IssueMcpService.EditComment`
+(`Laraue.Apps.Boards.McpHost`) for the full shape, including
+`IAccessService.GetAccessLevelsByCommentId` resolving a comment's access through its issue for
+exactly this reason. Don't skip straight to `EnsureOrThrowForbidden(a => a.CanUpdateIssue, ...)`
+without confirming `CanRead` first - that path returns 403 (not 404) for someone with no access
+at all, which is exactly the leak this two-step check exists to close.
+
 ## Project layout
 
 Solution: `Laraue.Apps.Boards.sln`
@@ -445,28 +474,53 @@ browser session. Three pieces:
   `ModelContextProtocol.AspNetCore`. `AddCoreServices()` is called here same as any host, which
   means `ICoreFilesService`'s `ITelegramBotClient` dependency has to be satisfied too even though
   no MCP tool touches file attachments - `Program.cs` registers a real `TelegramBotClient` purely
-  to satisfy ASP.NET's build-time DI validation, the same way `WebApiHost` already does. MCP tools
-  (`Tools/IssueTools.cs`, `[McpServerToolType]`) resolve the caller's `OrganizationAuthData` from
-  `IHttpContextAccessor.HttpContext!.User` (populated by the API key handler above) and then
-  delegate straight into `IAccessService`/`ICoreIssuesService` - the exact same permission checks
-  and mutation path the REST API uses, no new logic. Tests construct `IssueTools` directly against
-  the integration test database (`IssueToolsTests.cs`) rather than driving the real MCP HTTP/SSE
-  transport - not worth the effort for what's otherwise already-covered `IAccessService`/core-service
-  behavior.
+  to satisfy ASP.NET's build-time DI validation, the same way `WebApiHost` already does.
+  `McpServerOptions.ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting
+  client, telling it to reach for these tools instead of asking the user to paste issue content in.
+  Tool types (`Tools/IssueTools.cs`, `[McpServerToolType]`) are thin adapters, same shape as a
+  controller: resolve the caller's `OrganizationAuthData` from
+  `IHttpContextAccessor.HttpContext!.User` (populated by the API key handler above), call into a
+  plain service, return the result - no query/permission/mutation logic in the tool type itself.
+  That logic lives in `Services/IssueMcpService.cs` (`IIssueMcpService`), which delegates straight
+  into `IAccessService`/`ICoreIssuesService` - the exact same permission checks and mutation path
+  the REST API uses, no new logic. Tests construct `IssueMcpService` directly against the
+  integration test database (`IssueMcpServiceTests.cs`), passing a plain `OrganizationAuthData`,
+  rather than driving the real MCP HTTP/SSE transport - not worth the effort for what's otherwise
+  already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
+  tests, same reason a controller doesn't usually get tested separately from the service it calls.
+  Tools cover `list_issues`/`get_issue`/`move_issue_status` plus `create_issue`/`edit_issue`/
+  `add_comment`/`edit_comment` - each still just the REST API's own permission/mutation path
+  (`CanCreateIssue` off the resolved space, `CanUpdateIssue` for edits/comments, owner-only for
+  editing a comment - same as `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
+  `create_issue` takes a `spaceKey` and an optional `statusName` rather than a raw status id (which
+  the REST API's frontend already knows from its own status picker, but an MCP caller doesn't) -
+  when omitted, it resolves to the space's default epic's first status by sort order, the same
+  "somewhere for a new card to land" every space/epic already has for its own default.
 
 ## User-facing text
 
 - Don't put string literals directly in `throw new SomeException("...")`/ephemeral-notice calls.
-  `WebApiServices` uses `Resources/ErrorMessages.resx` (+ `.Designer.cs`, `string.Format(...)` for
-  placeholders — reuse an existing template like `EntityNotFound = "{0}: {1} is not found"` or
-  `EntityActionForbidden = "{0}: {1} {2} is forbidden"` when the message shape matches exactly,
-  add a new resx key otherwise). `TelegramServices` uses `Resources/Phrases.resx` +
-  `Phrases.ru.resx` (EN/RU) for anything sent back to a Telegram user.
+  Every host/surface keeps its **own** `Resources/ErrorMessages.resx` (`WebApiServices`,
+  `McpHost`) or `Resources/Phrases.resx`/`Phrases.ru.resx` (EN/RU, `TelegramServices`) rather than
+  sharing one across projects — there's no cross-project resx reference in this codebase, so a new
+  host adds its own copy. Reuse an existing **template shape** when it matches exactly, even
+  across surfaces: `EntityNotFound = "{0}: {1} is not found"`, `EntityNotFoundOrNotAccessible =
+  "{0}: {1} is not found or not accessible"`, `EntityActionForbidden = "{0}: {1} {2} is
+  forbidden"` (see "Choosing 404 vs 403" above for `EntityActionForbidden`'s `"...", "read"` case)
+  all exist verbatim in both `WebApiServices` and `McpHost`'s resx files - copy the key+value into
+  the new surface's own `.resx` rather than inventing a differently-worded equivalent. Add a new
+  resx key only when the message shape is genuinely different (e.g. `McpHost`'s
+  `StatusNotFoundInIssueEpic`, which needs two placeholders in a shape none of the generic
+  templates cover).
 - **`.Designer.cs` isn't auto-regenerated by `dotnet build`** on this machine — it's a
   Visual-Studio-only single-file-generator step. After adding a `<data>` entry to a `.resx`, also
   hand-add the matching `internal static string Foo { get { return
   ResourceManager.GetString("Foo", resourceCulture); } }` property to the paired `.Designer.cs`,
-  mirroring an existing entry's shape.
+  mirroring an existing entry's shape. Wire a brand-new resx into its `.csproj` too - an
+  `<EmbeddedResource Update="Resources\ErrorMessages.resx">` with `Generator`/`LastGenOutput`, and
+  a `<Compile Update="Resources\ErrorMessages.Designer.cs">` with `DesignTime`/`AutoGen`/
+  `DependentUpon` - copy both `ItemGroup`s from an existing project (e.g. `WebApiServices.csproj`)
+  rather than retyping them.
 
 ## Task flow
 - Create branch with pattern feature/task-number-task-description, like feature/BRD-120-add-assignee-api for new task

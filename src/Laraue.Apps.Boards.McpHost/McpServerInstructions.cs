@@ -12,6 +12,9 @@ public static class McpServerInstructions
         "Boards MCP server: use these tools to read and update issues in the caller's Laraue " +
         "Boards organization. To get an issue's current status, full text, or comment history, " +
         "call get_issue with its key (e.g. 'BRD-42') rather than asking the user to paste it. " +
-        "Use list_issues to find issues by space/status/assignee, and move_issue_status to " +
-        "change an issue's status.";
+        "Use list_issues to find issues by space/status/assignee, move_issue_status to change " +
+        "an issue's status, create_issue to add a new issue to a space, edit_issue to replace an " +
+        "issue's content, and add_comment/edit_comment for its comments. get_issue's comment " +
+        "list includes each comment's id, needed by edit_comment - only the comment's own author " +
+        "can edit it.";
 }

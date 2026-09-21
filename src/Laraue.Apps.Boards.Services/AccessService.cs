@@ -135,7 +135,19 @@ public interface IAccessService
         long issueId,
         bool includeDeleted,
         CancellationToken cancellationToken);
-    
+
+    /// <summary>
+    /// Return access level for the issue behind a comment. Pass <paramref name="includeDeleted"/>
+    /// as <c>true</c> only for audit/history features that must keep resolving access after the
+    /// comment - or its issue/space - was soft-deleted; every other caller should pass
+    /// <c>false</c>. Returns null if the comment (or its issue) doesn't exist.
+    /// </summary>
+    Task<AccessLevels?> GetAccessLevelsByCommentId(
+        OrganizationAuthData authData,
+        long commentId,
+        bool includeDeleted,
+        CancellationToken cancellationToken);
+
     Task<bool> CanMoveToStatus(
         OrganizationAuthData authData,
         long statusId,
@@ -414,6 +426,29 @@ public class AccessService(DatabaseContext context) : IAccessService
         return await GetAccessLevelsBySpaceId(
             authData,
             epicData.SpaceId,
+            includeDeleted,
+            cancellationToken);
+    }
+
+    public async Task<AccessLevels?> GetAccessLevelsByCommentId(
+        OrganizationAuthData authData,
+        long commentId,
+        bool includeDeleted,
+        CancellationToken cancellationToken)
+    {
+        var commentsQuery = includeDeleted ? context.IssueComments : context.ActiveIssueComments();
+
+        var commentData = await commentsQuery
+            .Where(c => c.Id == commentId)
+            .Select(x => new { x.IssueId })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (commentData == null)
+            return null;
+
+        return await GetAccessLevelsByIssueId(
+            authData,
+            commentData.IssueId,
             includeDeleted,
             cancellationToken);
     }
