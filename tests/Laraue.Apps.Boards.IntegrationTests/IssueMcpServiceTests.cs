@@ -23,6 +23,9 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 [Collection("IntegrationTest")]
 public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
 {
+    // Mirrors IssueMcpService's own MaxResults - the page size returned per ListIssues call.
+    private const int IssuesPerPage = 50;
+
     private static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
     {
         return new IssueMcpService(
@@ -58,16 +61,17 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
 
         var ownerIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
         var memberIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, memberId), null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, CancellationToken.None);
 
-        var issue = Assert.Single(ownerIssues);
+        var issue = Assert.Single(ownerIssues.Issues);
         Assert.Equal(issueData.Key, issue.Key);
         Assert.Equal("Fix the thing", issue.Title);
         Assert.Equal(expectedStatus.Name, issue.Status);
         Assert.Equal(ownerDisplayName, issue.Assignee);
-        Assert.Empty(memberIssues);
+        Assert.False(ownerIssues.HasNextPage);
+        Assert.Empty(memberIssues.Issues);
     }
 
     [Fact]
@@ -98,17 +102,72 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var authData = AuthDataFor(organization.Id, ownerId);
 
         var bySpace = await issueMcpService.ListIssues(
-            authData, organization.GetSpace(1).Key, null, null, CancellationToken.None);
+            authData, organization.GetSpace(1).Key, null, null, null, null, CancellationToken.None);
         var byStatus = await issueMcpService.ListIssues(
-            authData, null, "In Progress", null, CancellationToken.None);
+            authData, null, "In Progress", null, null, null, CancellationToken.None);
         var byAssignee = await issueMcpService.ListIssues(
-            authData, null, null, "other_assignee", CancellationToken.None);
+            authData, null, null, "other_assignee", null, null, CancellationToken.None);
 
         Assert.Equal(
             new HashSet<string> { targetIssueData.Key, wrongStatusIssueKey },
-            bySpace.Select(x => x.Key).ToHashSet());
-        Assert.Equal(targetIssueData.Key, Assert.Single(byStatus).Key);
-        Assert.Equal(targetIssueData.Key, Assert.Single(byAssignee).Key);
+            bySpace.Issues.Select(x => x.Key).ToHashSet());
+        Assert.Equal(targetIssueData.Key, Assert.Single(byStatus.Issues).Key);
+        Assert.Equal(targetIssueData.Key, Assert.Single(byAssignee.Issues).Key);
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldPaginate_WhenMoreIssuesExistThanOnePage()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org =>
+        {
+            for (var i = 0; i < IssuesPerPage + 1; i++)
+                org.AddIssueToDefaultStatus(ownerId, issue => issue.WithContent($"Issue {i}"));
+        });
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, 1, null, CancellationToken.None);
+
+        Assert.Equal(IssuesPerPage, firstPage.Issues.Count);
+        Assert.True(firstPage.HasNextPage);
+        Assert.Equal(0, firstPage.Page);
+
+        Assert.Single(secondPage.Issues);
+        Assert.False(secondPage.HasNextPage);
+        Assert.Equal(1, secondPage.Page);
+
+        Assert.Empty(firstPage.Issues.Select(x => x.Key).Intersect(secondPage.Issues.Select(x => x.Key)));
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldRespectCount_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org =>
+        {
+            for (var i = 0; i < 5; i++)
+                org.AddIssueToDefaultStatus(ownerId, issue => issue.WithContent($"Issue {i}"));
+        });
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, 2, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, 1, 2, CancellationToken.None);
+        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, 1000, CancellationToken.None);
+
+        Assert.Equal(2, firstPage.Issues.Count);
+        Assert.True(firstPage.HasNextPage);
+
+        Assert.Equal(2, secondPage.Issues.Count);
+        Assert.True(secondPage.HasNextPage);
+
+        Assert.Equal(5, clampedPage.Issues.Count);
     }
 
     [Fact]

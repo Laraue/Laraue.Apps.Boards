@@ -15,14 +15,16 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space key, status name, or assignee display name. Returns at most 50 issues, most recently updated first.")]
-    public Task<IReadOnlyList<IssueSummary>> ListIssues(
+    [Description("Lists issues in the caller's organization, optionally filtered by space key, status name, or assignee display name. Returns at most 50 issues per page (fewer if count is given), most recently updated first. Check the result's hasNextPage to know whether to request another page.")]
+    public Task<IssueListPage> ListIssues(
         [Description("Only issues in this space (e.g. 'BRD'). Omit to search every space.")] string? spaceKey,
         [Description("Only issues with this exact status name (e.g. 'In Progress'). Omit to include every status.")] string? statusName,
         [Description("Only issues assigned to a user whose display name contains this text. Omit to include every assignee.")] string? assigneeName,
+        [Description("Zero-based page number. Omit or pass 0 for the first page; pass the previous result's page + 1 to get the next page.")] int? page,
+        [Description("Max issues to return per page, 1-50. Omit for the default of 50.")] int? count,
         CancellationToken cancellationToken)
     {
-        return issueMcpService.ListIssues(GetAuthData(), spaceKey, statusName, assigneeName, cancellationToken);
+        return issueMcpService.ListIssues(GetAuthData(), spaceKey, statusName, assigneeName, page, count, cancellationToken);
     }
 
     [McpServerTool]

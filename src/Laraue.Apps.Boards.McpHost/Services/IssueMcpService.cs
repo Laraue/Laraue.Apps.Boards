@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
@@ -20,11 +21,13 @@ namespace Laraue.Apps.Boards.McpHost.Services;
 /// </summary>
 public interface IIssueMcpService
 {
-    Task<IReadOnlyList<IssueSummary>> ListIssues(
+    Task<IssueListPage> ListIssues(
         OrganizationAuthData authData,
         string? spaceKey,
         string? statusName,
         string? assigneeName,
+        int? page,
+        int? count,
         CancellationToken cancellationToken);
 
     Task<IssueDetail> GetIssue(
@@ -112,6 +115,13 @@ public interface IIssueMcpService
 
 public sealed record IssueSummary(string Key, string Title, string Status, string Assignee);
 
+/// <summary>
+/// One page of <see cref="IssueSummary"/> results - same page/perPage/hasNextPage shape the REST
+/// API's own paginated endpoints use (<c>ShortPaginatedResult{T}</c>), so callers page through
+/// results the same way rather than being limited to a single fixed-size batch.
+/// </summary>
+public sealed record IssueListPage(IReadOnlyList<IssueSummary> Issues, long Page, bool HasNextPage);
+
 public sealed record IssueCommentSummary(long Id, string Author, string Text, DateTime CreatedAt);
 
 public sealed record IssueDetail(
@@ -146,14 +156,19 @@ public class IssueMcpService(
     private const int MaxResults = 50;
     private const int TitleSnippetLength = 120;
 
-    public Task<IReadOnlyList<IssueSummary>> ListIssues(
+    public Task<IssueListPage> ListIssues(
         OrganizationAuthData authData,
         string? spaceKey,
         string? statusName,
         string? assigneeName,
+        int? page,
+        int? count,
         CancellationToken cancellationToken)
     {
-        return accessService.GetAvailableIssues<IReadOnlyList<IssueSummary>>(authData, async issues =>
+        var perPage = Math.Clamp(count ?? MaxResults, 1, MaxResults);
+        var pagination = new PaginationData { Page = page ?? 0, PerPage = perPage };
+
+        return accessService.GetAvailableIssues<IssueListPage>(authData, async issues =>
         {
             var query = issues;
 
@@ -166,9 +181,8 @@ public class IssueMcpService(
             if (!string.IsNullOrWhiteSpace(assigneeName))
                 query = query.Where(i => i.Assignee!.DisplayName.Contains(assigneeName));
 
-            var rows = await query
+            var result = await query
                 .OrderByDescending(i => i.UpdatedAt)
-                .Take(MaxResults)
                 .Select(i => new
                 {
                     SpaceKey = i.IssueNumber!.Space!.Key,
@@ -177,15 +191,17 @@ public class IssueMcpService(
                     Status = i.Status!.Name,
                     Assignee = i.Assignee!.DisplayName,
                 })
-                .ToListAsyncEF(cancellationToken);
+                .ShortPaginateEFAsync(pagination, cancellationToken);
 
-            return rows
+            var summaries = result.Data
                 .Select(x => new IssueSummary(
                     new IssueKey(x.SpaceKey, x.Number).ToString(),
                     ContentSnippet(x.Content),
                     x.Status,
                     x.Assignee))
                 .ToList();
+
+            return new IssueListPage(summaries, result.Page, result.HasNextPage);
         }, cancellationToken);
     }
 
