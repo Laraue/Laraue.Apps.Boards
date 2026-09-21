@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Apps.Boards.Services.Billing;
+using Laraue.Apps.Boards.Services.Identity;
 using BillingServiceId = Laraue.Apps.Billing.Internal.Contracts.ServiceId;
 using BillingServiceIdInterceptor = Laraue.Apps.Billing.Internal.Contracts.ServiceIdInterceptor;
 using IdentityServiceId = Laraue.Apps.Identity.Internal.Contracts.ServiceId;
@@ -49,6 +50,12 @@ public static class WebApplicationBuilderExtensions
                 builder.Logging.AddSimpleConsole();
             else
                 builder.Logging.AddJsonConsole();
+
+            // Lets a local run substitute in-process fakes for Laraue.Apps.Identity/Billing
+            // instead of the real gRPC-backed clients below, so neither service has to be running
+            // locally just to exercise Boards. Defaults to false (real clients) everywhere except
+            // each host's appsettings.Development.json.
+            var mockExternalServices = builder.Configuration.GetValue<bool>("MockExternalServices");
 
             builder.Services
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()
@@ -131,6 +138,20 @@ public static class WebApplicationBuilderExtensions
                 {
                     o.Address = new Uri(billingOptions.GrpcUrl);
                 });
+
+            // Local-run escape hatch: overrides the three registrations above with in-process
+            // fakes (last-registered-wins, same pattern the integration tests already use to
+            // override the real Telegram/AI/Billing clients) so a dev machine doesn't need
+            // Laraue.Apps.Identity or Laraue.Apps.Billing actually running. The real registrations
+            // above stay harmless when unused - AddGrpcClient/AddLaraueGrpcClient only open a
+            // channel lazily, on the first call a real client would make.
+            if (mockExternalServices)
+            {
+                builder.Services
+                    .AddSingleton<UserIdentityService.UserIdentityServiceClient, FakeUserIdentityServiceClient>()
+                    .AddScoped<IBillingTokenClient, FakeBillingTokenClient>()
+                    .AddScoped<IBillingSubscriptionClient, FakeBillingSubscriptionClient>();
+            }
 
             return builder;
         }

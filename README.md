@@ -26,6 +26,22 @@ Services to call from TelegramApi
 ## Local run
 Check how to deal with the frontend in [Frontend Repository](https://github.com/win7user10/laraue-note-to-board)
 
+Each host reads its own `appsettings.Development.json` (gitignored, not the checked-in
+`appsettings.json`) for local overrides. A minimal one for `Laraue.Apps.Boards.WebApiHost` that
+runs against a local Postgres with no Identity/Billing dependencies (AI summarization still
+defaults to a local Ollama instance - see below):
+```json
+{
+  "Auth": {
+    "Key": "any-local-signing-key"
+  },
+  "MockExternalServices": true
+}
+```
+`Laraue.Apps.Boards.TelegramHost`'s only needs the `MockExternalServices` line (it has its own
+`Telegram:Token` to set instead of `Auth:Key`). See the subsections below for what each setting
+does and how to point at a real AI/Identity/Billing instance instead.
+
 ### AI content summarization (local dev)
 `appsettings.json`'s `AiSummarizer` section defaults to a local [Ollama](https://ollama.com/)
 instance, since Ollama exposes an OpenAI-compatible `/v1/chat/completions` endpoint and the
@@ -37,6 +53,15 @@ ollama pull gemma3:12b
 Ollama serves on `http://localhost:11434` by default once installed. On prod, override
 `AiSummarizer:BaseUrl`/`AiSummarizer:Model`/`AiSummarizer:ApiKey` to point at a real provider
 (e.g. DeepSeek) instead.
+
+### Running without Identity/Billing
+
+Boards calls out to two other services over gRPC: `Laraue.Apps.Identity` (global user identity on
+first login) and `Laraue.Apps.Billing` (AI token spend/subscription limits). Neither has to be
+running locally - both hosts' `appsettings.Development.json` set `"MockExternalServices": true`,
+which swaps in in-process fakes for these calls (always succeeds, generous fixed limits, no
+network traffic) instead of the real gRPC clients. Set it back to `false` if you actually want to
+exercise a locally-running Identity/Billing instance.
 
 ### Create a new user for Test
 `POST: http://localhost:5200/api/test/user`

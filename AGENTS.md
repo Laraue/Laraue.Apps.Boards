@@ -342,6 +342,44 @@ title vs. derive one.
   "same flow, one extra step" variant its own command-service class — that was tried and reverted
   in favor of this shared-method approach.
 
+## External services (Identity, Billing) and local mocking
+
+Boards calls two sibling services over gRPC:
+
+- `Laraue.Apps.Identity` — resolves/creates the global Laraue identity for a Telegram account on
+  first login (`CoreUserService`, via `UserIdentityService.UserIdentityServiceClient` injected
+  directly — there's no Boards-side wrapper interface for it since it's a single call with a
+  single caller).
+- `Laraue.Apps.Billing` — AI token reserve/commit/cancel and subscription/limit lookups, wrapped
+  behind `IBillingTokenClient`/`IBillingSubscriptionClient`
+  (`Laraue.Apps.Boards.Services.Billing`) rather than exposing the generated gRPC clients
+  directly, since callers need Boards' own personal-vs-team `Organization` resolution layered on
+  top (see the XML doc on `IBillingTokenClient` for why that resolution lives here and not as a
+  caller-supplied flag).
+
+**Local run without either service actually running**: `AddCoreServices()` always registers the
+real gRPC-backed clients — that's harmless even when unused, since `AddGrpcClient`/
+`AddLaraueGrpcClient` only open a channel lazily, on the first call a real client would make. A
+`"MockExternalServices": true` config flag (set in both hosts' `appsettings.Development.json`,
+`false` everywhere else) then registers `FakeUserIdentityServiceClient`/`FakeBillingTokenClient`/
+`FakeBillingSubscriptionClient` **after** the real ones — last-registered-wins, the same override
+pattern the integration tests already use for the Telegram bot client/AI summarizer mocks. This is
+deliberately a single `if (mockExternalServices) { ... }` block wrapping three registrations, not
+an `if`/`else` duplicating the real registrations under a negated condition — the real registrations
+above always run unconditionally.
+
+- `FakeUserIdentityServiceClient` subclasses `UserIdentityService.UserIdentityServiceClient`
+  (generated gRPC clients are designed to be subclassed for exactly this — Moq does the same thing
+  in tests) and overrides its one virtual RPC method to mint a fresh `Guid` instead of calling out.
+- `FakeBillingTokenClient`/`FakeBillingSubscriptionClient` implement the wrapper interfaces
+  directly (no gRPC involved at all) and report a generous fixed balance/unlimited subscription,
+  so `IUsageLimitService` never blocks a local run for lack of a real plan.
+- Don't use these fakes for anything test-project-scoped — they're for running a host
+  (`WebApiHost`/`TelegramHost`) locally without external dependencies. The integration tests have
+  their own separate `Mock<IBillingTokenClient>`/`Mock<IBillingSubscriptionClient>`/
+  `Mock<UserIdentityService.UserIdentityServiceClient>` overrides in `WebApiTestHost`/
+  `TelegramIntegrationTest` and don't reference these fakes.
+
 ## User-facing text
 
 - Don't put string literals directly in `throw new SomeException("...")`/ephemeral-notice calls.
