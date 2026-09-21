@@ -5,6 +5,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using OpenTelemetry.Metrics;
 using Telegram.Bot;
 
 namespace Laraue.Apps.Boards.McpHost;
@@ -52,12 +53,21 @@ public sealed class Program
 
         builder.Services.AddHealthChecks();
 
+        builder.Services
+            .AddOpenTelemetry()
+            .WithMetrics(metrics => metrics
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddPrometheusExporter());
+
         var app = builder.Build();
 
         app.UseAuthentication();
         app.UseAuthorization();
 
         app.MapMcp("/mcp").RequireAuthorization();
+        app.MapPrometheusScrapingEndpoint("/_metrics");
 
         using (var scope = app.Services.CreateScope())
         {
