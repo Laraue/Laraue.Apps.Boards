@@ -73,6 +73,18 @@ jobs:
         path: retro-webapi-host.tar.gz
         retention-days: 7
 
+    - name: Pack MCP Host
+      if: github.ref == 'refs/heads/main'
+      run: tar -czf mcp-host.tar.gz -C src/Laraue.Apps.Boards.McpHost/bin/Release/net10.0 .
+
+    - name: Upload MCP Host artifact
+      if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: mcp-host
+        path: mcp-host.tar.gz
+        retention-days: 7
+
   deploy:
     needs: build-and-test
     if: github.ref == 'refs/heads/main'
@@ -99,6 +111,12 @@ jobs:
             remote_dir: /home/laraue/retro-webapi-host
             image: retroapihost
             environment: retro-webapi-production
+          - name: MCP Host
+            artifact: mcp-host
+            archive: mcp-host.tar.gz
+            remote_dir: /home/laraue/boards-mcp-host
+            image: boardsmcphost
+            environment: mcp-production
     environment: ${{ matrix.environment }}
     steps:
     - name: Notify deploy started

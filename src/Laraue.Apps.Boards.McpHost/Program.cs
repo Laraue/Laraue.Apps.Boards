@@ -39,7 +39,7 @@ public sealed class Program
             .AddDatabaseServices(dbConnectionStringName);
 
         builder.Services
-            .AddMcpServer()
+            .AddMcpServer(options => options.ServerInstructions = McpServerInstructions.Text)
             .WithHttpTransport()
             .WithToolsFromAssembly();
 

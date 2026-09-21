@@ -105,6 +105,10 @@ Solution: `Laraue.Apps.Boards.sln`
   linking, `/save`, inline search, issue preview formatting) consumed by `TelegramHost`.
 - `src/Laraue.Apps.Boards.WebApiHost` — ASP.NET host for the web/Mini App REST API.
 - `src/Laraue.Apps.Boards.WebApiServices` — business logic consumed by `WebApiHost`.
+- `src/Laraue.Apps.Boards.McpHost` — a fourth, independently deployable ASP.NET host exposing an
+  MCP server over HTTP (`/mcp`), so a program (Claude via a remote MCP connector) can read/act on
+  a user's own data machine-to-machine, authenticated by a long-lived API key instead of a browser
+  session's JWT. See "API keys and MCP access" below.
 - `src/Laraue.Apps.Retro.Services`, `src/Laraue.Apps.Retro.WebApiServices`,
   `src/Laraue.Apps.Retro.WebApiHost` — the retro-board feature, split into its **own deployable**
   from `Boards.WebApiHost` (its own `Program.cs`, port, `appsettings`, and its own DI-wiring
@@ -411,6 +415,44 @@ above always run unconditionally.
   their own separate `Mock<IBillingTokenClient>`/`Mock<IBillingSubscriptionClient>`/
   `Mock<UserIdentityService.UserIdentityServiceClient>` overrides in `WebApiTestHost`/
   `TelegramIntegrationTest` and don't reference these fakes.
+
+## API keys and MCP access
+
+Lets a program (Claude, via a remote MCP connector) act as an organization member without a
+browser session. Three pieces:
+
+- **`ApiKey`** (`DataAccess.Models.ApiKey`) — a long-lived credential scoped to one organization
+  and one member (`CreatedByUserId`). Its authority is never snapshotted: every use resolves
+  `CreatedByUserId`'s access **live**, through the exact same `IAccessService` checks a normal JWT
+  request goes through - if that member later loses a permission or is removed from the org, the
+  key silently loses it too, for free. `ICoreApiKeysService` (`Boards.Services`) owns
+  create/revoke/validate; it only covers mutations (per "Core services are for mutations, not
+  reads" above) - listing a caller's own keys is a plain read living in
+  `WebApiServices.ApiKeysService`, querying `DatabaseContext` directly.
+- **Self-service, not admin-gated**: a key only ever grants what its own creator could already do,
+  so there's no `AdminAccessLevel` flag for managing keys - a member creates/lists/revokes only
+  their own keys (`WHERE CreatedByUserId == <caller>`), via `POST/GET/DELETE /api/api-keys` on the
+  existing `AuthSchemas.Organization` JWT scheme. Org-wide admin visibility into every member's
+  keys is a deliberately deferred future ask, not an oversight.
+- **`AuthSchemas.ApiKey`** (`Boards.Common`) + `ApiKeyAuthenticationHandler`
+  (`Boards.Services.Auth`) — a second authentication scheme, independent of the JWT ones. Reads an
+  `X-Api-Key` header, calls `ICoreApiKeysService.ValidateAsync`, and on success builds a
+  `ClaimsPrincipal` with the *same* `orgId`/`id` claim types the JWT schemes use - so
+  `GetOrganizationAuthData()` and every existing `IAccessService`/controller-level check work
+  completely unchanged regardless of which scheme authenticated the caller. Only `McpHost`
+  registers this scheme; no existing `WebApiHost`/`TelegramHost` endpoint accepts an API key.
+- **`Laraue.Apps.Boards.McpHost`** — the fourth host (see "Project layout"), built on
+  `ModelContextProtocol.AspNetCore`. `AddCoreServices()` is called here same as any host, which
+  means `ICoreFilesService`'s `ITelegramBotClient` dependency has to be satisfied too even though
+  no MCP tool touches file attachments - `Program.cs` registers a real `TelegramBotClient` purely
+  to satisfy ASP.NET's build-time DI validation, the same way `WebApiHost` already does. MCP tools
+  (`Tools/IssueTools.cs`, `[McpServerToolType]`) resolve the caller's `OrganizationAuthData` from
+  `IHttpContextAccessor.HttpContext!.User` (populated by the API key handler above) and then
+  delegate straight into `IAccessService`/`ICoreIssuesService` - the exact same permission checks
+  and mutation path the REST API uses, no new logic. Tests construct `IssueTools` directly against
+  the integration test database (`IssueToolsTests.cs`) rather than driving the real MCP HTTP/SSE
+  transport - not worth the effort for what's otherwise already-covered `IAccessService`/core-service
+  behavior.
 
 ## User-facing text
 
