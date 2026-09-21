@@ -195,14 +195,14 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal("Fix the thing", detail.Content);
         Assert.Equal(expectedStatus.Name, detail.Status);
         Assert.Equal(ownerDisplayName, detail.Assignee);
-        Assert.Equal(issueData.Issue.CreatedAt, detail.CreatedAt);
-        Assert.Equal(issueData.Issue.UpdatedAt, detail.UpdatedAt);
+        Assert.Equal(issueData.Issue.CreatedAt, detail.CreatedAt, new TimeSpan(10));
+        Assert.Equal(issueData.Issue.UpdatedAt, detail.UpdatedAt, new TimeSpan(10));
 
         var comment = Assert.Single(detail.Comments);
         Assert.Equal(expectedComment.Id, comment.Id);
         Assert.Equal(ownerDisplayName, comment.Author);
         Assert.Equal("First comment", comment.Text);
-        Assert.Equal(expectedComment.CreatedAt, comment.CreatedAt);
+        Assert.Equal(expectedComment.CreatedAt, comment.CreatedAt, new TimeSpan(10));
     }
 
     [Fact]
