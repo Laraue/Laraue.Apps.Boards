@@ -76,6 +76,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreFilesService, CoreFilesService>()
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
+                .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
                 .AddScoped<IBillingTokenClient, BillingTokenClient>()
                 .AddScoped<IBillingSubscriptionClient, BillingSubscriptionClient>()
                 .AddScoped<IUsageLimitService, UsageLimitService>()

@@ -72,7 +72,7 @@ public readonly record struct ContentFragment(
         }
 
         // Shrink back to the nearest earlier whitespace instead of slicing mid-word.
-        var cut = TrimEndToWordBoundary(content, FallbackLength);
+        var cut = TextTruncation.TrimToWordBoundary(content, FallbackLength, MaxWordBoundaryExpansion);
         cut = ExpandToMarkdownSpanBoundary(content, cut, expandForward: true);
 
         return new ContentFragment(
@@ -109,24 +109,6 @@ public readonly record struct ContentFragment(
             i++;
         }
         return i;
-    }
-
-    /// <summary>
-    /// Shrinks a cut index left to the previous whitespace, within a small tolerance,
-    /// so a plain truncation (no match) doesn't end mid-word either. Unlike the expand
-    /// helpers above, this only shrinks — used where growing past the budget isn't wanted.
-    /// </summary>
-    private static int TrimEndToWordBoundary(string content, int cut)
-    {
-        var limit = Math.Max(0, cut - MaxWordBoundaryExpansion);
-        var i = cut;
-        while (i > limit && !char.IsWhiteSpace(content[i - 1]))
-        {
-            i--;
-        }
-        // If no whitespace was found within tolerance (one very long word), just keep the
-        // original cut rather than over-shrinking the preview.
-        return i > limit ? i : cut;
     }
 
     // Telegram silently truncates InlineQueryResultArticle.Description past 256 characters,

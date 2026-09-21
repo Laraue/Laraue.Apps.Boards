@@ -71,6 +71,35 @@ they trust the data/ids they're given and just act on them. Don't add `IAccessSe
 inside a core service — if a new core service needs a permission check, that check belongs in
 its caller.
 
+## Choosing 404 vs 403
+
+`IAccessService.GetAccessLevelsBy*` returns null only when the entity itself doesn't exist -
+if it exists but the caller has zero access to it, it still returns a real (all-flags-false)
+`AccessLevels`. That distinction matters for which exception to throw, because the two failure
+modes must map to different HTTP statuses:
+
+- **Entity doesn't exist, or exists but the caller can't even read it → 404 `NotFoundException`.**
+  Returning 403 here would leak that the entity exists to someone who isn't supposed to know
+  that - an org member with zero access to a private space shouldn't be able to tell "no such
+  issue" apart from "an issue I'm not allowed to see" by watching for a 403 instead of a 404.
+- **Entity is readable, but the specific action is denied → 403 `ForbiddenException`.** Only
+  reachable once the caller has already been shown the entity exists (they can read it), so
+  there's nothing left to leak.
+
+The correct pattern is therefore always two checks, in this order:
+```csharp
+var accessLevels = await accessService.GetAccessLevelsByXxxId(authData, id, includeDeleted: false, ct)
+    .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Xxx", id))
+    .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Xxx", id, "read"));
+```
+then a *second*, separate check for the specific action (`CanUpdateIssue`, comment-ownership,
+etc.) once `CanRead` is confirmed true - see `IssueMcpService.EditComment`
+(`Laraue.Apps.Boards.McpHost`) for the full shape, including
+`IAccessService.GetAccessLevelsByCommentId` resolving a comment's access through its issue for
+exactly this reason. Don't skip straight to `EnsureOrThrowForbidden(a => a.CanUpdateIssue, ...)`
+without confirming `CanRead` first - that path returns 403 (not 404) for someone with no access
+at all, which is exactly the leak this two-step check exists to close.
+
 ## Project layout
 
 Solution: `Laraue.Apps.Boards.sln`
@@ -105,6 +134,10 @@ Solution: `Laraue.Apps.Boards.sln`
   linking, `/save`, inline search, issue preview formatting) consumed by `TelegramHost`.
 - `src/Laraue.Apps.Boards.WebApiHost` — ASP.NET host for the web/Mini App REST API.
 - `src/Laraue.Apps.Boards.WebApiServices` — business logic consumed by `WebApiHost`.
+- `src/Laraue.Apps.Boards.McpHost` — a fourth, independently deployable ASP.NET host exposing an
+  MCP server over HTTP (`/mcp`), so a program (Claude via a remote MCP connector) can read/act on
+  a user's own data machine-to-machine, authenticated by a long-lived API key instead of a browser
+  session's JWT. See "API keys and MCP access" below.
 - `src/Laraue.Apps.Retro.Services`, `src/Laraue.Apps.Retro.WebApiServices`,
   `src/Laraue.Apps.Retro.WebApiHost` — the retro-board feature, split into its **own deployable**
   from `Boards.WebApiHost` (its own `Program.cs`, port, `appsettings`, and its own DI-wiring
@@ -155,6 +188,16 @@ Solution: `Laraue.Apps.Boards.sln`
 - `Laraue.Apps.Boards.Services` holds **core** business logic shared by both hosts (e.g.
   `CoreIssuesService`, `CoreFilesService`, `CoreMassMovementService`) — anything that isn't
   specific to how the web API or the Telegram bot happens to expose it.
+- **Core services are for mutations, not reads.** A `Core*Service` should only expose methods that
+  change data (create/update/delete, or a validate-and-touch-a-timestamp method like
+  `ICoreApiKeysService.ValidateAsync`). A plain read (list/get/search) doesn't belong there, even
+  if both hosts need it — inject `DatabaseContext` directly into the `WebApiServices`/
+  `TelegramServices` class instead and query it there. See `IssuesService` (`WebApiServices`),
+  which injects both `ICoreIssuesService` (for its mutating calls) and `DatabaseContext` (for
+  `GetIssues` and its other reads) side by side in the same class. Reads have no transaction/
+  cross-entity-consistency concerns a shared core method would protect, so there's nothing to gain
+  from routing them through core, and duplicating a `Core*Service`'s read method for TelegramServices/
+  WebApiServices when only one host actually calls it is dead-weight API surface.
 - `WebApiServices` and `TelegramServices` sit on top of core and hold logic specific to their own
   surface (request/response shaping, Telegram formatting and commands, permission checks tied to
   that surface's flow, etc.). They call into core services rather than duplicating their logic.
@@ -164,6 +207,9 @@ Solution: `Laraue.Apps.Boards.sln`
 - **Keep controllers clean**: a controller action should parse the request, call into a service,
   and shape the response — no business logic in the controller itself. If a controller method is
   doing more than that, move the logic into the appropriate service.
+- **Route segments are kebab-case**, not camelCase — `/api/api-keys`, not `/api/apiKeys`. A
+  single-word segment (`/api/spaces`, `/api/billing`) has no casing to get wrong; the rule matters
+  once a segment is more than one word.
 - Core services don't open/commit/rollback transactions themselves — that's the caller's call to
   make, since only the caller knows the full scope of what needs to be atomic. A core service can
   require that it's called within an already-open transaction, but it doesn't manage the
@@ -175,6 +221,12 @@ Solution: `Laraue.Apps.Boards.sln`
   `ITelegramBotClient`/`ILogger<T>`) rather than an extension on `ITelegramBotClient`, precisely
   because it needs a logger; `IssuePreviewReplySender.SendIssuePreviewReply` stays a plain
   extension because it only needs the `ITelegramBotClient` it's called on plus its own arguments.
+- **No tuples in public method signatures** (params or return type) — use a named `record`
+  instead, even for a throwaway two-field shape. A tuple's `Item1`/`Item2` (or unlabeled
+  deconstruction) forces every call site to re-derive what each value means; a record gives it a
+  name once. E.g. `ICoreApiKeysService.CreateAsync` returns `ApiKeyCreationResult(Guid Id, string
+  RawKey)`, not `(Guid, string)`. Tuples are fine as a private/internal implementation detail
+  (e.g. a local variable inside a method body) — the rule is about what a public signature exposes.
 
 ## Workflow for new features
 
@@ -271,6 +323,19 @@ This was chosen over a global filter specifically because this repo also queries
 `HasQueryFilter` model metadata - an explicit `.Where(x => x.DeletedAt == null)` (which is what the
 `Active*()` helpers do) has no such question mark, since it's an ordinary predicate already baked
 into the query before either provider translates it.
+
+## No unpaginated list endpoints
+
+Every endpoint that returns a collection whose size depends on user data (not a small fixed set)
+must be paginated - never return a bare array/`.ToListAsync()` result straight to the client, even
+if today's data volumes make it seem harmless. Follow the existing `PaginationData`/
+`ShortPaginatedResult<T>` (`Laraue.Core.DataAccess.Contracts`) convention already used throughout
+(`IssuesController.Search`, `BillingController.GetTransactions`, `EpicsController.SearchEpicsWithStatuses`,
+`ApiKeysController.GetAll`): the request implements `IPaginatedRequest` (a `Pagination` property),
+the endpoint is a `[HttpPost("search")]` taking that request as its body (a `GET` can't carry a
+JSON body for pagination params), and the query ends in `.ShortPaginateEFAsync(request.Pagination,
+cancellationToken)` (or the LinqToDB equivalent, `ShortPaginateLinq2DbAsync`) instead of
+`.ToListAsync()`.
 
 ## Query shape: project, don't load-then-map
 
@@ -380,19 +445,112 @@ above always run unconditionally.
   `Mock<UserIdentityService.UserIdentityServiceClient>` overrides in `WebApiTestHost`/
   `TelegramIntegrationTest` and don't reference these fakes.
 
+## API keys and MCP access
+
+Lets a program (Claude, via a remote MCP connector) act as an organization member without a
+browser session. Three pieces:
+
+- **`ApiKey`** (`DataAccess.Models.ApiKey`) — a long-lived credential scoped to one organization
+  and one member (`CreatedByUserId`). Its authority is never snapshotted: every use resolves
+  `CreatedByUserId`'s access **live**, through the exact same `IAccessService` checks a normal JWT
+  request goes through - if that member later loses a permission or is removed from the org, the
+  key silently loses it too, for free. `ICoreApiKeysService` (`Boards.Services`) owns
+  create/revoke/validate; it only covers mutations (per "Core services are for mutations, not
+  reads" above) - listing a caller's own keys is a plain read living in
+  `WebApiServices.ApiKeysService`, querying `DatabaseContext` directly.
+- **Self-service, not admin-gated**: a key only ever grants what its own creator could already do,
+  so there's no `AdminAccessLevel` flag for managing keys - a member creates/lists/revokes only
+  their own keys (`WHERE CreatedByUserId == <caller>`), via `POST/GET/DELETE /api/api-keys` on the
+  existing `AuthSchemas.Organization` JWT scheme. Org-wide admin visibility into every member's
+  keys is a deliberately deferred future ask, not an oversight.
+- **`AuthSchemas.ApiKey`** (`Boards.Common`) + `ApiKeyAuthenticationHandler`
+  (`Boards.Services.Auth`) — a second authentication scheme, independent of the JWT ones. Reads an
+  `X-Api-Key` header, calls `ICoreApiKeysService.ValidateAsync`, and on success builds a
+  `ClaimsPrincipal` with the *same* `orgId`/`id` claim types the JWT schemes use - so
+  `GetOrganizationAuthData()` and every existing `IAccessService`/controller-level check work
+  completely unchanged regardless of which scheme authenticated the caller. Only `McpHost`
+  registers this scheme; no existing `WebApiHost`/`TelegramHost` endpoint accepts an API key.
+- **`Laraue.Apps.Boards.McpHost`** — the fourth host (see "Project layout"), built on
+  `ModelContextProtocol.AspNetCore`. `AddCoreServices()` is called here same as any host, which
+  means `ICoreFilesService`'s `ITelegramBotClient` dependency has to be satisfied too even though
+  no MCP tool touches file attachments - `Program.cs` registers a real `TelegramBotClient` purely
+  to satisfy ASP.NET's build-time DI validation, the same way `WebApiHost` already does.
+  `McpServerOptions.ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting
+  client, telling it to reach for these tools instead of asking the user to paste issue content in.
+  Tool types (`Tools/IssueTools.cs`, `[McpServerToolType]`) are thin adapters, same shape as a
+  controller: resolve the caller's `OrganizationAuthData` from
+  `IHttpContextAccessor.HttpContext!.User` (populated by the API key handler above), call into a
+  plain service, return the result - no query/permission/mutation logic in the tool type itself.
+  That logic lives in `Services/IssueMcpService.cs` (`IIssueMcpService`), which delegates straight
+  into `IAccessService`/`ICoreIssuesService` - the exact same permission checks and mutation path
+  the REST API uses, no new logic. Tests construct `IssueMcpService` directly against the
+  integration test database (`IssueMcpServiceTests.cs`), passing a plain `OrganizationAuthData`,
+  rather than driving the real MCP HTTP/SSE transport - not worth the effort for what's otherwise
+  already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
+  tests, same reason a controller doesn't usually get tested separately from the service it calls.
+  Tools cover `list_issues`/`get_issue`/`update_issue_status` plus `create_issue`/`edit_issue`/
+  `add_comment`/`edit_comment` and the two discovery tools `list_statuses`/`list_attributes` -
+  each still just the REST API's own permission/mutation path (`CanCreateIssue` off the resolved
+  space, `CanUpdateIssue` for edits/comments, owner-only for editing a comment - same as
+  `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
+  `update_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
+  `IssuesService.Create` also just takes a raw `StatusId`, no separate space concept at all) - and
+  `list_statuses` exists to make that id discoverable, since an MCP caller has no status-picker UI
+  the way the REST API's frontend does. `update_issue_status` accepts *any* status id the caller
+  can move issues to, not necessarily one in the issue's current epic - moving an issue to a
+  different epic's status is real REST API behavior too (an issue's epic is entirely derived from
+  its `StatusId`), not something worth artificially restricting just because MCP takes an id.
+  `create_issue`'s `spaceKey` **is** still required, though (unlike the REST API, which has no
+  `spaceKey` concept for `Create` at all) - since a given `statusId` must belong to that same
+  space (checked explicitly), otherwise the `CanCreateIssue` check against `spaceKey` and the
+  issue's real destination (derived from `statusId`'s own space) could silently disagree, letting
+  a caller sneak an issue into a space they never had create access to just by naming a status
+  from it. `create_issue`'s `statusId` is **required**, not defaulted - `list_statuses` always
+  has to be called first, which also means a caller always knows and states exactly which status
+  a new issue lands in, rather than relying on an implicit "space's default" a caller can't see
+  without a separate lookup anyway. `list_attributes` plays the equivalent discovery
+  role for `create_issue`/`edit_issue`'s `attributes` map, whose keys are still plain attribute
+  **names**, not ids - attribute names are already unique per organization (nothing like the
+  epic-scoping ambiguity a status name has), so there's no matching reason to switch those to ids.
+- **Attributes** (custom per-organization fields - `Attribute`/`AttributeListValue`,
+  `Laraue.Apps.Boards.DataAccess.Models`) are flat and org-wide, never scoped to a space/epic -
+  `list_attributes` and `create_issue`/`edit_issue`'s `attributes` map (attribute name → plain
+  text value) both just filter `context.Attributes` by `OrganizationId`. Unlike the REST API,
+  which sends an **already-typed** value per attribute (a real `decimal`/`DateOnly`/list-value-id
+  - see `IssuesService.GetAttributeUpdateRequests`, which only validates/maps, never parses a raw
+  string), MCP callers can only produce plain text, so `IssueMcpService.BuildAttributeRequest`
+  does the parsing existing code never had to: `long`/`decimal`/`DateOnly`/`DateTime.TryParse`
+  per `AttributeType`, and for `AttributeType.List`, resolving the caller's text against
+  `AttributeListValue.Value` (existing code only ever resolves list attributes by id, never by
+  matching text - this resolution is new, not reused). Omitting `attributes` on `edit_issue`
+  leaves every attribute untouched (not cleared) - there's no "clear all attributes" MCP
+  operation, since `IssueChange<TSelf>.SetAttributes([])` (clear) vs never calling it (don't
+  touch) is exactly the distinction an omitted/empty MCP dictionary can't disambiguate.
+
 ## User-facing text
 
 - Don't put string literals directly in `throw new SomeException("...")`/ephemeral-notice calls.
-  `WebApiServices` uses `Resources/ErrorMessages.resx` (+ `.Designer.cs`, `string.Format(...)` for
-  placeholders — reuse an existing template like `EntityNotFound = "{0}: {1} is not found"` or
-  `EntityActionForbidden = "{0}: {1} {2} is forbidden"` when the message shape matches exactly,
-  add a new resx key otherwise). `TelegramServices` uses `Resources/Phrases.resx` +
-  `Phrases.ru.resx` (EN/RU) for anything sent back to a Telegram user.
+  Every host/surface keeps its **own** `Resources/ErrorMessages.resx` (`WebApiServices`,
+  `McpHost`) or `Resources/Phrases.resx`/`Phrases.ru.resx` (EN/RU, `TelegramServices`) rather than
+  sharing one across projects — there's no cross-project resx reference in this codebase, so a new
+  host adds its own copy. Reuse an existing **template shape** when it matches exactly, even
+  across surfaces: `EntityNotFound = "{0}: {1} is not found"`, `EntityNotFoundOrNotAccessible =
+  "{0}: {1} is not found or not accessible"`, `EntityActionForbidden = "{0}: {1} {2} is
+  forbidden"` (see "Choosing 404 vs 403" above for `EntityActionForbidden`'s `"...", "read"` case)
+  all exist verbatim in both `WebApiServices` and `McpHost`'s resx files - copy the key+value into
+  the new surface's own `.resx` rather than inventing a differently-worded equivalent. Add a new
+  resx key only when the message shape is genuinely different (e.g. `McpHost`'s
+  `StatusNotFoundInIssueEpic`, which needs two placeholders in a shape none of the generic
+  templates cover).
 - **`.Designer.cs` isn't auto-regenerated by `dotnet build`** on this machine — it's a
   Visual-Studio-only single-file-generator step. After adding a `<data>` entry to a `.resx`, also
   hand-add the matching `internal static string Foo { get { return
   ResourceManager.GetString("Foo", resourceCulture); } }` property to the paired `.Designer.cs`,
-  mirroring an existing entry's shape.
+  mirroring an existing entry's shape. Wire a brand-new resx into its `.csproj` too - an
+  `<EmbeddedResource Update="Resources\ErrorMessages.resx">` with `Generator`/`LastGenOutput`, and
+  a `<Compile Update="Resources\ErrorMessages.Designer.cs">` with `DesignTime`/`AutoGen`/
+  `DependentUpon` - copy both `ItemGroup`s from an existing project (e.g. `WebApiServices.csproj`)
+  rather than retyping them.
 
 ## Task flow
 - Create branch with pattern feature/task-number-task-description, like feature/BRD-120-add-assignee-api for new task

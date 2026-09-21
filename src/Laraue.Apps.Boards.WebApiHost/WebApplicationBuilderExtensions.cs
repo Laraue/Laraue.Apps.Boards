@@ -36,7 +36,8 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IOrganizationsService, OrganizationsService>()
                 .AddScoped<IAdminOrganizationsService, AdminOrganizationsService>()
                 .AddScoped<IBillingService, BillingService>()
-                .AddScoped<IMovementService, MovementService>();
+                .AddScoped<IMovementService, MovementService>()
+                .AddScoped<IApiKeysService, ApiKeysService>();
 
             builder.Services
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()

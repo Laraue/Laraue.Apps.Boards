@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using Laraue.Apps.Boards.DataAccess;
-using Laraue.Core.DataAccess.EFCore.Extensions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 

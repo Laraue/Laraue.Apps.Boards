@@ -631,7 +631,7 @@ public class IssuesService(
             StatusColor = result.StatusColor,
             CanEdit = issueAccessLevels.CanUpdateIssue,
             AttributeValues = attributeValues,
-            Key = $"{result.SpaceKey}-{result.Number}",
+            Key = new IssueKey(result.SpaceKey, result.Number).ToString(),
             SpaceKey = result.SpaceKey,
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,

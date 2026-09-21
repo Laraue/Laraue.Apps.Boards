@@ -5,7 +5,6 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
-using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;

@@ -6,7 +6,6 @@ using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using LinqToDB.EntityFrameworkCore;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;

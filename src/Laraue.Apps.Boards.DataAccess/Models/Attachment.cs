@@ -1,6 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
-
-namespace Laraue.Apps.Boards.DataAccess.Models;
+﻿namespace Laraue.Apps.Boards.DataAccess.Models;
 
 /// <summary>
 /// Represents one attachment in the system. Attachment is the set

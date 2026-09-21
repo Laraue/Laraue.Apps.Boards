@@ -1,7 +1,6 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.AttributeRequests;
-using Laraue.Core.DataAccess.EFCore.Extensions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 

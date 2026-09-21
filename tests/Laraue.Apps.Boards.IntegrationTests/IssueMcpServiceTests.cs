@@ -1,0 +1,563 @@
+using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+using Laraue.Apps.Boards.McpHost.Services;
+using Laraue.Apps.Boards.Services;
+using Laraue.Core.DateTime.Services.Abstractions;
+using Laraue.Core.Exceptions.Web;
+using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Laraue.Apps.Boards.IntegrationTests;
+
+/// <summary>
+/// Exercises <see cref="IssueMcpService"/> directly, bypassing the actual MCP HTTP/SSE transport -
+/// there's no permission/mutation logic here that isn't already covered by
+/// <see cref="IAccessService"/>/<c>ICoreIssuesService</c> themselves, so this only needs to confirm
+/// the service wires the caller's identity and those checks together correctly.
+/// <see cref="Laraue.Apps.Boards.McpHost.Tools.IssueTools"/> itself is a thin MCP adapter with
+/// nothing left to test beyond "does it call this service" - the same reason a controller doesn't
+/// usually get its own dedicated tests separate from the service it calls into.
+/// </summary>
+[Collection("IntegrationTest")]
+public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
+{
+    // Mirrors IssueMcpService's own MaxResults - the page size returned per ListIssues call.
+    private const int IssuesPerPage = 50;
+
+    private static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
+    {
+        return new IssueMcpService(
+            testScope.Database,
+            testScope.Services.GetRequiredService<IAccessService>(),
+            testScope.Services.GetRequiredService<ICoreIssuesService>(),
+            testScope.Services.GetRequiredService<ICoreSpacesService>(),
+            testScope.Services.GetRequiredService<IDateTimeProvider>());
+    }
+
+    private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId)
+    {
+        return new OrganizationAuthData { OrganizationId = organizationId, UserId = userId };
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldOnlyReturnAccessibleIssues_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId)
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var expectedStatus = organization.GetStatus(0, 0, 0);
+        var ownerDisplayName = await testScope.Database.Users
+            .Where(x => x.Id == ownerId)
+            .Select(x => x.DisplayName)
+            .SingleAsyncEF();
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+
+        var ownerIssues = await issueMcpService.ListIssues(
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
+        var memberIssues = await issueMcpService.ListIssues(
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, CancellationToken.None);
+
+        var issue = Assert.Single(ownerIssues.Issues);
+        Assert.Equal(issueData.Key, issue.Key);
+        Assert.Equal("Fix the thing", issue.Title);
+        Assert.Equal(expectedStatus.Name, issue.Status);
+        Assert.Equal(ownerDisplayName, issue.Assignee);
+        Assert.False(ownerIssues.HasNextPage);
+        Assert.Empty(memberIssues.Issues);
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldApplyFilters_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var otherAssignee = await testScope.CreateUser(u => u.TelegramUserName = "other_assignee");
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            // A space added via AddSpace auto-gets an implicit "Backlog" epic at index 0 and,
+            // within every epic in it, an implicit default status at index 0 - so this test's own
+            // explicit epic/status land at index 1.
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("In Progress"))
+                    .AddIssue(ownerId, 1, issue => issue.WithContent("Target"))
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Wrong status"))))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Wrong space")));
+
+        var targetIssueData = organization.GetIssueData(1, 1, 1, 0);
+        await testScope.Database.Issues
+            .Where(x => x.Id == targetIssueData.Issue.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.AssigneeId, otherAssignee));
+
+        var wrongStatusIssueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var bySpace = await issueMcpService.ListIssues(
+            authData, organization.GetSpace(1).Key, null, null, null, null, CancellationToken.None);
+        var byStatus = await issueMcpService.ListIssues(
+            authData, null, "In Progress", null, null, null, CancellationToken.None);
+        var byAssignee = await issueMcpService.ListIssues(
+            authData, null, null, "other_assignee", null, null, CancellationToken.None);
+
+        Assert.Equal(
+            new HashSet<string> { targetIssueData.Key, wrongStatusIssueKey },
+            bySpace.Issues.Select(x => x.Key).ToHashSet());
+        Assert.Equal(targetIssueData.Key, Assert.Single(byStatus.Issues).Key);
+        Assert.Equal(targetIssueData.Key, Assert.Single(byAssignee.Issues).Key);
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldPaginate_WhenMoreIssuesExistThanOnePage()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org =>
+        {
+            for (var i = 0; i < IssuesPerPage + 1; i++)
+                org.AddIssueToDefaultStatus(ownerId, issue => issue.WithContent($"Issue {i}"));
+        });
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, 1, null, CancellationToken.None);
+
+        Assert.Equal(IssuesPerPage, firstPage.Issues.Count);
+        Assert.True(firstPage.HasNextPage);
+        Assert.Equal(0, firstPage.Page);
+
+        Assert.Single(secondPage.Issues);
+        Assert.False(secondPage.HasNextPage);
+        Assert.Equal(1, secondPage.Page);
+
+        Assert.Empty(firstPage.Issues.Select(x => x.Key).Intersect(secondPage.Issues.Select(x => x.Key)));
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldRespectCount_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org =>
+        {
+            for (var i = 0; i < 5; i++)
+                org.AddIssueToDefaultStatus(ownerId, issue => issue.WithContent($"Issue {i}"));
+        });
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, 2, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, 1, 2, CancellationToken.None);
+        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, 1000, CancellationToken.None);
+
+        Assert.Equal(2, firstPage.Issues.Count);
+        Assert.True(firstPage.HasNextPage);
+
+        Assert.Equal(2, secondPage.Issues.Count);
+        Assert.True(secondPage.HasNextPage);
+
+        Assert.Equal(5, clampedPage.Issues.Count);
+    }
+
+    [Fact]
+    public async Task GetIssue_ShouldReturnContentAndComments_WhenAccessible()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "First comment")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var expectedStatus = organization.GetStatus(0, 0, 0);
+        var expectedComment = issueData.Issue.IssueComments!.Single();
+        var ownerDisplayName = await testScope.Database.Users
+            .Where(x => x.Id == ownerId)
+            .Select(x => x.DisplayName)
+            .SingleAsyncEF();
+
+        var detail = await CreateIssueMcpService(testScope)
+            .GetIssue(AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+
+        Assert.Equal(issueData.Key, detail.Key);
+        Assert.Equal("Fix the thing", detail.Content);
+        Assert.Equal(expectedStatus.Name, detail.Status);
+        Assert.Equal(ownerDisplayName, detail.Assignee);
+        Assert.Equal(issueData.Issue.CreatedAt, detail.CreatedAt, new TimeSpan(10));
+        Assert.Equal(issueData.Issue.UpdatedAt, detail.UpdatedAt, new TimeSpan(10));
+
+        var comment = Assert.Single(detail.Comments);
+        Assert.Equal(expectedComment.Id, comment.Id);
+        Assert.Equal(ownerDisplayName, comment.Author);
+        Assert.Equal("First comment", comment.Text);
+        Assert.Equal(expectedComment.CreatedAt, comment.CreatedAt, new TimeSpan(10));
+    }
+
+    [Fact]
+    public async Task UpdateIssueStatus_ShouldUpdateStatus_WhenCallerCanUpdateIssues()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("In Progress"))
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Fix the thing")))));
+
+        // A space added via AddSpace (unlike the org's own default space) auto-gets an implicit
+        // "Backlog" epic at index 0 and, within every epic in it, an implicit default status at
+        // index 0 - so this test's own explicit epic/status land at index 1, not 0.
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        var targetStatus = organization.GetStatus(1, 1, 1);
+
+        await CreateIssueMcpService(testScope).UpdateIssueStatus(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, targetStatus.Id, CancellationToken.None);
+
+        var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(targetStatus.Id, updatedIssue.StatusId);
+    }
+
+    [Fact]
+    public async Task UpdateIssueStatus_ShouldThrow_WhenCallerLacksUpdatePermission()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true))
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("In Progress"))
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Fix the thing")))));
+
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        var targetStatusId = organization.GetStatus(1, 1, 1).Id;
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).UpdateIssueStatus(
+            AuthDataFor(organization.Id, memberId), issueData.Key, targetStatusId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UpdateIssueStatus_ShouldMoveToStatusInDifferentEpic_WhenCallerCanUpdateIssues()
+    {
+        // Unlike the earlier name-based design (which had to scope status lookup to the issue's
+        // own epic to disambiguate a name), a status id has no such ambiguity - and the REST API
+        // itself allows moving an issue to any status the caller can access, regardless of epic.
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Fix the thing")))
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("OtherEpicStatus")))));
+
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        var otherEpicStatus = organization.GetStatus(1, 2, 1);
+
+        await CreateIssueMcpService(testScope).UpdateIssueStatus(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, otherEpicStatus.Id, CancellationToken.None);
+
+        var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(otherEpicStatus.Id, updatedIssue.StatusId);
+    }
+
+    [Fact]
+    public async Task UpdateIssueStatus_ShouldThrow_WhenStatusIdDoesNotExist()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).UpdateIssueStatus(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, statusId: 999_999, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldUseGivenStatus_WhenStatusIdGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic.AddStatus(s => s.WithName("In Progress")))));
+
+        var space = organization.GetSpace(1);
+        var targetStatus = organization.GetStatus(1, 1, 1); // explicit "In Progress", not the epic's implicit default status
+
+        var issueKey = await CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId), space.Key, "New issue content", targetStatus.Id, null, CancellationToken.None);
+
+        var createdIssue = await testScope.Database.Issues
+            .Where(x => x.IssueNumber!.Space!.Key == space.Key)
+            .Select(x => new { x.Content, x.StatusId, x.AssigneeId, x.IssueNumber!.Number })
+            .SingleAsyncEF();
+        Assert.Equal("New issue content", createdIssue.Content);
+        Assert.Equal(targetStatus.Id, createdIssue.StatusId);
+        Assert.Equal(ownerId, createdIssue.AssigneeId);
+        Assert.EndsWith(createdIssue.Number.ToString(), issueKey);
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenStatusBelongsToDifferentSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic.AddStatus(s => s.WithName("In Progress")))));
+
+        var otherSpace = organization.GetSpace(0); // unrelated to the status below
+        var statusFromDifferentSpace = organization.GetStatus(1, 1, 1);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId), otherSpace.Key, "New issue content", statusFromDifferentSpace.Id, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenCallerCannotCreateIssues()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
+
+        var space = organization.GetSpace(0);
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, memberId), space.Key, "New issue content", statusId, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldReplaceContent_WhenCallerCanUpdateIssues()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Original content")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await CreateIssueMcpService(testScope).EditIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "Updated content", null, CancellationToken.None);
+
+        var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal("Updated content", updatedIssue.Content);
+    }
+
+    [Fact]
+    public async Task AddComment_ShouldAddComment_WhenCallerCanUpdateIssues()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        var commentId = await CreateIssueMcpService(testScope).AddComment(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "A new comment", CancellationToken.None);
+
+        var comment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == commentId);
+        Assert.Equal("A new comment", comment.Text);
+        Assert.Equal(ownerId, comment.OwnerId);
+    }
+
+    [Fact]
+    public async Task EditComment_ShouldReplaceText_WhenCallerOwnsComment()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "Original comment")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var commentId = issueData.Issue.IssueComments!.Single().Id;
+
+        await CreateIssueMcpService(testScope).EditComment(
+            AuthDataFor(organization.Id, ownerId), commentId, "Edited comment", CancellationToken.None);
+
+        var updatedComment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == commentId);
+        Assert.Equal("Edited comment", updatedComment.Text);
+    }
+
+    [Fact]
+    public async Task EditComment_ShouldThrow_WhenCallerDoesNotOwnComment()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanUpdateIssues = true;
+            }))
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "Original comment")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var commentId = issueData.Issue.IssueComments!.Single().Id;
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).EditComment(
+            AuthDataFor(organization.Id, memberId), commentId, "Edited comment", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EditComment_ShouldThrowNotFound_WhenCommentDoesNotExist()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).EditComment(
+            AuthDataFor(organization.Id, ownerId), commentId: 999_999, "Edited comment", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ListStatuses_ShouldGroupByEpic_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic.WithName("Epic A").AddStatus(s => s.WithName("In Progress")))
+                .AddEpic(ownerId, epic => epic.WithName("Epic B").AddStatus(s => s.WithName("Review")))));
+
+        var space = organization.GetSpace(1);
+
+        var result = await CreateIssueMcpService(testScope)
+            .ListStatuses(AuthDataFor(organization.Id, ownerId), space.Key, CancellationToken.None);
+
+        // Implicit "Backlog" epic + the two explicit ones.
+        Assert.Equal(3, result.Count);
+        var epicA = Assert.Single(result, x => x.EpicName == "Epic A");
+        var epicAStatus = Assert.Single(epicA.Statuses, x => x.Name == "In Progress");
+        Assert.Equal(organization.GetStatus(1, 1, 1).Id, epicAStatus.Id);
+        var epicB = Assert.Single(result, x => x.EpicName == "Epic B");
+        var epicBStatus = Assert.Single(epicB.Statuses, x => x.Name == "Review");
+        Assert.Equal(organization.GetStatus(1, 2, 1).Id, epicBStatus.Id);
+    }
+
+    [Fact]
+    public async Task ListAttributes_ShouldReturnListValues_ForListTypedAttributes()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddTextAttribute("Summary")
+            .AddListAttribute("Priority", ["Low", "High"]));
+
+        var result = await CreateIssueMcpService(testScope)
+            .ListAttributes(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+
+        var summary = Assert.Single(result, x => x.Name == "Summary");
+        Assert.Equal(nameof(AttributeType.Text), summary.Type);
+        Assert.Null(summary.ListValues);
+
+        var priority = Assert.Single(result, x => x.Name == "Priority");
+        Assert.Equal(nameof(AttributeType.List), priority.Type);
+        Assert.Equal(["Low", "High"], priority.ListValues);
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldSetAttributes_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddTextAttribute("Summary")
+            .AddListAttribute("Priority", ["Low", "High"]));
+
+        var space = organization.GetSpace(0);
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+        var summaryAttribute = organization.GetAttribute(0);
+        var priorityAttribute = organization.GetAttribute(1);
+        var highValue = priorityAttribute.AttributeListValues!.Single(x => x.Value == "High");
+
+        var issueKey = await CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            space.Key,
+            "New issue content",
+            statusId,
+            new Dictionary<string, string> { ["Summary"] = "A short summary", ["Priority"] = "High" },
+            CancellationToken.None);
+
+        var issueId = await testScope.Database.Issues
+            .Where(x => x.IssueNumber!.Space!.Key == space.Key)
+            .Select(x => x.Id)
+            .SingleAsyncEF();
+
+        var textValue = await testScope.Database.IssueAttributeTextValues
+            .SingleAsyncEF(x => x.IssueId == issueId && x.AttributeId == summaryAttribute.Id);
+        Assert.Equal("A short summary", textValue.Value);
+
+        var listValue = await testScope.Database.IssueAttributeListValues
+            .SingleAsyncEF(x => x.IssueId == issueId && x.AttributeId == priorityAttribute.Id);
+        Assert.Equal(highValue.Id, listValue.AttributeListValueId);
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenAttributeListValueIsInvalid()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddListAttribute("Priority", ["Low", "High"]));
+
+        var space = organization.GetSpace(0);
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            space.Key,
+            "New issue content",
+            statusId,
+            new Dictionary<string, string> { ["Priority"] = "Not a real value" },
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldSetAttributes_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIntegerAttribute("Estimate")
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var estimateAttribute = organization.GetAttribute(0);
+
+        await CreateIssueMcpService(testScope).EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            new Dictionary<string, string> { ["Estimate"] = "5" },
+            CancellationToken.None);
+
+        var integerValue = await testScope.Database.IssueAttributeIntegerValues
+            .SingleAsyncEF(x => x.IssueId == issueData.Issue.Id && x.AttributeId == estimateAttribute.Id);
+        Assert.Equal(5, integerValue.Value);
+    }
+}

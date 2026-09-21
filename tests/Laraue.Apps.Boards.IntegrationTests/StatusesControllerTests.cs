@@ -1,6 +1,5 @@
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
-using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 

@@ -8,7 +8,6 @@ using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DataAccess.Extensions;
 using LinqToDB.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 

@@ -1,5 +1,4 @@
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
-using Laraue.Telegram.NET.Abstractions;
 using Telegram.Bot.Types;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
