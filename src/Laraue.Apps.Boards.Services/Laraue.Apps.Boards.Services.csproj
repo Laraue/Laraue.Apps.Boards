@@ -1,5 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Laraue.Core.DataAccess.Linq2DB" Version="$(LaraueCoreDataAccessVersion)" />
     <PackageReference Include="Laraue.Core.DataAccess.EFCore" Version="$(LaraueCoreDataAccessVersion)" />
     <PackageReference Include="EFCore.NamingConventions" Version="$(EfCoreNamingConventionsVersion)" />
