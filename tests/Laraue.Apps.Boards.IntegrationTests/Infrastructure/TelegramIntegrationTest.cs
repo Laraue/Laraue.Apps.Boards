@@ -3,6 +3,8 @@ using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramHost;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
+using Laraue.Apps.Identity.Internal.Contracts;
+using Grpc.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,6 +45,20 @@ public abstract class TelegramIntegrationTest
             .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string notes, CancellationToken _) => new AiSummarizationResult(notes, InputTokensCount: 10, OutputTokensCount: 10));
         builder.Services.AddSingleton(aiContentSummarizerMock.Object);
+
+        // Overrides the real gRPC-backed client, which would otherwise try to reach a live
+        // Laraue.Apps.Identity instance. Always resolves to a fresh global id - tests that care
+        // about the returned id should re-Setup it (via Mock.Get on the resolved instance).
+        var identityClientMock = new Mock<UserIdentityService.UserIdentityServiceClient>();
+        identityClientMock
+            .Setup(x => x.CreateUserIfNotExistsAsync(
+                It.IsAny<CreateUserIfNotExistsRequest>(),
+                It.IsAny<Metadata>(),
+                It.IsAny<DateTime?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((CreateUserIfNotExistsRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
+                GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
+        builder.Services.AddSingleton(identityClientMock.Object);
 
         // Overrides the real gRPC-backed implementation, which would otherwise try to reach a
         // live Billing service. Defaults to a random successful reservation - /aisave tests that

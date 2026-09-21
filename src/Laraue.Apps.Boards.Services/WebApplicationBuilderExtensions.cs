@@ -2,7 +2,12 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Apps.Boards.Services.Ai;
+using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Apps.Boards.Services.Billing;
+using BillingServiceId = Laraue.Apps.Billing.Internal.Contracts.ServiceId;
+using BillingServiceIdInterceptor = Laraue.Apps.Billing.Internal.Contracts.ServiceIdInterceptor;
+using IdentityServiceId = Laraue.Apps.Identity.Internal.Contracts.ServiceId;
+using IdentityServiceIdInterceptor = Laraue.Apps.Identity.Internal.Contracts.ServiceIdInterceptor;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DateTime.Services.Impl;
@@ -90,6 +95,18 @@ public static class WebApplicationBuilderExtensions
                         aiOptions.ApiKey);
                 });
 
+            builder.Services.AddOptions<IdentityOptions>();
+            builder.Services.Configure<IdentityOptions>(
+                builder.Configuration.GetSection(nameof(IdentityOptions)));
+
+            builder.Services
+                .AddGrpcClient<UserIdentityService.UserIdentityServiceClient>((sp, o) =>
+                {
+                    var identityOptions = sp.GetRequiredService<IOptions<IdentityOptions>>().Value;
+                    o.Address = new Uri(identityOptions.GrpcUrl);
+                })
+                .AddInterceptor(() => new IdentityServiceIdInterceptor(IdentityServiceId.LaraueBoards));
+
             builder.Services.AddOptions<BillingOptions>();
             builder.Services.Configure<BillingOptions>(
                 builder.Configuration.GetSection("Billing"));
@@ -105,7 +122,7 @@ public static class WebApplicationBuilderExtensions
                 {
                     o.Address = new Uri(billingOptions.GrpcUrl);
                 })
-                .AddInterceptor(() => new ServiceIdInterceptor(ServiceId.LaraueBoards));
+                .AddInterceptor(() => new BillingServiceIdInterceptor(BillingServiceId.LaraueBoards));
 
             // subscription.proto identifies the calling service via a request field instead of
             // the header interceptor above (see that proto's own note) - no interceptor needed.
