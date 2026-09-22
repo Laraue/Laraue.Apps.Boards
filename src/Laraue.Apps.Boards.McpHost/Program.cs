@@ -42,6 +42,9 @@ public sealed class Program
 
         builder.Services.AddScoped<IIssueMcpService, IssueMcpService>();
 
+        builder.Services.AddControllers();
+        builder.Services.Configure<ServerCardOptions>(builder.Configuration.GetSection("ServerCard"));
+
         builder.Services
             .AddMcpServer(options => options.ServerInstructions = McpServerInstructions.Text)
             .WithHttpTransport()
@@ -68,6 +71,7 @@ public sealed class Program
 
         app.MapMcp("/mcp").RequireAuthorization();
         app.MapPrometheusScrapingEndpoint("/_metrics");
+        app.MapControllers();
 
         using (var scope = app.Services.CreateScope())
         {
