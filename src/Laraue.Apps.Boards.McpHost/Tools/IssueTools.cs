@@ -17,12 +17,12 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     [McpServerTool]
     [Description("Lists issues in the caller's organization, optionally filtered by space key, status name, or assignee display name. Returns at most 50 issues per page (fewer if count is given), most recently updated first. Check the result's hasNextPage to know whether to request another page.")]
     public Task<IssueListPage> ListIssues(
-        [Description("Only issues in this space (e.g. 'BRD'). Omit to search every space.")] string? spaceKey,
-        [Description("Only issues with this exact status name (e.g. 'In Progress'). Omit to include every status.")] string? statusName,
-        [Description("Only issues assigned to a user whose display name contains this text. Omit to include every assignee.")] string? assigneeName,
-        [Description("Zero-based page number. Omit or pass 0 for the first page; pass the previous result's page + 1 to get the next page.")] int? page,
-        [Description("Max issues to return per page, 1-50. Omit for the default of 50.")] int? count,
-        CancellationToken cancellationToken)
+        [Description("Only issues in this space (e.g. 'BRD'). Omit to search every space.")] string? spaceKey = null,
+        [Description("Only issues with this exact status name (e.g. 'In Progress'). Omit to include every status.")] string? statusName = null,
+        [Description("Only issues assigned to a user whose display name contains this text. Omit to include every assignee.")] string? assigneeName = null,
+        [Description("Zero-based page number. Omit or pass 0 for the first page; pass the previous result's page + 1 to get the next page.")] int? page = null,
+        [Description("Max issues to return per page, 1-50. Omit for the default of 50.")] int? count = null,
+        CancellationToken cancellationToken = default)
     {
         return issueMcpService.ListIssues(GetAuthData(), spaceKey, statusName, assigneeName, page, count, cancellationToken);
     }
@@ -52,8 +52,8 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("The space to create the issue in, e.g. 'BRD'.")] string spaceKey,
         [Description("The issue's text content.")] string content,
         [Description("The status id to create the issue in, from list_statuses - must belong to spaceKey.")] long statusId,
-        [Description("Attribute name -> plain-text value, e.g. {\"Priority\": \"High\"}. Call list_attributes to see what's available and the expected value format per type. Omit to leave every attribute unset.")] IReadOnlyDictionary<string, string>? attributes,
-        CancellationToken cancellationToken)
+        [Description("Attribute name -> plain-text value, e.g. {\"Priority\": \"High\"}. Call list_attributes to see what's available and the expected value format per type. Omit to leave every attribute unset.")] IReadOnlyDictionary<string, string>? attributes = null,
+        CancellationToken cancellationToken = default)
     {
         return issueMcpService.CreateIssue(GetAuthData(), spaceKey, content, statusId, attributes, cancellationToken);
     }
@@ -63,8 +63,8 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The issue's new text content, replacing what's there now.")] string content,
-        [Description("Attribute name -> plain-text value, same as create_issue. Omit to leave every attribute untouched (not cleared).")] IReadOnlyDictionary<string, string>? attributes,
-        CancellationToken cancellationToken)
+        [Description("Attribute name -> plain-text value, same as create_issue. Omit to leave every attribute untouched (not cleared).")] IReadOnlyDictionary<string, string>? attributes = null,
+        CancellationToken cancellationToken = default)
     {
         return issueMcpService.EditIssue(GetAuthData(), issueKey, content, attributes, cancellationToken);
     }
