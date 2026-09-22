@@ -47,23 +47,22 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Creates a new issue in a space and returns its key.")]
+    [Description("Creates a new issue and returns its key. The destination space is derived entirely from statusId, same as the web app.")]
     public Task<string> CreateIssue(
-        [Description("The space to create the issue in, e.g. 'BRD'.")] string spaceKey,
         [Description("The issue's text content.")] string content,
-        [Description("The status id to create the issue in, from list_statuses - must belong to spaceKey.")] long statusId,
-        [Description("Attribute name -> plain-text value, e.g. {\"Priority\": \"High\"}. Call list_attributes to see what's available and the expected value format per type. Omit to leave every attribute unset.")] IReadOnlyDictionary<string, string>? attributes = null,
+        [Description("The status id to create the issue in, from list_statuses - this also determines which space the issue lands in.")] long statusId,
+        [Description("Attribute id -> plain-text value, e.g. {\"5\": \"7\"}. Call list_attributes first for the ids/types/expected format per attribute - for a List-typed attribute, the value is one of its list value ids (also from list_attributes), not its display text. Omit to leave every attribute unset.")] IReadOnlyDictionary<long, string>? attributes = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.CreateIssue(GetAuthData(), spaceKey, content, statusId, attributes, cancellationToken);
+        return issueMcpService.CreateIssue(GetAuthData(), content, statusId, attributes, cancellationToken);
     }
 
     [McpServerTool]
-    [Description("Replaces an issue's text content.")]
+    [Description("Fully replaces an issue's text content - not an append or merge. To keep any of the existing text, call get_issue first and include it in the new content you send. Does not change status or assignee.")]
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
-        [Description("The issue's new text content, replacing what's there now.")] string content,
-        [Description("Attribute name -> plain-text value, same as create_issue. Omit to leave every attribute untouched (not cleared).")] IReadOnlyDictionary<string, string>? attributes = null,
+        [Description("The issue's complete new text content. Fully replaces the existing content - fetch it via get_issue first if you need to preserve any of it.")] string content,
+        [Description("Attribute id -> plain-text value, same as create_issue. Omit to leave every attribute untouched (not cleared) - there's no way to clear all attributes via this tool.")] IReadOnlyDictionary<long, string>? attributes = null,
         CancellationToken cancellationToken = default)
     {
         return issueMcpService.EditIssue(GetAuthData(), issueKey, content, attributes, cancellationToken);
@@ -79,7 +78,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists the caller's organization's custom issue attributes (name, type, and allowed values for list-typed ones) - what create_issue/edit_issue's attributes map accepts.")]
+    [Description("Lists the caller's organization's custom issue attributes (id, name, type, and allowed values with their own ids for list-typed ones) - what create_issue/edit_issue's attributes map accepts, keyed by id.")]
     public Task<IReadOnlyList<AttributeSummary>> ListAttributes(CancellationToken cancellationToken)
     {
         return issueMcpService.ListAttributes(GetAuthData(), cancellationToken);

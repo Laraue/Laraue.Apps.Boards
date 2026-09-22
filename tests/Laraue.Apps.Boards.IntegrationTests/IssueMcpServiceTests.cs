@@ -33,6 +33,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<IAccessService>(),
             testScope.Services.GetRequiredService<ICoreIssuesService>(),
             testScope.Services.GetRequiredService<ICoreSpacesService>(),
+            testScope.Services.GetRequiredService<ICoreIssueAttributesService>(),
             testScope.Services.GetRequiredService<IDateTimeProvider>());
     }
 
@@ -301,7 +302,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var targetStatus = organization.GetStatus(1, 1, 1); // explicit "In Progress", not the epic's implicit default status
 
         var issueKey = await CreateIssueMcpService(testScope).CreateIssue(
-            AuthDataFor(organization.Id, ownerId), space.Key, "New issue content", targetStatus.Id, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), "New issue content", targetStatus.Id, null, CancellationToken.None);
 
         var createdIssue = await testScope.Database.Issues
             .Where(x => x.IssueNumber!.Space!.Key == space.Key)
@@ -314,22 +315,6 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task CreateIssue_ShouldThrow_WhenStatusBelongsToDifferentSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddSpace(ownerId, space => space
-                .AddEpic(ownerId, epic => epic.AddStatus(s => s.WithName("In Progress")))));
-
-        var otherSpace = organization.GetSpace(0); // unrelated to the status below
-        var statusFromDifferentSpace = organization.GetStatus(1, 1, 1);
-
-        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
-            AuthDataFor(organization.Id, ownerId), otherSpace.Key, "New issue content", statusFromDifferentSpace.Id, null, CancellationToken.None));
-    }
-
-    [Fact]
     public async Task CreateIssue_ShouldThrow_WhenCallerCannotCreateIssues()
     {
         using var testScope = host.CreateTestScope();
@@ -338,11 +323,12 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
 
-        var space = organization.GetSpace(0);
         var statusId = organization.GetStatus(0, 0, 0).Id;
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).CreateIssue(
-            AuthDataFor(organization.Id, memberId), space.Key, "New issue content", statusId, null, CancellationToken.None));
+        // Matches the REST API's own IssuesService.Create - a missing CanCreateIssue is reported
+        // as NotFound (via EnsureOrThrowNotFound), not Forbidden.
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, memberId), "New issue content", statusId, null, CancellationToken.None));
     }
 
     [Fact]
@@ -471,13 +457,20 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var result = await CreateIssueMcpService(testScope)
             .ListAttributes(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
 
+        var summaryAttribute = organization.GetAttribute(0);
+        var priorityAttribute = organization.GetAttribute(1);
+
         var summary = Assert.Single(result, x => x.Name == "Summary");
+        Assert.Equal(summaryAttribute.Id, summary.Id);
         Assert.Equal(nameof(AttributeType.Text), summary.Type);
         Assert.Null(summary.ListValues);
 
         var priority = Assert.Single(result, x => x.Name == "Priority");
+        Assert.Equal(priorityAttribute.Id, priority.Id);
         Assert.Equal(nameof(AttributeType.List), priority.Type);
-        Assert.Equal(["Low", "High"], priority.ListValues);
+        Assert.Equal(
+            priorityAttribute.AttributeListValues!.Select(v => (v.Id, v.Value)).ToHashSet(),
+            priority.ListValues!.Select(v => (v.Id, v.Value)).ToHashSet());
     }
 
     [Fact]
@@ -497,10 +490,13 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueKey = await CreateIssueMcpService(testScope).CreateIssue(
             AuthDataFor(organization.Id, ownerId),
-            space.Key,
             "New issue content",
             statusId,
-            new Dictionary<string, string> { ["Summary"] = "A short summary", ["Priority"] = "High" },
+            new Dictionary<long, string>
+            {
+                [summaryAttribute.Id] = "A short summary",
+                [priorityAttribute.Id] = highValue.Id.ToString(),
+            },
             CancellationToken.None);
 
         var issueId = await testScope.Database.Issues
@@ -527,14 +523,44 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var space = organization.GetSpace(0);
         var statusId = organization.GetStatus(0, 0, 0).Id;
+        var priorityAttribute = organization.GetAttribute(0);
 
-        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
+        await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
             AuthDataFor(organization.Id, ownerId),
-            space.Key,
             "New issue content",
             statusId,
-            new Dictionary<string, string> { ["Priority"] = "Not a real value" },
+            new Dictionary<long, string> { [priorityAttribute.Id] = "999999" }, // no such list value id
             CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldReportEveryBadAttribute_WhenMultipleAreInvalid()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddListAttribute("Priority", ["Low", "High"])
+            .AddIntegerAttribute("Estimate"));
+
+        var space = organization.GetSpace(0);
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+        var priorityAttribute = organization.GetAttribute(0);
+        var estimateAttribute = organization.GetAttribute(1);
+        const long unknownAttributeId = 999999;
+
+        var exception = await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            "New issue content",
+            statusId,
+            new Dictionary<long, string>
+            {
+                [priorityAttribute.Id] = "999999", // no such list value id
+                [estimateAttribute.Id] = "not a number",
+                [unknownAttributeId] = "whatever",
+            },
+            CancellationToken.None));
+
+        Assert.Equal(3, exception.Errors["attributes"].Length);
     }
 
     [Fact]
@@ -553,7 +579,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             issueData.Key,
             "Fix the thing",
-            new Dictionary<string, string> { ["Estimate"] = "5" },
+            new Dictionary<long, string> { [estimateAttribute.Id] = "5" },
             CancellationToken.None);
 
         var integerValue = await testScope.Database.IssueAttributeIntegerValues

@@ -2,6 +2,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
+using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +19,21 @@ public interface ICoreIssueAttributesService
         long issueId,
         long organizationId,
         SetIssueAttributeRequest[] attributeRequests,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Validates <paramref name="attributeValues"/> (each already resolved to an attribute id -
+    /// by the REST API's own typed request body, or by the MCP host after parsing a caller's
+    /// plain text) against the organization's actual attribute definitions, and builds the
+    /// corresponding <see cref="SetIssueAttributeRequest"/>s for <see cref="UpdateAttributes"/>.
+    /// Collects every problem found (unknown attribute, wrong value shape, too-long text, unknown
+    /// list value id) rather than failing on the first one, then throws a single
+    /// <see cref="BadRequestException"/> if any were found - same shape both hosts' callers
+    /// already return to their own clients.
+    /// </summary>
+    Task<SetIssueAttributeRequest[]> BuildSetRequests(
+        long organizationId,
+        AttributeValue[] attributeValues,
         CancellationToken cancellationToken);
 }
 
@@ -57,6 +73,165 @@ public class CoreIssueAttributesService(
                 cancellationToken));
 
         return changes.ToArray();
+    }
+
+    public async Task<SetIssueAttributeRequest[]> BuildSetRequests(
+        long organizationId,
+        AttributeValue[] attributeValues,
+        CancellationToken cancellationToken)
+    {
+        if (attributeValues.Length == 0)
+            return [];
+
+        var uniqueValues = attributeValues
+            .DistinctBy(x => x.AttributeId)
+            .ToArray();
+
+        var attributeTypeById = await context.Attributes
+            .Where(x => x.OrganizationId == organizationId)
+            .Where(x => uniqueValues.Select(v => v.AttributeId).Contains(x.Id))
+            .ToDictionaryAsyncEF(x => x.Id, x => x.AttributeType, cancellationToken);
+
+        var listAttributeIds = uniqueValues
+            .Where(v => attributeTypeById.GetValueOrDefault(v.AttributeId) == AttributeType.List)
+            .Select(v => v.AttributeId)
+            .ToArray();
+
+        // Batched existence check for every requested list value id, keyed by (AttributeId,
+        // ListValueId) so a request can't silently point at another attribute's option.
+        var validListValueKeys = new HashSet<(long AttributeId, long ValueId)>();
+        if (listAttributeIds.Length > 0)
+        {
+            var listValues = await context.AttributeListValues
+                .Where(v => listAttributeIds.Contains(v.AttributeId))
+                .Select(v => new { v.AttributeId, v.Id })
+                .ToArrayAsyncEF(cancellationToken);
+
+            foreach (var v in listValues)
+                validListValueKeys.Add((v.AttributeId, v.Id));
+        }
+
+        var requests = new List<SetIssueAttributeRequest>();
+        var errors = new List<string?>();
+
+        foreach (var attributeValue in uniqueValues)
+        {
+            if (!attributeTypeById.TryGetValue(attributeValue.AttributeId, out var attributeType))
+            {
+                errors.Add($"Attribute: {attributeValue.AttributeId} is not found");
+                continue;
+            }
+
+            switch (attributeType)
+            {
+                case AttributeType.List:
+                    if (attributeValue is not EnumAttributeValue enumAttributeValue)
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} should be an enum value");
+                        continue;
+                    }
+
+                    if (!validListValueKeys.Contains((enumAttributeValue.AttributeId, enumAttributeValue.ValueId)))
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} has no list value {enumAttributeValue.ValueId}");
+                        continue;
+                    }
+
+                    requests.Add(new SetIssueListAttributeRequest
+                    {
+                        Id = enumAttributeValue.AttributeId,
+                        ListValueId = enumAttributeValue.ValueId,
+                    });
+                    break;
+
+                case AttributeType.Text:
+                    if (attributeValue is not StringAttributeValue stringAttributeValue)
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} should be a string value");
+                        continue;
+                    }
+
+                    if (stringAttributeValue.Value.Length > 255)
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} value must be at most 255 characters");
+                        continue;
+                    }
+
+                    requests.Add(new SetIssueTextAttributeRequest
+                    {
+                        Id = stringAttributeValue.AttributeId,
+                        Value = stringAttributeValue.Value,
+                    });
+                    break;
+
+                case AttributeType.Integer:
+                    if (attributeValue is not IntegerAttributeValue integerAttributeValue)
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} should be an integer value");
+                        continue;
+                    }
+
+                    requests.Add(new SetIssueIntegerAttributeRequest
+                    {
+                        Id = integerAttributeValue.AttributeId,
+                        Value = integerAttributeValue.Value,
+                    });
+                    break;
+
+                case AttributeType.Decimal:
+                    if (attributeValue is not DecimalAttributeValue decimalAttributeValue)
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} should be a decimal value");
+                        continue;
+                    }
+
+                    requests.Add(new SetIssueDecimalAttributeRequest
+                    {
+                        Id = decimalAttributeValue.AttributeId,
+                        Value = decimalAttributeValue.Value,
+                    });
+                    break;
+
+                case AttributeType.Date:
+                    if (attributeValue is not DateAttributeValue dateAttributeValue)
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} should be a date value");
+                        continue;
+                    }
+
+                    requests.Add(new SetIssueDateAttributeRequest
+                    {
+                        Id = dateAttributeValue.AttributeId,
+                        Value = dateAttributeValue.Value,
+                    });
+                    break;
+
+                case AttributeType.DateTime:
+                    if (attributeValue is not DateTimeAttributeValue dateTimeAttributeValue)
+                    {
+                        errors.Add($"Attribute: {attributeValue.AttributeId} should be a date-time value");
+                        continue;
+                    }
+
+                    requests.Add(new SetIssueDateTimeAttributeRequest
+                    {
+                        Id = dateTimeAttributeValue.AttributeId,
+                        Value = dateTimeAttributeValue.Value,
+                    });
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(attributeType), attributeType, null);
+            }
+        }
+
+        if (errors.Count > 0)
+            throw new BadRequestException(new Dictionary<string, string?[]>
+            {
+                [nameof(attributeValues)] = errors.ToArray(),
+            });
+
+        return requests.ToArray();
     }
 
     private async Task<OrganizationLogItem[]> UpdateListAttributes(

@@ -96,38 +96,11 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Status: {0} is not found in space {1}.
-        /// </summary>
-        internal static string StatusNotFoundInSpace {
-            get {
-                return ResourceManager.GetString("StatusNotFoundInSpace", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute '{0}': value must be at most 255 characters.
-        /// </summary>
-        internal static string AttributeValueTooLong {
-            get {
-                return ResourceManager.GetString("AttributeValueTooLong", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   Looks up a localized string similar to Attribute '{0}': value is not a valid {1}.
         /// </summary>
         internal static string AttributeValueInvalid {
             get {
                 return ResourceManager.GetString("AttributeValueInvalid", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute '{0}': '{1}' is not one of its allowed values.
-        /// </summary>
-        internal static string AttributeListValueNotFound {
-            get {
-                return ResourceManager.GetString("AttributeListValueNotFound", resourceCulture);
             }
         }
     }

@@ -267,69 +267,6 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be an enum attribute value.
-        /// </summary>
-        internal static string AttributeShouldBeEnum {
-            get {
-                return ResourceManager.GetString("AttributeShouldBeEnum", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a string attribute value.
-        /// </summary>
-        internal static string AttributeShouldBeString {
-            get {
-                return ResourceManager.GetString("AttributeShouldBeString", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; value should be less or equal to 255 characters.
-        /// </summary>
-        internal static string AttributeStringTooLong {
-            get {
-                return ResourceManager.GetString("AttributeStringTooLong", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be an integer attribute value.
-        /// </summary>
-        internal static string AttributeShouldBeInteger {
-            get {
-                return ResourceManager.GetString("AttributeShouldBeInteger", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a decimal attribute value.
-        /// </summary>
-        internal static string AttributeShouldBeDecimal {
-            get {
-                return ResourceManager.GetString("AttributeShouldBeDecimal", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a date attribute value.
-        /// </summary>
-        internal static string AttributeShouldBeDate {
-            get {
-                return ResourceManager.GetString("AttributeShouldBeDate", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute &apos;{0}&apos; should be a date-time attribute value.
-        /// </summary>
-        internal static string AttributeShouldBeDateTime {
-            get {
-                return ResourceManager.GetString("AttributeShouldBeDateTime", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   Looks up a localized string similar to Filter with id: &apos;{0}&apos; is not found.
         /// </summary>
         internal static string FilterNotFound {

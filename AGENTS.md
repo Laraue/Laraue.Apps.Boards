@@ -490,8 +490,8 @@ browser session. Three pieces:
   tests, same reason a controller doesn't usually get tested separately from the service it calls.
   Tools cover `list_issues`/`get_issue`/`update_issue_status` plus `create_issue`/`edit_issue`/
   `add_comment`/`edit_comment` and the two discovery tools `list_statuses`/`list_attributes` -
-  each still just the REST API's own permission/mutation path (`CanCreateIssue` off the resolved
-  space, `CanUpdateIssue` for edits/comments, owner-only for editing a comment - same as
+  each still just the REST API's own permission/mutation path (`CanCreateIssue` off the target
+  status's epic, `CanUpdateIssue` for edits/comments, owner-only for editing a comment - same as
   `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
   `update_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
   `IssuesService.Create` also just takes a raw `StatusId`, no separate space concept at all) - and
@@ -500,31 +500,49 @@ browser session. Three pieces:
   can move issues to, not necessarily one in the issue's current epic - moving an issue to a
   different epic's status is real REST API behavior too (an issue's epic is entirely derived from
   its `StatusId`), not something worth artificially restricting just because MCP takes an id.
-  `create_issue`'s `spaceKey` **is** still required, though (unlike the REST API, which has no
-  `spaceKey` concept for `Create` at all) - since a given `statusId` must belong to that same
-  space (checked explicitly), otherwise the `CanCreateIssue` check against `spaceKey` and the
-  issue's real destination (derived from `statusId`'s own space) could silently disagree, letting
-  a caller sneak an issue into a space they never had create access to just by naming a status
-  from it. `create_issue`'s `statusId` is **required**, not defaulted - `list_statuses` always
+  `create_issue` has **no `spaceKey` parameter at all**, matching the REST API's `Create` exactly
+  - an earlier revision added one plus a "does `statusId` belong to `spaceKey`" cross-check,
+  reasoning that `CanCreateIssue` needed a caller-supplied space to check against. That was
+  unnecessary: `IssuesService.Create` proves permission can be derived directly from `statusId`'s
+  own epic (`GetAccessLevelsByEpicId`), with nothing left to cross-validate once there's no second
+  space parameter to disagree with it. `create_issue`'s `statusId` is **required**, not defaulted - `list_statuses` always
   has to be called first, which also means a caller always knows and states exactly which status
   a new issue lands in, rather than relying on an implicit "space's default" a caller can't see
   without a separate lookup anyway. `list_attributes` plays the equivalent discovery
-  role for `create_issue`/`edit_issue`'s `attributes` map, whose keys are still plain attribute
-  **names**, not ids - attribute names are already unique per organization (nothing like the
-  epic-scoping ambiguity a status name has), so there's no matching reason to switch those to ids.
+  role for `create_issue`/`edit_issue`'s `attributes` map, whose keys are attribute **ids**
+  (`list_attributes` returns each attribute's id, and for `AttributeType.List`, each allowed
+  value's own id too) - matching `statusId`'s id-based shape rather than the name-based
+  alternative once used here. Names were briefly tried since attribute names are already unique
+  per org (unlike a status name, which needs epic-scoping to disambiguate), but ids won: an
+  agentic caller already has `list_attributes`' full output in context right before calling
+  `create_issue`/`edit_issue`, so there's no real memorization cost, and ids let the whole
+  validate-and-build step be shared with the REST API instead of duplicated (see below).
 - **Attributes** (custom per-organization fields - `Attribute`/`AttributeListValue`,
   `Laraue.Apps.Boards.DataAccess.Models`) are flat and org-wide, never scoped to a space/epic -
-  `list_attributes` and `create_issue`/`edit_issue`'s `attributes` map (attribute name → plain
-  text value) both just filter `context.Attributes` by `OrganizationId`. Unlike the REST API,
-  which sends an **already-typed** value per attribute (a real `decimal`/`DateOnly`/list-value-id
-  - see `IssuesService.GetAttributeUpdateRequests`, which only validates/maps, never parses a raw
-  string), MCP callers can only produce plain text, so `IssueMcpService.BuildAttributeRequest`
-  does the parsing existing code never had to: `long`/`decimal`/`DateOnly`/`DateTime.TryParse`
-  per `AttributeType`, and for `AttributeType.List`, resolving the caller's text against
-  `AttributeListValue.Value` (existing code only ever resolves list attributes by id, never by
-  matching text - this resolution is new, not reused). Omitting `attributes` on `edit_issue`
-  leaves every attribute untouched (not cleared) - there's no "clear all attributes" MCP
-  operation, since `IssueChange<TSelf>.SetAttributes([])` (clear) vs never calling it (don't
+  `list_attributes` and `create_issue`/`edit_issue`'s `attributes` map (attribute id → plain text
+  value; for `AttributeType.List`, the value is one of that attribute's list value ids, also as
+  plain text) both just filter `context.Attributes` by `OrganizationId`.
+  `Laraue.Apps.Boards.Services.AttributeRequests.AttributeValue` (+ its 6 typed subtypes -
+  `StringAttributeValue`, `IntegerAttributeValue`, `DecimalAttributeValue`, `DateAttributeValue`,
+  `DateTimeAttributeValue`, `EnumAttributeValue`) is the **shared** representation both hosts
+  build before handing off to `ICoreIssueAttributesService.BuildSetRequests` - the one place that
+  validates each value against the attribute's real type (batched, one query for attribute types
+  + one for list-value-id existence, not N+1) and builds the corresponding
+  `SetIssueAttributeRequest`s, collecting every problem found (not just the first) into a single
+  `BadRequestException`. The REST API's client already sends an already-typed `AttributeValue`
+  per attribute (see `IssuesService.CreateIssueRequest`/`UpdateIssueRequest`, `[JsonModelBinder]`
+  picking the right derived type) and calls `BuildSetRequests` directly. MCP callers can only
+  produce plain text, so `IssueMcpService.ParseAttributeValue` does the one genuinely
+  MCP-specific step `GetAttributeUpdateRequests` never had to: parsing raw text into the right
+  typed `AttributeValue` per `AttributeType` (`long`/`decimal`/`DateOnly`/`DateTime.TryParse`,
+  and for `List`, just `long.TryParse` into a `ValueId` now that the caller passes an id instead
+  of matching display text) - then hands the result to the same shared `BuildSetRequests`.
+  `IssueMcpService.ResolveAttributeRequests` still has to merge MCP's own parse-time errors with
+  whatever `BuildSetRequests` itself throws (rather than short-circuiting on the first parse
+  failure) so a caller sees every problem across every attribute in one response, matching the
+  batched-error guarantee `BuildSetRequests` already gives REST callers. Omitting `attributes` on
+  `edit_issue` leaves every attribute untouched (not cleared) - there's no "clear all attributes"
+  MCP operation, since `IssueChange<TSelf>.SetAttributes([])` (clear) vs never calling it (don't
   touch) is exactly the distinction an omitted/empty MCP dictionary can't disambiguate.
 
 ## User-facing text

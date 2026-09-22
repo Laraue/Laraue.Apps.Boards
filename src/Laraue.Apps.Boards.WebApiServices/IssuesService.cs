@@ -93,6 +93,7 @@ public interface IIssuesService
 public class IssuesService(
     DatabaseContext context,
     ICoreIssuesService issuesService,
+    ICoreIssueAttributesService coreIssueAttributesService,
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
     ICoreFilesService coreFilesService,
@@ -346,7 +347,7 @@ public class IssuesService(
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
-        var attributeUpdateRequests = await GetAttributeUpdateRequests(
+        var attributeUpdateRequests = await coreIssueAttributesService.BuildSetRequests(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
@@ -389,7 +390,7 @@ public class IssuesService(
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
-        var attributeUpdateRequests = await GetAttributeUpdateRequests(
+        var attributeUpdateRequests = await coreIssueAttributesService.BuildSetRequests(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
@@ -906,151 +907,6 @@ public class IssuesService(
         }
         
         return files.ToArray();
-    }
-
-    private async Task<SetIssueAttributeRequest[]> GetAttributeUpdateRequests(
-        long organizationId,
-        AttributeValue[] attributeValues,
-        CancellationToken ct)
-    {
-        if (attributeValues.Length == 0)
-            return [];
-
-        var uniqueValues = attributeValues
-            .DistinctBy(x => x.AttributeId)
-            .ToArray();
-        
-        var requests = new List<SetIssueAttributeRequest>();
-        var attributeValidationErrors = new List<string>();
-        
-        var attributes = await context.Attributes
-            .Where(x => x.OrganizationId == organizationId)
-            .Where(x => uniqueValues.Select(v => v.AttributeId).Contains(x.Id))
-            .Select(x => new { x.Id, x.AttributeType })
-            .ToDictionaryAsyncEF(x => x.Id, x => x.AttributeType, ct);
-
-        foreach (var attribute in uniqueValues)
-        {
-            if (!attributes.TryGetValue(attribute.AttributeId, out var attributeType))
-                attributeValidationErrors.Add(string.Format(ErrorMessages.EntityNotFound, "Attribute", attribute.AttributeId));
-
-            switch (attributeType)
-            {
-                case AttributeType.List:
-                {
-                    if (attribute is not EnumAttributeValue enumAttributeValue)
-                    {
-                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeEnum, attribute.AttributeId));
-                        continue;
-                    }
-                    
-                    requests.Add(
-                        new SetIssueListAttributeRequest
-                        {
-                            Id = enumAttributeValue.AttributeId,
-                            ListValueId = enumAttributeValue.ValueId
-                        });
-                    break;
-                }
-                case AttributeType.Text:
-                {
-                    if (attribute is not StringAttributeValue stringAttributeValue)
-                    {
-                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeString, attribute.AttributeId));
-                        continue;
-                    }
-
-                    if (stringAttributeValue.Value.Length > 255)
-                    {
-                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeStringTooLong, attribute.AttributeId));
-                        continue;
-                    }
-                    
-                    requests.Add(
-                        new SetIssueTextAttributeRequest
-                        {
-                            Id = stringAttributeValue.AttributeId,
-                            Value = stringAttributeValue.Value,
-                        });
-                    break;
-                }
-                case AttributeType.Integer:
-                {
-                    if (attribute is not IntegerAttributeValue integerAttributeValue)
-                    {
-                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeInteger, attribute.AttributeId));
-                        continue;
-                    }
-
-                    requests.Add(
-                        new SetIssueIntegerAttributeRequest
-                        {
-                            Id = integerAttributeValue.AttributeId,
-                            Value = integerAttributeValue.Value,
-                        });
-                    break;
-                }
-                case AttributeType.Decimal:
-                {
-                    if (attribute is not DecimalAttributeValue decimalAttributeValue)
-                    {
-                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeDecimal, attribute.AttributeId));
-                        continue;
-                    }
-
-                    requests.Add(
-                        new SetIssueDecimalAttributeRequest
-                        {
-                            Id = decimalAttributeValue.AttributeId,
-                            Value = decimalAttributeValue.Value,
-                        });
-                    break;
-                }
-                case AttributeType.Date:
-                {
-                    if (attribute is not DateAttributeValue dateAttributeValue)
-                    {
-                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeDate, attribute.AttributeId));
-                        continue;
-                    }
-
-                    requests.Add(
-                        new SetIssueDateAttributeRequest
-                        {
-                            Id = dateAttributeValue.AttributeId,
-                            Value = dateAttributeValue.Value,
-                        });
-                    break;
-                }
-                case AttributeType.DateTime:
-                {
-                    if (attribute is not DateTimeAttributeValue dateTimeAttributeValue)
-                    {
-                        attributeValidationErrors.Add(string.Format(ErrorMessages.AttributeShouldBeDateTime, attribute.AttributeId));
-                        continue;
-                    }
-
-                    requests.Add(
-                        new SetIssueDateTimeAttributeRequest
-                        {
-                            Id = dateTimeAttributeValue.AttributeId,
-                            Value = dateTimeAttributeValue.Value,
-                        });
-                    break;
-                }
-
-                default:
-                    throw new InvalidOperationException($"Attribute type {attributeType} is not supported");
-            }
-        }
-
-        if (attributeValidationErrors.Count > 0)
-            throw new BadRequestException(new Dictionary<string, string?[]>
-            {
-                [nameof(attributeValues)] = attributeValidationErrors.ToArray(),
-            });
-
-        return requests.ToArray();
     }
 
     private async Task<List<SearchIssueDto>> MapToSearchDtos(
@@ -1736,46 +1592,6 @@ public record CreateIssueRequest
     public IFormFile[] Files { get; set; } = [];
 }
 
-[JsonDerivedType(typeof(EnumAttributeValue), "enum")]
-[JsonDerivedType(typeof(StringAttributeValue), "string")]
-[JsonDerivedType(typeof(IntegerAttributeValue), "integer")]
-[JsonDerivedType(typeof(DecimalAttributeValue), "decimal")]
-[JsonDerivedType(typeof(DateAttributeValue), "date")]
-[JsonDerivedType(typeof(DateTimeAttributeValue), "datetime")]
-public abstract record AttributeValue
-{
-    public required long AttributeId { get; set; }
-}
-
-public record EnumAttributeValue : AttributeValue
-{
-    public required long ValueId { get; set; }
-}
-
-public record StringAttributeValue : AttributeValue
-{
-    public required string Value { get; set; }
-}
-
-public record IntegerAttributeValue : AttributeValue
-{
-    public required long Value { get; set; }
-}
-
-public record DecimalAttributeValue : AttributeValue
-{
-    public required decimal Value { get; set; }
-}
-
-public record DateAttributeValue : AttributeValue
-{
-    public required DateOnly Value { get; set; }
-}
-
-public record DateTimeAttributeValue : AttributeValue
-{
-    public required DateTime Value { get; set; }
-}
 
 public record UpdateIssueRequest
 {

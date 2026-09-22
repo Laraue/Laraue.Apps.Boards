@@ -96,27 +96,6 @@
     <data name="CommentNotAvailableToDelete" xml:space="preserve">
         <value>Comment: {0} is not exists or not available to delete</value>
     </data>
-    <data name="AttributeShouldBeEnum" xml:space="preserve">
-        <value>Attribute '{0}' should be an enum attribute value</value>
-    </data>
-    <data name="AttributeShouldBeString" xml:space="preserve">
-        <value>Attribute '{0}' should be a string attribute value</value>
-    </data>
-    <data name="AttributeStringTooLong" xml:space="preserve">
-        <value>Attribute '{0}' value should be less or equal to 255 characters</value>
-    </data>
-    <data name="AttributeShouldBeInteger" xml:space="preserve">
-        <value>Attribute '{0}' should be an integer attribute value</value>
-    </data>
-    <data name="AttributeShouldBeDecimal" xml:space="preserve">
-        <value>Attribute '{0}' should be a decimal attribute value</value>
-    </data>
-    <data name="AttributeShouldBeDate" xml:space="preserve">
-        <value>Attribute '{0}' should be a date attribute value</value>
-    </data>
-    <data name="AttributeShouldBeDateTime" xml:space="preserve">
-        <value>Attribute '{0}' should be a date-time attribute value</value>
-    </data>
     <data name="FilterNotFound" xml:space="preserve">
         <value>Filter with id: '{0}' is not found</value>
     </data>
