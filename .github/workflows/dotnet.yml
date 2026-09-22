@@ -93,25 +93,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Telegram Host
+          - name: Boards Telegram Host
             artifact: telegram-host
             archive: telegram-host.tar.gz
             remote_dir: /home/laraue/boards-telegram-host
             image: structuredmessagestelegramhost
             environment: telegram-production
-          - name: Web API Host
+          - name: Boards Web API Host
             artifact: webapi-host
             archive: webapi-host.tar.gz
             remote_dir: /home/laraue/boards-webapi-host
             image: structuredmessageswebapihost
             environment: webapi-production
-          - name: Retro Web API Host
+          - name: Boards Retro Web API Host
             artifact: retro-webapi-host
             archive: retro-webapi-host.tar.gz
             remote_dir: /home/laraue/retro-webapi-host
             image: retroapihost
             environment: retro-webapi-production
-          - name: MCP Host
+          - name: Boards MCP Host
             artifact: mcp-host
             archive: mcp-host.tar.gz
             remote_dir: /home/laraue/boards-mcp-host
