@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.laraue/boards",
+  "description": "List, view, create, edit, and move issues in your Laraue Boards organization.",
+  "title": "Laraue Boards",
+  "version": "1.0.0",
+  "websiteUrl": "https://boards.laraue.com",
+  "repository": {
+    "url": "https://github.com/win7user10/Laraue.Apps.Boards",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://boards.laraue.com/boards-mcp/mcp",
+      "headers": [
+        {
+          "name": "X-Api-Key",
+          "description": "Boards API key - create one from your organization's settings.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
