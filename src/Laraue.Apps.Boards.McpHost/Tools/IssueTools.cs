@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.McpHost.Services;
+using Laraue.Apps.Boards.Services;
 using Laraue.Core.Exceptions.Web;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace Laraue.Apps.Boards.McpHost.Tools;
@@ -99,6 +101,47 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     public Task<IReadOnlyList<MemberSummary>> ListMembers(CancellationToken cancellationToken)
     {
         return issueMcpService.ListMembers(GetAuthData(), cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Downloads an issue attachment's original file content, by the id from get_issue's Attachments list. Only image attachments are supported today.")]
+    public async Task<CallToolResult> GetAttachment(
+        [Description("The attachment's id, from get_issue's Attachments list.")] Guid attachmentId,
+        CancellationToken cancellationToken)
+    {
+        var content = await issueMcpService.GetAttachmentContent(GetAuthData(), attachmentId, cancellationToken);
+        await using var stream = content.Content;
+
+        var bytes = await ReadBoundedAsync(stream, SystemMimeTypes.MaxFileSizeBytes, cancellationToken);
+
+        return new CallToolResult
+        {
+            Content = [new ImageContentBlock { Data = bytes, MimeType = content.MimeType }],
+        };
+    }
+
+    /// <summary>
+    /// Copies <paramref name="stream"/> into memory, aborting as soon as it's read more than
+    /// <paramref name="maxBytes"/> - a hard runtime cap on top of
+    /// <see cref="IIssueMcpService.GetAttachmentContent"/>'s own DB-size-based check, so an
+    /// attachment whose recorded size is missing or wrong still can't make this tool buffer an
+    /// unbounded amount of memory building the resulting <see cref="ImageContentBlock"/>.
+    /// </summary>
+    private static async Task<byte[]> ReadBoundedAsync(Stream stream, int maxBytes, CancellationToken cancellationToken)
+    {
+        using var memoryStream = new MemoryStream();
+        var buffer = new byte[81920];
+
+        int bytesRead;
+        while ((bytesRead = await stream.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            if (memoryStream.Length + bytesRead > maxBytes)
+                throw new BadRequestException("attachmentId", $"Attachment content exceeds the {maxBytes}-byte download limit.");
+
+            await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+        }
+
+        return memoryStream.ToArray();
     }
 
     [McpServerTool]

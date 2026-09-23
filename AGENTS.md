@@ -489,8 +489,9 @@ browser session. Three pieces:
   already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
   tests, same reason a controller doesn't usually get tested separately from the service it calls.
   Tools cover `list_issues`/`get_issue`/`update_issue_status` plus `create_issue`/`edit_issue`/
-  `add_comment`/`edit_comment` and the discovery tools `list_spaces`/`list_statuses`/
-  `list_attributes`/`list_members` - each still just the REST API's own permission/mutation path (`CanCreateIssue` off the target
+  `add_comment`/`edit_comment`/`get_attachment` and the discovery tools `list_spaces`/
+  `list_statuses`/`list_attributes`/`list_members` - each still just the REST API's own
+  permission/mutation path (`CanCreateIssue` off the target
   status's epic, `CanUpdateIssue` for edits/comments, owner-only for editing a comment - same as
   `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
   `update_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
@@ -567,7 +568,38 @@ browser session. Three pieces:
   `IssueDetail` now includes `Attachments` (id + file name) specifically so a caller has a way to
   discover those ids - `list_statuses`/`list_attributes`'s same "call this first to get an id"
   role, just folded into `get_issue` rather than a separate tool, since attachments are naturally
-  read alongside the rest of an issue's detail anyway.
+  read alongside the rest of an issue's detail anyway. `get_attachment` (id from that same list)
+  goes the other direction - downloads one attachment's original file content, returned as a real
+  MCP `ImageContentBlock` (not a JSON field with a base64 string wedged into it), so the client can
+  actually render/inspect the image rather than just seeing opaque text. `IssueMcpService.
+  GetAttachmentContent` resolves `IssueAttachment` -> `Attachment.FileId`, permission-checks
+  `CanRead` on the owning issue (same two-step 404-then-403 shape as `EditComment`), then delegates
+  to a new `ICoreFilesService.GetFileContent(fileId)` - a read, so it lives on `Boards.Services`'
+  `CoreFilesService` even though "core services are for mutations" above, matching the existing
+  `ValidateAsync`-is-fine precedent for a method with no meaningful alternative home. It checks the
+  local file-storage cache first, falling back to a live Telegram `GetFile` + raw HTTP download
+  when the file isn't cached - deliberately **not** replicating `FilesController.GetFileById`'s
+  HTTP Range/streaming support, since a single MCP tool-call result can't be split into ranges the
+  way an HTTP response can. Returns a new shared `FileContent(Stream Content, string MimeType)`
+  record (not a `(Stream, string)` tuple, per the "no tuples in public signatures" rule) - `Content`
+  is a live local-file or HTTP-response stream, not a pre-buffered `byte[]`, so nothing forces the
+  whole file into memory just to satisfy this method's own contract. `IssueTools.GetAttachment` is
+  the one place that actually needs bytes (an MCP `ImageContentBlock.Data` is a
+  `ReadOnlyMemory<byte>` - the wire format leaves no way around materializing it), so it's the only
+  place that buffers the stream into memory, right before building the response, and disposes the
+  stream immediately after. Only the **original** file (`Attachment.FileId`) is ever fetched this
+  way - `CoreFilesService.UploadPhotoFile` only locally caches the *thumbnail*, never the original,
+  so a `GetAttachmentContent` call in practice always takes the Telegram-fallback path; tests mock
+  that fallback with a fake default-`IHttpClientFactory` handler
+  (`FakeTelegramFileHttpMessageHandler`, registered in `WebApiTestHost`) rather than reaching a
+  real Telegram URL. `get_attachment` enforces the same `SystemMimeTypes.MaxFileSizeBytes` (3MB)
+  cap uploads already use, in two layers: `IssueMcpService.GetAttachmentContent` rejects a file
+  whose DB-recorded `File.Size` already exceeds it before ever opening a stream (a
+  `BadRequestException`, cheap and informative - uploads are already capped at this size, so this
+  only ever fires for a legacy/otherwise-larger file), and `IssueTools.GetAttachment` separately
+  enforces a hard runtime cap while copying the stream into memory for the `ImageContentBlock`, so
+  a missing or wrong `File.Size` still can't make this tool buffer an unbounded amount of memory -
+  the DB check is an optimization, the runtime cap is the actual OOM guard.
 - **`list_issues`' `assigneeId`** (a `Guid`) replaced an earlier `assigneeName` display-name
   substring filter, matching the id-based convention `statusId`/attribute ids already use - same
   motivation, since a display name filter can silently match zero or several people, while an id

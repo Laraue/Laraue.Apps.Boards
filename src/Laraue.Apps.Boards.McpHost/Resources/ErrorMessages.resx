@@ -42,4 +42,7 @@
     <data name="FileTooLarge" xml:space="preserve">
         <value>File '{0}': size is limited to 3MB</value>
     </data>
+    <data name="AttachmentTooLargeToDownload" xml:space="preserve">
+        <value>Attachment: {0} exceeds the 3MB download limit</value>
+    </data>
 </root>
