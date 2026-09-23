@@ -30,16 +30,16 @@
     <data name="IssueNotFoundInOrganization" xml:space="preserve">
         <value>Issue: {0} is not found in organization</value>
     </data>
-    <data name="StatusNotFoundInSpace" xml:space="preserve">
-        <value>Status: {0} is not found in space {1}</value>
-    </data>
-    <data name="AttributeValueTooLong" xml:space="preserve">
-        <value>Attribute '{0}': value must be at most 255 characters</value>
-    </data>
     <data name="AttributeValueInvalid" xml:space="preserve">
         <value>Attribute '{0}': value is not a valid {1}</value>
     </data>
-    <data name="AttributeListValueNotFound" xml:space="preserve">
-        <value>Attribute '{0}': '{1}' is not one of its allowed values</value>
+    <data name="FileUnsupportedMimeType" xml:space="preserve">
+        <value>File '{0}': unsupported content type '{1}' - supported types are: {2}</value>
+    </data>
+    <data name="FileInvalidBase64" xml:space="preserve">
+        <value>File '{0}': content is not valid base64</value>
+    </data>
+    <data name="FileTooLarge" xml:space="preserve">
+        <value>File '{0}': size is limited to 3MB</value>
     </data>
 </root>

@@ -24,8 +24,8 @@ public interface IIssueMcpService
     Task<IssueListPage> ListIssues(
         OrganizationAuthData authData,
         string? spaceKey,
-        string? statusName,
-        string? assigneeName,
+        long? statusId,
+        Guid? assigneeId,
         int? page,
         int? count,
         CancellationToken cancellationToken);
@@ -48,30 +48,50 @@ public interface IIssueMcpService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Creates an issue in <paramref name="spaceKey"/>. <paramref name="statusId"/> must belong
-    /// to that space - call <see cref="ListStatuses"/> first to find one.
-    /// <paramref name="attributes"/> maps attribute name to a plain-text value (see
-    /// <see cref="ListAttributes"/> for what's available and its expected format per type) -
-    /// omit or pass null/empty to leave every attribute unset. Returns the new issue's key.
+    /// Creates an issue in the space <paramref name="statusId"/> belongs to - call
+    /// <see cref="ListStatuses"/> first to find one; the destination space is derived entirely
+    /// from it, same as the REST API's own <c>IssuesService.Create</c> (no separate space
+    /// parameter to cross-validate against).
+    /// <paramref name="attributes"/> maps attribute id to a plain-text value (see
+    /// <see cref="ListAttributes"/> for the ids/types/expected format per attribute) -
+    /// omit or pass null/empty to leave every attribute unset. <paramref name="files"/> are
+    /// attached in addition to any already on the issue (there are none yet, for a new issue).
+    /// Returns the new issue's key.
     /// </summary>
     Task<string> CreateIssue(
         OrganizationAuthData authData,
-        string spaceKey,
         string content,
         long statusId,
-        IReadOnlyDictionary<string, string>? attributes,
+        IReadOnlyDictionary<long, string>? attributes,
+        IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// <paramref name="attributes"/> maps attribute name to a plain-text value, same as
-    /// <see cref="CreateIssue"/> - omitting it (null/empty) leaves every attribute untouched
-    /// rather than clearing them.
+    /// <paramref name="attributes"/> maps attribute id to a plain-text value, same as
+    /// <see cref="CreateIssue"/> - a <c>null</c> (omitted) dictionary leaves every attribute
+    /// untouched, while an empty (but non-null) one clears every attribute the issue currently
+    /// has. <paramref name="files"/> are attached in addition to the issue's existing
+    /// attachments. <paramref name="removeAttachmentIds"/> removes existing attachments by id
+    /// (see <see cref="GetIssue"/>'s <c>Attachments</c>) - both can be given in the same call to
+    /// replace one attachment with another.
     /// </summary>
     Task EditIssue(
         OrganizationAuthData authData,
         string issueKey,
         string content,
-        IReadOnlyDictionary<string, string>? attributes,
+        IReadOnlyDictionary<long, string>? attributes,
+        IReadOnlyList<FileAttachment>? files,
+        IReadOnlyList<Guid>? removeAttachmentIds,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists the spaces available to the caller (same set the REST API's own
+    /// <c>SpacesController.GetAll</c> returns) - the keys <see cref="ListIssues"/>'s
+    /// <c>spaceKey</c> filter and <see cref="ListStatuses"/> take. Not paginated, same as the
+    /// REST endpoint - an organization's space count is naturally small.
+    /// </summary>
+    Task<IReadOnlyList<SpaceSummary>> ListSpaces(
+        OrganizationAuthData authData,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -85,11 +105,21 @@ public interface IIssueMcpService
 
     /// <summary>
     /// Lists every custom attribute defined for the caller's organization (attributes are
-    /// org-wide, not scoped to a space/epic) - the names/types a caller can pass to
+    /// org-wide, not scoped to a space/epic) - the ids/types a caller can pass to
     /// <see cref="CreateIssue"/>/<see cref="EditIssue"/>'s <c>attributes</c> map, and for
-    /// list-typed attributes, the allowed values.
+    /// list-typed attributes, the allowed values (each with its own id, to pass as the value).
     /// </summary>
     Task<IReadOnlyList<AttributeSummary>> ListAttributes(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists organization members visible to the caller (same set the REST API's
+    /// <c>OrganizationsController.GetMembers</c> returns with no <c>spaceKey</c> given) - the ids
+    /// <see cref="ListIssues"/>'s <c>assigneeId</c> filter takes. Not paginated, same as the REST
+    /// endpoint - organization membership is naturally small.
+    /// </summary>
+    Task<IReadOnlyList<MemberSummary>> ListMembers(
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
 
@@ -124,6 +154,11 @@ public sealed record IssueListPage(IReadOnlyList<IssueSummary> Issues, long Page
 
 public sealed record IssueCommentSummary(long Id, string Author, string Text, DateTime CreatedAt);
 
+/// <summary>An issue's attachment, as returned by <see cref="IIssueMcpService.GetIssue"/> - its
+/// <see cref="Id"/> is what <see cref="IIssueMcpService.EditIssue"/>'s <c>removeAttachmentIds</c>
+/// takes to remove it.</summary>
+public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
+
 public sealed record IssueDetail(
     string Key,
     string? Content,
@@ -131,25 +166,50 @@ public sealed record IssueDetail(
     string Assignee,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    IReadOnlyList<IssueCommentSummary> Comments);
+    IReadOnlyList<IssueCommentSummary> Comments,
+    IReadOnlyList<IssueAttachmentSummary> Attachments);
+
+/// <summary>A space, as returned by <see cref="IIssueMcpService.ListSpaces"/> - its
+/// <see cref="Key"/> is what <see cref="IIssueMcpService.ListIssues"/>'s <c>spaceKey</c> and
+/// <see cref="IIssueMcpService.ListStatuses"/> take.</summary>
+public sealed record SpaceSummary(string Key, string Name);
 
 public sealed record StatusSummary(long Id, string Name);
 
 public sealed record EpicStatusSummary(string EpicName, IReadOnlyList<StatusSummary> Statuses);
 
+/// <summary>An organization member, as returned by <see cref="IIssueMcpService.ListMembers"/> -
+/// its <see cref="Id"/> is what <see cref="IIssueMcpService.ListIssues"/>'s <c>assigneeId</c> and
+/// <see cref="IIssueMcpService.CreateIssue"/>'s implicit self-assign both deal in.</summary>
+public sealed record MemberSummary(Guid Id, string DisplayName);
+
 /// <summary>
 /// <see cref="Type"/> is <see cref="AttributeType"/>'s name (e.g. "Text", "Integer", "Date") -
 /// the expected format for the plain-text value <see cref="IIssueMcpService.CreateIssue"/>/
-/// <see cref="IIssueMcpService.EditIssue"/> take per attribute. <see cref="ListValues"/> is only
-/// populated for <see cref="AttributeType.List"/> - null otherwise.
+/// <see cref="IIssueMcpService.EditIssue"/> take per attribute, keyed by <see cref="Id"/>.
+/// <see cref="ListValues"/> is only populated for <see cref="AttributeType.List"/> - null
+/// otherwise; a List value is set by passing one of its <see cref="AttributeListValueSummary.Id"/>s
+/// as plain text (e.g. "42"), not its display value.
 /// </summary>
-public sealed record AttributeSummary(string Name, string Type, IReadOnlyList<string>? ListValues);
+public sealed record AttributeSummary(long Id, string Name, string Type, IReadOnlyList<AttributeListValueSummary>? ListValues);
+
+public sealed record AttributeListValueSummary(long Id, string Value);
+
+/// <summary>
+/// A file to attach, base64-encoded - the only shape an MCP tool call can practically carry a
+/// file in, since there's no multipart upload channel here the way the REST API's
+/// <c>IFormFile[]</c> gets one. <see cref="ContentType"/> must be one of
+/// <see cref="SystemMimeTypes.Supported"/> (images only, same restriction the REST API has).
+/// </summary>
+public sealed record FileAttachment(string FileName, string ContentType, string Base64Content);
 
 public class IssueMcpService(
     DatabaseContext context,
     IAccessService accessService,
     ICoreIssuesService coreIssuesService,
     ICoreSpacesService coreSpacesService,
+    ICoreIssueAttributesService coreIssueAttributesService,
+    ICoreFilesService coreFilesService,
     IDateTimeProvider dateTimeProvider)
     : IIssueMcpService
 {
@@ -159,8 +219,8 @@ public class IssueMcpService(
     public Task<IssueListPage> ListIssues(
         OrganizationAuthData authData,
         string? spaceKey,
-        string? statusName,
-        string? assigneeName,
+        long? statusId,
+        Guid? assigneeId,
         int? page,
         int? count,
         CancellationToken cancellationToken)
@@ -175,11 +235,11 @@ public class IssueMcpService(
             if (!string.IsNullOrWhiteSpace(spaceKey))
                 query = query.Where(i => i.Status!.Epic!.Space!.Key == spaceKey);
 
-            if (!string.IsNullOrWhiteSpace(statusName))
-                query = query.Where(i => i.Status!.Name == statusName);
+            if (statusId is not null)
+                query = query.Where(i => i.StatusId == statusId);
 
-            if (!string.IsNullOrWhiteSpace(assigneeName))
-                query = query.Where(i => i.Assignee!.DisplayName.Contains(assigneeName));
+            if (assigneeId is not null)
+                query = query.Where(i => i.AssigneeId == assigneeId);
 
             var result = await query
                 .OrderByDescending(i => i.UpdatedAt)
@@ -236,6 +296,11 @@ public class IssueMcpService(
             .Select(c => new IssueCommentSummary(c.Id, c.Owner!.DisplayName, c.Text, c.CreatedAt))
             .ToListAsyncEF(cancellationToken);
 
+        var attachments = await context.IssueAttachments
+            .Where(a => a.IssueId == issueId)
+            .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
+            .ToListAsyncEF(cancellationToken);
+
         return new IssueDetail(
             key.ToString(),
             issue.Content,
@@ -243,7 +308,8 @@ public class IssueMcpService(
             issue.AssigneeName,
             issue.CreatedAt,
             issue.UpdatedAt,
-            comments);
+            comments,
+            attachments);
     }
 
     public async Task UpdateIssueStatus(
@@ -271,31 +337,30 @@ public class IssueMcpService(
 
     public async Task<string> CreateIssue(
         OrganizationAuthData authData,
-        string spaceKey,
         string content,
         long statusId,
-        IReadOnlyDictionary<string, string>? attributes,
+        IReadOnlyDictionary<long, string>? attributes,
+        IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken)
     {
-        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
+        // Same shape as the REST API's own IssuesService.Create - permission is derived entirely
+        // from statusId's own epic, no separate space parameter to cross-validate against.
+        var validationData = await context.ActiveStatuses()
+            .Where(s => s.Id == statusId)
+            .Select(x => new { x.EpicId })
+            .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Status", statusId), cancellationToken);
 
-        await accessService.GetAccessLevelsBySpaceId(authData, spaceId, includeDeleted: false, cancellationToken)
-            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
-            .EnsureOrThrowForbidden(a => a.CanCreateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Space", spaceKey, "issue creation"));
-
-        // statusId must actually belong to spaceKey's space - otherwise the permission check
-        // above (against spaceKey) and the issue's real destination (derived from statusId's own
-        // epic/space) could silently disagree, letting a caller create an issue in a space they
-        // never had create access to just by naming a status from it.
-        var resolvedStatusId = await context.ActiveStatuses()
-            .Where(s => s.Id == statusId && s.Epic!.SpaceId == spaceId)
-            .Select(s => s.Id)
-            .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.StatusNotFoundInSpace, statusId, spaceKey), cancellationToken);
+        await accessService.GetAccessLevelsByEpicId(authData, validationData.EpicId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Status", statusId))
+            .EnsureOrThrowNotFound(a => a.CanCreateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Status", statusId, "issue creation"));
 
         var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
+        var uploadedFiles = await UploadFiles(files, cancellationToken);
 
-        var issueCreate = new IssueCreateRequest(resolvedStatusId, dateTimeProvider.UtcNow).SetContent(content);
-        if (attributeRequests.Count > 0)
+        var issueCreate = new IssueCreateRequest(statusId, dateTimeProvider.UtcNow)
+            .SetContent(content)
+            .LinkNewAttachments(uploadedFiles);
+        if (attributes is not null)
             issueCreate = issueCreate.SetAttributes(attributeRequests);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
@@ -314,7 +379,9 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string issueKey,
         string content,
-        IReadOnlyDictionary<string, string>? attributes,
+        IReadOnlyDictionary<long, string>? attributes,
+        IReadOnlyList<FileAttachment>? files,
+        IReadOnlyList<Guid>? removeAttachmentIds,
         CancellationToken cancellationToken)
     {
         var key = new IssueKey(issueKey);
@@ -326,14 +393,31 @@ public class IssueMcpService(
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
 
         var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
+        var uploadedFiles = await UploadFiles(files, cancellationToken);
 
-        var issueUpdate = new IssueUpdateRequest().SetContent(content);
-        if (attributeRequests.Count > 0)
+        var issueUpdate = new IssueUpdateRequest()
+            .SetContent(content)
+            .LinkNewAttachments(uploadedFiles)
+            .UnlinkAttachments(removeAttachmentIds ?? []);
+        if (attributes is not null)
             issueUpdate = issueUpdate.SetAttributes(attributeRequests);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.Update(issueId, authData.UserId, issueUpdate, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SpaceSummary>> ListSpaces(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        return await accessService.GetAvailableSpaces(
+            authData,
+            items => items
+                .Select(x => new SpaceSummary(x.Key, x.Name))
+                .ToListAsyncEF(cancellationToken),
+            includeDeleted: false,
+            cancellationToken);
     }
 
     public async Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
@@ -368,81 +452,202 @@ public class IssueMcpService(
             .Where(a => a.OrganizationId == authData.OrganizationId)
             .OrderBy(a => a.Id)
             .Select(a => new AttributeSummary(
+                a.Id,
                 a.Name,
                 a.AttributeType.ToString(),
                 a.AttributeType == AttributeType.List
-                    ? a.AttributeListValues!.Select(v => v.Value).ToList()
+                    ? a.AttributeListValues!.Select(v => new AttributeListValueSummary(v.Id, v.Value)).ToList()
                     : null))
             .ToListAsyncEF(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<MemberSummary>> ListMembers(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var spaceIds = await accessService.GetAvailableSpaces(
+            authData,
+            query => query.Select(s => s.Id).ToArrayAsyncEF(cancellationToken),
+            includeDeleted: false,
+            cancellationToken);
+
+        return await accessService.GetVisibleUsers(
+            spaceIds,
+            query => query
+                .Select(x => new MemberSummary(x.UserId, x.User!.DisplayName))
+                .ToListAsyncEF(cancellationToken));
+    }
+
     private async Task<IReadOnlyList<SetIssueAttributeRequest>> ResolveAttributeRequests(
         long organizationId,
-        IReadOnlyDictionary<string, string>? attributes,
+        IReadOnlyDictionary<long, string>? attributes,
         CancellationToken cancellationToken)
     {
         if (attributes is null || attributes.Count == 0)
             return [];
 
-        var requests = new List<SetIssueAttributeRequest>();
+        var ids = attributes.Keys.ToArray();
 
-        foreach (var (name, value) in attributes)
+        var attributeTypeById = await context.Attributes
+            .Where(a => a.OrganizationId == organizationId && ids.Contains(a.Id))
+            .ToDictionaryAsyncEF(a => a.Id, a => a.AttributeType, cancellationToken);
+
+        var errors = new List<string?>();
+        var attributeValues = new List<AttributeValue>();
+
+        foreach (var (attributeId, rawValue) in attributes)
         {
-            var attribute = await context.Attributes
-                .Where(a => a.OrganizationId == organizationId && a.Name == name)
-                .Select(a => new { a.Id, a.AttributeType })
-                .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Attribute", name), cancellationToken);
+            if (!attributeTypeById.TryGetValue(attributeId, out var attributeType))
+            {
+                errors.Add(string.Format(ErrorMessages.EntityNotFound, "Attribute", attributeId));
+                continue;
+            }
 
-            requests.Add(await BuildAttributeRequest(attribute.Id, attribute.AttributeType, name, value, cancellationToken));
+            var (value, error) = ParseAttributeValue(attributeId, attributeType, rawValue);
+            if (error is not null)
+                errors.Add(error);
+            else
+                attributeValues.Add(value!);
         }
+
+        // Still run the shared batched validation (list value existence, etc.) on whatever
+        // parsed successfully, rather than bailing out here on the first parse error - otherwise
+        // a bad value on one attribute would hide a genuine core-side error on another, the same
+        // fail-fast problem already fixed on the REST side. Both layers' errors are merged into
+        // one exception below.
+        IReadOnlyList<SetIssueAttributeRequest> requests = [];
+        if (attributeValues.Count > 0)
+        {
+            try
+            {
+                requests = await coreIssueAttributesService.BuildSetRequests(
+                    organizationId, attributeValues.ToArray(), cancellationToken);
+            }
+            catch (BadRequestException ex)
+            {
+                errors.AddRange(ex.Errors["attributeValues"]);
+            }
+        }
+
+        if (errors.Count > 0)
+            throw new BadRequestException(new Dictionary<string, string?[]>
+            {
+                [nameof(attributes)] = errors.ToArray(),
+            });
 
         return requests;
     }
 
-    private async Task<SetIssueAttributeRequest> BuildAttributeRequest(
+    /// <summary>
+    /// Parses an MCP caller's plain-text value into the correctly-typed <see cref="AttributeValue"/>
+    /// for <paramref name="attributeType"/> - the one piece of this flow that can't be shared with
+    /// the REST API, which never parses text (its client already sends an already-typed value).
+    /// For <see cref="AttributeType.List"/>, the caller passes one of list_attributes' list value
+    /// ids as plain text (e.g. "42"), not the option's display text.
+    /// </summary>
+    private static (AttributeValue? Value, string? Error) ParseAttributeValue(
         long attributeId,
         AttributeType attributeType,
-        string attributeName,
-        string value,
-        CancellationToken cancellationToken)
+        string rawValue)
     {
         switch (attributeType)
         {
             case AttributeType.Text:
-                if (value.Length > 255)
-                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueTooLong, attributeName));
-                return new SetIssueTextAttributeRequest { Id = attributeId, Value = value };
+                return (new StringAttributeValue { AttributeId = attributeId, Value = rawValue }, null);
 
             case AttributeType.Integer:
-                if (!long.TryParse(value, out var integerValue))
-                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "integer"));
-                return new SetIssueIntegerAttributeRequest { Id = attributeId, Value = integerValue };
+                if (!long.TryParse(rawValue, out var integerValue))
+                    return (null, string.Format(ErrorMessages.AttributeValueInvalid, attributeId, "integer"));
+                return (new IntegerAttributeValue { AttributeId = attributeId, Value = integerValue }, null);
 
             case AttributeType.Decimal:
-                if (!decimal.TryParse(value, out var decimalValue))
-                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "decimal"));
-                return new SetIssueDecimalAttributeRequest { Id = attributeId, Value = decimalValue };
+                if (!decimal.TryParse(rawValue, out var decimalValue))
+                    return (null, string.Format(ErrorMessages.AttributeValueInvalid, attributeId, "decimal"));
+                return (new DecimalAttributeValue { AttributeId = attributeId, Value = decimalValue }, null);
 
             case AttributeType.Date:
-                if (!DateOnly.TryParse(value, out var dateValue))
-                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "date (e.g. 2026-01-01)"));
-                return new SetIssueDateAttributeRequest { Id = attributeId, Value = dateValue };
+                if (!DateOnly.TryParse(rawValue, out var dateValue))
+                    return (null, string.Format(ErrorMessages.AttributeValueInvalid, attributeId, "date (e.g. 2026-01-01)"));
+                return (new DateAttributeValue { AttributeId = attributeId, Value = dateValue }, null);
 
             case AttributeType.DateTime:
-                if (!DateTime.TryParse(value, out var dateTimeValue))
-                    throw new BadRequestException(nameof(value), string.Format(ErrorMessages.AttributeValueInvalid, attributeName, "date-time (e.g. 2026-01-01 12:00)"));
-                return new SetIssueDateTimeAttributeRequest { Id = attributeId, Value = dateTimeValue };
+                if (!DateTime.TryParse(rawValue, out var dateTimeValue))
+                    return (null, string.Format(ErrorMessages.AttributeValueInvalid, attributeId, "date-time (e.g. 2026-01-01 12:00)"));
+                return (new DateTimeAttributeValue { AttributeId = attributeId, Value = dateTimeValue }, null);
 
             case AttributeType.List:
-                var listValueId = await context.AttributeListValues
-                    .Where(v => v.AttributeId == attributeId && v.Value == value)
-                    .Select(v => v.Id)
-                    .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.AttributeListValueNotFound, attributeName, value), cancellationToken);
-                return new SetIssueListAttributeRequest { Id = attributeId, ListValueId = listValueId };
+                if (!long.TryParse(rawValue, out var listValueId))
+                    return (null, string.Format(ErrorMessages.AttributeValueInvalid, attributeId, "list value id, from list_attributes"));
+                return (new EnumAttributeValue { AttributeId = attributeId, ValueId = listValueId }, null);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(attributeType), attributeType, null);
         }
+    }
+
+    /// <summary>
+    /// Decodes and uploads every <paramref name="files"/> entry via the same
+    /// <see cref="ICoreFilesService"/> the REST API's own <c>IssuesService.UploadFiles</c> uses -
+    /// each attachment ends up stored identically regardless of which host created it. Collects
+    /// every problem across every file (unsupported type, bad base64, too large) into one
+    /// <see cref="BadRequestException"/> rather than failing on the first bad file.
+    /// </summary>
+    private async Task<IReadOnlyList<MediaInfo>> UploadFiles(
+        IReadOnlyList<FileAttachment>? files,
+        CancellationToken cancellationToken)
+    {
+        if (files is null || files.Count == 0)
+            return [];
+
+        var errors = new List<string?>();
+        var decoded = new List<(FileAttachment File, byte[] Bytes)>();
+
+        foreach (var file in files)
+        {
+            if (!SystemMimeTypes.Supported.Contains(file.ContentType))
+            {
+                errors.Add(string.Format(
+                    ErrorMessages.FileUnsupportedMimeType,
+                    file.FileName,
+                    file.ContentType,
+                    string.Join(", ", SystemMimeTypes.Supported)));
+                continue;
+            }
+
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(file.Base64Content);
+            }
+            catch (FormatException)
+            {
+                errors.Add(string.Format(ErrorMessages.FileInvalidBase64, file.FileName));
+                continue;
+            }
+
+            if (bytes.Length > SystemMimeTypes.MaxFileSizeBytes)
+            {
+                errors.Add(string.Format(ErrorMessages.FileTooLarge, file.FileName));
+                continue;
+            }
+
+            decoded.Add((file, bytes));
+        }
+
+        if (errors.Count > 0)
+            throw new BadRequestException(new Dictionary<string, string?[]>
+            {
+                [nameof(files)] = errors.ToArray(),
+            });
+
+        var uploaded = new List<MediaInfo>();
+        foreach (var (file, bytes) in decoded)
+        {
+            using var stream = new MemoryStream(bytes);
+            uploaded.Add(await coreFilesService.UploadFile(file.FileName, file.ContentType, stream, cancellationToken));
+        }
+
+        return uploaded;
     }
 
     public async Task<long> AddComment(

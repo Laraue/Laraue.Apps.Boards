@@ -96,24 +96,6 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Status: {0} is not found in space {1}.
-        /// </summary>
-        internal static string StatusNotFoundInSpace {
-            get {
-                return ResourceManager.GetString("StatusNotFoundInSpace", resourceCulture);
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized string similar to Attribute '{0}': value must be at most 255 characters.
-        /// </summary>
-        internal static string AttributeValueTooLong {
-            get {
-                return ResourceManager.GetString("AttributeValueTooLong", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   Looks up a localized string similar to Attribute '{0}': value is not a valid {1}.
         /// </summary>
         internal static string AttributeValueInvalid {
@@ -123,11 +105,29 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Attribute '{0}': '{1}' is not one of its allowed values.
+        ///   Looks up a localized string similar to File '{0}': unsupported content type '{1}' - supported types are: {2}.
         /// </summary>
-        internal static string AttributeListValueNotFound {
+        internal static string FileUnsupportedMimeType {
             get {
-                return ResourceManager.GetString("AttributeListValueNotFound", resourceCulture);
+                return ResourceManager.GetString("FileUnsupportedMimeType", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to File '{0}': content is not valid base64.
+        /// </summary>
+        internal static string FileInvalidBase64 {
+            get {
+                return ResourceManager.GetString("FileInvalidBase64", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to File '{0}': size is limited to 3MB.
+        /// </summary>
+        internal static string FileTooLarge {
+            get {
+                return ResourceManager.GetString("FileTooLarge", resourceCulture);
             }
         }
     }

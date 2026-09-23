@@ -19,5 +19,7 @@ public static class McpServerInstructions
         "can edit it. update_issue_status/create_issue take a status id, not a name - call " +
         "list_statuses first to find it. Before calling create_issue/edit_issue with an " +
         "attributes value, call list_attributes to see the exact names/types/allowed-values " +
-        "rather than guessing them.";
+        "rather than guessing them. list_issues' assigneeId filter takes a user id - call " +
+        "list_members first to find one rather than guessing. list_spaces lists the space keys " +
+        "list_issues/list_statuses accept.";
 }
