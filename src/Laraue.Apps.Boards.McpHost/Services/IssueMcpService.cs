@@ -132,16 +132,13 @@ public interface IIssueMcpService
 
     /// <summary>
     /// Lists organization members visible to the caller (same set the REST API's
-    /// <c>OrganizationsController.GetMembers</c> returns with no <c>spaceKey</c> given) - the ids
-    /// <see cref="ListIssues"/>'s <c>assigneeId</c> filter takes. Not paginated, same as the REST
-    /// endpoint - organization membership is naturally small.
-    /// </summary>
-    /// <summary>
-    /// <paramref name="spaceKey"/> narrows the result to members visible in that one space
-    /// (same resolution/permission check <see cref="ListStatuses"/> runs) - useful when picking
-    /// an <c>assigneeId</c> for <see cref="CreateIssue"/>/<see cref="EditIssue"/> in that space,
-    /// since an assignee needs to actually be able to see the issue there. Omit it to list every
-    /// member visible anywhere, same as before.
+    /// <c>OrganizationsController.GetMembers</c> returns) - the ids <see cref="ListIssues"/>'s
+    /// <c>assigneeId</c> filter takes. Not paginated, same as the REST endpoint - organization
+    /// membership is naturally small. <paramref name="spaceKey"/> narrows the result to members
+    /// visible in that one space (same resolution/permission check <see cref="ListStatuses"/>
+    /// runs) - useful when picking an <c>assigneeId</c> for <see cref="CreateIssue"/>/
+    /// <see cref="EditIssue"/> in that space, since an assignee needs to actually be able to see
+    /// the issue there. Omit it to list every member visible anywhere, same as before.
     /// </summary>
     Task<IReadOnlyList<MemberSummary>> ListMembers(
         OrganizationAuthData authData,
