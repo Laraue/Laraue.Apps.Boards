@@ -489,8 +489,8 @@ browser session. Three pieces:
   already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
   tests, same reason a controller doesn't usually get tested separately from the service it calls.
   Tools cover `list_issues`/`get_issue`/`update_issue_status` plus `create_issue`/`edit_issue`/
-  `add_comment`/`edit_comment` and the two discovery tools `list_statuses`/`list_attributes` -
-  each still just the REST API's own permission/mutation path (`CanCreateIssue` off the target
+  `add_comment`/`edit_comment` and the discovery tools `list_spaces`/`list_statuses`/
+  `list_attributes`/`list_members` - each still just the REST API's own permission/mutation path (`CanCreateIssue` off the target
   status's epic, `CanUpdateIssue` for edits/comments, owner-only for editing a comment - same as
   `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
   `update_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
@@ -540,10 +540,53 @@ browser session. Three pieces:
   `IssueMcpService.ResolveAttributeRequests` still has to merge MCP's own parse-time errors with
   whatever `BuildSetRequests` itself throws (rather than short-circuiting on the first parse
   failure) so a caller sees every problem across every attribute in one response, matching the
-  batched-error guarantee `BuildSetRequests` already gives REST callers. Omitting `attributes` on
-  `edit_issue` leaves every attribute untouched (not cleared) - there's no "clear all attributes"
-  MCP operation, since `IssueChange<TSelf>.SetAttributes([])` (clear) vs never calling it (don't
-  touch) is exactly the distinction an omitted/empty MCP dictionary can't disambiguate.
+  batched-error guarantee `BuildSetRequests` already gives REST callers.
+  `IssueChange<TSelf>.SetAttributes([])` (clear everything) vs never calling `SetAttributes` at
+  all (don't touch) is a real distinction the JSON `attributes` parameter *can* express, once the
+  check is written against the parameter's own nullity rather than its resolved request count: a
+  `null`/omitted `attributes` leaves every attribute untouched, while an explicit empty object
+  (`{}`) clears every attribute the issue currently has. `CreateIssue`/`EditIssue` both check
+  `attributes is not null` (not `attributeRequests.Count > 0`, which was 0 in both the omitted and
+  the explicitly-empty case and could never actually reach the empty-`SetAttributes` clear path) -
+  a bug caught and fixed mid-session, not a design choice to preserve.
+- **File attachments** (`create_issue`/`edit_issue`'s optional `files` param, a
+  `FileAttachment(FileName, ContentType, Base64Content)[]`) - MCP has no multipart upload channel
+  the way the REST API's `IFormFile[]` does, so a caller sends each file base64-encoded instead;
+  `IssueMcpService.UploadFiles` decodes it, then calls the exact same
+  `ICoreFilesService.UploadFile` the REST API uses - same storage path, same restriction to
+  `SystemMimeTypes.Supported` (images only today), same `SystemMimeTypes.MaxFileSizeBytes` cap
+  (hoisted out of `WebApiServices.IssuesService`'s own literal so both hosts enforce the identical
+  limit). Uploading actually relays the file through Telegram (`CoreFilesService.UploadFile` →
+  `botClient.SendPhoto`, the org's `FilesChatId`) - not a new side effect MCP introduces, just the
+  same mechanism every other caller of this method already uses. Validation (unsupported type,
+  invalid base64, too large) follows the same batched-all-errors-at-once pattern as attributes -
+  one problem across several files doesn't hide another. `edit_issue`'s `files` are added
+  alongside the issue's existing attachments; `removeAttachmentIds` (a `Guid[]`, matching REST's
+  own `RemoveAttachmentIds` and `IssueUpdateRequest.UnlinkAttachments`) removes existing ones by
+  id, and both can be given in the same call to replace one attachment with another. `get_issue`'s
+  `IssueDetail` now includes `Attachments` (id + file name) specifically so a caller has a way to
+  discover those ids - `list_statuses`/`list_attributes`'s same "call this first to get an id"
+  role, just folded into `get_issue` rather than a separate tool, since attachments are naturally
+  read alongside the rest of an issue's detail anyway.
+- **`list_issues`' `assigneeId`** (a `Guid`) replaced an earlier `assigneeName` display-name
+  substring filter, matching the id-based convention `statusId`/attribute ids already use - same
+  motivation, since a display name filter can silently match zero or several people, while an id
+  is unambiguous. REST had no equivalent discovery endpoint exposed as its own tool either (its
+  `OrganizationsController.GetMembers` is a plain, unpaginated `VisibleUser[]` - organization
+  membership is naturally small, so no pagination convention applies here, same as the REST
+  endpoint), so `list_members` (`IssueMcpService.ListMembers`, wrapping
+  `IAccessService.GetAvailableSpaces`/`GetVisibleUsers` the exact same way REST's `GetMembers`
+  does with no `spaceKey` given) was added specifically to make `assigneeId` discoverable, the
+  same "call this first" role `list_statuses`/`list_attributes` already play.
+- **`list_spaces`** (`IssueMcpService.ListSpaces`) exists for the same reason - before it,
+  `spaceKey` (used by `list_issues`/`create_issue`/`list_statuses`) had no MCP discovery path at
+  all, since `list_statuses` takes a `spaceKey` as *input* rather than enumerating spaces.
+  Unlike `statusName`/`assigneeName`, a space key was never ambiguous (it's already unique per
+  organization, closer to attribute names than to a status name needing epic-scoping), so this
+  wasn't an id-vs-name fix - just filling a genuine "no way to find the value at all" gap.
+  Wraps `IAccessService.GetAvailableSpaces` the same way REST's `SpacesController.GetAll`/
+  `SpacesService.GetSpaces` does; unpaginated, same as that REST endpoint (space count is
+  naturally small).
 
 ## User-facing text
 

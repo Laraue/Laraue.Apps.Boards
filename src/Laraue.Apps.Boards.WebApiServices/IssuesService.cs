@@ -453,7 +453,7 @@ public class IssuesService(
     {
         foreach (var file in files)
         {
-            if (file.Length > 3_000_000)
+            if (file.Length > SystemMimeTypes.MaxFileSizeBytes)
             {
                 error = ErrorMessages.FileSizeLimited;
                 return true;

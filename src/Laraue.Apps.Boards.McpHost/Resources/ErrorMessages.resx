@@ -33,4 +33,13 @@
     <data name="AttributeValueInvalid" xml:space="preserve">
         <value>Attribute '{0}': value is not a valid {1}</value>
     </data>
+    <data name="FileUnsupportedMimeType" xml:space="preserve">
+        <value>File '{0}': unsupported content type '{1}' - supported types are: {2}</value>
+    </data>
+    <data name="FileInvalidBase64" xml:space="preserve">
+        <value>File '{0}': content is not valid base64</value>
+    </data>
+    <data name="FileTooLarge" xml:space="preserve">
+        <value>File '{0}': size is limited to 3MB</value>
+    </data>
 </root>

@@ -103,5 +103,32 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
                 return ResourceManager.GetString("AttributeValueInvalid", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to File '{0}': unsupported content type '{1}' - supported types are: {2}.
+        /// </summary>
+        internal static string FileUnsupportedMimeType {
+            get {
+                return ResourceManager.GetString("FileUnsupportedMimeType", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to File '{0}': content is not valid base64.
+        /// </summary>
+        internal static string FileInvalidBase64 {
+            get {
+                return ResourceManager.GetString("FileInvalidBase64", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to File '{0}': size is limited to 3MB.
+        /// </summary>
+        internal static string FileTooLarge {
+            get {
+                return ResourceManager.GetString("FileTooLarge", resourceCulture);
+            }
+        }
     }
 }

@@ -15,20 +15,20 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space key, status name, or assignee display name. Returns at most 50 issues per page (fewer if count is given), most recently updated first. Check the result's hasNextPage to know whether to request another page.")]
+    [Description("Lists issues in the caller's organization, optionally filtered by space key, status id, or assignee id. Returns at most 50 issues per page (fewer if count is given), most recently updated first. Check the result's hasNextPage to know whether to request another page.")]
     public Task<IssueListPage> ListIssues(
-        [Description("Only issues in this space (e.g. 'BRD'). Omit to search every space.")] string? spaceKey = null,
-        [Description("Only issues with this exact status name (e.g. 'In Progress'). Omit to include every status.")] string? statusName = null,
-        [Description("Only issues assigned to a user whose display name contains this text. Omit to include every assignee.")] string? assigneeName = null,
+        [Description("Only issues in this space (e.g. 'BRD'), from list_spaces. Omit to search every space.")] string? spaceKey = null,
+        [Description("Only issues with this exact status id, from list_statuses. Omit to include every status.")] long? statusId = null,
+        [Description("Only issues assigned to this user id, from list_members. Omit to include every assignee.")] Guid? assigneeId = null,
         [Description("Zero-based page number. Omit or pass 0 for the first page; pass the previous result's page + 1 to get the next page.")] int? page = null,
         [Description("Max issues to return per page, 1-50. Omit for the default of 50.")] int? count = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.ListIssues(GetAuthData(), spaceKey, statusName, assigneeName, page, count, cancellationToken);
+        return issueMcpService.ListIssues(GetAuthData(), spaceKey, statusId, assigneeId, page, count, cancellationToken);
     }
 
     [McpServerTool]
-    [Description("Gets one issue's full content and comments by its key (e.g. 'BRD-42').")]
+    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Each attachment's id is what edit_issue's removeAttachmentIds takes.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -52,9 +52,10 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("The issue's text content.")] string content,
         [Description("The status id to create the issue in, from list_statuses - this also determines which space the issue lands in.")] long statusId,
         [Description("Attribute id -> plain-text value, e.g. {\"5\": \"7\"}. Call list_attributes first for the ids/types/expected format per attribute - for a List-typed attribute, the value is one of its list value ids (also from list_attributes), not its display text. Omit to leave every attribute unset.")] IReadOnlyDictionary<long, string>? attributes = null,
+        [Description("Files to attach, base64-encoded. Only image/jpeg, image/jpg and image/png are supported, max 3MB each.")] IReadOnlyList<FileAttachment>? files = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.CreateIssue(GetAuthData(), content, statusId, attributes, cancellationToken);
+        return issueMcpService.CreateIssue(GetAuthData(), content, statusId, attributes, files, cancellationToken);
     }
 
     [McpServerTool]
@@ -62,16 +63,25 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The issue's complete new text content. Fully replaces the existing content - fetch it via get_issue first if you need to preserve any of it.")] string content,
-        [Description("Attribute id -> plain-text value, same as create_issue. Omit to leave every attribute untouched (not cleared) - there's no way to clear all attributes via this tool.")] IReadOnlyDictionary<long, string>? attributes = null,
+        [Description("Attribute id -> plain-text value, e.g. {\"5\": \"7\"}. Call list_attributes first for the ids/types/expected format per attribute - for a List-typed attribute, the value is one of its list value ids (also from list_attributes), not its display text. Omit entirely to leave every attribute untouched; pass an empty object {} to clear every attribute the issue currently has.")] IReadOnlyDictionary<long, string>? attributes = null,
+        [Description("Files to attach, in addition to the issue's existing ones. Same base64 format as create_issue.")] IReadOnlyList<FileAttachment>? files = null,
+        [Description("Ids of existing attachments to remove, from get_issue's Attachments list. Can be combined with files to replace an attachment with another.")] IReadOnlyList<Guid>? removeAttachmentIds = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.EditIssue(GetAuthData(), issueKey, content, attributes, cancellationToken);
+        return issueMcpService.EditIssue(GetAuthData(), issueKey, content, attributes, files, removeAttachmentIds, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Lists the spaces available to the caller - the keys list_issues' spaceKey filter and list_statuses accept.")]
+    public Task<IReadOnlyList<SpaceSummary>> ListSpaces(CancellationToken cancellationToken)
+    {
+        return issueMcpService.ListSpaces(GetAuthData(), cancellationToken);
     }
 
     [McpServerTool]
     [Description("Lists the statuses available in a space, grouped by epic - the ids create_issue/update_issue_status accept.")]
     public Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
-        [Description("The space to list statuses for, e.g. 'BRD'.")] string spaceKey,
+        [Description("The space to list statuses for, e.g. 'BRD', from list_spaces.")] string spaceKey,
         CancellationToken cancellationToken)
     {
         return issueMcpService.ListStatuses(GetAuthData(), spaceKey, cancellationToken);
@@ -82,6 +92,13 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     public Task<IReadOnlyList<AttributeSummary>> ListAttributes(CancellationToken cancellationToken)
     {
         return issueMcpService.ListAttributes(GetAuthData(), cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Lists organization members visible to the caller - the ids list_issues' assigneeId filter accepts.")]
+    public Task<IReadOnlyList<MemberSummary>> ListMembers(CancellationToken cancellationToken)
+    {
+        return issueMcpService.ListMembers(GetAuthData(), cancellationToken);
     }
 
     [McpServerTool]

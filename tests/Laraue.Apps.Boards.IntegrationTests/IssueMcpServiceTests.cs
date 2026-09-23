@@ -34,6 +34,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<ICoreIssuesService>(),
             testScope.Services.GetRequiredService<ICoreSpacesService>(),
             testScope.Services.GetRequiredService<ICoreIssueAttributesService>(),
+            testScope.Services.GetRequiredService<ICoreFilesService>(),
             testScope.Services.GetRequiredService<IDateTimeProvider>());
     }
 
@@ -98,6 +99,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.AssigneeId, otherAssignee));
 
         var wrongStatusIssueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var inProgressStatusId = organization.GetStatus(1, 1, 1).Id;
 
         var issueMcpService = CreateIssueMcpService(testScope);
         var authData = AuthDataFor(organization.Id, ownerId);
@@ -105,9 +107,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var bySpace = await issueMcpService.ListIssues(
             authData, organization.GetSpace(1).Key, null, null, null, null, CancellationToken.None);
         var byStatus = await issueMcpService.ListIssues(
-            authData, null, "In Progress", null, null, null, CancellationToken.None);
+            authData, null, inProgressStatusId, null, null, null, CancellationToken.None);
         var byAssignee = await issueMcpService.ListIssues(
-            authData, null, null, "other_assignee", null, null, CancellationToken.None);
+            authData, null, null, otherAssignee, null, null, CancellationToken.None);
 
         Assert.Equal(
             new HashSet<string> { targetIssueData.Key, wrongStatusIssueKey },
@@ -302,7 +304,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var targetStatus = organization.GetStatus(1, 1, 1); // explicit "In Progress", not the epic's implicit default status
 
         var issueKey = await CreateIssueMcpService(testScope).CreateIssue(
-            AuthDataFor(organization.Id, ownerId), "New issue content", targetStatus.Id, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), "New issue content", targetStatus.Id, null, null, CancellationToken.None);
 
         var createdIssue = await testScope.Database.Issues
             .Where(x => x.IssueNumber!.Space!.Key == space.Key)
@@ -328,7 +330,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         // Matches the REST API's own IssuesService.Create - a missing CanCreateIssue is reported
         // as NotFound (via EnsureOrThrowNotFound), not Forbidden.
         await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
-            AuthDataFor(organization.Id, memberId), "New issue content", statusId, null, CancellationToken.None));
+            AuthDataFor(organization.Id, memberId), "New issue content", statusId, null, null, CancellationToken.None));
     }
 
     [Fact]
@@ -342,7 +344,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         await CreateIssueMcpService(testScope).EditIssue(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, "Updated content", null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "Updated content", null, null, null, CancellationToken.None);
 
         var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal("Updated content", updatedIssue.Content);
@@ -421,6 +423,33 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task ListSpaces_ShouldReturnAvailableSpaces_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId)
+            .AddSpace(ownerId, space => space.WithName("Team Board")));
+
+        var defaultSpace = organization.GetSpace(0);
+        var extraSpace = organization.GetSpace(1);
+
+        var ownerSpaces = await CreateIssueMcpService(testScope)
+            .ListSpaces(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+        var memberSpaces = await CreateIssueMcpService(testScope)
+            .ListSpaces(AuthDataFor(organization.Id, memberId), CancellationToken.None);
+
+        Assert.Equal(
+            new HashSet<string> { defaultSpace.Key, extraSpace.Key },
+            ownerSpaces.Select(x => x.Key).ToHashSet());
+        Assert.Contains(ownerSpaces, x => x.Key == extraSpace.Key && x.Name == "Team Board");
+
+        // The member has no CanRead grant on either space, so neither is visible to them.
+        Assert.Empty(memberSpaces);
+    }
+
+    [Fact]
     public async Task ListStatuses_ShouldGroupByEpic_WhenCalled()
     {
         using var testScope = host.CreateTestScope();
@@ -474,6 +503,34 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task ListMembers_ShouldReturnOnlyVisibleMembers_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var outsiderId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
+
+        var ownerDisplayName = await testScope.Database.Users
+            .Where(x => x.Id == ownerId)
+            .Select(x => x.DisplayName)
+            .SingleAsyncEF();
+        var memberDisplayName = await testScope.Database.Users
+            .Where(x => x.Id == memberId)
+            .Select(x => x.DisplayName)
+            .SingleAsyncEF();
+
+        var result = await CreateIssueMcpService(testScope)
+            .ListMembers(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+
+        Assert.Equal(
+            new Dictionary<Guid, string> { [ownerId] = ownerDisplayName, [memberId] = memberDisplayName },
+            result.ToDictionary(x => x.Id, x => x.DisplayName));
+        Assert.DoesNotContain(result, x => x.Id == outsiderId);
+    }
+
+    [Fact]
     public async Task CreateIssue_ShouldSetAttributes_WhenGiven()
     {
         using var testScope = host.CreateTestScope();
@@ -497,6 +554,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
                 [summaryAttribute.Id] = "A short summary",
                 [priorityAttribute.Id] = highValue.Id.ToString(),
             },
+            null,
             CancellationToken.None);
 
         var issueId = await testScope.Database.Issues
@@ -530,6 +588,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             "New issue content",
             statusId,
             new Dictionary<long, string> { [priorityAttribute.Id] = "999999" }, // no such list value id
+            null,
             CancellationToken.None));
     }
 
@@ -558,6 +617,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
                 [estimateAttribute.Id] = "not a number",
                 [unknownAttributeId] = "whatever",
             },
+            null,
             CancellationToken.None));
 
         Assert.Equal(3, exception.Errors["attributes"].Length);
@@ -580,10 +640,198 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             issueData.Key,
             "Fix the thing",
             new Dictionary<long, string> { [estimateAttribute.Id] = "5" },
+            null,
+            null,
             CancellationToken.None);
 
         var integerValue = await testScope.Database.IssueAttributeIntegerValues
             .SingleAsyncEF(x => x.IssueId == issueData.Issue.Id && x.AttributeId == estimateAttribute.Id);
         Assert.Equal(5, integerValue.Value);
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldClearAllAttributes_WhenEmptyDictionaryGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIntegerAttribute("Estimate")
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var estimateAttribute = organization.GetAttribute(0);
+        var mcpService = CreateIssueMcpService(testScope);
+
+        await mcpService.EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            new Dictionary<long, string> { [estimateAttribute.Id] = "5" },
+            null,
+            null,
+            CancellationToken.None);
+
+        // An empty (but non-null) dictionary means "clear every attribute", distinct from
+        // omitting the parameter entirely ("leave attributes untouched").
+        await mcpService.EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            new Dictionary<long, string>(),
+            null,
+            null,
+            CancellationToken.None);
+
+        var hasIntegerValue = await testScope.Database.IssueAttributeIntegerValues
+            .AnyAsyncEF(x => x.IssueId == issueData.Issue.Id && x.AttributeId == estimateAttribute.Id);
+        Assert.False(hasIntegerValue);
+    }
+
+    private static string SampleImageBase64() => Convert.ToBase64String([1, 2, 3, 4, 5]);
+
+    [Fact]
+    public async Task CreateIssue_ShouldAttachFiles_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        await CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            "New issue content",
+            statusId,
+            null,
+            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
+            CancellationToken.None);
+
+        var issueId = await testScope.Database.Issues
+            .Where(x => x.IssueNumber!.Space!.Key == organization.GetSpace(0).Key)
+            .Select(x => x.Id)
+            .SingleAsyncEF();
+
+        var attachment = await testScope.Database.IssueAttachments
+            .Where(x => x.IssueId == issueId)
+            .Select(x => new { x.Attachment!.Type })
+            .SingleAsyncEF();
+        Assert.Equal(AttachmentType.Image, attachment.Type);
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenFileHasUnsupportedMimeType()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            "New issue content",
+            statusId,
+            null,
+            [new FileAttachment("doc.pdf", "application/pdf", SampleImageBase64())],
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenFileBase64IsInvalid()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            "New issue content",
+            statusId,
+            null,
+            [new FileAttachment("photo.png", "image/png", "not-valid-base64!!")],
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenFileIsTooLarge()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        var tooLarge = Convert.ToBase64String(new byte[SystemMimeTypes.MaxFileSizeBytes + 1]);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            "New issue content",
+            statusId,
+            null,
+            [new FileAttachment("photo.png", "image/png", tooLarge)],
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldAttachFiles_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await CreateIssueMcpService(testScope).EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            null,
+            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
+            null,
+            CancellationToken.None);
+
+        var attachment = await testScope.Database.IssueAttachments
+            .Where(x => x.IssueId == issueData.Issue.Id)
+            .Select(x => new { x.Attachment!.Type })
+            .SingleAsyncEF();
+        Assert.Equal(AttachmentType.Image, attachment.Type);
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldRemoveAttachment_WhenRemoveAttachmentIdsGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var mcpService = CreateIssueMcpService(testScope);
+
+        await mcpService.EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            null,
+            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
+            null,
+            CancellationToken.None);
+
+        var detailWithAttachment = await mcpService.GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+        var attachmentId = Assert.Single(detailWithAttachment.Attachments).Id;
+
+        await mcpService.EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            null,
+            null,
+            [attachmentId],
+            CancellationToken.None);
+
+        var detailAfterRemoval = await mcpService.GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+        Assert.Empty(detailAfterRemoval.Attachments);
     }
 }
