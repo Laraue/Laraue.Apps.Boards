@@ -62,7 +62,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Fully replaces an issue's text content - not an append or merge. To keep any of the existing text, call get_issue first and include it in the new content you send. Does not change status.")]
+    [Description("Fully replaces an issue's text content - not an append or merge. To keep any of the existing text, call get_issue first and include it in the new content you send. Does not change status. Check the issue's canEdit (from get_issue/list_issues) beforehand to know if this will succeed.")]
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The issue's complete new text content. Fully replaces the existing content - fetch it via get_issue first if you need to preserve any of it.")] string content,
@@ -108,10 +108,12 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists organization members visible to the caller - the ids list_issues' assigneeId filter accepts.")]
-    public Task<IReadOnlyList<MemberSummary>> ListMembers(CancellationToken cancellationToken)
+    [Description("Lists organization members visible to the caller - the ids list_issues' assigneeId filter, and create_issue/edit_issue's assigneeId, accept. Pass spaceKey when picking an assigneeId for a specific space, so you only see members who can actually see issues there.")]
+    public Task<IReadOnlyList<MemberSummary>> ListMembers(
+        [Description("Only members visible in this space (e.g. 'BRD'), from list_spaces. Omit to list every member visible anywhere.")] string? spaceKey = null,
+        CancellationToken cancellationToken = default)
     {
-        return issueMcpService.ListMembers(GetAuthData(), cancellationToken);
+        return issueMcpService.ListMembers(GetAuthData(), spaceKey, cancellationToken);
     }
 
     [McpServerTool]

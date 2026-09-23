@@ -136,8 +136,16 @@ public interface IIssueMcpService
     /// <see cref="ListIssues"/>'s <c>assigneeId</c> filter takes. Not paginated, same as the REST
     /// endpoint - organization membership is naturally small.
     /// </summary>
+    /// <summary>
+    /// <paramref name="spaceKey"/> narrows the result to members visible in that one space
+    /// (same resolution/permission check <see cref="ListStatuses"/> runs) - useful when picking
+    /// an <c>assigneeId</c> for <see cref="CreateIssue"/>/<see cref="EditIssue"/> in that space,
+    /// since an assignee needs to actually be able to see the issue there. Omit it to list every
+    /// member visible anywhere, same as before.
+    /// </summary>
     Task<IReadOnlyList<MemberSummary>> ListMembers(
         OrganizationAuthData authData,
+        string? spaceKey,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -600,13 +608,31 @@ public class IssueMcpService(
 
     public async Task<IReadOnlyList<MemberSummary>> ListMembers(
         OrganizationAuthData authData,
+        string? spaceKey,
         CancellationToken cancellationToken)
     {
-        var spaceIds = await accessService.GetAvailableSpaces(
-            authData,
-            query => query.Select(s => s.Id).ToArrayAsyncEF(cancellationToken),
-            includeDeleted: false,
-            cancellationToken);
+        long[] spaceIds;
+        if (spaceKey is not null)
+        {
+            var spaceId = await coreSpacesService
+                .GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
+
+            await accessService.GetAccessLevelsBySpaceId(authData, spaceId, includeDeleted: false, cancellationToken)
+                .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
+                .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Space", spaceKey, "read"));
+
+            spaceIds = [spaceId];
+        }
+        else
+        {
+            spaceIds = await accessService.GetAvailableSpaces(
+                authData,
+                query => query
+                    .Select(s => s.Id)
+                    .ToArrayAsyncEF(cancellationToken),
+                includeDeleted: false,
+                cancellationToken);
+        }
 
         return await accessService.GetVisibleUsers(
             spaceIds,

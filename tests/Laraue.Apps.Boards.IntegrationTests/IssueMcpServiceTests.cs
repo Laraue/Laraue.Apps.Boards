@@ -546,12 +546,48 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .SingleAsyncEF();
 
         var result = await CreateIssueMcpService(testScope)
-            .ListMembers(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+            .ListMembers(AuthDataFor(organization.Id, ownerId), null, CancellationToken.None);
 
         Assert.Equal(
             new Dictionary<Guid, string> { [ownerId] = ownerDisplayName, [memberId] = memberDisplayName },
             result.ToDictionary(x => x.Id, x => x.DisplayName));
         Assert.DoesNotContain(result, x => x.Id == outsiderId);
+    }
+
+    [Fact]
+    public async Task ListMembers_ShouldOnlyReturnMembersVisibleInGivenSpace_WhenSpaceKeyGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var targetSpaceMemberId = await testScope.CreateUser();
+        var otherSpaceMemberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space.WithName("Team Board"))
+            .AddUser(targetSpaceMemberId, builder => builder.SetSpaceAccessLevel(1, x => x.CanRead = true))
+            .AddUser(otherSpaceMemberId, builder => builder.SetSpaceAccessLevel(0, x => x.CanRead = true)));
+
+        var targetSpace = organization.GetSpace(1);
+
+        var result = await CreateIssueMcpService(testScope)
+            .ListMembers(AuthDataFor(organization.Id, ownerId), targetSpace.Key, CancellationToken.None);
+
+        Assert.Contains(result, x => x.Id == targetSpaceMemberId);
+        Assert.DoesNotContain(result, x => x.Id == otherSpaceMemberId);
+    }
+
+    [Fact]
+    public async Task ListMembers_ShouldThrow_WhenCallerCannotReadGivenSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = false)));
+
+        var space = organization.GetSpace(0);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).ListMembers(
+            AuthDataFor(organization.Id, memberId), space.Key, CancellationToken.None));
     }
 
     [Fact]

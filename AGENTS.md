@@ -628,9 +628,15 @@ browser session. Three pieces:
   substring filter, matching the id-based convention `statusId`/attribute ids already use - a
   display name filter can silently match zero or several people, while an id is unambiguous.
   `list_members` (`IssueMcpService.ListMembers`, wrapping `IAccessService.GetAvailableSpaces`/
-  `GetVisibleUsers` the same way REST's `OrganizationsController.GetMembers` does with no
-  `spaceKey` given) exists to make `assigneeId` discoverable - the same "call this first" role
-  `list_statuses`/`list_attributes` play. `list_spaces` (`IssueMcpService.ListSpaces`, wrapping
+  `GetVisibleUsers` the same way REST's `OrganizationsController.GetMembers` does) exists to make
+  `assigneeId` discoverable - the same "call this first" role `list_statuses`/`list_attributes`
+  play. Its optional `spaceKey` mirrors REST's `GetMembersRequest.SpaceKey` exactly (resolve via
+  `ICoreSpacesService.GetSpaceIdBySpaceKey`, then the usual 404-then-403 `GetAccessLevelsBySpaceId`
+  check, same shape `list_statuses` already uses) - omit it to list every member visible anywhere
+  (unchanged default), or pass it when picking an `assigneeId` for `create_issue`/`edit_issue` in
+  a specific space, since an assignee has to actually be able to see issues there; without it, a
+  caller could pick a member who's visible somewhere in the org but has no access to the space the
+  issue actually lives in. `list_spaces` (`IssueMcpService.ListSpaces`, wrapping
   `IAccessService.GetAvailableSpaces`) exists for the same reason - `spaceKey` (used by
   `list_issues`/`list_statuses`) had no MCP discovery path before it. Neither is paginated, same
   as their REST equivalents - organization membership/space count are naturally small.

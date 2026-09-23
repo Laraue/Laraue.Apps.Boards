@@ -21,7 +21,9 @@ public static class McpServerInstructions
         "edit_issue with an attributes value, call list_attributes to see the exact " +
         "names/types/allowed-values rather than guessing them. list_issues' assigneeId filter, " +
         "and create_issue/edit_issue's assigneeId, take a user id - call list_members first to " +
-        "find one rather than guessing. list_spaces lists the space keys list_issues/" +
+        "find one rather than guessing. When picking an assignee for a specific space, pass that " +
+        "space's key as list_members' spaceKey so you only see members who can actually see " +
+        "issues there. list_spaces lists the space keys list_issues/" +
         "list_statuses accept. get_issue's Attachments list includes each attachment's id - call " +
         "get_attachment with it to download that attachment's original file content, e.g. to " +
         "look at an image the user attached. list_issues/get_issue return canEdit/canDelete per " +
