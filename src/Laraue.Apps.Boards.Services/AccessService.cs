@@ -77,7 +77,23 @@ public interface IAccessService
         OrganizationAuthData authData,
         Func<IQueryable<Space>, Task<T>> map,
         CancellationToken cancellationToken);
-    
+
+    /// <summary>
+    /// Get all spaces where user can delete issues.
+    /// </summary>
+    Task<T> GetSpacesWithAllowedIssuesDelete<T>(
+        OrganizationAuthData authData,
+        Func<IQueryable<Space>, Task<T>> map,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Get all spaces where user can create issues.
+    /// </summary>
+    Task<T> GetSpacesWithAllowedIssueCreation<T>(
+        OrganizationAuthData authData,
+        Func<IQueryable<Space>, Task<T>> map,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Return access level of the requested space. Pass <paramref name="includeDeleted"/> as
     /// <c>true</c> only for audit/history features that must keep resolving access after the
@@ -278,6 +294,32 @@ public class AccessService(DatabaseContext context) : IAccessService
             authData,
             x => x.CanUpdateIssues,
             x => x.CanUpdateIssues,
+            map,
+            cancellationToken);
+    }
+
+    public Task<T> GetSpacesWithAllowedIssuesDelete<T>(
+        OrganizationAuthData authData,
+        Func<IQueryable<Space>, Task<T>> map,
+        CancellationToken cancellationToken)
+    {
+        return GetSpacesWithPermissionCondition(
+            authData,
+            x => x.CanDeleteIssues,
+            x => x.CanDeleteIssues,
+            map,
+            cancellationToken);
+    }
+
+    public Task<T> GetSpacesWithAllowedIssueCreation<T>(
+        OrganizationAuthData authData,
+        Func<IQueryable<Space>, Task<T>> map,
+        CancellationToken cancellationToken)
+    {
+        return GetSpacesWithPermissionCondition(
+            authData,
+            x => x.CanCreateIssues,
+            x => x.CanCreateIssues,
             map,
             cancellationToken);
     }

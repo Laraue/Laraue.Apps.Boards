@@ -209,7 +209,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task UpdateIssueStatus_ShouldUpdateStatus_WhenCallerCanUpdateIssues()
+    public async Task EditIssueStatus_ShouldUpdateStatus_WhenCallerCanUpdateIssues()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -225,7 +225,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(1, 1, 0, 0);
         var targetStatus = organization.GetStatus(1, 1, 1);
 
-        await CreateIssueMcpService(testScope).UpdateIssueStatus(
+        await CreateIssueMcpService(testScope).EditIssueStatus(
             AuthDataFor(organization.Id, ownerId), issueData.Key, targetStatus.Id, CancellationToken.None);
 
         var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
@@ -233,7 +233,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task UpdateIssueStatus_ShouldThrow_WhenCallerLacksUpdatePermission()
+    public async Task EditIssueStatus_ShouldThrow_WhenCallerLacksUpdatePermission()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -248,12 +248,12 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(1, 1, 0, 0);
         var targetStatusId = organization.GetStatus(1, 1, 1).Id;
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).UpdateIssueStatus(
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).EditIssueStatus(
             AuthDataFor(organization.Id, memberId), issueData.Key, targetStatusId, CancellationToken.None));
     }
 
     [Fact]
-    public async Task UpdateIssueStatus_ShouldMoveToStatusInDifferentEpic_WhenCallerCanUpdateIssues()
+    public async Task EditIssueStatus_ShouldMoveToStatusInDifferentEpic_WhenCallerCanUpdateIssues()
     {
         // Unlike the earlier name-based design (which had to scope status lookup to the issue's
         // own epic to disambiguate a name), a status id has no such ambiguity - and the REST API
@@ -270,7 +270,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(1, 1, 0, 0);
         var otherEpicStatus = organization.GetStatus(1, 2, 1);
 
-        await CreateIssueMcpService(testScope).UpdateIssueStatus(
+        await CreateIssueMcpService(testScope).EditIssueStatus(
             AuthDataFor(organization.Id, ownerId), issueData.Key, otherEpicStatus.Id, CancellationToken.None);
 
         var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
@@ -278,7 +278,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task UpdateIssueStatus_ShouldThrow_WhenStatusIdDoesNotExist()
+    public async Task EditIssueStatus_ShouldThrow_WhenStatusIdDoesNotExist()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -287,7 +287,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
-        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).UpdateIssueStatus(
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).EditIssueStatus(
             AuthDataFor(organization.Id, ownerId), issueData.Key, statusId: 999_999, CancellationToken.None));
     }
 
@@ -304,7 +304,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var targetStatus = organization.GetStatus(1, 1, 1); // explicit "In Progress", not the epic's implicit default status
 
         var issueKey = await CreateIssueMcpService(testScope).CreateIssue(
-            AuthDataFor(organization.Id, ownerId), "New issue content", targetStatus.Id, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), "New issue content", targetStatus.Id, null, null, null, CancellationToken.None);
 
         var createdIssue = await testScope.Database.Issues
             .Where(x => x.IssueNumber!.Space!.Key == space.Key)
@@ -330,7 +330,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         // Matches the REST API's own IssuesService.Create - a missing CanCreateIssue is reported
         // as NotFound (via EnsureOrThrowNotFound), not Forbidden.
         await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
-            AuthDataFor(organization.Id, memberId), "New issue content", statusId, null, null, CancellationToken.None));
+            AuthDataFor(organization.Id, memberId), "New issue content", statusId, null, null, null, CancellationToken.None));
     }
 
     [Fact]
@@ -344,14 +344,14 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         await CreateIssueMcpService(testScope).EditIssue(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, "Updated content", null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "Updated content", null, null, null, null, CancellationToken.None);
 
         var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal("Updated content", updatedIssue.Content);
     }
 
     [Fact]
-    public async Task AddComment_ShouldAddComment_WhenCallerCanUpdateIssues()
+    public async Task CreateComment_ShouldCreateComment_WhenCallerCanUpdateIssues()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -360,7 +360,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
-        var commentId = await CreateIssueMcpService(testScope).AddComment(
+        var commentId = await CreateIssueMcpService(testScope).CreateComment(
             AuthDataFor(organization.Id, ownerId), issueData.Key, "A new comment", CancellationToken.None);
 
         var comment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == commentId);
@@ -450,6 +450,30 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task ListSpaces_ShouldExposeCanCreateIssue_BasedOnCallerPermissions()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanCreateIssues = false;
+            })));
+
+        var space = organization.GetSpace(0);
+
+        var ownerSpaces = await CreateIssueMcpService(testScope)
+            .ListSpaces(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+        var memberSpaces = await CreateIssueMcpService(testScope)
+            .ListSpaces(AuthDataFor(organization.Id, memberId), CancellationToken.None);
+
+        Assert.True(Assert.Single(ownerSpaces, x => x.Key == space.Key).CanCreateIssue);
+        Assert.False(Assert.Single(memberSpaces, x => x.Key == space.Key).CanCreateIssue);
+    }
+
+    [Fact]
     public async Task ListStatuses_ShouldGroupByEpic_WhenCalled()
     {
         using var testScope = host.CreateTestScope();
@@ -522,12 +546,48 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .SingleAsyncEF();
 
         var result = await CreateIssueMcpService(testScope)
-            .ListMembers(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+            .ListMembers(AuthDataFor(organization.Id, ownerId), null, CancellationToken.None);
 
         Assert.Equal(
             new Dictionary<Guid, string> { [ownerId] = ownerDisplayName, [memberId] = memberDisplayName },
             result.ToDictionary(x => x.Id, x => x.DisplayName));
         Assert.DoesNotContain(result, x => x.Id == outsiderId);
+    }
+
+    [Fact]
+    public async Task ListMembers_ShouldOnlyReturnMembersVisibleInGivenSpace_WhenSpaceKeyGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var targetSpaceMemberId = await testScope.CreateUser();
+        var otherSpaceMemberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space.WithName("Team Board"))
+            .AddUser(targetSpaceMemberId, builder => builder.SetSpaceAccessLevel(1, x => x.CanRead = true))
+            .AddUser(otherSpaceMemberId, builder => builder.SetSpaceAccessLevel(0, x => x.CanRead = true)));
+
+        var targetSpace = organization.GetSpace(1);
+
+        var result = await CreateIssueMcpService(testScope)
+            .ListMembers(AuthDataFor(organization.Id, ownerId), targetSpace.Key, CancellationToken.None);
+
+        Assert.Contains(result, x => x.Id == targetSpaceMemberId);
+        Assert.DoesNotContain(result, x => x.Id == otherSpaceMemberId);
+    }
+
+    [Fact]
+    public async Task ListMembers_ShouldThrow_WhenCallerCannotReadGivenSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = false)));
+
+        var space = organization.GetSpace(0);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).ListMembers(
+            AuthDataFor(organization.Id, memberId), space.Key, CancellationToken.None));
     }
 
     [Fact]
@@ -549,6 +609,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             "New issue content",
             statusId,
+            null,
             new Dictionary<long, string>
             {
                 [summaryAttribute.Id] = "A short summary",
@@ -587,6 +648,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             "New issue content",
             statusId,
+            null,
             new Dictionary<long, string> { [priorityAttribute.Id] = "999999" }, // no such list value id
             null,
             CancellationToken.None));
@@ -611,6 +673,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             "New issue content",
             statusId,
+            null,
             new Dictionary<long, string>
             {
                 [priorityAttribute.Id] = "999999", // no such list value id
@@ -639,6 +702,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             issueData.Key,
             "Fix the thing",
+            null,
             new Dictionary<long, string> { [estimateAttribute.Id] = "5" },
             null,
             null,
@@ -666,6 +730,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             issueData.Key,
             "Fix the thing",
+            null,
             new Dictionary<long, string> { [estimateAttribute.Id] = "5" },
             null,
             null,
@@ -677,6 +742,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             issueData.Key,
             "Fix the thing",
+            null,
             new Dictionary<long, string>(),
             null,
             null,
@@ -702,6 +768,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             "New issue content",
             statusId,
+            null,
             null,
             [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
             CancellationToken.None);
@@ -731,6 +798,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             "New issue content",
             statusId,
             null,
+            null,
             [new FileAttachment("doc.pdf", "application/pdf", SampleImageBase64())],
             CancellationToken.None));
     }
@@ -747,6 +815,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             "New issue content",
             statusId,
+            null,
             null,
             [new FileAttachment("photo.png", "image/png", "not-valid-base64!!")],
             CancellationToken.None));
@@ -767,6 +836,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             "New issue content",
             statusId,
             null,
+            null,
             [new FileAttachment("photo.png", "image/png", tooLarge)],
             CancellationToken.None));
     }
@@ -785,6 +855,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             issueData.Key,
             "Fix the thing",
+            null,
             null,
             [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
             null,
@@ -813,6 +884,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             issueData.Key,
             "Fix the thing",
             null,
+            null,
             [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
             null,
             CancellationToken.None);
@@ -825,6 +897,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             issueData.Key,
             "Fix the thing",
+            null,
             null,
             null,
             [attachmentId],
@@ -850,6 +923,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId),
             issueData.Key,
             "Fix the thing",
+            null,
             null,
             [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
             null,
@@ -899,6 +973,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             issueData.Key,
             "Fix the thing",
             null,
+            null,
             [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
             null,
             CancellationToken.None);
@@ -927,6 +1002,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             issueData.Key,
             "Fix the thing",
             null,
+            null,
             [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
             null,
             CancellationToken.None);
@@ -947,5 +1023,192 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         await Assert.ThrowsAsync<BadRequestException>(() => mcpService.GetAttachmentContent(
             AuthDataFor(organization.Id, ownerId), attachmentId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldAssignToGivenUser_WhenAssigneeIdGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
+
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        await CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId), "New issue content", statusId, memberId, null, null, CancellationToken.None);
+
+        var assigneeId = await testScope.Database.Issues
+            .Where(x => x.IssueNumber!.Space!.Key == organization.GetSpace(0).Key)
+            .Select(x => x.AssigneeId)
+            .SingleAsyncEF();
+        Assert.Equal(memberId, assigneeId);
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenAssigneeDoesNotBelongToOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+        var outsiderId = await testScope.CreateUser();
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId), "New issue content", statusId, outsiderId, null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldReassignIssue_WhenAssigneeIdGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await CreateIssueMcpService(testScope).EditIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "Fix the thing", memberId, null, null, null, CancellationToken.None);
+
+        var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(memberId, updatedIssue.AssigneeId);
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldLeaveAssigneeUnchanged_WhenAssigneeIdOmitted()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await CreateIssueMcpService(testScope).EditIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "Updated content", null, null, null, null, CancellationToken.None);
+
+        var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(ownerId, updatedIssue.AssigneeId);
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldThrow_WhenAssigneeDoesNotBelongToOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var outsiderId = await testScope.CreateUser();
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).EditIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "Fix the thing", outsiderId, null, null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteIssue_ShouldSoftDeleteIssue_WhenCallerCanDeleteIssues()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await CreateIssueMcpService(testScope).DeleteIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+
+        var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.NotNull(deletedIssue.DeletedAt);
+    }
+
+    [Fact]
+    public async Task DeleteIssue_ShouldThrow_WhenCallerLacksDeletePermission()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).DeleteIssue(
+            AuthDataFor(organization.Id, memberId), issueData.Key, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteIssue_ShouldThrow_WhenIssueDoesNotExist()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        var missingKey = new IssueKey(organization.GetSpace(0).Key, 999_999).ToString();
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).DeleteIssue(
+            AuthDataFor(organization.Id, ownerId), missingKey, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldExposeCanEditAndCanDelete_BasedOnCallerPermissions()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanUpdateIssues = true;
+                x.CanDeleteIssues = false;
+            }))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+
+        var ownerIssues = await issueMcpService.ListIssues(
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
+        var memberIssues = await issueMcpService.ListIssues(
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, CancellationToken.None);
+
+        var ownerIssue = Assert.Single(ownerIssues.Issues);
+        Assert.True(ownerIssue.CanEdit);
+        Assert.True(ownerIssue.CanDelete);
+
+        var memberIssue = Assert.Single(memberIssues.Issues);
+        Assert.True(memberIssue.CanEdit);
+        Assert.False(memberIssue.CanDelete);
+    }
+
+    [Fact]
+    public async Task GetIssue_ShouldExposeCanEditAndCanDelete_BasedOnCallerPermissions()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanUpdateIssues = false;
+                x.CanDeleteIssues = false;
+            }))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var issueMcpService = CreateIssueMcpService(testScope);
+
+        var ownerDetail = await issueMcpService.GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+        var memberDetail = await issueMcpService.GetIssue(
+            AuthDataFor(organization.Id, memberId), issueData.Key, CancellationToken.None);
+
+        Assert.True(ownerDetail.CanEdit);
+        Assert.True(ownerDetail.CanDelete);
+        Assert.False(memberDetail.CanEdit);
+        Assert.False(memberDetail.CanDelete);
     }
 }
