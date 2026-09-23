@@ -488,19 +488,65 @@ browser session. Three pieces:
   rather than driving the real MCP HTTP/SSE transport - not worth the effort for what's otherwise
   already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
   tests, same reason a controller doesn't usually get tested separately from the service it calls.
-  Tools cover `list_issues`/`get_issue`/`update_issue_status` plus `create_issue`/`edit_issue`/
-  `add_comment`/`edit_comment`/`get_attachment` and the discovery tools `list_spaces`/
-  `list_statuses`/`list_attributes`/`list_members` - each still just the REST API's own
-  permission/mutation path (`CanCreateIssue` off the target status's epic, `CanUpdateIssue` for
-  edits/comments, owner-only for editing a comment - same as `IssuesService.UpdateIssueComment`,
-  not gated by `CanUpdateIssue`).
-  `update_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
+  Tools cover `list_issues`/`get_issue`/`edit_issue_status` plus `create_issue`/`edit_issue`/
+  `delete_issue`/`create_comment`/`edit_comment`/`get_attachment` and the discovery tools
+  `list_spaces`/`list_statuses`/`list_attributes`/`list_members` - each still just the REST API's
+  own permission/mutation path (`CanCreateIssue` off the target status's epic, `CanUpdateIssue`
+  for edits/comments, `CanDeleteIssue` for `delete_issue` (soft-delete, via
+  `ICoreIssuesService.Delete` - same as REST's `IssuesService.Delete`), owner-only for editing a
+  comment - same as `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
+  `edit_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
   `IssuesService.Create` also just takes a raw `StatusId`, no separate space concept at all) - and
   `list_statuses` exists to make that id discoverable, since an MCP caller has no status-picker UI
-  the way the REST API's frontend does. `update_issue_status` accepts *any* status id the caller
+  the way the REST API's frontend does. `edit_issue_status` accepts *any* status id the caller
   can move issues to, not necessarily one in the issue's current epic - moving an issue to a
   different epic's status is real REST API behavior too (an issue's epic is entirely derived from
   its `StatusId`), not something worth artificially restricting just because MCP takes an id.
+  `update_issue_status`/`add_comment` were renamed to `edit_issue_status`/`create_comment` -
+  Glama's TDQS naming-consistency check flagged the verb mismatch against `edit_issue` and
+  `create_issue` respectively (a synonym for the same kind of operation, scored as inconsistent
+  naming), and there was no functional reason to keep the mismatched verbs once flagged. This is
+  a breaking rename for any already-connected client - accepted deliberately, weighed against a
+  small number of real users this early after launch.
+  `list_issues`/`get_issue` return **`canEdit`/`canDelete`** per issue (`IssueSummary`/
+  `IssueDetail`), mirroring REST's own `IssueDetailDto.CanEdit`/`SearchIssueDto.CanEdit` exposure
+  - the point is letting an MCP caller check upfront whether `edit_issue`/`edit_issue_status`/
+  `delete_issue` will actually succeed, instead of discovering a permission gap only from a
+  thrown `ForbiddenException` (a tool description alone, e.g. "requires delete permission," gives
+  an LLM nothing concrete to act on ahead of time). `GetIssue` gets both for free from the
+  `AccessLevels` it already fetches for its own `CanRead` check - no extra query.
+  `ListIssues` can't do the same per-item (a page has up to 50 issues, and a per-issue
+  permission check would mean up to 50 more queries) - but Boards' permission model is
+  space-scoped, not per-issue (`IAccessService.GetAccessLevelsByIssueId` itself resolves down to
+  the issue's space), so every issue in the same space shares the same `canEdit`/`canDelete`.
+  `ListIssues` batches one query per permission across just the space keys present on the current
+  page (new `IAccessService.GetSpacesWithAllowedIssuesDelete`, mirroring the pre-existing
+  `GetSpacesWithAllowedIssuesUpdate` REST's own `IssuesService.Search` already uses for its
+  `CanEdit`) rather than checking each issue individually - REST had no delete-permission
+  equivalent exposed anywhere before this, so `GetSpacesWithAllowedIssuesDelete` is new on both
+  surfaces, not something copied from an existing REST feature.
+  `list_spaces` returns **`canCreateIssue`** per space (`SpaceSummary`) for the same reason -
+  `create_issue`'s real permission check resolves the target `statusId`'s epic down to its space
+  (`GetAccessLevelsByEpicId`, no separate epic-level permission table), so the flag is the same
+  regardless of which status within the space ends up chosen; checking it via `list_spaces`
+  before ever calling `list_statuses`/`create_issue` there is cheaper than finding out from a
+  thrown `NotFoundException` (REST's own `CanCreateIssue` failure mode - see
+  `EnsureOrThrowNotFound` in `create_issue`'s own doc comment above). New
+  `IAccessService.GetSpacesWithAllowedIssueCreation`, same `GetSpacesWithPermissionCondition`
+  shape as the update/delete variants, using `CanCreateIssues`. REST's own `SpacesService`
+  returns `CanCreateEpics`/`CanUpdate`/`CanDelete` per space but never `CanCreateIssue` - another
+  case (like `GetSpacesWithAllowedIssuesDelete` above) of MCP adding a permission-discovery flag
+  that has no direct REST equivalent yet, motivated by the same problem: an LLM caller has no way
+  to infer this ahead of time the way a human clicking through a UI with disabled buttons can.
+  `create_issue`/`edit_issue`'s optional **`assigneeId`** (a `Guid`) mirrors REST's own
+  `AssigneeId` handling exactly: `create_issue` omits it to default to the caller (same fallback
+  `ICoreIssuesService.Create` itself applies via `ChangedValue<Guid>.GetValueOrDefault(ownerId)`
+  when nothing is set), `edit_issue` omits it to leave the current assignee untouched (`SetAssignee`
+  simply isn't called, so `IssueChange.AssigneeId` stays `Unset`). Both validate the given id
+  belongs to the caller's organization first (`IssueMcpService.EnsureUserBelongsToOrganization`,
+  the exact same check REST's `IssuesService` runs before accepting one) - an MCP caller has no UI
+  stopping it from sending an arbitrary Guid, so this can't be skipped the way a browser form
+  implicitly prevents it.
   `create_issue` has **no `spaceKey` parameter at all**, matching the REST API's `Create` exactly
   - an earlier revision added one plus a "does `statusId` belong to `spaceKey`" cross-check,
   reasoning that `CanCreateIssue` needed a caller-supplied space to check against. That was

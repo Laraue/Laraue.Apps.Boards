@@ -139,5 +139,14 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
                 return ResourceManager.GetString("AttachmentTooLargeToDownload", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to User: {0} does not exist or does not belong to organization.
+        /// </summary>
+        internal static string UserNotBelongsToOrganization {
+            get {
+                return ResourceManager.GetString("UserNotBelongsToOrganization", resourceCulture);
+            }
+        }
     }
 }

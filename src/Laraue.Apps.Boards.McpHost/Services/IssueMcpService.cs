@@ -41,7 +41,7 @@ public interface IIssueMcpService
     /// current epic; moving to a different epic's status is the REST API's own behavior too,
     /// nothing MCP-specific. Call <see cref="ListStatuses"/> first to find a valid id.
     /// </summary>
-    Task UpdateIssueStatus(
+    Task EditIssueStatus(
         OrganizationAuthData authData,
         string issueKey,
         long statusId,
@@ -51,22 +51,27 @@ public interface IIssueMcpService
     /// Creates an issue in the space <paramref name="statusId"/> belongs to - call
     /// <see cref="ListStatuses"/> first to find one; the destination space is derived entirely
     /// from it, same as the REST API's own <c>IssuesService.Create</c> (no separate space
-    /// parameter to cross-validate against).
-    /// <paramref name="attributes"/> maps attribute id to a plain-text value (see
-    /// <see cref="ListAttributes"/> for the ids/types/expected format per attribute) -
-    /// omit or pass null/empty to leave every attribute unset. <paramref name="files"/> are
-    /// attached in addition to any already on the issue (there are none yet, for a new issue).
+    /// parameter to cross-validate against). <paramref name="assigneeId"/> must belong to the
+    /// caller's organization (same check REST's <c>IssuesService.Create</c> runs) - omit it to
+    /// assign the issue to the caller, same default <c>ICoreIssuesService.Create</c> itself falls
+    /// back to when nothing is set. <paramref name="attributes"/> maps attribute id to a
+    /// plain-text value (see <see cref="ListAttributes"/> for the ids/types/expected format per
+    /// attribute) - omit or pass null/empty to leave every attribute unset. <paramref name="files"/>
+    /// are attached in addition to any already on the issue (there are none yet, for a new issue).
     /// Returns the new issue's key.
     /// </summary>
     Task<string> CreateIssue(
         OrganizationAuthData authData,
         string content,
         long statusId,
+        Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
         IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// <paramref name="assigneeId"/> must belong to the caller's organization (same check REST's
+    /// <c>IssuesService.Update</c> runs) - omit it to leave the current assignee untouched.
     /// <paramref name="attributes"/> maps attribute id to a plain-text value, same as
     /// <see cref="CreateIssue"/> - a <c>null</c> (omitted) dictionary leaves every attribute
     /// untouched, while an empty (but non-null) one clears every attribute the issue currently
@@ -79,9 +84,21 @@ public interface IIssueMcpService
         OrganizationAuthData authData,
         string issueKey,
         string content,
+        Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
         IReadOnlyList<FileAttachment>? files,
         IReadOnlyList<Guid>? removeAttachmentIds,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Soft-deletes an issue - same <c>CanDeleteIssue</c> permission check and
+    /// <c>ICoreIssuesService.Delete</c> call REST's own <c>IssuesService.Delete</c> uses. The
+    /// issue stops appearing anywhere except its own audit trail, matching the soft-delete
+    /// convention documented in AGENTS.md.
+    /// </summary>
+    Task DeleteIssue(
+        OrganizationAuthData authData,
+        string issueKey,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -96,7 +113,7 @@ public interface IIssueMcpService
 
     /// <summary>
     /// Lists the statuses available in a space, grouped by epic - the ids a caller can pass to
-    /// <see cref="CreateIssue"/>/<see cref="UpdateIssueStatus"/>.
+    /// <see cref="CreateIssue"/>/<see cref="EditIssueStatus"/>.
     /// </summary>
     Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
         OrganizationAuthData authData,
@@ -135,7 +152,7 @@ public interface IIssueMcpService
         CancellationToken cancellationToken);
 
     /// <summary>Returns the new comment's id.</summary>
-    Task<long> AddComment(
+    Task<long> CreateComment(
         OrganizationAuthData authData,
         string issueKey,
         string text,
@@ -154,7 +171,14 @@ public interface IIssueMcpService
         CancellationToken cancellationToken);
 }
 
-public sealed record IssueSummary(string Key, string Title, string Status, string Assignee);
+/// <summary>
+/// <see cref="CanEdit"/>/<see cref="CanDelete"/> mirror the REST API's own per-item
+/// <c>CanEdit</c> exposure (<c>IssuesService</c>'s search results) - so a caller can tell whether
+/// <see cref="IIssueMcpService.EditIssue"/>/<see cref="IIssueMcpService.DeleteIssue"/> will
+/// actually succeed before calling them, rather than discovering it via a thrown
+/// <see cref="ForbiddenException"/>.
+/// </summary>
+public sealed record IssueSummary(string Key, string Title, string Status, string Assignee, bool CanEdit, bool CanDelete);
 
 /// <summary>
 /// One page of <see cref="IssueSummary"/> results - same page/perPage/hasNextPage shape the REST
@@ -170,11 +194,19 @@ public sealed record IssueCommentSummary(long Id, string Author, string Text, Da
 /// takes to remove it.</summary>
 public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 
+/// <summary>
+/// <see cref="CanEdit"/>/<see cref="CanDelete"/> mirror the REST API's own <c>IssueDetailDto.
+/// CanEdit</c> exposure - so a caller can tell whether <see cref="IIssueMcpService.EditIssue"/>/
+/// <see cref="IIssueMcpService.DeleteIssue"/> will actually succeed before calling them, rather
+/// than discovering it via a thrown <see cref="ForbiddenException"/>.
+/// </summary>
 public sealed record IssueDetail(
     string Key,
     string? Content,
     string Status,
     string Assignee,
+    bool CanEdit,
+    bool CanDelete,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyList<IssueCommentSummary> Comments,
@@ -183,7 +215,14 @@ public sealed record IssueDetail(
 /// <summary>A space, as returned by <see cref="IIssueMcpService.ListSpaces"/> - its
 /// <see cref="Key"/> is what <see cref="IIssueMcpService.ListIssues"/>'s <c>spaceKey</c> and
 /// <see cref="IIssueMcpService.ListStatuses"/> take.</summary>
-public sealed record SpaceSummary(string Key, string Name);
+/// <summary>
+/// <see cref="CanCreateIssue"/> tells a caller upfront whether <see cref="IIssueMcpService.
+/// CreateIssue"/> will actually succeed for a status in this space - <c>create_issue</c>'s real
+/// permission check resolves the target status's epic down to its space (no separate epic-level
+/// permission table), so it's the same flag regardless of which status within the space is
+/// eventually chosen.
+/// </summary>
+public sealed record SpaceSummary(string Key, string Name, bool CanCreateIssue);
 
 public sealed record StatusSummary(long Id, string Name);
 
@@ -264,12 +303,40 @@ public class IssueMcpService(
                 })
                 .ShortPaginateEFAsync(pagination, cancellationToken);
 
+            // Permissions are space-scoped (see IAccessService), so every issue in the same space
+            // shares the same CanEdit/CanDelete - one batched query per permission across just the
+            // spaces present on this page, not a per-issue check, same optimization REST's own
+            // IssuesService.Search uses for CanEdit.
+            var pageSpaceKeys = result.Data.Select(x => x.SpaceKey).Distinct().ToArray();
+
+            var spaceKeysWithUpdate = pageSpaceKeys.Length == 0
+                ? []
+                : (await accessService.GetSpacesWithAllowedIssuesUpdate(
+                    authData,
+                    q => q
+                        .Where(s => pageSpaceKeys.Contains(s.Key))
+                        .Select(s => s.Key)
+                        .ToArrayAsyncEF(cancellationToken),
+                    cancellationToken)).ToHashSet();
+
+            var spaceKeysWithDelete = pageSpaceKeys.Length == 0
+                ? []
+                : (await accessService.GetSpacesWithAllowedIssuesDelete(
+                    authData,
+                    q => q
+                        .Where(s => pageSpaceKeys.Contains(s.Key))
+                        .Select(s => s.Key)
+                        .ToArrayAsyncEF(cancellationToken),
+                    cancellationToken)).ToHashSet();
+
             var summaries = result.Data
                 .Select(x => new IssueSummary(
                     new IssueKey(x.SpaceKey, x.Number).ToString(),
                     ContentSnippet(x.Content),
                     x.Status,
-                    x.Assignee))
+                    x.Assignee,
+                    spaceKeysWithUpdate.Contains(x.SpaceKey),
+                    spaceKeysWithDelete.Contains(x.SpaceKey)))
                 .ToList();
 
             return new IssueListPage(summaries, result.Page, result.HasNextPage);
@@ -285,7 +352,7 @@ public class IssueMcpService(
 
         var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
 
-        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
+        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
             .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "read"));
 
@@ -317,13 +384,15 @@ public class IssueMcpService(
             issue.Content,
             issue.StatusName,
             issue.AssigneeName,
+            accessLevels.CanUpdateIssue,
+            accessLevels.CanDeleteIssue,
             issue.CreatedAt,
             issue.UpdatedAt,
             comments,
             attachments);
     }
 
-    public async Task UpdateIssueStatus(
+    public async Task EditIssueStatus(
         OrganizationAuthData authData,
         string issueKey,
         long statusId,
@@ -350,6 +419,7 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string content,
         long statusId,
+        Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
         IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken)
@@ -365,12 +435,17 @@ public class IssueMcpService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Status", statusId))
             .EnsureOrThrowNotFound(a => a.CanCreateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Status", statusId, "issue creation"));
 
+        if (assigneeId is not null)
+            await EnsureUserBelongsToOrganization(authData.OrganizationId, assigneeId.Value, cancellationToken);
+
         var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
         var uploadedFiles = await UploadFiles(files, cancellationToken);
 
         var issueCreate = new IssueCreateRequest(statusId, dateTimeProvider.UtcNow)
             .SetContent(content)
             .LinkNewAttachments(uploadedFiles);
+        if (assigneeId is not null)
+            issueCreate = issueCreate.SetAssignee(assigneeId.Value);
         if (attributes is not null)
             issueCreate = issueCreate.SetAttributes(attributeRequests);
 
@@ -390,6 +465,7 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string issueKey,
         string content,
+        Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
         IReadOnlyList<FileAttachment>? files,
         IReadOnlyList<Guid>? removeAttachmentIds,
@@ -403,6 +479,9 @@ public class IssueMcpService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
 
+        if (assigneeId is not null)
+            await EnsureUserBelongsToOrganization(authData.OrganizationId, assigneeId.Value, cancellationToken);
+
         var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
         var uploadedFiles = await UploadFiles(files, cancellationToken);
 
@@ -410,6 +489,8 @@ public class IssueMcpService(
             .SetContent(content)
             .LinkNewAttachments(uploadedFiles)
             .UnlinkAttachments(removeAttachmentIds ?? []);
+        if (assigneeId is not null)
+            issueUpdate = issueUpdate.SetAssignee(assigneeId.Value);
         if (attributes is not null)
             issueUpdate = issueUpdate.SetAttributes(attributeRequests);
 
@@ -418,17 +499,62 @@ public class IssueMcpService(
         await transaction.CommitAsync(cancellationToken);
     }
 
+    public async Task DeleteIssue(
+        OrganizationAuthData authData,
+        string issueKey,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(issueKey);
+
+        var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
+
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Issue", key))
+            .EnsureOrThrowForbidden(a => a.CanDeleteIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "delete"));
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreIssuesService.Delete(issueId, authData.UserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Same check REST's <c>IssuesService.EnsureUserBelongsToOrganization</c> runs before
+    /// accepting an <c>AssigneeId</c> - an MCP caller has no UI stopping them from typing an
+    /// arbitrary Guid, so this has to be enforced here too rather than trusted.
+    /// </summary>
+    private async Task EnsureUserBelongsToOrganization(
+        long organizationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var userExists = await accessService.GetOrganizationMembers(
+            organizationId,
+            members => members.Where(x => x.UserId == userId).AnyAsyncEF(cancellationToken));
+
+        if (!userExists)
+            throw new NotFoundException(string.Format(ErrorMessages.UserNotBelongsToOrganization, userId));
+    }
+
     public async Task<IReadOnlyList<SpaceSummary>> ListSpaces(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        return await accessService.GetAvailableSpaces(
+        var spaces = await accessService.GetAvailableSpaces(
             authData,
             items => items
-                .Select(x => new SpaceSummary(x.Key, x.Name))
+                .Select(x => new { x.Key, x.Name })
                 .ToListAsyncEF(cancellationToken),
             includeDeleted: false,
             cancellationToken);
+
+        var spaceKeysWithCreate = (await accessService.GetSpacesWithAllowedIssueCreation(
+            authData,
+            q => q.Select(s => s.Key).ToArrayAsyncEF(cancellationToken),
+            cancellationToken)).ToHashSet();
+
+        return spaces
+            .Select(x => new SpaceSummary(x.Key, x.Name, spaceKeysWithCreate.Contains(x.Key)))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
@@ -685,7 +811,7 @@ public class IssueMcpService(
         return await coreFilesService.GetFileContent(attachmentData.FileId, cancellationToken);
     }
 
-    public async Task<long> AddComment(
+    public async Task<long> CreateComment(
         OrganizationAuthData authData,
         string issueKey,
         string text,

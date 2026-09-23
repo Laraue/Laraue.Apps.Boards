@@ -45,4 +45,7 @@
     <data name="AttachmentTooLargeToDownload" xml:space="preserve">
         <value>Attachment: {0} exceeds the 3MB download limit</value>
     </data>
+    <data name="UserNotBelongsToOrganization" xml:space="preserve">
+        <value>User: {0} does not exist or does not belong to organization</value>
+    </data>
 </root>

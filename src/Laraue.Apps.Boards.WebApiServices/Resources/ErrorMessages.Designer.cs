@@ -240,7 +240,7 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to User: {0} is not belongs to organization.
+        ///   Looks up a localized string similar to User: {0} does not exist or does not belong to organization.
         /// </summary>
         internal static string UserNotBelongsToOrganization {
             get {
