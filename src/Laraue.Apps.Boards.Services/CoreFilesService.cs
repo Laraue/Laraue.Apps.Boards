@@ -32,6 +32,20 @@ public interface ICoreFilesService
     /// The caller owns the returned stream and must dispose it.
     /// </summary>
     Task<FileContent> GetFileContent(Guid fileId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Resolves a previously uploaded file's local-cache path, mime type, and Telegram file id -
+    /// the lookup shared by every caller that needs to locate a file, whether serving it directly
+    /// (<c>FilesController.GetFileById</c>) or reading its content (<see cref="GetFileContent"/>).
+    /// </summary>
+    Task<FileLocation> ResolveFileLocation(Guid fileId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Resolves a live, downloadable Telegram URL for a file not present in the local cache.
+    /// Callers that need one repeatedly within a short window (e.g. serving Range requests)
+    /// should cache the result themselves - this always asks Telegram for a fresh one.
+    /// </summary>
+    Task<string> ResolveTelegramDownloadUrl(string externalFileId, CancellationToken cancellationToken);
 }
 
 public class CoreFilesService(
@@ -80,6 +94,23 @@ public class CoreFilesService(
 
     public async Task<FileContent> GetFileContent(Guid fileId, CancellationToken cancellationToken)
     {
+        var location = await ResolveFileLocation(fileId, cancellationToken);
+
+        if (await fileStorage.FileExists(location.PhysicalPath, cancellationToken))
+        {
+            var cachedStream = await fileStorage.ReadFile(location.PhysicalPath, cancellationToken);
+            return new FileContent(cachedStream, location.MimeType);
+        }
+
+        var downloadUrl = await ResolveTelegramDownloadUrl(location.ExternalFileId, cancellationToken);
+        var httpClient = httpClientFactory.CreateClient();
+        var contentStream = await httpClient.GetStreamAsync(downloadUrl, cancellationToken);
+
+        return new FileContent(contentStream, location.MimeType);
+    }
+
+    public async Task<FileLocation> ResolveFileLocation(Guid fileId, CancellationToken cancellationToken)
+    {
         var fileData = await context.Files
             .Where(x => x.Id == fileId)
             .Select(x => new
@@ -95,21 +126,16 @@ public class CoreFilesService(
         var extension = ExtensionUtility.GetExtension(fileData.MimeType);
         var physicalPath = ShardedPathStrategy.GetPath(fileData.ExternalFileUniqueId, extension);
 
-        if (await fileStorage.FileExists(physicalPath, cancellationToken))
-        {
-            var cachedStream = await fileStorage.ReadFile(physicalPath, cancellationToken);
-            return new FileContent(cachedStream, mimeType);
-        }
+        return new FileLocation(physicalPath, mimeType, fileData.ExternalFileId);
+    }
 
-        var tgFile = await botClient.GetFile(fileData.ExternalFileId, cancellationToken);
+    public async Task<string> ResolveTelegramDownloadUrl(string externalFileId, CancellationToken cancellationToken)
+    {
+        var tgFile = await botClient.GetFile(externalFileId, cancellationToken);
         if (string.IsNullOrEmpty(tgFile.FilePath))
-            throw new NotFoundException($"File: {fileId} is not available for download");
+            throw new NotFoundException("Telegram file path is unavailable.");
 
-        var downloadUrl = $"https://api.telegram.org/file/bot{options.Value.Token}/{tgFile.FilePath}";
-        var httpClient = httpClientFactory.CreateClient();
-        var contentStream = await httpClient.GetStreamAsync(downloadUrl, cancellationToken);
-
-        return new FileContent(contentStream, mimeType);
+        return $"https://api.telegram.org/file/bot{options.Value.Token}/{tgFile.FilePath}";
     }
 
     private async Task<MediaInfo> UploadPhotoFile(

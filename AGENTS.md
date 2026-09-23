@@ -580,7 +580,13 @@ browser session. Three pieces:
   local file-storage cache first, falling back to a live Telegram `GetFile` + raw HTTP download
   when the file isn't cached - deliberately **not** replicating `FilesController.GetFileById`'s
   HTTP Range/streaming support, since a single MCP tool-call result can't be split into ranges the
-  way an HTTP response can. Returns a new shared `FileContent(Stream Content, string MimeType)`
+  way an HTTP response can. The DB lookup (local-cache path + mime type) and the Telegram
+  download-URL construction are shared with `FilesController.GetFileById` too, via
+  `ICoreFilesService.ResolveFileLocation`/`ResolveTelegramDownloadUrl` - the controller still owns
+  its own Range-forwarding and `IMemoryCache` URL-caching (genuinely HTTP-response-specific
+  concerns `GetFileContent` doesn't need), but no longer re-derives the file's physical path or
+  re-builds the Telegram URL string independently. Returns a new shared
+  `FileContent(Stream Content, string MimeType)`
   record (not a `(Stream, string)` tuple, per the "no tuples in public signatures" rule) - `Content`
   is a live local-file or HTTP-response stream, not a pre-buffered `byte[]`, so nothing forces the
   whole file into memory just to satisfy this method's own contract. `IssueTools.GetAttachment` is
