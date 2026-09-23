@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Moq;
 using User = Laraue.Apps.Boards.DataAccess.Models.User;
 
@@ -85,6 +86,14 @@ public class WebApiTestHost
 
             services.AddSingleton(BillingTokenClientMock.Object);
             services.AddSingleton(BillingSubscriptionClientMock.Object);
+
+            // Overrides the default (unnamed) IHttpClientFactory client's primary handler, so
+            // CoreFilesService.GetFileContent's Telegram-download fallback (a raw, unnamed
+            // httpClientFactory.CreateClient().GetByteArrayAsync(...) call - not something the
+            // ITelegramBotClient mock above can intercept) returns fixed bytes instead of making
+            // a real network request in tests.
+            services.AddHttpClient(Options.DefaultName)
+                .ConfigurePrimaryHttpMessageHandler(() => new FakeTelegramFileHttpMessageHandler());
         });
 
         return base.CreateHost(builder);

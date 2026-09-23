@@ -489,10 +489,11 @@ browser session. Three pieces:
   already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
   tests, same reason a controller doesn't usually get tested separately from the service it calls.
   Tools cover `list_issues`/`get_issue`/`update_issue_status` plus `create_issue`/`edit_issue`/
-  `add_comment`/`edit_comment` and the discovery tools `list_spaces`/`list_statuses`/
-  `list_attributes`/`list_members` - each still just the REST API's own permission/mutation path (`CanCreateIssue` off the target
-  status's epic, `CanUpdateIssue` for edits/comments, owner-only for editing a comment - same as
-  `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
+  `add_comment`/`edit_comment`/`get_attachment` and the discovery tools `list_spaces`/
+  `list_statuses`/`list_attributes`/`list_members` - each still just the REST API's own
+  permission/mutation path (`CanCreateIssue` off the target status's epic, `CanUpdateIssue` for
+  edits/comments, owner-only for editing a comment - same as `IssuesService.UpdateIssueComment`,
+  not gated by `CanUpdateIssue`).
   `update_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
   `IssuesService.Create` also just takes a raw `StatusId`, no separate space concept at all) - and
   `list_statuses` exists to make that id discoverable, since an MCP caller has no status-picker UI
@@ -505,17 +506,17 @@ browser session. Three pieces:
   reasoning that `CanCreateIssue` needed a caller-supplied space to check against. That was
   unnecessary: `IssuesService.Create` proves permission can be derived directly from `statusId`'s
   own epic (`GetAccessLevelsByEpicId`), with nothing left to cross-validate once there's no second
-  space parameter to disagree with it. `create_issue`'s `statusId` is **required**, not defaulted - `list_statuses` always
-  has to be called first, which also means a caller always knows and states exactly which status
-  a new issue lands in, rather than relying on an implicit "space's default" a caller can't see
-  without a separate lookup anyway. `list_attributes` plays the equivalent discovery
-  role for `create_issue`/`edit_issue`'s `attributes` map, whose keys are attribute **ids**
-  (`list_attributes` returns each attribute's id, and for `AttributeType.List`, each allowed
-  value's own id too) - matching `statusId`'s id-based shape rather than the name-based
-  alternative once used here. Names were briefly tried since attribute names are already unique
-  per org (unlike a status name, which needs epic-scoping to disambiguate), but ids won: an
-  agentic caller already has `list_attributes`' full output in context right before calling
-  `create_issue`/`edit_issue`, so there's no real memorization cost, and ids let the whole
+  space parameter to disagree with it. `create_issue`'s `statusId` is **required**, not defaulted
+  - `list_statuses` always has to be called first, which also means a caller always knows and
+  states exactly which status a new issue lands in, rather than relying on an implicit "space's
+  default" a caller can't see without a separate lookup anyway. `list_attributes` plays the
+  equivalent discovery role for `create_issue`/`edit_issue`'s `attributes` map, whose keys are
+  attribute **ids** (`list_attributes` returns each attribute's id, and for `AttributeType.List`,
+  each allowed value's own id too) - matching `statusId`'s id-based shape rather than the
+  name-based alternative once used here. Names were briefly tried since attribute names are
+  already unique per org (unlike a status name, which needs epic-scoping to disambiguate), but
+  ids won: an agentic caller already has `list_attributes`' full output in context right before
+  calling `create_issue`/`edit_issue`, so there's no real memorization cost, and ids let the whole
   validate-and-build step be shared with the REST API instead of duplicated (see below).
 - **Attributes** (custom per-organization fields - `Attribute`/`AttributeListValue`,
   `Laraue.Apps.Boards.DataAccess.Models`) are flat and org-wide, never scoped to a space/epic -
@@ -533,60 +534,60 @@ browser session. Three pieces:
   per attribute (see `IssuesService.CreateIssueRequest`/`UpdateIssueRequest`, `[JsonModelBinder]`
   picking the right derived type) and calls `BuildSetRequests` directly. MCP callers can only
   produce plain text, so `IssueMcpService.ParseAttributeValue` does the one genuinely
-  MCP-specific step `GetAttributeUpdateRequests` never had to: parsing raw text into the right
-  typed `AttributeValue` per `AttributeType` (`long`/`decimal`/`DateOnly`/`DateTime.TryParse`,
-  and for `List`, just `long.TryParse` into a `ValueId` now that the caller passes an id instead
-  of matching display text) - then hands the result to the same shared `BuildSetRequests`.
-  `IssueMcpService.ResolveAttributeRequests` still has to merge MCP's own parse-time errors with
-  whatever `BuildSetRequests` itself throws (rather than short-circuiting on the first parse
-  failure) so a caller sees every problem across every attribute in one response, matching the
-  batched-error guarantee `BuildSetRequests` already gives REST callers.
-  `IssueChange<TSelf>.SetAttributes([])` (clear everything) vs never calling `SetAttributes` at
-  all (don't touch) is a real distinction the JSON `attributes` parameter *can* express, once the
-  check is written against the parameter's own nullity rather than its resolved request count: a
-  `null`/omitted `attributes` leaves every attribute untouched, while an explicit empty object
-  (`{}`) clears every attribute the issue currently has. `CreateIssue`/`EditIssue` both check
-  `attributes is not null` (not `attributeRequests.Count > 0`, which was 0 in both the omitted and
-  the explicitly-empty case and could never actually reach the empty-`SetAttributes` clear path) -
-  a bug caught and fixed mid-session, not a design choice to preserve.
+  MCP-specific step: parsing raw text into the right typed `AttributeValue` per `AttributeType`
+  (`long`/`decimal`/`DateOnly`/`DateTime.TryParse`, and for `List`, just `long.TryParse` into a
+  `ValueId` now that the caller passes an id instead of matching display text) - then hands the
+  result to the same shared `BuildSetRequests`. `IssueMcpService.ResolveAttributeRequests` still
+  has to merge MCP's own parse-time errors with whatever `BuildSetRequests` itself throws (rather
+  than short-circuiting on the first parse failure) so a caller sees every problem across every
+  attribute in one response, matching the batched-error guarantee `BuildSetRequests` already gives
+  REST callers. `CreateIssue`/`EditIssue` both check `attributes is not null` (not
+  `attributeRequests.Count > 0`, which was 0 in both the omitted and the explicitly-empty case and
+  could never actually reach the empty-`SetAttributes` clear path) - a bug caught and fixed
+  mid-session, not a design choice to preserve: `null`/omitted `attributes` leaves every attribute
+  untouched, while an explicit empty object (`{}`) clears every attribute the issue currently has.
 - **File attachments** (`create_issue`/`edit_issue`'s optional `files` param, a
   `FileAttachment(FileName, ContentType, Base64Content)[]`) - MCP has no multipart upload channel
   the way the REST API's `IFormFile[]` does, so a caller sends each file base64-encoded instead;
   `IssueMcpService.UploadFiles` decodes it, then calls the exact same
   `ICoreFilesService.UploadFile` the REST API uses - same storage path, same restriction to
-  `SystemMimeTypes.Supported` (images only today), same `SystemMimeTypes.MaxFileSizeBytes` cap
-  (hoisted out of `WebApiServices.IssuesService`'s own literal so both hosts enforce the identical
-  limit). Uploading actually relays the file through Telegram (`CoreFilesService.UploadFile` →
-  `botClient.SendPhoto`, the org's `FilesChatId`) - not a new side effect MCP introduces, just the
-  same mechanism every other caller of this method already uses. Validation (unsupported type,
-  invalid base64, too large) follows the same batched-all-errors-at-once pattern as attributes -
-  one problem across several files doesn't hide another. `edit_issue`'s `files` are added
-  alongside the issue's existing attachments; `removeAttachmentIds` (a `Guid[]`, matching REST's
-  own `RemoveAttachmentIds` and `IssueUpdateRequest.UnlinkAttachments`) removes existing ones by
-  id, and both can be given in the same call to replace one attachment with another. `get_issue`'s
-  `IssueDetail` now includes `Attachments` (id + file name) specifically so a caller has a way to
-  discover those ids - `list_statuses`/`list_attributes`'s same "call this first to get an id"
-  role, just folded into `get_issue` rather than a separate tool, since attachments are naturally
-  read alongside the rest of an issue's detail anyway.
+  `SystemMimeTypes.Supported` (images only today), same `SystemMimeTypes.MaxFileSizeBytes` (3MB)
+  cap. Validation (unsupported type, invalid base64, too large) follows the same
+  batched-all-errors-at-once pattern as attributes. `edit_issue`'s `files` are added alongside the
+  issue's existing attachments; `removeAttachmentIds` (a `Guid[]`, matching REST's own
+  `RemoveAttachmentIds`/`IssueUpdateRequest.UnlinkAttachments`) removes existing ones by id, and
+  both can be given in the same call to replace one attachment with another. `get_issue`'s
+  `IssueDetail` includes `Attachments` (id + file name) so a caller has a way to discover those
+  ids. `get_attachment` (id from that same list) goes the other direction - downloads one
+  attachment's original file content, returned as a real MCP `ImageContentBlock` rather than a
+  JSON field with a base64 string wedged into it. `IssueMcpService.GetAttachmentContent` resolves
+  `IssueAttachment` -> `Attachment.FileId`, permission-checks `CanRead` on the owning issue, then
+  delegates to `ICoreFilesService.GetFileContent(fileId)` - a read, so it lives on
+  `Boards.Services`' `CoreFilesService` even though "core services are for mutations" above.
+  `GetFileContent` returns a `FileContent(Stream Content, string MimeType)` record whose `Content`
+  is a live local-file or HTTP-response stream, not a pre-buffered `byte[]` - `IssueTools.
+  GetAttachment` is the only place that actually needs bytes (an `ImageContentBlock.Data` is a
+  `ReadOnlyMemory<byte>`), so it's the only place that buffers the stream into memory, right
+  before building the response, and disposes the stream immediately after. `get_attachment`
+  enforces the same 3MB cap uploads use, in two layers: `IssueMcpService.GetAttachmentContent`
+  rejects a file whose DB-recorded `File.Size` already exceeds it before ever opening a stream,
+  and `IssueTools.GetAttachment` separately enforces a hard runtime cap while copying the stream
+  into memory, so a missing/wrong `File.Size` still can't cause unbounded buffering - the DB check
+  is an optimization, the runtime cap is the actual OOM guard. The DB lookup (local-cache path +
+  mime type) and the Telegram download-URL construction are shared with `FilesController.
+  GetFileById` too, via `ICoreFilesService.ResolveFileLocation`/`ResolveTelegramDownloadUrl` - the
+  controller still owns its own Range-forwarding and `IMemoryCache` URL-caching (genuinely
+  HTTP-response-specific concerns `GetFileContent` doesn't need).
 - **`list_issues`' `assigneeId`** (a `Guid`) replaced an earlier `assigneeName` display-name
-  substring filter, matching the id-based convention `statusId`/attribute ids already use - same
-  motivation, since a display name filter can silently match zero or several people, while an id
-  is unambiguous. REST had no equivalent discovery endpoint exposed as its own tool either (its
-  `OrganizationsController.GetMembers` is a plain, unpaginated `VisibleUser[]` - organization
-  membership is naturally small, so no pagination convention applies here, same as the REST
-  endpoint), so `list_members` (`IssueMcpService.ListMembers`, wrapping
-  `IAccessService.GetAvailableSpaces`/`GetVisibleUsers` the exact same way REST's `GetMembers`
-  does with no `spaceKey` given) was added specifically to make `assigneeId` discoverable, the
-  same "call this first" role `list_statuses`/`list_attributes` already play.
-- **`list_spaces`** (`IssueMcpService.ListSpaces`) exists for the same reason - before it,
-  `spaceKey` (used by `list_issues`/`create_issue`/`list_statuses`) had no MCP discovery path at
-  all, since `list_statuses` takes a `spaceKey` as *input* rather than enumerating spaces.
-  Unlike `statusName`/`assigneeName`, a space key was never ambiguous (it's already unique per
-  organization, closer to attribute names than to a status name needing epic-scoping), so this
-  wasn't an id-vs-name fix - just filling a genuine "no way to find the value at all" gap.
-  Wraps `IAccessService.GetAvailableSpaces` the same way REST's `SpacesController.GetAll`/
-  `SpacesService.GetSpaces` does; unpaginated, same as that REST endpoint (space count is
-  naturally small).
+  substring filter, matching the id-based convention `statusId`/attribute ids already use - a
+  display name filter can silently match zero or several people, while an id is unambiguous.
+  `list_members` (`IssueMcpService.ListMembers`, wrapping `IAccessService.GetAvailableSpaces`/
+  `GetVisibleUsers` the same way REST's `OrganizationsController.GetMembers` does with no
+  `spaceKey` given) exists to make `assigneeId` discoverable - the same "call this first" role
+  `list_statuses`/`list_attributes` play. `list_spaces` (`IssueMcpService.ListSpaces`, wrapping
+  `IAccessService.GetAvailableSpaces`) exists for the same reason - `spaceKey` (used by
+  `list_issues`/`list_statuses`) had no MCP discovery path before it. Neither is paginated, same
+  as their REST equivalents - organization membership/space count are naturally small.
 
 ## User-facing text
 

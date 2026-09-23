@@ -834,4 +834,118 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
         Assert.Empty(detailAfterRemoval.Attachments);
     }
+
+    [Fact]
+    public async Task GetAttachmentContent_ShouldReturnFileContent_WhenAccessible()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var mcpService = CreateIssueMcpService(testScope);
+
+        await mcpService.EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            null,
+            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
+            null,
+            CancellationToken.None);
+
+        var detail = await mcpService.GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+        var attachmentId = Assert.Single(detail.Attachments).Id;
+
+        var content = await mcpService.GetAttachmentContent(
+            AuthDataFor(organization.Id, ownerId), attachmentId, CancellationToken.None);
+
+        await using var stream = content.Content;
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream, CancellationToken.None);
+
+        Assert.Equal("image/png", content.MimeType);
+        Assert.NotEmpty(memoryStream.ToArray());
+    }
+
+    [Fact]
+    public async Task GetAttachmentContent_ShouldThrow_WhenAttachmentDoesNotExist()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).GetAttachmentContent(
+            AuthDataFor(organization.Id, ownerId), Guid.NewGuid(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetAttachmentContent_ShouldThrow_WhenCallerCannotReadIssue()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = false))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var mcpService = CreateIssueMcpService(testScope);
+
+        await mcpService.EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            null,
+            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
+            null,
+            CancellationToken.None);
+
+        var detail = await mcpService.GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+        var attachmentId = Assert.Single(detail.Attachments).Id;
+
+        await Assert.ThrowsAsync<NotFoundException>(() => mcpService.GetAttachmentContent(
+            AuthDataFor(organization.Id, memberId), attachmentId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetAttachmentContent_ShouldThrow_WhenFileExceedsDownloadSizeLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var mcpService = CreateIssueMcpService(testScope);
+
+        await mcpService.EditIssue(
+            AuthDataFor(organization.Id, ownerId),
+            issueData.Key,
+            "Fix the thing",
+            null,
+            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
+            null,
+            CancellationToken.None);
+
+        var detail = await mcpService.GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+        var attachmentId = Assert.Single(detail.Attachments).Id;
+
+        // Uploads are already capped at SystemMimeTypes.MaxFileSizeBytes, so simulate a
+        // legacy/otherwise-oversized file by overwriting its recorded size directly.
+        var fileId = await testScope.Database.Attachments
+            .Where(x => x.Id == attachmentId)
+            .Select(x => x.FileId)
+            .SingleAsyncEF();
+        await testScope.Database.Files
+            .Where(x => x.Id == fileId)
+            .ExecuteUpdateAsync(x => x.SetProperty(f => f.Size, SystemMimeTypes.MaxFileSizeBytes + 1));
+
+        await Assert.ThrowsAsync<BadRequestException>(() => mcpService.GetAttachmentContent(
+            AuthDataFor(organization.Id, ownerId), attachmentId, CancellationToken.None));
+    }
 }

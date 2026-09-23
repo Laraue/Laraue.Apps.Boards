@@ -1,21 +1,15 @@
-﻿using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.Services;
-using Laraue.Core.DataAccess.EFCore.Extensions;
+﻿using Laraue.Apps.Boards.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
-using Telegram.Bot;
 
 namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 
 [ApiController]
 [Route("/api/files")]
 public class FilesController(
-    DatabaseContext db,
+    ICoreFilesService coreFilesService,
     IFileStorage fileStorage,
-    ITelegramBotClient botClient,
     IHttpClientFactory httpClientFactory,
-    IOptions<TelegramOptions> options,
     IMemoryCache memoryCache)
     : ControllerBase
 {
@@ -24,37 +18,22 @@ public class FilesController(
         Guid id,
         CancellationToken cancellationToken)
     {
-        var fileData = await db.Files
-            .Where(x => x.Id == id)
-            .Select(x => new
-            {
-                x.TelegramFile!.ExternalFileUniqueId,
-                x.MimeType,
-                x.TelegramFile.ExternalFileId,
-            })
-            .FirstOrThrowNotFoundEFAsync("File is not found", cancellationToken);
-
-        var fileExtension = ExtensionUtility.GetExtension(fileData.MimeType);
-        var physicalPath = ShardedPathStrategy.GetPath(fileData.ExternalFileUniqueId, fileExtension);
-        var mimeType = fileData.MimeType ?? "application/octet-stream";
+        var location = await coreFilesService.ResolveFileLocation(id, cancellationToken);
 
         // Serve from local cache — seekable stream, ASP.NET Core handles ranges
-        if (await fileStorage.FileExists(physicalPath, cancellationToken))
+        if (await fileStorage.FileExists(location.PhysicalPath, cancellationToken))
         {
-            var cachedStream = await fileStorage.ReadFile(physicalPath, cancellationToken);
-            return File(cachedStream, mimeType, enableRangeProcessing: true);
+            var cachedStream = await fileStorage.ReadFile(location.PhysicalPath, cancellationToken);
+            return File(cachedStream, location.MimeType, enableRangeProcessing: true);
         }
 
-        // Resolve and cache the Telegram download URL (valid 60 min)
-        var botToken = options.Value.Token;
-        var cacheKey = $"tg_file_url_{fileData.ExternalFileId}";
+        // Resolve and cache the Telegram download URL (valid 60 min) — this caching is
+        // controller-specific, so it stays here rather than in
+        // ICoreFilesService.ResolveTelegramDownloadUrl, which always asks Telegram fresh.
+        var cacheKey = $"tg_file_url_{location.ExternalFileId}";
         if (!memoryCache.TryGetValue(cacheKey, out string? downloadUrl))
         {
-            var tgFile = await botClient.GetFile(fileData.ExternalFileId, cancellationToken);
-            if (string.IsNullOrEmpty(tgFile.FilePath))
-                return NotFound("Telegram file path is unavailable.");
-
-            downloadUrl = $"https://api.telegram.org/file/bot{botToken}/{tgFile.FilePath}";
+            downloadUrl = await coreFilesService.ResolveTelegramDownloadUrl(location.ExternalFileId, cancellationToken);
             memoryCache.Set(cacheKey, downloadUrl, TimeSpan.FromMinutes(55));
         }
 
@@ -87,6 +66,6 @@ public class FilesController(
 
         // enableRangeProcessing: false — we've already handled the range manually
         // by forwarding it to Telegram. ASP.NET Core must not try to slice again.
-        return File(stream, mimeType, enableRangeProcessing: false);
+        return File(stream, location.MimeType, enableRangeProcessing: false);
     }
 }

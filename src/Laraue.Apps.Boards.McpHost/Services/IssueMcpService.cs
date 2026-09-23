@@ -123,6 +123,17 @@ public interface IIssueMcpService
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Reads an issue attachment's original file content, by the id <see cref="GetIssue"/>'s
+    /// <c>Attachments</c> already exposes (the same one <c>removeAttachmentIds</c> takes) - not a
+    /// separate file id, so there's only ever one id per attachment for a caller to track.
+    /// Permission is checked against the attachment's own issue, same as <see cref="GetIssue"/>.
+    /// </summary>
+    Task<FileContent> GetAttachmentContent(
+        OrganizationAuthData authData,
+        Guid attachmentId,
+        CancellationToken cancellationToken);
+
     /// <summary>Returns the new comment's id.</summary>
     Task<long> AddComment(
         OrganizationAuthData authData,
@@ -648,6 +659,30 @@ public class IssueMcpService(
         }
 
         return uploaded;
+    }
+
+    public async Task<FileContent> GetAttachmentContent(
+        OrganizationAuthData authData,
+        Guid attachmentId,
+        CancellationToken cancellationToken)
+    {
+        var attachmentData = await context.IssueAttachments
+            .Where(x => x.AttachmentId == attachmentId)
+            .Select(x => new { x.IssueId, FileId = x.Attachment!.FileId, FileSize = x.Attachment.File!.Size })
+            .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Attachment", attachmentId), cancellationToken);
+
+        await accessService.GetAccessLevelsByIssueId(authData, attachmentData.IssueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", attachmentData.IssueId))
+            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", attachmentData.IssueId, "read"));
+
+        // Uploads are already capped at SystemMimeTypes.MaxFileSizeBytes (see UploadFiles below),
+        // but this guards against a legacy/otherwise-larger file predating that cap - reject it
+        // before ever opening a stream over it, rather than relying solely on GetAttachment's own
+        // runtime cap on the copy itself.
+        if (attachmentData.FileSize > SystemMimeTypes.MaxFileSizeBytes)
+            throw new BadRequestException(nameof(attachmentId), string.Format(ErrorMessages.AttachmentTooLargeToDownload, attachmentId));
+
+        return await coreFilesService.GetFileContent(attachmentData.FileId, cancellationToken);
     }
 
     public async Task<long> AddComment(

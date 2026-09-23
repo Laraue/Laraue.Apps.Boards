@@ -25,30 +25,42 @@ public class TelegramBotClientMockFactory
             {
                 FileId = request.FileId,
                 FileUniqueId = request.FileId + "unique",
+                FilePath = request.FileId + "/path",
             });
         
         botClientMock.Setup(x => x.SendRequest(It.IsAny<SendPhotoRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((SendPhotoRequest request, CancellationToken _) => new Message
+            .ReturnsAsync((SendPhotoRequest request, CancellationToken _) =>
             {
-                Photo =
-                [
-                    new PhotoSize
-                    {
-                        Height = 20,
-                        Width = 20,
-                        FileId = Guid.NewGuid().ToString(),
-                        FileUniqueId = Guid.NewGuid().ToString(),
-                        FileSize = 400,
-                    },
-                    new PhotoSize
-                    {
-                        Height = 1000,
-                        Width = 800,
-                        FileId = Guid.NewGuid().ToString(),
-                        FileUniqueId = Guid.NewGuid().ToString(),
-                        FileSize = 800000,
-                    }
-                ]
+                // FileUniqueId is derived from FileId the same way the GetFileRequest mock above
+                // does, so a later GetFile(fileId) call resolves to the same FileUniqueId - matching
+                // real Telegram semantics (the same file has a stable FileUniqueId regardless of
+                // which API call you fetch it through), which CoreFilesService.DownloadToLocalStorage
+                // relies on to key the local cache path the same way UpsertDbFile records it in DB.
+                var thumbnailFileId = Guid.NewGuid().ToString();
+                var originalFileId = Guid.NewGuid().ToString();
+
+                return new Message
+                {
+                    Photo =
+                    [
+                        new PhotoSize
+                        {
+                            Height = 20,
+                            Width = 20,
+                            FileId = thumbnailFileId,
+                            FileUniqueId = thumbnailFileId + "unique",
+                            FileSize = 400,
+                        },
+                        new PhotoSize
+                        {
+                            Height = 1000,
+                            Width = 800,
+                            FileId = originalFileId,
+                            FileUniqueId = originalFileId + "unique",
+                            FileSize = 800000,
+                        }
+                    ]
+                };
             });
         
         return botClientMock.Object;
