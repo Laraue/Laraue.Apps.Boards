@@ -3,7 +3,7 @@
   "name": "com.laraue/boards",
   "description": "List, view, create, edit, and move issues in your Laraue Boards organization.",
   "title": "Laraue Boards",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "websiteUrl": "https://boards.laraue.com",
   "repository": {
     "url": "https://github.com/Laraue/Laraue.Apps.Boards",
