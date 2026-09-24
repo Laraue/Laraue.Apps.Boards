@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Core.DataAccess.EFCore.Extensions;
@@ -12,13 +13,16 @@ namespace Laraue.Apps.Boards.Services;
 public interface ICoreIssuesService
 {
     /// <summary>
-    /// Creates an issue owned by <paramref name="ownerId"/> from an <see cref="IssueCreateRequest"/>:
+    /// Creates an issue owned by <paramref name="actor"/> from an <see cref="IssueCreateRequest"/>:
     /// only status and creation time are mandatory on it, everything else (content, assignee,
     /// attributes, attachments) is optional and applied via the shared
     /// <see cref="IssueChange{TSelf}"/> setters - same shape as <see cref="Update"/>.
+    /// <paramref name="actor"/>'s <see cref="Actor.ApiKeyId"/> (if any) is recorded on the
+    /// resulting history entry, so a change made on the owner's behalf by a program (e.g. an MCP
+    /// client) is distinguishable from one they made directly.
     /// </summary>
     Task<long> Create(
-        Guid ownerId,
+        Actor actor,
         IssueCreateRequest request,
         CancellationToken cancellationToken);
 
@@ -31,13 +35,13 @@ public interface ICoreIssuesService
     /// </summary>
     Task Update(
         long issueId,
-        Guid updaterId,
+        Actor actor,
         IssueUpdateRequest request,
         CancellationToken cancellationToken);
 
     Task Delete(
         long id,
-        Guid deleterId,
+        Actor actor,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -45,22 +49,22 @@ public interface ICoreIssuesService
     /// </summary>
     Task<long> AddComment(
         long issueId,
-        Guid ownerId,
+        Actor actor,
         string comment,
         IEnumerable<MediaInfo> mediaInfos,
         CancellationToken cancellationToken);
-    
+
     Task UpdateComment(
         long commentId,
-        Guid ownerId,
+        Actor actor,
         string comment,
         MediaInfo[] newFiles,
         Guid[] deleteAttachmentIds,
         CancellationToken cancellationToken);
-    
+
     Task DeleteComment(
         long id,
-        Guid deleterId,
+        Actor actor,
         CancellationToken cancellationToken);
 
     Task UpdateIssuesOrder(
@@ -92,11 +96,11 @@ public class CoreIssuesService(
     : ICoreIssuesService
 {
     public async Task<long> Create(
-        Guid ownerId,
+        Actor actor,
         IssueCreateRequest request,
         CancellationToken cancellationToken)
     {
-        var assigneeId = request.AssigneeId.GetValueOrDefault(ownerId);
+        var assigneeId = request.AssigneeId.GetValueOrDefault(actor.UserId);
 
         var issueData = await context.ActiveStatuses()
             .Where(x => x.Id == request.StatusId)
@@ -137,7 +141,7 @@ public class CoreIssuesService(
         var issue = new Issue
         {
             Content = content,
-            OwnerId = ownerId,
+            OwnerId = actor.UserId,
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.CreatedAt,
             TelegramMessageId = request.TelegramMessageId,
@@ -206,7 +210,7 @@ public class CoreIssuesService(
         {
             items.AddRange(await AttachIssueFiles(
                 issue.Id,
-                ownerId,
+                actor.UserId,
                 request.NewAttachments.ToArray(),
                 cancellationToken));
         }
@@ -224,7 +228,7 @@ public class CoreIssuesService(
             LogEntityType.Issue,
             LogAction.Create,
             issueData.OrganizationId,
-            ownerId,
+            actor,
             request.CreatedAt,
             items,
             cancellationToken);
@@ -236,7 +240,7 @@ public class CoreIssuesService(
 
     public async Task Update(
         long issueId,
-        Guid updaterId,
+        Actor actor,
         IssueUpdateRequest request,
         CancellationToken cancellationToken)
     {
@@ -296,7 +300,7 @@ public class CoreIssuesService(
         {
             items.AddRange(await AttachIssueFiles(
                 issueId,
-                updaterId,
+                actor.UserId,
                 request.NewAttachments.ToArray(),
                 cancellationToken));
         }
@@ -331,7 +335,7 @@ public class CoreIssuesService(
             LogEntityType.Issue,
             LogAction.Update,
             issueData.OrganizationId,
-            updaterId,
+            actor,
             date,
             items,
             cancellationToken);
@@ -377,7 +381,7 @@ public class CoreIssuesService(
 
     public async Task Delete(
         long id,
-        Guid deleterId,
+        Actor actor,
         CancellationToken cancellationToken)
     {
         var issueData = await context.ActiveIssues()
@@ -394,7 +398,7 @@ public class CoreIssuesService(
             LogEntityType.Issue,
             LogAction.Delete,
             issueData.OrganizationId,
-            deleterId,
+            actor,
             dateTimeProvider.UtcNow,
             items: null,
             cancellationToken);
@@ -405,19 +409,19 @@ public class CoreIssuesService(
             .Where(x => x.Id == id)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, deleterId),
+                .SetProperty(p => p.DeletedByUserId, actor.UserId),
                 cancellationToken);
     }
 
     public async Task<long> AddComment(
         long issueId,
-        Guid ownerId,
+        Actor actor,
         string comment,
         IEnumerable<MediaInfo> mediaInfos,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
-        
+
         var issueData = await context.ActiveIssues()
             .Where(x => x.Id == issueId)
             .Select(x => new
@@ -430,7 +434,7 @@ public class CoreIssuesService(
         {
             Text = comment,
             IssueId = issueId,
-            OwnerId = ownerId,
+            OwnerId = actor.UserId,
             CreatedAt = dateTimeProvider.UtcNow,
             UpdatedAt = dateTimeProvider.UtcNow,
         };
@@ -438,13 +442,13 @@ public class CoreIssuesService(
         context.Add(issueComment);
 
         var attachments = new List<IssueCommentAttachment>();
-        
+
         foreach (var mediaInfo in mediaInfos)
         {
             var attachment = new IssueCommentAttachment
             {
                 Comment = issueComment,
-                Attachment = GetAttachmentEntity(ownerId, mediaInfo),
+                Attachment = GetAttachmentEntity(actor.UserId, mediaInfo),
             };
         
             attachments.Add(attachment);
@@ -471,7 +475,7 @@ public class CoreIssuesService(
             LogEntityType.Comment,
             LogAction.Create,
             issueData.OrganizationId,
-            ownerId,
+            actor,
             dateTimeProvider.UtcNow,
             items,
             cancellationToken);
@@ -481,14 +485,14 @@ public class CoreIssuesService(
 
     public async Task UpdateComment(
         long commentId,
-        Guid ownerId,
+        Actor actor,
         string comment,
         MediaInfo[] newFiles,
         Guid[] deleteAttachmentIds,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
-        
+
         var commentData = await context.ActiveIssueComments()
             .Where(x => x.Id == commentId)
             .Select(x => new
@@ -519,7 +523,7 @@ public class CoreIssuesService(
             var attachment = new IssueCommentAttachment
             {
                 CommentId = commentId,
-                Attachment = GetAttachmentEntity(ownerId, mediaInfo),
+                Attachment = GetAttachmentEntity(actor.UserId, mediaInfo),
             };
         
             commentAttachments.Add(attachment);
@@ -570,13 +574,16 @@ public class CoreIssuesService(
             LogEntityType.Comment,
             LogAction.Update,
             commentData.OrganizationId,
-            ownerId,
+            actor,
             dateTimeProvider.UtcNow,
             items,
             cancellationToken);
     }
 
-    public async Task DeleteComment(long id, Guid deleterId, CancellationToken cancellationToken)
+    public async Task DeleteComment(
+        long id,
+        Actor actor,
+        CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
         
@@ -601,7 +608,7 @@ public class CoreIssuesService(
             .Where(x => x.Id == id)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, deleterId),
+                .SetProperty(p => p.DeletedByUserId, actor.UserId),
                 cancellationToken);
 
         await historyService.Record(
@@ -609,7 +616,7 @@ public class CoreIssuesService(
             LogEntityType.Comment,
             LogAction.Delete,
             commentData.OrganizationId,
-            deleterId,
+            actor,
             dateTimeProvider.UtcNow,
             items: null,
             cancellationToken);

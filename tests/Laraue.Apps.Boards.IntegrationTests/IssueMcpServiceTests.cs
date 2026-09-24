@@ -38,9 +38,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<IDateTimeProvider>());
     }
 
-    private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId)
+    private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
     {
-        return new OrganizationAuthData { OrganizationId = organizationId, UserId = userId };
+        return new OrganizationAuthData { OrganizationId = organizationId, UserId = userId, ApiKeyId = apiKeyId };
     }
 
     [Fact]
@@ -366,6 +366,44 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var comment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == commentId);
         Assert.Equal("A new comment", comment.Text);
         Assert.Equal(ownerId, comment.OwnerId);
+    }
+
+    [Fact]
+    public async Task CreateComment_ShouldRecordApiKeyIdOnHistory_WhenCallerAuthenticatedWithApiKey()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var apiKeysService = testScope.Services.GetRequiredService<ICoreApiKeysService>();
+        var apiKey = await apiKeysService.CreateAsync(organization.Id, ownerId, "Claude MCP", CancellationToken.None);
+
+        var commentId = await CreateIssueMcpService(testScope).CreateComment(
+            AuthDataFor(organization.Id, ownerId, apiKey.Id), issueData.Key, "A new comment", CancellationToken.None);
+
+        var log = await testScope.Database.OrganizationLogs.SingleAsyncEF(x =>
+            x.EntityType == LogEntityType.Comment && x.EntityId == commentId);
+        Assert.Equal(apiKey.Id, log.ApiKeyId);
+    }
+
+    [Fact]
+    public async Task CreateComment_ShouldRecordNoApiKeyIdOnHistory_WhenCallerAuthenticatedWithoutApiKey()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        var commentId = await CreateIssueMcpService(testScope).CreateComment(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "A new comment", CancellationToken.None);
+
+        var log = await testScope.Database.OrganizationLogs.SingleAsyncEF(x =>
+            x.EntityType == LogEntityType.Comment && x.EntityId == commentId);
+        Assert.Null(log.ApiKeyId);
     }
 
     [Fact]

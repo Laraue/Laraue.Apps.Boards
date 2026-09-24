@@ -38,7 +38,7 @@ public interface ICoreApiKeysService
     Task<ApiKeyPrincipal?> ValidateAsync(string rawKey, CancellationToken cancellationToken);
 }
 
-public sealed record ApiKeyPrincipal(long OrganizationId, Guid UserId);
+public sealed record ApiKeyPrincipal(long OrganizationId, Guid UserId, Guid ApiKeyId);
 
 /// <summary>
 /// <see cref="RawKey"/> is only ever available here, at creation time - it's never stored or
@@ -114,7 +114,7 @@ public class CoreApiKeysService(
                 setters => setters.SetProperty(x => x.LastUsedAt, dateTimeProvider.UtcNow),
                 cancellationToken);
 
-        return new ApiKeyPrincipal(apiKey.OrganizationId, apiKey.CreatedByUserId);
+        return new ApiKeyPrincipal(apiKey.OrganizationId, apiKey.CreatedByUserId, apiKey.Id);
     }
 
     private static string Hash(string rawKey)

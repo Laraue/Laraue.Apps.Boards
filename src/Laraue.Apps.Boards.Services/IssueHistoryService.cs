@@ -1,3 +1,4 @@
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 
@@ -20,7 +21,7 @@ public interface IIssueHistoryService
         LogEntityType entityType,
         LogAction action,
         long organizationId,
-        Guid ownerId,
+        Actor actor,
         DateTime createdAt,
         List<OrganizationLogItem>? items,
         CancellationToken cancellationToken);
@@ -35,7 +36,7 @@ public interface IIssueHistoryService
         LogEntityType entityType,
         LogAction action,
         long organizationId,
-        Guid ownerId,
+        Actor actor,
         DateTime createdAt,
         List<OrganizationLogItem> items,
         CancellationToken cancellationToken);
@@ -48,7 +49,7 @@ public class IssueHistoryService(DatabaseContext context) : IIssueHistoryService
         LogEntityType entityType,
         LogAction action,
         long organizationId,
-        Guid ownerId,
+        Actor actor,
         DateTime createdAt,
         List<OrganizationLogItem>? items,
         CancellationToken cancellationToken)
@@ -60,7 +61,8 @@ public class IssueHistoryService(DatabaseContext context) : IIssueHistoryService
             EntityType = entityType,
             Action = action,
             OrganizationId = organizationId,
-            OwnerId = ownerId,
+            OwnerId = actor.UserId,
+            ApiKeyId = actor.ApiKeyId,
             Items = items,
         });
 
@@ -72,7 +74,7 @@ public class IssueHistoryService(DatabaseContext context) : IIssueHistoryService
         LogEntityType entityType,
         LogAction action,
         long organizationId,
-        Guid ownerId,
+        Actor actor,
         DateTime createdAt,
         List<OrganizationLogItem> items,
         CancellationToken cancellationToken)
@@ -85,7 +87,7 @@ public class IssueHistoryService(DatabaseContext context) : IIssueHistoryService
             entityType,
             action,
             organizationId,
-            ownerId,
+            actor,
             createdAt,
             items,
             cancellationToken);

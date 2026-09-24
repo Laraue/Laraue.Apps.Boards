@@ -333,6 +333,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             builder
                 .HasIndex(x => new { x.OrganizationId, x.OwnerId, x.CreatedAt })
                 .IsDescending(false, false, true);
+
+            builder
+                .HasOne(x => x.ApiKey)
+                .WithMany()
+                .HasForeignKey(x => x.ApiKeyId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
         
         modelBuilder.Entity<LinkedTelegramChat>(entity =>

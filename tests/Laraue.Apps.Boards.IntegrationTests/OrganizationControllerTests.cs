@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
@@ -1035,6 +1036,44 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.Equal(secondSpaceIssue.Key, historyItem.IssueKey);
         Assert.Equal(LogEntityType.Issue, historyItem.EntityType);
         Assert.Equal(LogAction.Update, historyItem.Action);
+    }
+
+    [Fact]
+    public async Task GetOrganizationHistory_ShouldExposeApiKeyName_WhenChangeWasMadeViaApiKey()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        var apiKeysService = testScope.Services.GetRequiredService<ICoreApiKeysService>();
+        var apiKey = await apiKeysService.CreateAsync(organization.Id, userId, "Claude MCP", CancellationToken.None);
+
+        var issuesService = testScope.Services.GetRequiredService<ICoreIssuesService>();
+        await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
+        {
+            await issuesService.AddComment(
+                issueData.Issue.Id, new Actor(userId, apiKey.Id), "Via API key", [], CancellationToken.None);
+            await transaction.CommitAsync();
+        }
+
+        var request = new GetOrganizationHistoryRequest
+        {
+            Pagination = new PaginationData
+            {
+                Page = 0,
+                PerPage = 10,
+            }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        var historyItem = Assert.Single(historyData!.Data);
+        Assert.Equal("Claude MCP", historyItem.ApiKeyName);
     }
 
     [Fact]
