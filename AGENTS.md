@@ -448,220 +448,101 @@ above always run unconditionally.
 ## API keys and MCP access
 
 Lets a program (Claude, via a remote MCP connector) act as an organization member without a
-browser session. Three pieces:
+browser session.
 
-- **`ApiKey`** (`DataAccess.Models.ApiKey`) — a long-lived credential scoped to one organization
-  and one member (`CreatedByUserId`). Its authority is never snapshotted: every use resolves
-  `CreatedByUserId`'s access **live**, through the exact same `IAccessService` checks a normal JWT
-  request goes through - if that member later loses a permission or is removed from the org, the
-  key silently loses it too, for free. `ICoreApiKeysService` (`Boards.Services`) owns
-  create/revoke/validate; it only covers mutations (per "Core services are for mutations, not
-  reads" above) - listing a caller's own keys is a plain read living in
-  `WebApiServices.ApiKeysService`, querying `DatabaseContext` directly.
-- **Self-service, not admin-gated**: a key only ever grants what its own creator could already do,
-  so there's no `AdminAccessLevel` flag for managing keys - a member creates/lists/revokes only
-  their own keys (`WHERE CreatedByUserId == <caller>`), via `POST/GET/DELETE /api/api-keys` on the
-  existing `AuthSchemas.Organization` JWT scheme. Org-wide admin visibility into every member's
-  keys is a deliberately deferred future ask, not an oversight.
-- **`AuthSchemas.ApiKey`** (`Boards.Common`) + `ApiKeyAuthenticationHandler`
-  (`Boards.Services.Auth`) — a second authentication scheme, independent of the JWT ones. Reads an
-  `X-Api-Key` header, calls `ICoreApiKeysService.ValidateAsync`, and on success builds a
-  `ClaimsPrincipal` with the *same* `orgId`/`id` claim types the JWT schemes use - so
-  `GetOrganizationAuthData()` and every existing `IAccessService`/controller-level check work
-  completely unchanged regardless of which scheme authenticated the caller. Only `McpHost`
-  registers this scheme; no existing `WebApiHost`/`TelegramHost` endpoint accepts an API key. It
-  additionally puts an `apiKeyId` claim on the principal (absent from a JWT-issued one), so
-  `OrganizationAuthData.ApiKeyId` is non-null exactly when the request came in through an API key.
-- **Attribution on change history**: `OrganizationLog.ApiKeyId` (nullable FK to `ApiKey`, `SetNull`
-  on delete like `DeletedByUserId`) records which key made a change, alongside the existing
-  `OwnerId`. `Actor` (`Boards.Common`, `readonly record struct Actor(Guid UserId, Guid? ApiKeyId =
-  null)`) bundles the two into one value, replacing what used to be a raw `Guid ownerId`/
-  `updaterId`/`deleterId` parameter on `ICoreIssuesService`'s six history-writing methods
-  (`Create`/`Update`/`Delete`/`AddComment`/`UpdateComment`/`DeleteComment`) and on
-  `IIssueHistoryService.Record`/`RecordIfChanged`. `Actor` has an **implicit conversion from
-  `Guid`** specifically so the many callers that only ever have a bare user id (the web app,
-  Telegram) keep compiling unchanged - only `McpHost.IssueMcpService` constructs one explicitly,
-  via `OrganizationAuthData.ToActor()`, since that's the only host where `ApiKeyId` is ever
-  non-null. This is the one implicit operator in the codebase - a deliberate exception to the
-  otherwise-explicit style, made specifically to keep this attribution change from forcing every
-  unrelated call site (web app, Telegram) to change for no behavioral difference. Surfaced on the
-  read side as `OrganizationHistoryItem.ApiKeyName` (`OrganizationHistoryService`'s
-  `GetOrganizationHistory`/`GetIssueHistory`), projected straight off the log row's `ApiKey`
-  navigation - null for a change made in a normal session.
-- **`Laraue.Apps.Boards.McpHost`** — the fourth host (see "Project layout"), built on
-  `ModelContextProtocol.AspNetCore`. `AddCoreServices()` is called here same as any host, which
-  means `ICoreFilesService`'s `ITelegramBotClient` dependency has to be satisfied too even though
-  no MCP tool touches file attachments - `Program.cs` registers a real `TelegramBotClient` purely
-  to satisfy ASP.NET's build-time DI validation, the same way `WebApiHost` already does.
-  `McpServerOptions.ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting
-  client, telling it to reach for these tools instead of asking the user to paste issue content in.
-  Tool types (`Tools/IssueTools.cs`, `[McpServerToolType]`) are thin adapters, same shape as a
-  controller: resolve the caller's `OrganizationAuthData` from
-  `IHttpContextAccessor.HttpContext!.User` (populated by the API key handler above), call into a
-  plain service, return the result - no query/permission/mutation logic in the tool type itself.
-  That logic lives in `Services/IssueMcpService.cs` (`IIssueMcpService`), which delegates straight
-  into `IAccessService`/`ICoreIssuesService` - the exact same permission checks and mutation path
-  the REST API uses, no new logic. Tests construct `IssueMcpService` directly against the
-  integration test database (`IssueMcpServiceTests.cs`), passing a plain `OrganizationAuthData`,
-  rather than driving the real MCP HTTP/SSE transport - not worth the effort for what's otherwise
-  already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
-  tests, same reason a controller doesn't usually get tested separately from the service it calls.
-  Tools cover `list_issues`/`get_issue`/`edit_issue_status` plus `create_issue`/`edit_issue`/
-  `delete_issue`/`create_comment`/`edit_comment`/`delete_comment`/`get_attachment` and the
-  discovery tools `list_spaces`/`list_statuses`/`list_attributes`/`list_members` - each still just
-  the REST API's own permission/mutation path (`CanCreateIssue` off the target status's epic,
-  `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for `delete_issue` (soft-delete, via
-  `ICoreIssuesService.Delete` - same as REST's `IssuesService.Delete`), owner-only for
-  editing/deleting a comment - same as `IssuesService.UpdateIssueComment`/`DeleteIssueComment`,
-  not gated by `CanUpdateIssue`). There's no separate attachment-management tool: attaching a
-  file is a `files` parameter on `create_issue`/`edit_issue`, and removing one is `edit_issue`'s
-  `removeAttachmentIds` parameter - a per-file `add_attachment`/`remove_attachment` tool would
-  just be a worse-shaped duplicate of what `edit_issue` already does in one call.
-  `edit_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
-  `IssuesService.Create` also just takes a raw `StatusId`, no separate space concept at all) - and
-  `list_statuses` exists to make that id discoverable, since an MCP caller has no status-picker UI
-  the way the REST API's frontend does. `edit_issue_status` accepts *any* status id the caller
-  can move issues to, not necessarily one in the issue's current epic - moving an issue to a
-  different epic's status is real REST API behavior too (an issue's epic is entirely derived from
-  its `StatusId`), not something worth artificially restricting just because MCP takes an id.
-  `update_issue_status`/`add_comment` were renamed to `edit_issue_status`/`create_comment` -
-  Glama's TDQS naming-consistency check flagged the verb mismatch against `edit_issue` and
-  `create_issue` respectively (a synonym for the same kind of operation, scored as inconsistent
-  naming), and there was no functional reason to keep the mismatched verbs once flagged. This is
-  a breaking rename for any already-connected client - accepted deliberately, weighed against a
-  small number of real users this early after launch.
-  `list_issues`/`get_issue` return **`canEdit`/`canDelete`** per issue (`IssueSummary`/
-  `IssueDetail`), mirroring REST's own `IssueDetailDto.CanEdit`/`SearchIssueDto.CanEdit` exposure
-  - the point is letting an MCP caller check upfront whether `edit_issue`/`edit_issue_status`/
-  `delete_issue` will actually succeed, instead of discovering a permission gap only from a
-  thrown `ForbiddenException` (a tool description alone, e.g. "requires delete permission," gives
-  an LLM nothing concrete to act on ahead of time). `GetIssue` gets both for free from the
-  `AccessLevels` it already fetches for its own `CanRead` check - no extra query.
-  `ListIssues` can't do the same per-item (a page has up to 50 issues, and a per-issue
-  permission check would mean up to 50 more queries) - but Boards' permission model is
-  space-scoped, not per-issue (`IAccessService.GetAccessLevelsByIssueId` itself resolves down to
-  the issue's space), so every issue in the same space shares the same `canEdit`/`canDelete`.
-  `ListIssues` batches one query per permission across just the space keys present on the current
-  page (new `IAccessService.GetSpacesWithAllowedIssuesDelete`, mirroring the pre-existing
-  `GetSpacesWithAllowedIssuesUpdate` REST's own `IssuesService.Search` already uses for its
-  `CanEdit`) rather than checking each issue individually - REST had no delete-permission
-  equivalent exposed anywhere before this, so `GetSpacesWithAllowedIssuesDelete` is new on both
-  surfaces, not something copied from an existing REST feature.
-  `list_spaces` returns **`canCreateIssue`** per space (`SpaceSummary`) for the same reason -
-  `create_issue`'s real permission check resolves the target `statusId`'s epic down to its space
-  (`GetAccessLevelsByEpicId`, no separate epic-level permission table), so the flag is the same
-  regardless of which status within the space ends up chosen; checking it via `list_spaces`
-  before ever calling `list_statuses`/`create_issue` there is cheaper than finding out from a
-  thrown `NotFoundException` (REST's own `CanCreateIssue` failure mode - see
-  `EnsureOrThrowNotFound` in `create_issue`'s own doc comment above). New
-  `IAccessService.GetSpacesWithAllowedIssueCreation`, same `GetSpacesWithPermissionCondition`
-  shape as the update/delete variants, using `CanCreateIssues`. REST's own `SpacesService`
-  returns `CanCreateEpics`/`CanUpdate`/`CanDelete` per space but never `CanCreateIssue` - another
-  case (like `GetSpacesWithAllowedIssuesDelete` above) of MCP adding a permission-discovery flag
-  that has no direct REST equivalent yet, motivated by the same problem: an LLM caller has no way
-  to infer this ahead of time the way a human clicking through a UI with disabled buttons can.
-  `create_issue`/`edit_issue`'s optional **`assigneeId`** (a `Guid`) mirrors REST's own
-  `AssigneeId` handling exactly: `create_issue` omits it to default to the caller (same fallback
-  `ICoreIssuesService.Create` itself applies via `ChangedValue<Guid>.GetValueOrDefault(ownerId)`
-  when nothing is set), `edit_issue` omits it to leave the current assignee untouched (`SetAssignee`
-  simply isn't called, so `IssueChange.AssigneeId` stays `Unset`). Both validate the given id
-  belongs to the caller's organization first (`IssueMcpService.EnsureUserBelongsToOrganization`,
-  the exact same check REST's `IssuesService` runs before accepting one) - an MCP caller has no UI
-  stopping it from sending an arbitrary Guid, so this can't be skipped the way a browser form
-  implicitly prevents it.
-  `create_issue` has **no `spaceKey` parameter at all**, matching the REST API's `Create` exactly
-  - an earlier revision added one plus a "does `statusId` belong to `spaceKey`" cross-check,
-  reasoning that `CanCreateIssue` needed a caller-supplied space to check against. That was
-  unnecessary: `IssuesService.Create` proves permission can be derived directly from `statusId`'s
-  own epic (`GetAccessLevelsByEpicId`), with nothing left to cross-validate once there's no second
-  space parameter to disagree with it. `create_issue`'s `statusId` is **required**, not defaulted
-  - `list_statuses` always has to be called first, which also means a caller always knows and
-  states exactly which status a new issue lands in, rather than relying on an implicit "space's
-  default" a caller can't see without a separate lookup anyway. `list_attributes` plays the
-  equivalent discovery role for `create_issue`/`edit_issue`'s `attributes` map, whose keys are
-  attribute **ids** (`list_attributes` returns each attribute's id, and for `AttributeType.List`,
-  each allowed value's own id too) - matching `statusId`'s id-based shape rather than the
-  name-based alternative once used here. Names were briefly tried since attribute names are
-  already unique per org (unlike a status name, which needs epic-scoping to disambiguate), but
-  ids won: an agentic caller already has `list_attributes`' full output in context right before
-  calling `create_issue`/`edit_issue`, so there's no real memorization cost, and ids let the whole
-  validate-and-build step be shared with the REST API instead of duplicated (see below).
-- **Attributes** (custom per-organization fields - `Attribute`/`AttributeListValue`,
-  `Laraue.Apps.Boards.DataAccess.Models`) are flat and org-wide, never scoped to a space/epic -
-  `list_attributes` and `create_issue`/`edit_issue`'s `attributes` map (attribute id → plain text
-  value; for `AttributeType.List`, the value is one of that attribute's list value ids, also as
-  plain text) both just filter `context.Attributes` by `OrganizationId`.
-  `Laraue.Apps.Boards.Services.AttributeRequests.AttributeValue` (+ its 6 typed subtypes -
-  `StringAttributeValue`, `IntegerAttributeValue`, `DecimalAttributeValue`, `DateAttributeValue`,
-  `DateTimeAttributeValue`, `EnumAttributeValue`) is the **shared** representation both hosts
-  build before handing off to `ICoreIssueAttributesService.BuildSetRequests` - the one place that
-  validates each value against the attribute's real type (batched, one query for attribute types
-  + one for list-value-id existence, not N+1) and builds the corresponding
-  `SetIssueAttributeRequest`s, collecting every problem found (not just the first) into a single
-  `BadRequestException`. The REST API's client already sends an already-typed `AttributeValue`
-  per attribute (see `IssuesService.CreateIssueRequest`/`UpdateIssueRequest`, `[JsonModelBinder]`
-  picking the right derived type) and calls `BuildSetRequests` directly. MCP callers can only
-  produce plain text, so `IssueMcpService.ParseAttributeValue` does the one genuinely
-  MCP-specific step: parsing raw text into the right typed `AttributeValue` per `AttributeType`
-  (`long`/`decimal`/`DateOnly`/`DateTime.TryParse`, and for `List`, just `long.TryParse` into a
-  `ValueId` now that the caller passes an id instead of matching display text) - then hands the
-  result to the same shared `BuildSetRequests`. `IssueMcpService.ResolveAttributeRequests` still
-  has to merge MCP's own parse-time errors with whatever `BuildSetRequests` itself throws (rather
-  than short-circuiting on the first parse failure) so a caller sees every problem across every
-  attribute in one response, matching the batched-error guarantee `BuildSetRequests` already gives
-  REST callers. `CreateIssue`/`EditIssue` both check `attributes is not null` (not
-  `attributeRequests.Count > 0`, which was 0 in both the omitted and the explicitly-empty case and
-  could never actually reach the empty-`SetAttributes` clear path) - a bug caught and fixed
-  mid-session, not a design choice to preserve: `null`/omitted `attributes` leaves every attribute
-  untouched, while an explicit empty object (`{}`) clears every attribute the issue currently has.
-- **File attachments** (`create_issue`/`edit_issue`'s optional `files` param, a
-  `FileAttachment(FileName, ContentType, Base64Content)[]`) - MCP has no multipart upload channel
-  the way the REST API's `IFormFile[]` does, so a caller sends each file base64-encoded instead;
-  `IssueMcpService.UploadFiles` decodes it, then calls the exact same
-  `ICoreFilesService.UploadFile` the REST API uses - same storage path, same restriction to
-  `SystemMimeTypes.Supported` (images only today), same `SystemMimeTypes.MaxFileSizeBytes` (3MB)
-  cap. Validation (unsupported type, invalid base64, too large) follows the same
-  batched-all-errors-at-once pattern as attributes. `edit_issue`'s `files` are added alongside the
-  issue's existing attachments; `removeAttachmentIds` (a `Guid[]`, matching REST's own
-  `RemoveAttachmentIds`/`IssueUpdateRequest.UnlinkAttachments`) removes existing ones by id, and
-  both can be given in the same call to replace one attachment with another. `get_issue`'s
-  `IssueDetail` includes `Attachments` (id + file name) so a caller has a way to discover those
-  ids. `get_attachment` (id from that same list) goes the other direction - downloads one
-  attachment's original file content, returned as a real MCP `ImageContentBlock` rather than a
-  JSON field with a base64 string wedged into it. `IssueMcpService.GetAttachmentContent` resolves
-  `IssueAttachment` -> `Attachment.FileId`, permission-checks `CanRead` on the owning issue, then
-  delegates to `ICoreFilesService.GetFileContent(fileId)` - a read, so it lives on
-  `Boards.Services`' `CoreFilesService` even though "core services are for mutations" above.
-  `GetFileContent` returns a `FileContent(Stream Content, string MimeType)` record whose `Content`
-  is a live local-file or HTTP-response stream, not a pre-buffered `byte[]` - `IssueTools.
-  GetAttachment` is the only place that actually needs bytes (an `ImageContentBlock.Data` is a
-  `ReadOnlyMemory<byte>`), so it's the only place that buffers the stream into memory, right
-  before building the response, and disposes the stream immediately after. `get_attachment`
-  enforces the same 3MB cap uploads use, in two layers: `IssueMcpService.GetAttachmentContent`
-  rejects a file whose DB-recorded `File.Size` already exceeds it before ever opening a stream,
-  and `IssueTools.GetAttachment` separately enforces a hard runtime cap while copying the stream
-  into memory, so a missing/wrong `File.Size` still can't cause unbounded buffering - the DB check
-  is an optimization, the runtime cap is the actual OOM guard. The DB lookup (local-cache path +
-  mime type) and the Telegram download-URL construction are shared with `FilesController.
-  GetFileById` too, via `ICoreFilesService.ResolveFileLocation`/`ResolveTelegramDownloadUrl` - the
-  controller still owns its own Range-forwarding and `IMemoryCache` URL-caching (genuinely
-  HTTP-response-specific concerns `GetFileContent` doesn't need).
-- **`list_issues`' `assigneeId`** (a `Guid`) replaced an earlier `assigneeName` display-name
-  substring filter, matching the id-based convention `statusId`/attribute ids already use - a
-  display name filter can silently match zero or several people, while an id is unambiguous.
-  `list_members` (`IssueMcpService.ListMembers`, wrapping `IAccessService.GetAvailableSpaces`/
-  `GetVisibleUsers` the same way REST's `OrganizationsController.GetMembers` does) exists to make
-  `assigneeId` discoverable - the same "call this first" role `list_statuses`/`list_attributes`
-  play. Its optional `spaceKey` mirrors REST's `GetMembersRequest.SpaceKey` exactly (resolve via
-  `ICoreSpacesService.GetSpaceIdBySpaceKey`, then the usual 404-then-403 `GetAccessLevelsBySpaceId`
-  check, same shape `list_statuses` already uses) - omit it to list every member visible anywhere
-  (unchanged default), or pass it when picking an `assigneeId` for `create_issue`/`edit_issue` in
-  a specific space, since an assignee has to actually be able to see issues there; without it, a
-  caller could pick a member who's visible somewhere in the org but has no access to the space the
-  issue actually lives in. `list_spaces` (`IssueMcpService.ListSpaces`, wrapping
-  `IAccessService.GetAvailableSpaces`) exists for the same reason - `spaceKey` (used by
-  `list_issues`/`list_statuses`) had no MCP discovery path before it. Neither is paginated, same
-  as their REST equivalents - organization membership/space count are naturally small.
+**`ApiKey`** (`DataAccess.Models.ApiKey`, `ICoreApiKeysService` in `Boards.Services`) — a
+long-lived credential scoped to one organization and one member (`CreatedByUserId`). Never
+snapshotted: every use resolves that member's access **live** through the same `IAccessService`
+checks a JWT request goes through, so losing a permission (or org membership) silently revokes the
+key too. Self-service, not admin-gated — a member creates/lists/revokes only their own keys
+(`WHERE CreatedByUserId == <caller>`) via `POST/GET/DELETE /api/api-keys` on the existing
+`AuthSchemas.Organization` JWT scheme; there's no admin visibility into other members' keys yet.
+`ICoreApiKeysService` only covers mutations + `ValidateAsync` (per "Core services are for
+mutations, not reads") — listing is a plain read in `WebApiServices.ApiKeysService`.
+
+**`AuthSchemas.ApiKey` + `ApiKeyAuthenticationHandler`** (`Boards.Services.Auth`) — a second,
+independent authentication scheme. Reads `X-Api-Key`, calls `ICoreApiKeysService.ValidateAsync`,
+and builds a `ClaimsPrincipal` with the same `orgId`/`id` claims the JWT schemes use (plus an
+extra `apiKeyId` claim a JWT never has), so `GetOrganizationAuthData()` and every
+`IAccessService`/controller check work unchanged regardless of scheme. Only `McpHost` registers
+this scheme.
+
+**`Actor`** (`Boards.Common`, `readonly record struct Actor(Guid UserId, Guid? ApiKeyId = null)`,
+implicitly convertible from `Guid`) — bundles who made a change for history attribution.
+`ICoreIssuesService`'s six history-writing methods (`Create`/`Update`/`Delete`/`AddComment`/
+`UpdateComment`/`DeleteComment`) and `IIssueHistoryService.Record`/`RecordIfChanged` take an
+`Actor` instead of a bare `Guid`. The implicit `Guid → Actor` conversion (the only implicit
+operator in the codebase — a deliberate exception) means the web app/Telegram call sites, which
+never have an API key, didn't need to change; only `McpHost.IssueMcpService` builds one explicitly
+via `OrganizationAuthData.ToActor()`. `OrganizationLog.ApiKeyId` (nullable FK to `ApiKey`,
+`SetNull` on delete) persists it, surfaced on reads as `OrganizationHistoryItem.ApiKeyName`.
+
+**`Laraue.Apps.Boards.McpHost`** — the fourth host (see "Project layout"), on
+`ModelContextProtocol.AspNetCore`. Tool types (`Tools/IssueTools.cs`, `[McpServerToolType]`) are
+thin adapters like a controller: resolve `OrganizationAuthData` from `IHttpContextAccessor`, call
+a plain service, return the result. All query/permission/mutation logic lives in
+`Services/IssueMcpService.cs` (`IIssueMcpService`), delegating into the same `IAccessService`/
+`ICoreIssuesService` path the REST API uses — no parallel logic. `McpServerOptions
+.ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting client. Tests
+construct `IssueMcpService` directly against the test database (`IssueMcpServiceTests.cs`) rather
+than driving a real MCP transport; `IssueTools` has no dedicated tests, same as a thin controller.
+
+Tools: `list_issues`/`get_issue`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
+`create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools
+`list_spaces`/`list_statuses`/`list_attributes`/`list_members`. Each maps to the REST API's own
+permission check (`CanCreateIssue` off the target status's epic, `CanUpdateIssue` for
+edits/comments, `CanDeleteIssue` for delete, owner-only for editing/deleting a comment). Design
+guardrails worth preserving:
+
+- **No separate attachment tool.** Attaching is `create_issue`/`edit_issue`'s `files` param;
+  removing is `edit_issue`'s `removeAttachmentIds`. A per-file `add_attachment`/`remove_attachment`
+  tool would just duplicate what `edit_issue` already does in one call.
+- **No `spaceKey` param on `create_issue`.** Permission derives entirely from `statusId`'s own
+  epic (`GetAccessLevelsByEpicId`) — there's nothing left to cross-validate a second space
+  parameter against.
+- **Ids, not names**, for everything a caller can't type unambiguously: `statusId` (a status name
+  needs epic-scoping to disambiguate), attribute ids from `list_attributes` (including list-value
+  ids for `AttributeType.List`), `assigneeId`/`list_issues`' assignee filter (a display-name
+  filter can match zero or several people). `list_statuses`/`list_attributes`/`list_members` exist
+  specifically to make these discoverable before the mutating call.
+- **`list_issues`/`get_issue` return `canEdit`/`canDelete`**, `list_spaces` returns
+  `canCreateIssue` — so a caller can check upfront whether a mutation will succeed instead of
+  discovering a permission gap from a thrown exception (a bare tool description gives an LLM
+  nothing actionable ahead of time). Because Boards' permission model is space-scoped, not
+  per-issue, `ListIssues` computes these once per space present on the page
+  (`IAccessService.GetSpacesWithAllowedIssuesUpdate`/`...Delete`/`GetSpacesWithAllowedIssueCreation`,
+  batched — not a per-issue query). `GetIssue` gets both for free from the `AccessLevels` its own
+  `CanRead` check already fetched.
+- **`edit_issue_status`/`create_comment`** were renamed from `update_issue_status`/`add_comment`
+  for verb consistency with `edit_issue`/`create_issue` (flagged by Glama's TDQS scorer) — a
+  breaking change for any already-connected client, accepted deliberately given how few real users
+  existed at the time.
+- **`create_issue`/`edit_issue`'s `assigneeId`** validates the given id belongs to the caller's
+  org first (`IssueMcpService.EnsureUserBelongsToOrganization`) — an MCP caller has no UI
+  preventing an arbitrary Guid the way a browser form does.
+
+**Attributes** (`Attribute`/`AttributeListValue`, org-wide, never space/epic-scoped) — MCP callers
+can only send plain text, so `IssueMcpService.ParseAttributeValue` parses it into the typed
+`AttributeRequests.AttributeValue` shape REST already builds directly, then both paths share
+`ICoreIssueAttributesService.BuildSetRequests` for validation (batched, all errors at once) and
+`SetIssueAttributeRequest` construction. `attributes: null`/omitted leaves every attribute
+untouched; an explicit `{}` clears all of them — `CreateIssue`/`EditIssue` must check
+`attributes is not null`, not `.Count > 0` (both are 0 for "omitted" and "explicitly empty", so
+count alone can't tell them apart).
+
+**File attachments** — MCP has no multipart channel, so `files` is a
+`FileAttachment(FileName, ContentType, Base64Content)[]`; `IssueMcpService.UploadFiles` decodes
+and calls the same `ICoreFilesService.UploadFile` REST uses (same type/size restrictions,
+`SystemMimeTypes.MaxFileSizeBytes` = 3MB). `get_attachment` returns a real MCP `ImageContentBlock`
+rather than a base64 JSON field, enforcing the same 3MB cap in two layers: a DB-recorded-size
+check before opening a stream (optimization) and a hard runtime cap while buffering into memory
+(the actual OOM guard, in case `File.Size` is missing/wrong).
+
+**`list_members`/`list_spaces`** wrap `IAccessService.GetAvailableSpaces`/`GetVisibleUsers` (same
+as REST's `OrganizationsController.GetMembers`) purely for discoverability — `list_members`'
+optional `spaceKey` (mirroring REST's `GetMembersRequest.SpaceKey`) narrows to members who can
+actually see issues in that space, so an assignee picked for a specific space is guaranteed to
+have access there. Neither is paginated — org membership/space count are naturally small.
 
 ## User-facing text
 
