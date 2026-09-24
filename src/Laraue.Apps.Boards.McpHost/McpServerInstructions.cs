@@ -15,9 +15,10 @@ public static class McpServerInstructions
         "Use list_issues to find issues by space/status/assignee, edit_issue_status to change " +
         "an issue's status, create_issue to add a new issue to a space, edit_issue to replace " +
         "an issue's content, delete_issue to remove one, and create_comment/edit_comment/" +
-        "delete_comment for its comments. get_issue's comment list includes each comment's id, " +
-        "needed by edit_comment/delete_comment - only the comment's own author can edit or " +
-        "delete it. There's no separate attachment tool: create_issue/edit_issue's files " +
+        "delete_comment for its comments. get_issue's comment list includes each comment's id " +
+        "and canManage, needed by edit_comment/delete_comment - only the comment's own author " +
+        "can edit or delete it, and canManage tells you upfront whether the caller is that " +
+        "author. There's no separate attachment tool: create_issue/edit_issue's files " +
         "parameter attaches new files, and edit_issue's removeAttachmentIds parameter removes " +
         "existing ones by the id from get_issue's Attachments list. edit_issue_status/" +
         "create_issue take a status id, not a name - call list_statuses first to find it. " +

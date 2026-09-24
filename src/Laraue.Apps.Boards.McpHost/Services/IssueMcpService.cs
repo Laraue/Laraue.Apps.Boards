@@ -201,7 +201,13 @@ public sealed record IssueSummary(string Key, string Title, string Status, strin
 /// </summary>
 public sealed record IssueListPage(IReadOnlyList<IssueSummary> Issues, long Page, bool HasNextPage);
 
-public sealed record IssueCommentSummary(long Id, string Author, string Text, DateTime CreatedAt);
+/// <summary>
+/// <see cref="CanManage"/> is true only for the comment's own author - the single rule
+/// <see cref="IIssueMcpService.EditComment"/>/<see cref="IIssueMcpService.DeleteComment"/> both
+/// enforce (not gated by <c>CanUpdateIssue</c>) - so a caller can tell upfront whether either will
+/// succeed, rather than discovering it via a thrown <see cref="ForbiddenException"/>.
+/// </summary>
+public sealed record IssueCommentSummary(long Id, string Author, string Text, DateTime CreatedAt, bool CanManage);
 
 /// <summary>An issue's attachment, as returned by <see cref="IIssueMcpService.GetIssue"/> - its
 /// <see cref="Id"/> is what <see cref="IIssueMcpService.EditIssue"/>'s <c>removeAttachmentIds</c>
@@ -385,7 +391,8 @@ public class IssueMcpService(
         var comments = await context.ActiveIssueComments()
             .Where(c => c.IssueId == issueId)
             .OrderBy(c => c.Id)
-            .Select(c => new IssueCommentSummary(c.Id, c.Owner!.DisplayName, c.Text, c.CreatedAt))
+            .Select(c => new IssueCommentSummary(
+                c.Id, c.Owner!.DisplayName, c.Text, c.CreatedAt, c.OwnerId == authData.UserId))
             .ToListAsyncEF(cancellationToken);
 
         var attachments = await context.IssueAttachments

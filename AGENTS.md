@@ -506,13 +506,16 @@ guardrails worth preserving:
   filter can match zero or several people). `list_statuses`/`list_attributes`/`list_members` exist
   specifically to make these discoverable before the mutating call.
 - **`list_issues`/`get_issue` return `canEdit`/`canDelete`**, `list_spaces` returns
-  `canCreateIssue` — so a caller can check upfront whether a mutation will succeed instead of
-  discovering a permission gap from a thrown exception (a bare tool description gives an LLM
-  nothing actionable ahead of time). Because Boards' permission model is space-scoped, not
-  per-issue, `ListIssues` computes these once per space present on the page
+  `canCreateIssue`, `get_issue`'s comment list returns `canManage` per comment — so a caller can
+  check upfront whether a mutation will succeed instead of discovering a permission gap from a
+  thrown exception (a bare tool description gives an LLM nothing actionable ahead of time).
+  Because Boards' permission model is space-scoped, not per-issue, `ListIssues` computes its two
+  flags once per space present on the page
   (`IAccessService.GetSpacesWithAllowedIssuesUpdate`/`...Delete`/`GetSpacesWithAllowedIssueCreation`,
   batched — not a per-issue query). `GetIssue` gets both for free from the `AccessLevels` its own
-  `CanRead` check already fetched.
+  `CanRead` check already fetched; a comment's `CanManage` is just `OwnerId == authData.UserId`
+  (the same author-only rule `edit_comment`/`delete_comment` enforce - one flag, not separate
+  `CanEdit`/`CanDelete`, since the two tools share an identical condition).
 - **`edit_issue_status`/`create_comment`** were renamed from `update_issue_status`/`add_comment`
   for verb consistency with `edit_issue`/`create_issue` (flagged by Glama's TDQS scorer) — a
   breaking change for any already-connected client, accepted deliberately given how few real users

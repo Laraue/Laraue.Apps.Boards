@@ -1303,4 +1303,32 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.False(memberDetail.CanEdit);
         Assert.False(memberDetail.CanDelete);
     }
+
+    [Fact]
+    public async Task GetIssue_ShouldExposeCanManagePerComment_BasedOnCommentOwnership()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanUpdateIssues = true;
+            }))
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "Owner's comment")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var issueMcpService = CreateIssueMcpService(testScope);
+
+        var ownerDetail = await issueMcpService.GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
+        var memberDetail = await issueMcpService.GetIssue(
+            AuthDataFor(organization.Id, memberId), issueData.Key, CancellationToken.None);
+
+        Assert.True(Assert.Single(ownerDetail.Comments).CanManage);
+        Assert.False(Assert.Single(memberDetail.Comments).CanManage);
+    }
 }

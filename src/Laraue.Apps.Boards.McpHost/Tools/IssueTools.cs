@@ -30,7 +30,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, each comment's id (for edit_comment/delete_comment), and each attachment's id (for edit_issue's removeAttachmentIds parameter).")]
+    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, each comment's id and canManage (for edit_comment/delete_comment), and each attachment's id (for edit_issue's removeAttachmentIds parameter).")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -168,7 +168,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Edits a comment's text. Only the comment's own author can edit it.")]
+    [Description("Edits a comment's text. Only the comment's own author can edit it - check canManage on get_issue's comment list before calling.")]
     public Task EditComment(
         [Description("The comment's id, from get_issue's comment list.")] long commentId,
         [Description("The comment's new text, replacing what's there now.")] string text,
@@ -178,7 +178,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Deletes a comment. Only the comment's own author can delete it.")]
+    [Description("Deletes a comment - it stops appearing anywhere except the issue's audit history, and this cannot be undone through this API. Only the comment's own author can delete it - check canManage on get_issue's comment list before calling. To just change its text instead, use edit_comment.")]
     public Task DeleteComment(
         [Description("The comment's id, from get_issue's comment list.")] long commentId,
         CancellationToken cancellationToken)
