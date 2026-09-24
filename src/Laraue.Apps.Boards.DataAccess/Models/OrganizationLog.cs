@@ -13,6 +13,9 @@ public class OrganizationLog
     public Guid OwnerId { get; set; }
     public User? Owner { get; set; }
 
+    public Guid? ApiKeyId { get; set; }
+    public ApiKey? ApiKey { get; set; }
+
     public DateTime CreatedAt { get; set; }
     
     public LogAction Action { get; set; }

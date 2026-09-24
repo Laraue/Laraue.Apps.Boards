@@ -469,7 +469,25 @@ browser session. Three pieces:
   `ClaimsPrincipal` with the *same* `orgId`/`id` claim types the JWT schemes use - so
   `GetOrganizationAuthData()` and every existing `IAccessService`/controller-level check work
   completely unchanged regardless of which scheme authenticated the caller. Only `McpHost`
-  registers this scheme; no existing `WebApiHost`/`TelegramHost` endpoint accepts an API key.
+  registers this scheme; no existing `WebApiHost`/`TelegramHost` endpoint accepts an API key. It
+  additionally puts an `apiKeyId` claim on the principal (absent from a JWT-issued one), so
+  `OrganizationAuthData.ApiKeyId` is non-null exactly when the request came in through an API key.
+- **Attribution on change history**: `OrganizationLog.ApiKeyId` (nullable FK to `ApiKey`, `SetNull`
+  on delete like `DeletedByUserId`) records which key made a change, alongside the existing
+  `OwnerId`. `Actor` (`Boards.Common`, `readonly record struct Actor(Guid UserId, Guid? ApiKeyId =
+  null)`) bundles the two into one value, replacing what used to be a raw `Guid ownerId`/
+  `updaterId`/`deleterId` parameter on `ICoreIssuesService`'s six history-writing methods
+  (`Create`/`Update`/`Delete`/`AddComment`/`UpdateComment`/`DeleteComment`) and on
+  `IIssueHistoryService.Record`/`RecordIfChanged`. `Actor` has an **implicit conversion from
+  `Guid`** specifically so the many callers that only ever have a bare user id (the web app,
+  Telegram) keep compiling unchanged - only `McpHost.IssueMcpService` constructs one explicitly,
+  via `OrganizationAuthData.ToActor()`, since that's the only host where `ApiKeyId` is ever
+  non-null. This is the one implicit operator in the codebase - a deliberate exception to the
+  otherwise-explicit style, made specifically to keep this attribution change from forcing every
+  unrelated call site (web app, Telegram) to change for no behavioral difference. Surfaced on the
+  read side as `OrganizationHistoryItem.ApiKeyName` (`OrganizationHistoryService`'s
+  `GetOrganizationHistory`/`GetIssueHistory`), projected straight off the log row's `ApiKey`
+  navigation - null for a change made in a normal session.
 - **`Laraue.Apps.Boards.McpHost`** — the fourth host (see "Project layout"), built on
   `ModelContextProtocol.AspNetCore`. `AddCoreServices()` is called here same as any host, which
   means `ICoreFilesService`'s `ITelegramBotClient` dependency has to be satisfied too even though

@@ -23,10 +23,13 @@ public static class ClaimsPrincipalExtensions
 
         var organizationId = long.Parse(idClaim.Value);
 
+        var apiKeyIdClaim = principal.Claims.FirstOrDefault(x => x.Type == "apiKeyId");
+
         return new OrganizationAuthData
         {
             OrganizationId = organizationId,
             UserId = Guid.Parse(userClaim.Value),
+            ApiKeyId = apiKeyIdClaim is null ? null : Guid.Parse(apiKeyIdClaim.Value),
         };
     }
 }

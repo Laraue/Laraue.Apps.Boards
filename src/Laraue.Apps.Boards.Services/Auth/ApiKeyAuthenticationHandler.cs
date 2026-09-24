@@ -11,7 +11,9 @@ namespace Laraue.Apps.Boards.Services.Auth;
 /// see <see cref="ICoreApiKeysService.ValidateAsync"/>. On success, builds a <see cref="ClaimsPrincipal"/>
 /// with the exact same claim types (<c>orgId</c>, <c>id</c>) <see cref="Laraue.Apps.Boards.Common.ClaimsPrincipalExtensions.GetOrganizationAuthData"/>
 /// already reads off a JWT, so every existing permission check works unchanged regardless of which
-/// scheme authenticated the caller.
+/// scheme authenticated the caller. An extra <c>apiKeyId</c> claim (absent from a JWT-issued
+/// principal) lets that same extension surface which key made the request, for attribution on
+/// the change history it writes.
 /// </summary>
 public class ApiKeyAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -39,6 +41,7 @@ public class ApiKeyAuthenticationHandler(
             [
                 new Claim("orgId", principal.OrganizationId.ToString()),
                 new Claim("id", principal.UserId.ToString()),
+                new Claim("apiKeyId", principal.ApiKeyId.ToString()),
             ],
             Scheme.Name);
 

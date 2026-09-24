@@ -465,7 +465,7 @@ public class IssueMcpService(
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueId = await coreIssuesService.Create(authData.UserId, issueCreate, cancellationToken);
+        var issueId = await coreIssuesService.Create(authData.ToActor(), issueCreate, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
 
@@ -509,7 +509,7 @@ public class IssueMcpService(
             issueUpdate = issueUpdate.SetAttributes(attributeRequests);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.Update(issueId, authData.UserId, issueUpdate, cancellationToken);
+        await coreIssuesService.Update(issueId, authData.ToActor(), issueUpdate, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -527,7 +527,7 @@ public class IssueMcpService(
             .EnsureOrThrowForbidden(a => a.CanDeleteIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "delete"));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.Delete(issueId, authData.UserId, cancellationToken);
+        await coreIssuesService.Delete(issueId, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -858,7 +858,7 @@ public class IssueMcpService(
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var commentId = await coreIssuesService.AddComment(issueId, authData.UserId, text, [], cancellationToken);
+        var commentId = await coreIssuesService.AddComment(issueId, authData.ToActor(), text, [], cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return commentId;
@@ -886,7 +886,7 @@ public class IssueMcpService(
             throw new ForbiddenException(string.Format(ErrorMessages.EntityActionForbidden, "Comment", commentId, "edit"));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.UpdateComment(comment.Id, comment.OwnerId, text, [], [], cancellationToken);
+        await coreIssuesService.UpdateComment(comment.Id, new Actor(comment.OwnerId, authData.ApiKeyId), text, [], [], cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -908,7 +908,7 @@ public class IssueMcpService(
             throw new ForbiddenException(string.Format(ErrorMessages.EntityActionForbidden, "Comment", commentId, "delete"));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.DeleteComment(comment.Id, authData.UserId, cancellationToken);
+        await coreIssuesService.DeleteComment(comment.Id, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

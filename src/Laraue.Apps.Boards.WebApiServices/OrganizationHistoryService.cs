@@ -31,6 +31,7 @@ public record OrganizationHistoryItem
 {
     public required DateTime CreatedAt { get; set; }
     public required UserDetails Owner { get; set; }
+    public required string? ApiKeyName { get; set; }
     public required HistoryItemChange[] Changes { get; set; }
     public required LogEntityType EntityType { get; set; }
     public required LogAction Action { get; set; }
@@ -155,6 +156,7 @@ public class OrganizationHistoryService(
                 x.Owner!.Color,
                 x.Owner.DisplayName,
                 x.Owner.Initials,
+                x.ApiKey!.Name,
                 Items = x.Items!
                     .OrderBy(i => i.Id)
                     .ToArray(),
@@ -176,6 +178,7 @@ public class OrganizationHistoryService(
                 DisplayName = x.DisplayName,
                 Initials = x.Initials,
             },
+            ApiKeyName = x.Name,
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
@@ -239,6 +242,7 @@ public class OrganizationHistoryService(
                 x.Owner!.Color,
                 x.Owner.DisplayName,
                 x.Owner.Initials,
+                x.ApiKey!.Name,
                 Items = x.Items!
                     .OrderBy(i => i.Id)
                     .ToArray(),
@@ -264,6 +268,7 @@ public class OrganizationHistoryService(
                 DisplayName = x.DisplayName,
                 Initials = x.Initials,
             },
+            ApiKeyName = x.Name,
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
