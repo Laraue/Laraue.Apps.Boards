@@ -30,7 +30,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, and each comment's/attachment's id (needed by edit_comment and removeAttachmentIds).")]
+    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, each comment's id (for edit_comment/delete_comment), and each attachment's id (for edit_issue's removeAttachmentIds parameter).")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -175,6 +175,15 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         CancellationToken cancellationToken)
     {
         return issueMcpService.EditComment(GetAuthData(), commentId, text, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Deletes a comment. Only the comment's own author can delete it.")]
+    public Task DeleteComment(
+        [Description("The comment's id, from get_issue's comment list.")] long commentId,
+        CancellationToken cancellationToken)
+    {
+        return issueMcpService.DeleteComment(GetAuthData(), commentId, cancellationToken);
     }
 
     private OrganizationAuthData GetAuthData()

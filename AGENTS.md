@@ -489,12 +489,16 @@ browser session. Three pieces:
   already-covered `IAccessService`/core-service behavior. `IssueTools` itself has no dedicated
   tests, same reason a controller doesn't usually get tested separately from the service it calls.
   Tools cover `list_issues`/`get_issue`/`edit_issue_status` plus `create_issue`/`edit_issue`/
-  `delete_issue`/`create_comment`/`edit_comment`/`get_attachment` and the discovery tools
-  `list_spaces`/`list_statuses`/`list_attributes`/`list_members` - each still just the REST API's
-  own permission/mutation path (`CanCreateIssue` off the target status's epic, `CanUpdateIssue`
-  for edits/comments, `CanDeleteIssue` for `delete_issue` (soft-delete, via
-  `ICoreIssuesService.Delete` - same as REST's `IssuesService.Delete`), owner-only for editing a
-  comment - same as `IssuesService.UpdateIssueComment`, not gated by `CanUpdateIssue`).
+  `delete_issue`/`create_comment`/`edit_comment`/`delete_comment`/`get_attachment` and the
+  discovery tools `list_spaces`/`list_statuses`/`list_attributes`/`list_members` - each still just
+  the REST API's own permission/mutation path (`CanCreateIssue` off the target status's epic,
+  `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for `delete_issue` (soft-delete, via
+  `ICoreIssuesService.Delete` - same as REST's `IssuesService.Delete`), owner-only for
+  editing/deleting a comment - same as `IssuesService.UpdateIssueComment`/`DeleteIssueComment`,
+  not gated by `CanUpdateIssue`). There's no separate attachment-management tool: attaching a
+  file is a `files` parameter on `create_issue`/`edit_issue`, and removing one is `edit_issue`'s
+  `removeAttachmentIds` parameter - a per-file `add_attachment`/`remove_attachment` tool would
+  just be a worse-shaped duplicate of what `edit_issue` already does in one call.
   `edit_issue_status`/`create_issue` take a **`statusId`** (matching the REST API's own shape -
   `IssuesService.Create` also just takes a raw `StatusId`, no separate space concept at all) - and
   `list_statuses` exists to make that id discoverable, since an MCP caller has no status-picker UI

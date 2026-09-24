@@ -174,6 +174,15 @@ public interface IIssueMcpService
         long commentId,
         string text,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Same existence/ownership rules as <see cref="EditComment"/> - only the comment's own
+    /// owner may delete it.
+    /// </summary>
+    Task DeleteComment(
+        OrganizationAuthData authData,
+        long commentId,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -878,6 +887,28 @@ public class IssueMcpService(
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.UpdateComment(comment.Id, comment.OwnerId, text, [], [], cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task DeleteComment(
+        OrganizationAuthData authData,
+        long commentId,
+        CancellationToken cancellationToken)
+    {
+        await accessService.GetAccessLevelsByCommentId(authData, commentId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Comment", commentId))
+            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Comment", commentId, "read"));
+
+        var comment = await context.ActiveIssueComments()
+            .Where(x => x.Id == commentId)
+            .Select(x => new { x.Id, x.OwnerId })
+            .SingleAsync(cancellationToken);
+
+        if (comment.OwnerId != authData.UserId)
+            throw new ForbiddenException(string.Format(ErrorMessages.EntityActionForbidden, "Comment", commentId, "delete"));
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreIssuesService.DeleteComment(comment.Id, authData.UserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

@@ -423,6 +423,60 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task DeleteComment_ShouldSoftDeleteComment_WhenCallerOwnsComment()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "Original comment")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var commentId = issueData.Issue.IssueComments!.Single().Id;
+
+        await CreateIssueMcpService(testScope).DeleteComment(
+            AuthDataFor(organization.Id, ownerId), commentId, CancellationToken.None);
+
+        var deletedComment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == commentId);
+        Assert.NotNull(deletedComment.DeletedAt);
+    }
+
+    [Fact]
+    public async Task DeleteComment_ShouldThrow_WhenCallerDoesNotOwnComment()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanUpdateIssues = true;
+            }))
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "Original comment")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var commentId = issueData.Issue.IssueComments!.Single().Id;
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).DeleteComment(
+            AuthDataFor(organization.Id, memberId), commentId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteComment_ShouldThrowNotFound_WhenCommentDoesNotExist()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).DeleteComment(
+            AuthDataFor(organization.Id, ownerId), commentId: 999_999, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ListSpaces_ShouldReturnAvailableSpaces_WhenCalled()
     {
         using var testScope = host.CreateTestScope();
