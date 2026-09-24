@@ -40,11 +40,14 @@ public interface IIssueMcpService
     /// (via <see cref="IAccessService.CanMoveToStatus"/>), not necessarily one in the issue's
     /// current epic; moving to a different epic's status is the REST API's own behavior too,
     /// nothing MCP-specific. Call <see cref="ListStatuses"/> first to find a valid id.
+    /// <paramref name="comment"/>, when given, is posted as a new comment on the issue in the same
+    /// call - omit it to just move the status with no comment.
     /// </summary>
     Task EditIssueStatus(
         OrganizationAuthData authData,
         string issueKey,
         long statusId,
+        string? comment,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -417,6 +420,7 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string issueKey,
         long statusId,
+        string? comment,
         CancellationToken cancellationToken)
     {
         var key = new IssueKey(issueKey);
@@ -432,7 +436,7 @@ public class IssueMcpService(
             throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", statusId));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.UpdateIssuesStatus([issueId], statusId, authData.UserId, cancellationToken);
+        await coreIssuesService.UpdateIssuesStatus([issueId], statusId, authData.ToActor(), comment, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

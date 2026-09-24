@@ -39,13 +39,14 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Moves an issue to a different status by id. Requires canEdit (see get_issue/list_issues).")]
+    [Description("Moves an issue to a different status by id, optionally posting a comment in the same call. Requires canEdit (see get_issue/list_issues).")]
     public Task EditIssueStatus(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The target status's id, from list_statuses. Can belong to a different epic than the issue's current one.")] long statusId,
-        CancellationToken cancellationToken)
+        [Description("A comment to post on the issue as part of this status change, e.g. explaining why. Omit to move the status with no comment.")] string? comment = null,
+        CancellationToken cancellationToken = default)
     {
-        return issueMcpService.EditIssueStatus(GetAuthData(), issueKey, statusId, cancellationToken);
+        return issueMcpService.EditIssueStatus(GetAuthData(), issueKey, statusId, comment, cancellationToken);
     }
 
     [McpServerTool]

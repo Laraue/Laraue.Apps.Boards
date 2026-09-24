@@ -867,6 +867,37 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task User_ShouldPostComment_WhenCommentGivenOnStatusMove()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .AddStatus(b => b.WithName("NEW STATUS"))))
+                .AddIssueToDefaultStatus(userId));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var newStatus = organization.GetStatus(1, 1, 1);
+
+        var request = new UpdateIssuesStatusRequest
+        {
+            IssueKeys = [issueData.Key],
+            StatusId = newStatus.Id,
+            Comment = "Moving this along",
+        };
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateStatus(request));
+
+        var comment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.IssueId == issueData.Issue.Id);
+        Assert.Equal("Moving this along", comment.Text);
+        Assert.Equal(userId, comment.OwnerId);
+    }
+
+    [Fact]
     public async Task User_ShouldMoveIssue_WhenHasCreateIssuesAccessInEpicAndIssueUpdateAccess()
     {
         using var testScope = host.CreateTestScope();

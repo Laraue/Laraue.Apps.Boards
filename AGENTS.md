@@ -469,13 +469,17 @@ this scheme.
 
 **`Actor`** (`Boards.Common`, `readonly record struct Actor(Guid UserId, Guid? ApiKeyId = null)`,
 implicitly convertible from `Guid`) — bundles who made a change for history attribution.
-`ICoreIssuesService`'s six history-writing methods (`Create`/`Update`/`Delete`/`AddComment`/
-`UpdateComment`/`DeleteComment`) and `IIssueHistoryService.Record`/`RecordIfChanged` take an
-`Actor` instead of a bare `Guid`. The implicit `Guid → Actor` conversion (the only implicit
-operator in the codebase — a deliberate exception) means the web app/Telegram call sites, which
-never have an API key, didn't need to change; only `McpHost.IssueMcpService` builds one explicitly
-via `OrganizationAuthData.ToActor()`. `OrganizationLog.ApiKeyId` (nullable FK to `ApiKey`,
-`SetNull` on delete) persists it, surfaced on reads as `OrganizationHistoryItem.ApiKeyName`.
+`ICoreIssuesService`'s seven history-writing methods (`Create`/`Update`/`Delete`/`AddComment`/
+`UpdateComment`/`DeleteComment`/`UpdateIssuesStatus`) and `IIssueHistoryService.Record`/
+`RecordIfChanged` take an `Actor` instead of a bare `Guid`. **`UpdateIssuesStatus`** builds its
+`OrganizationLog` rows inline rather than going through `IIssueHistoryService` (it moves many
+issues in one call) — if a new history-writing method is added later, check whether it constructs
+`OrganizationLog` directly like this one instead of assuming every write goes through
+`IIssueHistoryService.Record`. The implicit `Guid → Actor` conversion (the only implicit operator
+in the codebase — a deliberate exception) means the web app/Telegram call sites, which never have
+an API key, didn't need to change; only `McpHost.IssueMcpService` builds one explicitly via
+`OrganizationAuthData.ToActor()`. `OrganizationLog.ApiKeyId` (nullable FK to `ApiKey`, `SetNull`
+on delete) persists it, surfaced on reads as `OrganizationHistoryItem.ApiKeyName`.
 
 **`Laraue.Apps.Boards.McpHost`** — the fourth host (see "Project layout"), on
 `ModelContextProtocol.AspNetCore`. Tool types (`Tools/IssueTools.cs`, `[McpServerToolType]`) are
@@ -523,6 +527,12 @@ guardrails worth preserving:
 - **`create_issue`/`edit_issue`'s `assigneeId`** validates the given id belongs to the caller's
   org first (`IssueMcpService.EnsureUserBelongsToOrganization`) — an MCP caller has no UI
   preventing an arbitrary Guid the way a browser form does.
+- **`edit_issue_status`/REST's `POST /api/issues/status` take an optional `comment`** — posted as
+  a new comment on every issue actually moved (skipping ones already at the target status), via
+  `ICoreIssuesService.UpdateIssuesStatus` calling its own `AddComment` once per moved issue inside
+  the same transaction. Lets a status transition carry a note ("moving this to Done because...")
+  in one call instead of a separate follow-up `create_comment`/comment endpoint call. Purely
+  additive — omitting it is unchanged behavior, so this wasn't a breaking version bump.
 
 **Attributes** (`Attribute`/`AttributeListValue`, org-wide, never space/epic-scoped) — MCP callers
 can only send plain text, so `IssueMcpService.ParseAttributeValue` parses it into the typed

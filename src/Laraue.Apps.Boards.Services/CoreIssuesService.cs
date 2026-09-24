@@ -74,12 +74,16 @@ public interface ICoreIssuesService
         CancellationToken ct);
     
     /// <summary>
-    /// Move issue to new status.
+    /// Moves issues to a new status. <paramref name="comment"/>, when given, is posted as a new
+    /// comment on every issue actually moved (not on one already at <paramref name="newStatusId"/>)
+    /// - the same effect as calling <see cref="AddComment"/> once per moved issue, batched here so
+    /// callers get transition-with-comment in one round trip.
     /// </summary>
     Task<Dictionary<string, string>> UpdateIssuesStatus(
         long[] issueIds,
         long newStatusId,
-        Guid updaterId,
+        Actor actor,
+        string? comment,
         CancellationToken ct);
 }
 
@@ -643,7 +647,8 @@ public class CoreIssuesService(
     public async Task<Dictionary<string, string>> UpdateIssuesStatus(
         long[] issueIds,
         long newStatusId,
-        Guid updaterId,
+        Actor actor,
+        string? comment,
         CancellationToken ct)
     {
         context.Database.EnsureTransactionStarted();
@@ -705,7 +710,8 @@ public class CoreIssuesService(
                 EntityType = LogEntityType.Issue,
                 Action = LogAction.Update,
                 OrganizationId = issue.OrganizationId,
-                OwnerId = updaterId,
+                OwnerId = actor.UserId,
+                ApiKeyId = actor.ApiKeyId,
                 Items = [],
             };
 
@@ -734,7 +740,15 @@ public class CoreIssuesService(
         }
         
         await context.SaveChangesAsync(ct);
-        
+
+        if (!string.IsNullOrWhiteSpace(comment))
+        {
+            foreach (var issue in issuesToUpdate)
+            {
+                await AddComment(issue.Id, actor, comment, [], ct);
+            }
+        }
+
         var issuesWithUpdatedSpace = issuesToUpdate
             .Where(i => i.SpaceId != newStatusData.SpaceId)
             .ToArray();

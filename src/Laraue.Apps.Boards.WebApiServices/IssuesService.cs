@@ -809,6 +809,7 @@ public class IssuesService(
             issueIds.ToArray(),
             request.StatusId,
             request.AuthData.UserId,
+            request.Comment,
             ct);
         await transaction.CommitAsync(ct);
 
@@ -1890,6 +1891,7 @@ public record UpdateIssuesStatusRequest
     public OrganizationAuthData AuthData { get; set; }
     public required string[] IssueKeys { get; set; } = [];
     public required long StatusId { get; set; }
+    public string? Comment { get; set; }
 }
 
 public record GetIssueCommentsRequest : IPaginatedRequest

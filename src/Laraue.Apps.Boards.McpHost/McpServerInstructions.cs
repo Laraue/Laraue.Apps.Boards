@@ -13,7 +13,8 @@ public static class McpServerInstructions
         "Boards organization. To get an issue's current status, full text, or comment history, " +
         "call get_issue with its key (e.g. 'BRD-42') rather than asking the user to paste it. " +
         "Use list_issues to find issues by space/status/assignee, edit_issue_status to change " +
-        "an issue's status, create_issue to add a new issue to a space, edit_issue to replace " +
+        "an issue's status (optionally posting a comment in the same call, e.g. to explain the " +
+        "move), create_issue to add a new issue to a space, edit_issue to replace " +
         "an issue's content, delete_issue to remove one, and create_comment/edit_comment/" +
         "delete_comment for its comments. get_issue's comment list includes each comment's id " +
         "and canManage, needed by edit_comment/delete_comment - only the comment's own author " +
