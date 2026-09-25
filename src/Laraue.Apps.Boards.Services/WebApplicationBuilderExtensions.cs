@@ -27,6 +27,43 @@ public static class WebApplicationBuilderExtensions
 {
     extension(WebApplicationBuilder builder)
     {
+        /// <summary>
+        /// Binds <typeparamref name="TOptions"/> to the given configuration section. In the Production
+        /// environment it also validates the options' data annotations (<c>[Required]</c>, <c>[Url]</c>,
+        /// ...) and <paramref name="validation"/> when the host starts, so a missing or malformed
+        /// setting stops the host on deploy instead of failing on first use. Other environments
+        /// (local development) only bind, so a developer isn't forced to configure every setting of
+        /// every host. Use this for every options class a host binds from configuration.
+        /// </summary>
+        /// <param name="sectionName"></param>
+        /// <param name="validation">
+        /// An extra check data annotations can't express, e.g. a non-zero <see cref="long"/>.
+        /// </param>
+        /// <param name="failureMessage">The error reported when <paramref name="validation"/> fails.</param>
+        public OptionsBuilder<TOptions> AddValidatedOptions<TOptions>(
+            string sectionName,
+            Func<TOptions, bool>? validation = null,
+            string? failureMessage = null)
+            where TOptions : class
+        {
+            var options = builder.Services
+                .AddOptions<TOptions>()
+                .Bind(builder.Configuration.GetSection(sectionName));
+
+            if (!builder.Environment.IsProduction())
+            {
+                return options;
+            }
+
+            options.ValidateDataAnnotations();
+            if (validation is not null)
+            {
+                options.Validate(validation, failureMessage ?? $"{sectionName} is invalid.");
+            }
+
+            return options.ValidateOnStart();
+        }
+
         public WebApplicationBuilder AddDatabaseServices(string connectionStringName)
         {
             var connection = GetConnection(builder, connectionStringName);
@@ -85,27 +122,16 @@ public static class WebApplicationBuilderExtensions
 
             builder.Services.AddMemoryCache();
             
-            builder.Services.AddOptions<FileStorageOptions>();
-            builder.Services.Configure<FileStorageOptions>(
-                builder.Configuration.GetSection(nameof(FileStorageOptions)));
+            builder.AddValidatedOptions<FileStorageOptions>(nameof(FileStorageOptions));
 
-            builder.Services.AddOptions<AiSummarizerOptions>();
-            builder.Services.Configure<AiSummarizerOptions>(
-                builder.Configuration.GetSection("AiSummarizer"));
+            // CoreFilesService (core, used by every Boards host) downloads/uploads files through the
+            // Telegram bot, so every host needs these - not only the ones that talk to users via Telegram.
+            builder.AddValidatedOptions<TelegramOptions>(
+                "Telegram",
+                o => o.FilesChatId != 0,
+                "Telegram:FilesChatId is required.");
 
-            builder.Services
-                .AddHttpClient<IAiContentSummarizer, OpenAiCompatibleContentSummarizer>((sp, client) =>
-                {
-                    var aiOptions = sp.GetRequiredService<IOptions<AiSummarizerOptions>>().Value;
-                    client.BaseAddress = new Uri(aiOptions.BaseUrl);
-                    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-                        "Bearer",
-                        aiOptions.ApiKey);
-                });
-
-            builder.Services.AddOptions<IdentityOptions>();
-            builder.Services.Configure<IdentityOptions>(
-                builder.Configuration.GetSection(nameof(IdentityOptions)));
+            builder.AddValidatedOptions<IdentityOptions>(nameof(IdentityOptions));
 
             builder.Services
                 .AddGrpcClient<UserIdentityService.UserIdentityServiceClient>((sp, o) =>
@@ -115,9 +141,7 @@ public static class WebApplicationBuilderExtensions
                 })
                 .AddInterceptor(() => new IdentityServiceIdInterceptor(IdentityServiceId.LaraueBoards));
 
-            builder.Services.AddOptions<BillingOptions>();
-            builder.Services.Configure<BillingOptions>(
-                builder.Configuration.GetSection("Billing"));
+            builder.AddValidatedOptions<BillingOptions>("Billing");
 
             // AddLaraueGrpcClient's configureClient callback has no IServiceProvider access (see
             // its signature in Laraue.Grpc.Client), so the URL is read directly off configuration
@@ -153,6 +177,29 @@ public static class WebApplicationBuilderExtensions
                     .AddScoped<IBillingTokenClient, FakeBillingTokenClient>()
                     .AddScoped<IBillingSubscriptionClient, FakeBillingSubscriptionClient>();
             }
+
+            return builder;
+        }
+
+        /// <summary>
+        /// Registers <see cref="IAiContentSummarizer"/> and its validated <see cref="AiSummarizerOptions"/>.
+        /// Separate from <see cref="AddCoreServices"/> because only the hosts with AI features
+        /// (WebApiHost's summarize endpoint, TelegramHost's /aisave) need it - a host that doesn't call
+        /// this isn't required to configure an AI provider.
+        /// </summary>
+        public WebApplicationBuilder AddAiContentSummarizer()
+        {
+            builder.AddValidatedOptions<AiSummarizerOptions>("AiSummarizer");
+
+            builder.Services
+                .AddHttpClient<IAiContentSummarizer, OpenAiCompatibleContentSummarizer>((sp, client) =>
+                {
+                    var aiOptions = sp.GetRequiredService<IOptions<AiSummarizerOptions>>().Value;
+                    client.BaseAddress = new Uri(aiOptions.BaseUrl);
+                    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                        "Bearer",
+                        aiOptions.ApiKey);
+                });
 
             return builder;
         }

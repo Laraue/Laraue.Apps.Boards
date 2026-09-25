@@ -1,17 +1,30 @@
 ﻿using System.ComponentModel.DataAnnotations;
-using Laraue.Telegram.NET.Authentication.Models;
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
-public class User : ITelegramUser<Guid>
+public class User
 {
     public Guid Id { get; set; }
     public Guid GlobalUserId { get; set; }
-    public long TelegramId { get; set; }
-    public string? TelegramUserName { get; set; }
-    public string? TelegramLanguageCode { get; set; }
-    public string? TelegramLastName { get; set; }
-    public string? TelegramFirstName { get; set; }
+    /// <summary>
+    /// Null for a user who has only ever signed in with Google (see <see cref="GoogleSubject"/>) -
+    /// such a user can use the web app, but none of the Telegram bot's features.
+    /// </summary>
+    public long? TelegramId { get; set; }
+
+    /// <summary>
+    /// The Google ID token's <c>sub</c> claim, set when the user signed in with Google. Null for a
+    /// Telegram-only user. Google and Telegram sign-ins create separate users for now - linking
+    /// them onto one is BRD-218.
+    /// </summary>
+    [MaxLength(255)]
+    public string? GoogleSubject { get; set; }
+
+    /// <summary>
+    /// Boards-side presentation name, derived once at sign-up from the sign-in method's profile.
+    /// The profile itself (Telegram username/names/language, Google email/name) isn't stored here -
+    /// Laraue.Apps.Identity is its source of truth.
+    /// </summary>
     // 129 = Telegram's 64-char first/last name limit twice, plus the joining space ("{firstName} {lastName}")
     [MaxLength(129)]
     public string DisplayName { get; set; } = string.Empty;

@@ -198,7 +198,7 @@ public class SearchService(
                 OrganizationSlugPostfix = x.Status.Epic.Space.Organization!.SlugPostfix,
                 ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
                 SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
-                    ? (x.TelegramMessage.Sender.TelegramUserName ?? x.TelegramMessage.Sender.TelegramFirstName)
+                    ? x.TelegramMessage.Sender.DisplayName
                     : null,
                 SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })

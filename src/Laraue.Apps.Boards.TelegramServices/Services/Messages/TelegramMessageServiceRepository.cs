@@ -57,7 +57,7 @@ public class MessageDto
     public string? CategoryName { get; set; }
     public long? StatusId { get; set; }
     public string? StatusName { get; set; }
-    public required long UserTelegramId { get; set; }
+    public required long? UserTelegramId { get; set; }
     public required long? TelegramMessageId { get; set; }
     public required string? Content { get; set; }
 }

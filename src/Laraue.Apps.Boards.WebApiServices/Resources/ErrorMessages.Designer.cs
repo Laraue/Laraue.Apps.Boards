@@ -364,5 +364,14 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
                 return ResourceManager.GetString("EntityNotFoundOrNotAccessible", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Google ID token is invalid.
+        /// </summary>
+        internal static string GoogleIdTokenInvalid {
+            get {
+                return ResourceManager.GetString("GoogleIdTokenInvalid", resourceCulture);
+            }
+        }
     }
 }

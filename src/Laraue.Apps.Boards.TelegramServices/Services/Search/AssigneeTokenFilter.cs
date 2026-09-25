@@ -8,7 +8,7 @@ using Telegram.Bot.Types.InlineQueryResults;
 namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 
 /// <summary>
-/// Handles "assignee:me" or "assignee:&lt;telegram username&gt;". Same contract as
+/// Handles "assignee:me" or "assignee:&lt;display name&gt;". Same contract as
 /// org:/space:, with "me" checked first as a permanent reserved exact match. Candidates are
 /// scoped to users who can read at least one of the spaces currently in play
 /// (<see cref="FilterContext.EffectiveSpaceIds"/>) — not just org membership, since a user
@@ -16,7 +16,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 /// </summary>
 public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessService accessService) : IQueryTokenFilter
 {
-    private readonly record struct UserCandidate(Guid Id, string Username);
+    private readonly record struct UserCandidate(Guid Id, string DisplayName);
 
     public string Key => "assignee";
 
@@ -46,17 +46,17 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
         if (!isWildcard)
         {
             var exactMatch = candidates
-                .FirstOrDefault(u => string.Equals(u.Username, value, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(u => string.Equals(u.DisplayName, value, StringComparison.OrdinalIgnoreCase));
 
-            if (exactMatch.Username is not null)
+            if (exactMatch.DisplayName is not null)
             {
                 var filtered = query.Where(x => x.AssigneeId == exactMatch.Id);
-                return new AppliedResolution(filtered, Description: $"assignee \"{exactMatch.Username}\"");
+                return new AppliedResolution(filtered, Description: $"assignee \"{exactMatch.DisplayName}\"");
             }
         }
 
         var prefixMatchIds = candidates
-            .Where(u => u.Username.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Where(u => u.DisplayName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .Select(u => (Guid?)u.Id)
             .ToArray();
 
@@ -108,23 +108,23 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
         // show up twice.
         results.AddRange(candidates
             .Where(u => u.Id != context.RequestContext.UserId)
-            .OrderBy(u => u.Username, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(u => u.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Take(8)
             .Select(u =>
             {
-                var isMatch = value.Length > 0 && u.Username.StartsWith(value, StringComparison.OrdinalIgnoreCase);
-                var title = isMatch ? $"✅ {u.Username}" : u.Username;
+                var isMatch = value.Length > 0 && u.DisplayName.StartsWith(value, StringComparison.OrdinalIgnoreCase);
+                var title = isMatch ? $"✅ {u.DisplayName}" : u.DisplayName;
 
                 return (InlineQueryResult)new InlineQueryResultArticle(
                     $"assignee-{u.Id}",
                     title,
-                    new InputTextMessageContent(SearchTextFormatter.EscapeMarkdownV2($"assignee:{u.Username}"))
+                    new InputTextMessageContent(SearchTextFormatter.EscapeMarkdownV2($"assignee:{u.DisplayName}"))
                     {
                         ParseMode = ParseMode.MarkdownV2
                     })
                 {
                     ThumbnailUrl = options.Value.Icons.User,
-                    Description = $"assignee:{u.Username} — apply this filter"
+                    Description = $"assignee:{u.DisplayName} — apply this filter"
                 };
             }));
 
@@ -144,8 +144,8 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
             {
                 ThumbnailUrl = options.Value.Icons.Hint,
                 Description = value.Length == 0
-                    ? "Type a username to filter the list"
-                    : $"Add \"{TokenSyntax.WildcardSuffix}\" to search all matches now, or finish typing the exact username"
+                    ? "Type a name to filter the list"
+                    : $"Add \"{TokenSyntax.WildcardSuffix}\" to search all matches now, or finish typing the exact name"
             });
         }
 
@@ -167,13 +167,12 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
         var candidates = await accessService.GetVisibleUsers(
             scopeSpaceIds,
             query => query
-                .Where(ou => ou.User!.TelegramUserName != null)
-                .Select(ou => new { ou.UserId, ou.User!.TelegramUserName })
+                .Select(ou => new { ou.UserId, ou.User!.DisplayName })
                 .Distinct()
                 .ToListAsyncLinqToDB(ct));
 
         return candidates
-            .Select(u => new UserCandidate(u.UserId, u.TelegramUserName!))
+            .Select(u => new UserCandidate(u.UserId, u.DisplayName))
             .ToList();
     }
 }

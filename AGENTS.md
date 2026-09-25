@@ -279,6 +279,31 @@ pile up a large diff they then have to review all at once.
 host) process is already running locally and holding the output DLLs open. Don't kill the process
 yourself — ask the user to stop it, then retry the build once they confirm.
 
+## Options and configuration
+
+- Bind every options class through `builder.AddValidatedOptions<TOptions>("Section")`
+  (`Boards.Services.WebApplicationBuilderExtensions`) rather than a bare
+  `Configure<T>(GetSection(...))`. It always binds; **in the Production environment only** it also
+  validates data annotations and calls `ValidateOnStart()`, so a missing or malformed setting stops
+  the deployed host instead of surfacing as a null-reference on first use, while local development
+  (any non-Production environment) isn't forced to configure every setting of every host. Mark
+  required values `[Required]` (plus `[Url]` for URLs). Checks annotations can't express go in the
+  helper's `validation`/`failureMessage` parameters - not a `.Validate(...)` chained on the returned
+  builder, which would also run outside Production - e.g. `Telegram:FilesChatId != 0` (`[Required]`
+  never fails for a value type), or `TelegramNetOptions` from Laraue.Telegram.NET, which has no
+  annotations. `ValidateDataAnnotations` doesn't descend into
+  nested objects - see `AppOptions.Validate` for validating a nested options object.
+- Register an options class only in the hosts that use it, so a host is never forced to configure
+  something it doesn't need. Options needed by core services go in `AddCoreServices()`
+  (`TelegramOptions`, `FileStorageOptions`, `IdentityOptions`, `BillingOptions`, since
+  `CoreFilesService`/the gRPC clients use them in every host); the AI summarizer is opt-in via
+  `AddAiContentSummarizer()` (WebApiHost, TelegramHost - not McpHost).
+- The integration tests' `appsettings.json` must satisfy the same validation - add a value there
+  whenever a new required setting is introduced. `WebApplicationFactory`-based hosts run as
+  Development (no validation), but `TelegramIntegrationTest` builds its host with a bare
+  `WebApplication.CreateBuilder()`, i.e. Production, so validation does apply there.
+  `OptionsValidationTests` covers both environments.
+
 ## Logging
 
 - Always use `ILogger<T>` (the generic, type-scoped interface), never the bare non-generic
@@ -415,6 +440,25 @@ Boards calls two sibling services over gRPC:
   first login (`CoreUserService`, via `UserIdentityService.UserIdentityServiceClient` injected
   directly — there's no Boards-side wrapper interface for it since it's a single call with a
   single caller).
+  **Identity is the source of truth for a user's profile** (Telegram username/first/last
+  name/language, Google email/name). Boards' `User` stores only identifiers (`GlobalUserId`,
+  `TelegramId`, `GoogleSubject` - `TelegramId` is null for a Google-only user) plus its own
+  presentation fields (`DisplayName`/`Initials`/`Color`), derived once at sign-up. The interface
+  language lives in `UserPreferences.InterfaceLanguage`, seeded at sign-up. `User` implements no
+  Telegram.NET interface: since Laraue.Telegram.NET 5.0, `ITelegramUserQueryService<Guid>` only
+  finds a user id by Telegram id and receives the library's `TelegramData` on first contact -
+  `TelegramUserQueryService` maps that into a `TelegramUserProfile` for
+  `ICoreUserService.CreateIfTelegramIdNotExists`, which forwards it to Identity. Don't re-add profile columns to `users`; if Boards needs a new profile value, ask
+  whether it's really a Boards-side preference (→ `UserPreferences`) or belongs in Identity.
+
+  **Google sign-in** (`POST /api/user/auth-via-google`, `GoogleAuthService` in `WebApiServices`):
+  Boards verifies the Google ID token itself (`GoogleIdTokenValidator`, Google.Apis.Auth) against
+  `GoogleAuth:ClientId` and passes only the verified claims on to Identity
+  (`CreateUserIfNotExistsByGoogle`) - Identity never sees the raw token. `GoogleIdTokenValidator`
+  throws if `ClientId` is empty on purpose: with no audience configured, Google.Apis.Auth skips the
+  audience check and would accept a token issued for *any* Google OAuth client. Google and Telegram
+  sign-ins create separate users for now (linking is BRD-218); a Google-only user has
+  `TelegramId == null` and no personal Telegram chat.
 - `Laraue.Apps.Billing` — AI token reserve/commit/cancel and subscription/limit lookups, wrapped
   behind `IBillingTokenClient`/`IBillingSubscriptionClient`
   (`Laraue.Apps.Boards.Services.Billing`) rather than exposing the generated gRPC clients

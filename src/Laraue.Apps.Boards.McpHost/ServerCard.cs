@@ -1,10 +1,13 @@
+﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace Laraue.Apps.Boards.McpHost;
 
 public sealed class ServerCardOptions
 {
-    public string PublicMcpUrl { get; set; } = "http://localhost:5202/mcp";
+    [Required]
+    [Url]
+    public required string PublicMcpUrl { get; set; }
 }
 
 /// <summary>

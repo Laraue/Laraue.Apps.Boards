@@ -401,15 +401,15 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser(x =>
         {
-            x.TelegramUserName = "aa";
+            x.DisplayName = "aa";
             x.Color = "#111111";
         });
         var spaceMemberId = await testScope.CreateUser(x =>
         {
-            x.TelegramUserName = "bb";
+            x.DisplayName = "bb";
             x.Color = "#222222";
         });
-        var otherSpaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "cc");
+        var otherSpaceMemberId = await testScope.CreateUser(x => x.DisplayName = "cc");
         
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(spaceMemberId, b => b

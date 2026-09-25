@@ -1,3 +1,5 @@
+﻿using System.ComponentModel.DataAnnotations;
+
 namespace Laraue.Apps.Boards.Services.Billing;
 
 /// <summary>
@@ -10,5 +12,7 @@ public class BillingOptions
     /// gRPC endpoint address, e.g. <c>http://localhost:5263</c> in local dev
     /// (<c>InternalApiHost</c>'s <c>Kestrel:GrpcPort</c>).
     /// </summary>
+    [Required]
+    [Url]
     public required string GrpcUrl { get; set; }
 }

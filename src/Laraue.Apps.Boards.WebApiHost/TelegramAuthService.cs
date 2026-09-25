@@ -7,7 +7,6 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices;
-using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -36,7 +35,6 @@ public class TelegramAuthService(
     IOptions<TelegramOptions> options,
     DatabaseContext context,
     IAuthService authService,
-    IDateTimeProvider dateTimeProvider,
     ICoreUserService coreUserService)
     : ITelegramAuthService
 {
@@ -160,18 +158,9 @@ public class TelegramAuthService(
         MiniAppUser user,
         CancellationToken cancellationToken)
     {
-        var newUser = new User
-        {
-            CreatedAt = dateTimeProvider.UtcNow,
-            TelegramId = user.Id,
-            TelegramLanguageCode = user.LanguageCode,
-            TelegramUserName = user.Username,
-            TelegramFirstName = user.FirstName,
-            TelegramLastName = user.LastName,
-            Color = Palette.RandomColor(),
-        };
-
-        return coreUserService.CreateIfTelegramIdNotExists(newUser, cancellationToken);
+        return coreUserService.CreateIfTelegramIdNotExists(
+            new TelegramUserProfile(user.Id, user.Username, user.FirstName, user.LastName, user.LanguageCode),
+            cancellationToken);
     }
 }
 

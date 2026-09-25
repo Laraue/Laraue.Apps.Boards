@@ -1136,7 +1136,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x =>
         {
             x.TelegramId = AdminUser.Id;
-            x.TelegramUserName = AdminUser.Username;
+            x.DisplayName = AdminUser.Username;
         });
         var organization = await testScope.InitializeOrganization(userId);
         var status = organization.GetStatus(0, 0, 0);
@@ -1948,7 +1948,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var user = Assert.Single(await db.Users.ToListAsyncLinqToDB());
         
         Assert.Equal(777, user.TelegramId);
-        Assert.Equal("snake991", user.TelegramUserName);
+        Assert.Equal("snake991", user.DisplayName);
         
         var userOrganization = Assert.Single(await db.Organizations.ToListAsyncLinqToDB());
         Assert.Equal("snake991", userOrganization.Slug);
@@ -3018,11 +3018,11 @@ public class TelegramHostTests : TelegramIntegrationTest
         var testScope = host.CreateTestScope();
 
         var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        var directUserId = await testScope.CreateUser(x => x.TelegramUserName = "direct_user");
-        var noAccessUserId = await testScope.CreateUser(x => x.TelegramUserName = "noaccess_user");
+        var directUserId = await testScope.CreateUser(x => x.DisplayName = "direct_user");
+        var noAccessUserId = await testScope.CreateUser(x => x.DisplayName = "noaccess_user");
         // A real user whose username happens to be "me" — must never win over the reserved
         // "assignee:me" match for the searching user.
-        var meUserId = await testScope.CreateUser(x => x.TelegramUserName = "me");
+        var meUserId = await testScope.CreateUser(x => x.DisplayName = "me");
 
         var organization = await testScope.InitializeOrganization(
             userId,
@@ -3551,7 +3551,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: /organizations/acme-a1b2/issues/BRD-185", request.Text);
+        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: https://boards.example.com/organizations/acme-a1b2/issues/BRD-185", request.Text);
     }
 
     [Fact]
@@ -3678,7 +3678,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: /organizations/acme-a1b2/issues/BRD-185", request.Text);
+        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: https://boards.example.com/organizations/acme-a1b2/issues/BRD-185", request.Text);
     }
 
     [Fact]
@@ -3698,7 +3698,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         // /organizations/{orgKey}/issues/{key} path shape, then rebuilds the canonical URL
         // itself (which is why the assertion below uses a differently-shaped expected URL).
         var pastedIssueUrl = $"https://boards.example.com/organizations/{orgKey}/issues/{space.Key}-1";
-        var expectedCanonicalUrl = $"/organizations/{orgKey}/issues/{space.Key}-1";
+        var expectedCanonicalUrl = $"https://boards.example.com/organizations/{orgKey}/issues/{space.Key}-1";
 
         var chat = new Chat { Id = 794, Type = ChatType.Group };
 
@@ -3745,7 +3745,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         // "/issues/{key}" page - the space/board path segments (BRD/149) aren't parsed, since the
         // issue key in "issue=" already carries the space key and number.
         var pastedBoardUrl = $"https://boards.example.com/organizations/{orgKey}/spaces/{space.Key}/149?issue={space.Key}-1";
-        var expectedCanonicalUrl = $"/organizations/{orgKey}/issues/{space.Key}-1";
+        var expectedCanonicalUrl = $"https://boards.example.com/organizations/{orgKey}/issues/{space.Key}-1";
 
         var chat = new Chat { Id = 797, Type = ChatType.Group };
 

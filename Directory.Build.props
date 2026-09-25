@@ -16,8 +16,8 @@
   </PropertyGroup>
   
   <PropertyGroup>
-    <LaraueTelegramNetVersion>4.10.0</LaraueTelegramNetVersion>
-    <LaraueIdentityInternalContractsVersion>0.0.2</LaraueIdentityInternalContractsVersion>
+    <LaraueTelegramNetVersion>5.0.0</LaraueTelegramNetVersion>
+    <LaraueIdentityInternalContractsVersion>0.0.3</LaraueIdentityInternalContractsVersion>
     <GrpcNetClientFactoryVersion>2.66.0</GrpcNetClientFactoryVersion>
     <LaraueGrpcVersion>0.0.3</LaraueGrpcVersion>
     <LaraueBillingInternalContractsVersion>0.0.6</LaraueBillingInternalContractsVersion>
@@ -30,8 +30,8 @@
     <EfCoreNamingConventionsVersion>10.0.1</EfCoreNamingConventionsVersion>
     <TelegramBotVersion>22.7.0</TelegramBotVersion>
     <MicrosoftJwtAuthenticationVersion>10.0.0</MicrosoftJwtAuthenticationVersion>
-    <MicrosoftExtensionsHttpVersion>10.0.0</MicrosoftExtensionsHttpVersion>
-    <MicrosoftOpenApiVersion>10.0.9</MicrosoftOpenApiVersion>
+    <GoogleApisAuthVersion>1.76.0</GoogleApisAuthVersion>
+    <MicrosoftOpenApiVersion>10.0.12</MicrosoftOpenApiVersion>
     <OpenTelemetryExtensionsHostingVersion>1.18.0</OpenTelemetryExtensionsHostingVersion>
     <OpenTelemetryExporterPrometheusAspNetCoreVersion>1.18.0-beta.1</OpenTelemetryExporterPrometheusAspNetCoreVersion>
     <OpenTelemetryInstrumentationAspNetCoreVersion>1.18.0</OpenTelemetryInstrumentationAspNetCoreVersion>

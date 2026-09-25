@@ -22,20 +22,23 @@ public static class WebApplicationBuilderExtensions
     {
         public WebApplicationBuilder AddTelegramOptions(string sectionName)
         {
-            builder.Services.AddOptions<TelegramNetOptions>();
-            builder.Services.Configure<TelegramNetOptions>(
-                builder.Configuration.GetSection(sectionName));
+            // TelegramNetOptions comes from Laraue.Telegram.NET and has no data annotations to validate,
+            // so its one required value is checked explicitly.
+            builder.AddValidatedOptions<TelegramNetOptions>(
+                sectionName,
+                o => !string.IsNullOrWhiteSpace(o.Token),
+                $"{sectionName}:Token is required.");
             
             return builder;
         }
         
         public WebApplicationBuilder AddApplicationServices()
         {
-            builder.AddCoreServices();
-            
-            builder.Services.AddOptions<AppOptions>();
-            builder.Services.Configure<AppOptions>(
-                builder.Configuration.GetSection(nameof(AppOptions)));
+            builder
+                .AddCoreServices()
+                .AddAiContentSummarizer();
+
+            builder.AddValidatedOptions<AppOptions>(nameof(AppOptions));
             
             builder.Services
                 .AddTelegramCore()
@@ -52,7 +55,7 @@ public static class WebApplicationBuilderExtensions
                         .ToArray();
                     opt.DefaultLanguage = InterfaceLanguage.Default.Code;
                 })
-                .AddTelegramAuthentication<User, Guid, TelegramUserQueryService, RequestContext>();
+                .AddTelegramAuthentication<Guid, TelegramUserQueryService, RequestContext>();
 
             builder.Services
                 .AddScoped<ITelegramMessageService, TelegramMessageService>()

@@ -36,11 +36,9 @@ public class TestController(
         
         var user = new MiniAppUser
         {
-            Id = dbUser.TelegramId,
-            FirstName = dbUser.TelegramFirstName,
-            LastName = dbUser.TelegramLastName,
-            Username = dbUser.TelegramUserName,
-            LanguageCode = dbUser.TelegramLanguageCode,
+            Id = dbUser.TelegramId
+                ?? throw new BadRequestException(nameof(id), "Test bearer can be built only for a Telegram user"),
+            FirstName = dbUser.DisplayName,
         };
         
         var userJson = JsonSerializer.Serialize(user, JsonBotAPI.Options);

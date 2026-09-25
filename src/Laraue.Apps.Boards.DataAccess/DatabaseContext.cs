@@ -299,6 +299,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         modelBuilder.Entity<User>(builder =>
         {
             builder.HasIndex(x => x.TelegramId).IsUnique();
+            builder.HasIndex(x => x.GoogleSubject).IsUnique();
         });
         
         modelBuilder.Entity<IssueAttachment>(builder =>

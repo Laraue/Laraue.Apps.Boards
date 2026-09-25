@@ -5,6 +5,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiHost;
+using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -42,6 +43,14 @@ public class WebApiTestHost
     /// tests asserting on plan/limit details should re-<c>Setup</c> it themselves.
     /// </summary>
     public Mock<IBillingSubscriptionClient> BillingSubscriptionClientMock { get; } = CreateDefaultSubscriptionClientMock();
+
+    /// <summary>
+    /// Overrides the real validator, which would check the token's signature against Google's
+    /// public keys - tests can't mint a Google-signed token. No default setup: Google sign-in tests
+    /// <c>Setup</c> it with the payload they need. <see cref="GoogleIdTokenValidator"/> itself is
+    /// covered separately, constructed directly.
+    /// </summary>
+    public Mock<IGoogleIdTokenValidator> GoogleIdTokenValidatorMock { get; } = new();
 
     private static Mock<IBillingSubscriptionClient> CreateDefaultSubscriptionClientMock()
     {
@@ -82,10 +91,19 @@ public class WebApiTestHost
                     It.IsAny<CancellationToken>()))
                 .Returns((CreateUserIfNotExistsRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
                     GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
+            identityClientMock
+                .Setup(x => x.CreateUserIfNotExistsByGoogleAsync(
+                    It.IsAny<CreateUserIfNotExistsByGoogleRequest>(),
+                    It.IsAny<Metadata>(),
+                    It.IsAny<DateTime?>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((CreateUserIfNotExistsByGoogleRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
             services.AddSingleton(identityClientMock.Object);
 
             services.AddSingleton(BillingTokenClientMock.Object);
             services.AddSingleton(BillingSubscriptionClientMock.Object);
+            services.AddSingleton(GoogleIdTokenValidatorMock.Object);
 
             // Overrides the default (unnamed) IHttpClientFactory client's primary handler, so
             // CoreFilesService.GetFileContent's Telegram-download fallback (a raw, unnamed
@@ -146,7 +164,7 @@ public class WebApiTestHostScope : IDisposable
         
         setupUser?.Invoke(user);
 
-        var initials = new UserInitials(user.TelegramUserName, user.TelegramFirstName, user.TelegramLastName);
+        var initials = new UserInitials(user.DisplayName.Length > 0 ? user.DisplayName : null, null, null);
         user.DisplayName = initials.DisplayName;
         user.Initials = initials.Initials;
 
