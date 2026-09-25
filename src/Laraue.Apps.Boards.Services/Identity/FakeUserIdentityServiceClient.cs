@@ -1,4 +1,4 @@
-using Grpc.Core;
+﻿using Grpc.Core;
 using Laraue.Apps.Identity.Internal.Contracts;
 
 namespace Laraue.Apps.Boards.Services.Identity;
@@ -15,6 +15,22 @@ public class FakeUserIdentityServiceClient : UserIdentityService.UserIdentitySer
 {
     public override AsyncUnaryCall<CreateUserIfNotExistsResponse> CreateUserIfNotExistsAsync(
         CreateUserIfNotExistsRequest request,
+        Metadata? headers = null,
+        DateTime? deadline = null,
+        CancellationToken cancellationToken = default)
+    {
+        var response = new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() };
+
+        return new AsyncUnaryCall<CreateUserIfNotExistsResponse>(
+            Task.FromResult(response),
+            Task.FromResult(new Metadata()),
+            () => global::Grpc.Core.Status.DefaultSuccess,
+            () => new Metadata(),
+            () => { });
+    }
+
+    public override AsyncUnaryCall<CreateUserIfNotExistsResponse> CreateUserIfNotExistsByGoogleAsync(
+        CreateUserIfNotExistsByGoogleRequest request,
         Metadata? headers = null,
         DateTime? deadline = null,
         CancellationToken cancellationToken = default)

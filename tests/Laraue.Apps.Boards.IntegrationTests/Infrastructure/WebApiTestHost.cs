@@ -82,6 +82,14 @@ public class WebApiTestHost
                     It.IsAny<CancellationToken>()))
                 .Returns((CreateUserIfNotExistsRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
                     GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
+            identityClientMock
+                .Setup(x => x.CreateUserIfNotExistsByGoogleAsync(
+                    It.IsAny<CreateUserIfNotExistsByGoogleRequest>(),
+                    It.IsAny<Metadata>(),
+                    It.IsAny<DateTime?>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((CreateUserIfNotExistsByGoogleRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
             services.AddSingleton(identityClientMock.Object);
 
             services.AddSingleton(BillingTokenClientMock.Object);
