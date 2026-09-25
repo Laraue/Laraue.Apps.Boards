@@ -20,7 +20,7 @@ public interface ICoreUserService
         Guid userId,
         CancellationToken cancellationToken);
 
-    Task<Guid> CreateIfTelegramIdNotExists(User user, CancellationToken cancellationToken);
+    Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken);
 }
 
 public class CoreUserService(
@@ -62,24 +62,28 @@ public class CoreUserService(
         return new UserPreferencesResponse
         {
             EpicSortOrder = preferences.EpicSortOrder,
+            InterfaceLanguage = InterfaceLanguage.ForCode(preferences.InterfaceLanguage).Code,
         };
     }
 
-    public async Task<Guid> CreateIfTelegramIdNotExists(User user, CancellationToken cancellationToken)
+    public async Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken)
     {
         var timestamp = dateTimeProvider.UtcNow;
 
-        user.Color = Palette.RandomColor();
-        user.Id = Guid.NewGuid();
-
-        var initials = new UserInitials(user.TelegramUserName, user.TelegramFirstName, user.TelegramLastName);
-        user.DisplayName = initials.DisplayName;
-        user.Initials = initials.Initials;
-
-        // Resolve/create the global Laraue identity for this Telegram account before touching our
-        // own DB - if Laraue.Apps.Identity is unreachable, registration fails outright rather than
-        // creating a Boards user with no global identity.
-        user.GlobalUserId = await GetGlobalUserIdAsync(user, cancellationToken);
+        var initials = new UserInitials(profile.UserName, profile.FirstName, profile.LastName);
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            TelegramId = profile.TelegramId,
+            DisplayName = initials.DisplayName,
+            Initials = initials.Initials,
+            Color = Palette.RandomColor(),
+            CreatedAt = timestamp,
+            // Resolve/create the global Laraue identity for this Telegram account before touching
+            // our own DB - if Laraue.Apps.Identity is unreachable, registration fails outright
+            // rather than creating a Boards user with no global identity.
+            GlobalUserId = await GetGlobalUserIdAsync(profile, cancellationToken),
+        };
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         
@@ -94,8 +98,8 @@ public class CoreUserService(
         {
             var organization = OrganizationDefaults.GetNewOrganizationEntity(
                 user.Id,
-                OrganizationDefaults.GetPersonalOrganizationSlug(user.TelegramUserName),
-                OrganizationDefaults.GetPersonalOrganizationName(user.TelegramLanguageCode),
+                OrganizationDefaults.GetPersonalOrganizationSlug(profile.UserName),
+                OrganizationDefaults.GetPersonalOrganizationName(profile.LanguageCode),
                 Palette.RandomColor(),
                 timestamp,
                 isPersonal: true);
@@ -105,13 +109,14 @@ public class CoreUserService(
             context.Organizations.Add(organization);
             context.LinkedTelegramChats.Add(new LinkedTelegramChat
             {
-                ExternalChatId = user.TelegramId,
-                Title = user.TelegramUserName ?? user.TelegramFirstName,
+                ExternalChatId = profile.TelegramId,
+                Title = profile.UserName ?? profile.FirstName,
                 Status = defaultStatus,
                 OwnerId = user.Id,
                 SaveMode = SaveMode.EachMessage,
                 LinkedAt = timestamp,
             });
+            context.UserPreferences.Add(GetDefaultPreferences(user.Id, profile.LanguageCode));
 
             await context.SaveChangesAsync(cancellationToken);
         }
@@ -126,29 +131,30 @@ public class CoreUserService(
     /// Lets any failure (including <see cref="Grpc.Core.RpcException"/>) propagate - a Boards user
     /// isn't created without one.
     /// </summary>
-    private async Task<Guid> GetGlobalUserIdAsync(User user, CancellationToken cancellationToken)
+    private async Task<Guid> GetGlobalUserIdAsync(TelegramUserProfile profile, CancellationToken cancellationToken)
     {
         var request = new CreateUserIfNotExistsRequest
         {
-            TelegramId = user.TelegramId,
+            TelegramId = profile.TelegramId,
         };
 
-        if (user.TelegramUserName is { } userName) request.TelegramUsername = userName;
-        if (user.TelegramFirstName is { } firstName) request.TelegramFirstName = firstName;
-        if (user.TelegramLastName is { } lastName) request.TelegramLastName = lastName;
-        if (user.TelegramLanguageCode is { } languageCode) request.TelegramLanguageCode = languageCode;
+        if (profile.UserName is { } userName) request.TelegramUsername = userName;
+        if (profile.FirstName is { } firstName) request.TelegramFirstName = firstName;
+        if (profile.LastName is { } lastName) request.TelegramLastName = lastName;
+        if (profile.LanguageCode is { } languageCode) request.TelegramLanguageCode = languageCode;
 
         var response = await identityClient.CreateUserIfNotExistsAsync(request, cancellationToken: cancellationToken);
 
         return Guid.Parse(response.UserId);
     }
 
-    private static UserPreferences GetDefaultPreferences(Guid userId)
+    private static UserPreferences GetDefaultPreferences(Guid userId, string? languageCode = null)
     {
         return new UserPreferences
         {
             UserId = userId,
-            EpicSortOrder = EpicSortOrder.LastTouched
+            EpicSortOrder = EpicSortOrder.LastTouched,
+            InterfaceLanguage = languageCode is null ? null : InterfaceLanguage.ForCode(languageCode).Code,
         };
     }
 }
@@ -156,4 +162,22 @@ public class CoreUserService(
 public record UserPreferencesResponse
 {
     public EpicSortOrder EpicSortOrder { get; init; }
+
+    /// <summary>
+    /// Always one of <see cref="InterfaceLanguage.Available"/> - the default when not set.
+    /// </summary>
+    public required string InterfaceLanguage { get; init; }
 }
+
+/// <summary>
+/// A Telegram user's profile as the sign-in method (Mini App, login widget, or the bot itself)
+/// reported it. Used only while creating the user - forwarded to Laraue.Apps.Identity (the source of
+/// truth for profiles) and used to derive the Boards-side display name, initials, personal
+/// organization and interface language. Boards doesn't store it.
+/// </summary>
+public sealed record TelegramUserProfile(
+    long TelegramId,
+    string? UserName,
+    string? FirstName,
+    string? LastName,
+    string? LanguageCode);

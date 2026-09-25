@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using LinqToDB.EntityFrameworkCore;
@@ -34,7 +34,7 @@ public class IssuePreviewBuilder(
                 x.Content,
                 ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
                 SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
-                    ? (x.TelegramMessage.Sender.TelegramUserName ?? x.TelegramMessage.Sender.TelegramFirstName)
+                    ? x.TelegramMessage.Sender.DisplayName
                     : null,
                 SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })

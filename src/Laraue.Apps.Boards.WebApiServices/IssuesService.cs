@@ -1529,7 +1529,7 @@ public class IssueListDtoData
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
-    public required long AssigneeTelegramId { get; set; }
+    public required long? AssigneeTelegramId { get; set; }
     public required string AssigneeDisplayName { get; set; }
     public required string AssigneeInitials { get; set; }
     public required string? Content { get; set; }
@@ -1781,7 +1781,7 @@ public class IssueDetailDtoData
     public required string AssigneeColor { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
-    public required long TelegramId { get; set; }
+    public required long? TelegramId { get; set; }
     public required string OwnerDisplayName { get; set; }
     public required string OwnerInitials { get; set; }
     public required string OwnerColor { get; set; }

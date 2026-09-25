@@ -415,6 +415,16 @@ Boards calls two sibling services over gRPC:
   first login (`CoreUserService`, via `UserIdentityService.UserIdentityServiceClient` injected
   directly — there's no Boards-side wrapper interface for it since it's a single call with a
   single caller).
+  **Identity is the source of truth for a user's profile** (Telegram username/first/last
+  name/language, Google email/name). Boards' `User` stores only identifiers (`GlobalUserId`,
+  `TelegramId`, `GoogleSubject` - `TelegramId` is null for a Google-only user) plus its own
+  presentation fields (`DisplayName`/`Initials`/`Color`), derived once at sign-up. The interface
+  language lives in `UserPreferences.InterfaceLanguage`, seeded at sign-up. `User` implements no
+  Telegram.NET interface: since Laraue.Telegram.NET 5.0, `ITelegramUserQueryService<Guid>` only
+  finds a user id by Telegram id and receives the library's `TelegramData` on first contact -
+  `TelegramUserQueryService` maps that into a `TelegramUserProfile` for
+  `ICoreUserService.CreateIfTelegramIdNotExists`, which forwards it to Identity. Don't re-add profile columns to `users`; if Boards needs a new profile value, ask
+  whether it's really a Boards-side preference (→ `UserPreferences`) or belongs in Identity.
 - `Laraue.Apps.Billing` — AI token reserve/commit/cancel and subscription/limit lookups, wrapped
   behind `IBillingTokenClient`/`IBillingSubscriptionClient`
   (`Laraue.Apps.Boards.Services.Billing`) rather than exposing the generated gRPC clients

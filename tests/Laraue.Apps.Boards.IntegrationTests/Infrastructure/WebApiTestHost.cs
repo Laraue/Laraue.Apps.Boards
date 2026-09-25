@@ -146,7 +146,7 @@ public class WebApiTestHostScope : IDisposable
         
         setupUser?.Invoke(user);
 
-        var initials = new UserInitials(user.TelegramUserName, user.TelegramFirstName, user.TelegramLastName);
+        var initials = new UserInitials(user.DisplayName.Length > 0 ? user.DisplayName : null, null, null);
         user.DisplayName = initials.DisplayName;
         user.Initials = initials.Initials;
 

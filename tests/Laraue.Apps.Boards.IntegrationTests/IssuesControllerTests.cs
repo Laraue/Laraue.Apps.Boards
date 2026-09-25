@@ -27,7 +27,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser(x => 
         {
-            x.TelegramUserName = "user1";
+            x.DisplayName = "user1";
             x.Color = "#000000";
         });
         var organization = await testScope.InitializeOrganization(userId);
@@ -268,8 +268,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldUpdateIssue_WhenHasGlobalAccessToUpdateIssues()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(u => u.TelegramUserName = "first_user");
-        var participatorId = await testScope.CreateUser(u => u.TelegramUserName = "second_user");
+        var userId = await testScope.CreateUser(u => u.DisplayName = "first_user");
+        var participatorId = await testScope.CreateUser(u => u.DisplayName = "second_user");
         var organization = await testScope.InitializeOrganization(
             userId,
             o => o
@@ -570,7 +570,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     public async Task User_ShouldViewIssue_WhenIsOrganizationOwner()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(user => user.TelegramUserName = "assignee");
+        var userId = await testScope.CreateUser(user => user.DisplayName = "assignee");
         var organization = await testScope.InitializeOrganization(
             userId,
             o => o.AddIssueToDefaultStatus(userId));
@@ -1088,12 +1088,12 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser(x =>
         {
-            x.TelegramUserName = "user1";
+            x.DisplayName = "user1";
             x.Color = "#111111";
         });
         var participatorId = await testScope.CreateUser(x =>
         {
-            x.TelegramUserName = "user2";
+            x.DisplayName = "user2";
             x.Color = "#222222";
         });
         var organization = await testScope.InitializeOrganization(

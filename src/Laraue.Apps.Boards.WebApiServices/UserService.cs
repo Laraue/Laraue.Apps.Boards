@@ -42,11 +42,8 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
             .Where(x => x.Id == userId)
             .Select(x => new UserDto
             {
-                Username = x.TelegramUserName,
-                LanguageCode = InterfaceLanguage.ForCode(x.TelegramLanguageCode).Code,
+                DisplayName = x.DisplayName,
                 Color = x.Color,
-                FirstName = x.TelegramFirstName,
-                LastName = x.TelegramLastName,
                 TelegramId = x.TelegramId,
                 Initials = x.Initials,
                 Palette = Palette.Colors
@@ -54,6 +51,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
             .FirstOrThrowNotFoundEFAsync("User is not found", cancellationToken);
 
         user.Preferences = await coreService.GetPreferences(userId, cancellationToken);
+        user.LanguageCode = user.Preferences.InterfaceLanguage;
 
         return user;
     }
@@ -61,13 +59,11 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
 
 public class UserDto
 {
-    public long TelegramId { get; set; }
-    public string? Username { get; set; }
-    public string? FirstName { get; set; }
-    public string? LastName { get; set; }
-    public required string LanguageCode { get; set; }
+    public long? TelegramId { get; set; }
+    public required string DisplayName { get; set; }
+    public string LanguageCode { get; set; } = string.Empty;
     public required string Color { get; set; }
     public string? Initials { get; set; }
     public required string[] Palette { get; set; }
-    public UserPreferencesResponse Preferences { get; set; } = new();
+    public UserPreferencesResponse Preferences { get; set; } = null!;
 }

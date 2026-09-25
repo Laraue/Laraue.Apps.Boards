@@ -1,24 +1,30 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
-using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Telegram.NET.Authentication.Services;
-using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.TelegramServices;
 
-public class TelegramUserQueryService(DatabaseContext context, IDateTimeProvider dateTimeProvider, ICoreUserService userService)
-    : ITelegramUserQueryService<User, Guid>
+public class TelegramUserQueryService(DatabaseContext context, ICoreUserService userService)
+    : ITelegramUserQueryService<Guid>
 {
-    public Task<User?> FindAsync(long telegramId, CancellationToken cancellationToken = default)
+    public Task<TelegramUserId<Guid>?> FindUserIdAsync(long telegramId, CancellationToken cancellationToken = default)
     {
         return context.Users
             .Where(u => u.TelegramId == telegramId)
-            .FirstOrDefaultAsyncEF(cancellationToken);
+            .Select(u => new TelegramUserId<Guid>(u.Id))
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task<Guid> CreateAsync(User user, CancellationToken cancellationToken = default)
+    public Task<Guid> CreateAsync(TelegramData telegramData, CancellationToken cancellationToken = default)
     {
-        return userService.CreateIfTelegramIdNotExists(user, cancellationToken);
+        return userService.CreateIfTelegramIdNotExists(
+            new TelegramUserProfile(
+                telegramData.Id,
+                telegramData.Username,
+                telegramData.FirstName,
+                telegramData.LastName,
+                telegramData.LanguageCode),
+            cancellationToken);
     }
 }

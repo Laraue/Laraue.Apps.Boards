@@ -144,7 +144,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
-        var memberId = await testScope.CreateUser(x => x.TelegramUserName = "member1");
+        var memberId = await testScope.CreateUser(x => x.DisplayName = "member1");
         var organization = await testScope.InitializeOrganization(ownerId);
 
         var transactionId = Guid.NewGuid();
@@ -1232,15 +1232,15 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser(x =>
         {
-            x.TelegramUserName = "aa";
+            x.DisplayName = "aa";
             x.Color = "#111111";
         });
         var spaceMemberId = await testScope.CreateUser(x =>
         {
-            x.TelegramUserName = "bb";
+            x.DisplayName = "bb";
             x.Color = "#222222";
         });
-        var otherSpaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "cc");
+        var otherSpaceMemberId = await testScope.CreateUser(x => x.DisplayName = "cc");
 
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(spaceMemberId, b => b
@@ -1264,9 +1264,9 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     public async Task GetMembers_ShouldReturnUsersAcrossAllReadableSpaces_WhenSpaceKeyOmitted()
     {
         using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser(x => x.TelegramUserName = "aa");
-        var spaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "bb");
-        var otherSpaceMemberId = await testScope.CreateUser(x => x.TelegramUserName = "cc");
+        var ownerId = await testScope.CreateUser(x => x.DisplayName = "aa");
+        var spaceMemberId = await testScope.CreateUser(x => x.DisplayName = "bb");
+        var otherSpaceMemberId = await testScope.CreateUser(x => x.DisplayName = "cc");
 
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(spaceMemberId, b => b

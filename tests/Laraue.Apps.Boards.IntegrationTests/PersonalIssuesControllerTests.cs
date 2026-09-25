@@ -289,7 +289,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser(u =>
         {
-            u.TelegramUserName = "snake1977";
+            u.DisplayName = "snake1977";
             u.Color = "#123456";
         });
         var timestamp = new DateTime(2020, 01, 01, 0, 0, 0, DateTimeKind.Utc);
@@ -331,7 +331,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
     public async Task User_ShouldGetPersonalIssues_Always()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(u => { u.TelegramUserName = "snake1977"; });
+        var userId = await testScope.CreateUser(u => { u.DisplayName = "snake1977"; });
         var timestamp = new DateTime(2020, 01, 01, 0, 0, 0, DateTimeKind.Utc);
         var organization = await testScope.InitializePersonalOrganization(
             userId,
@@ -369,7 +369,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
     public async Task User_ShouldSearchPersonalIssues_Always()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(u => { u.TelegramUserName = "snake1977"; });
+        var userId = await testScope.CreateUser(u => { u.DisplayName = "snake1977"; });
         var organization = await testScope.InitializePersonalOrganization(
             userId,
             o => o
@@ -459,7 +459,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
     public async Task User_ShouldGetBoard_Always()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(u => { u.TelegramUserName = "snake1977"; });
+        var userId = await testScope.CreateUser(u => { u.DisplayName = "snake1977"; });
         var organization = await testScope.InitializePersonalOrganization(
             userId,
             o => o
@@ -512,7 +512,7 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
     public async Task User_ShouldSearchIssues_WhenFilterByEpicId()
     {
         using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser(u => { u.TelegramUserName = "snake1977"; });
+        var userId = await testScope.CreateUser(u => { u.DisplayName = "snake1977"; });
         var organization = await testScope.InitializePersonalOrganization(
             userId,
             o => o

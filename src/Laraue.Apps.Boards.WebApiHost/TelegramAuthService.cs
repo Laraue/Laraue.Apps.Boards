@@ -160,18 +160,9 @@ public class TelegramAuthService(
         MiniAppUser user,
         CancellationToken cancellationToken)
     {
-        var newUser = new User
-        {
-            CreatedAt = dateTimeProvider.UtcNow,
-            TelegramId = user.Id,
-            TelegramLanguageCode = user.LanguageCode,
-            TelegramUserName = user.Username,
-            TelegramFirstName = user.FirstName,
-            TelegramLastName = user.LastName,
-            Color = Palette.RandomColor(),
-        };
-
-        return coreUserService.CreateIfTelegramIdNotExists(newUser, cancellationToken);
+        return coreUserService.CreateIfTelegramIdNotExists(
+            new TelegramUserProfile(user.Id, user.Username, user.FirstName, user.LastName, user.LanguageCode),
+            cancellationToken);
     }
 }
 

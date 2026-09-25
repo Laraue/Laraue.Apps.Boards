@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
@@ -81,7 +81,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
-        var otherAssignee = await testScope.CreateUser(u => u.TelegramUserName = "other_assignee");
+        var otherAssignee = await testScope.CreateUser(u => u.DisplayName = "other_assignee");
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             // A space added via AddSpace auto-gets an implicit "Backlog" epic at index 0 and,
             // within every epic in it, an implicit default status at index 0 - so this test's own

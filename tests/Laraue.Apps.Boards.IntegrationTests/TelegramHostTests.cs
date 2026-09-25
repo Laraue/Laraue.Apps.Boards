@@ -1136,7 +1136,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x =>
         {
             x.TelegramId = AdminUser.Id;
-            x.TelegramUserName = AdminUser.Username;
+            x.DisplayName = AdminUser.Username;
         });
         var organization = await testScope.InitializeOrganization(userId);
         var status = organization.GetStatus(0, 0, 0);
@@ -1948,7 +1948,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var user = Assert.Single(await db.Users.ToListAsyncLinqToDB());
         
         Assert.Equal(777, user.TelegramId);
-        Assert.Equal("snake991", user.TelegramUserName);
+        Assert.Equal("snake991", user.DisplayName);
         
         var userOrganization = Assert.Single(await db.Organizations.ToListAsyncLinqToDB());
         Assert.Equal("snake991", userOrganization.Slug);
@@ -3018,11 +3018,11 @@ public class TelegramHostTests : TelegramIntegrationTest
         var testScope = host.CreateTestScope();
 
         var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        var directUserId = await testScope.CreateUser(x => x.TelegramUserName = "direct_user");
-        var noAccessUserId = await testScope.CreateUser(x => x.TelegramUserName = "noaccess_user");
+        var directUserId = await testScope.CreateUser(x => x.DisplayName = "direct_user");
+        var noAccessUserId = await testScope.CreateUser(x => x.DisplayName = "noaccess_user");
         // A real user whose username happens to be "me" — must never win over the reserved
         // "assignee:me" match for the searching user.
-        var meUserId = await testScope.CreateUser(x => x.TelegramUserName = "me");
+        var meUserId = await testScope.CreateUser(x => x.DisplayName = "me");
 
         var organization = await testScope.InitializeOrganization(
             userId,

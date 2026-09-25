@@ -19,9 +19,9 @@ public class LocalizationProvider(
         CultureInfo userInterfaceCulture,
         CancellationToken cancellationToken = default)
     {
-        var languageCode = await db.Users
-            .Where(x => x.Id == context.UserId)
-            .Select(x => x.TelegramLanguageCode)
+        var languageCode = await db.UserPreferences
+            .Where(x => x.UserId == context.UserId)
+            .Select(x => x.InterfaceLanguage)
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         var language = InterfaceLanguage.ForCode(languageCode);

@@ -52,7 +52,7 @@ public static class WebApplicationBuilderExtensions
                         .ToArray();
                     opt.DefaultLanguage = InterfaceLanguage.Default.Code;
                 })
-                .AddTelegramAuthentication<User, Guid, TelegramUserQueryService, RequestContext>();
+                .AddTelegramAuthentication<Guid, TelegramUserQueryService, RequestContext>();
 
             builder.Services
                 .AddScoped<ITelegramMessageService, TelegramMessageService>()
