@@ -3551,7 +3551,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: /organizations/acme-a1b2/issues/BRD-185", request.Text);
+        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: https://boards.example.com/organizations/acme-a1b2/issues/BRD-185", request.Text);
     }
 
     [Fact]
@@ -3678,7 +3678,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var request = host.Requests().Single<SendMessageRequest>();
-        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: /organizations/acme-a1b2/issues/BRD-185", request.Text);
+        Assert.Equal("I couldn't find a saved card or an issue link in that message. An issue link looks like: https://boards.example.com/organizations/acme-a1b2/issues/BRD-185", request.Text);
     }
 
     [Fact]
@@ -3698,7 +3698,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         // /organizations/{orgKey}/issues/{key} path shape, then rebuilds the canonical URL
         // itself (which is why the assertion below uses a differently-shaped expected URL).
         var pastedIssueUrl = $"https://boards.example.com/organizations/{orgKey}/issues/{space.Key}-1";
-        var expectedCanonicalUrl = $"/organizations/{orgKey}/issues/{space.Key}-1";
+        var expectedCanonicalUrl = $"https://boards.example.com/organizations/{orgKey}/issues/{space.Key}-1";
 
         var chat = new Chat { Id = 794, Type = ChatType.Group };
 
@@ -3745,7 +3745,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         // "/issues/{key}" page - the space/board path segments (BRD/149) aren't parsed, since the
         // issue key in "issue=" already carries the space key and number.
         var pastedBoardUrl = $"https://boards.example.com/organizations/{orgKey}/spaces/{space.Key}/149?issue={space.Key}-1";
-        var expectedCanonicalUrl = $"/organizations/{orgKey}/issues/{space.Key}-1";
+        var expectedCanonicalUrl = $"https://boards.example.com/organizations/{orgKey}/issues/{space.Key}-1";
 
         var chat = new Chat { Id = 797, Type = ChatType.Group };
 

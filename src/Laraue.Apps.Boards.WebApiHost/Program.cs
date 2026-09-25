@@ -14,10 +14,6 @@ public sealed class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
-        builder.Services.AddOptions<TelegramOptions>();
-        builder.Services.Configure<TelegramOptions>(
-            builder.Configuration.GetSection("Telegram"));
-
         const string dbConnectionStringName = "Postgre";
 
         builder.Services.AddAuthorization();

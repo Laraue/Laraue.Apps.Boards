@@ -1,3 +1,5 @@
+﻿using System.ComponentModel.DataAnnotations;
+
 namespace Laraue.Apps.Boards.Services.Ai;
 
 /// <summary>
@@ -9,16 +11,20 @@ public class AiSummarizerOptions
     /// <summary>
     /// API key sent as a bearer token.
     /// </summary>
+    [Required]
     public required string ApiKey { get; set; }
 
     /// <summary>
     /// API base address.
     /// </summary>
+    [Required]
+    [Url]
     public required string BaseUrl { get; set; }
 
     /// <summary>
     /// Model to use for chat completions.
     /// </summary>
+    [Required]
     public required string Model { get; set; }
 
     /// <summary>

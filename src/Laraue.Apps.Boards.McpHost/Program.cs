@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
@@ -27,14 +27,11 @@ public sealed class Program
         builder.Services.AddAuthorization();
 
         // AddCoreServices() registers ICoreFilesService, which depends on ITelegramBotClient (file
-        // attachments are downloaded through Telegram regardless of which host asks for them) -
-        // this host's MCP tools never touch file attachments, but the dependency still has to
-        // resolve for the container to build. Same registration WebApiHost's own
-        // AddApplicationServices() already does.
-        builder.Services.AddOptions<TelegramOptions>();
-        builder.Services.Configure<TelegramOptions>(builder.Configuration.GetSection("Telegram"));
+        // attachments are downloaded through Telegram regardless of which host asks for them) - the
+        // client is built from TelegramOptions, which AddCoreServices() binds and validates. Same
+        // registration WebApiHost's own AddApplicationServices() already does.
         builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>(
-            sp => new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.Token));
+            sp => new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.GetRequiredToken()));
 
         builder
             .AddCoreServices()
@@ -43,7 +40,7 @@ public sealed class Program
         builder.Services.AddScoped<IIssueMcpService, IssueMcpService>();
 
         builder.Services.AddControllers();
-        builder.Services.Configure<ServerCardOptions>(builder.Configuration.GetSection("ServerCard"));
+        builder.AddValidatedOptions<ServerCardOptions>("ServerCard");
 
         builder.Services
             .AddMcpServer(options => options.ServerInstructions = McpServerInstructions.Text)

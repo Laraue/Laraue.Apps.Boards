@@ -17,7 +17,9 @@ public static class WebApplicationBuilderExtensions
     {
         public WebApplicationBuilder AddApplicationServices()
         {
-            builder.AddCoreServices();
+            builder
+                .AddCoreServices()
+                .AddAiContentSummarizer();
             builder.Services.AddHttpClient();
 
             builder.Services
@@ -25,7 +27,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IGoogleAuthService, GoogleAuthService>()
                 .AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>()
                 .AddSingleton<ITelegramBotClient, TelegramBotClient>(
-                    sp => new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.Token));
+                    sp => new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.GetRequiredToken()));
 
             builder.Services
                 .AddScoped<IIssuesService, IssuesService>()
@@ -63,9 +65,8 @@ public static class WebApplicationBuilderExtensions
             var stringKey = builder.Configuration["Auth:Key"] ?? throw new InvalidOperationException("Auth:Key is required.");
             var symmetricSecurityKey = AuthService.GetSymmetricSecurityKey(stringKey);
 
-            builder.Services.AddOptions<AuthOptions>();
-            builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
-            builder.Services.Configure<GoogleAuthOptions>(builder.Configuration.GetSection("GoogleAuth"));
+            builder.AddValidatedOptions<AuthOptions>("Auth");
+            builder.AddValidatedOptions<GoogleAuthOptions>("GoogleAuth");
             
             builder.Services.AddSingleton<IAuthService, AuthService>();
             builder.Services

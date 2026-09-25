@@ -279,6 +279,31 @@ pile up a large diff they then have to review all at once.
 host) process is already running locally and holding the output DLLs open. Don't kill the process
 yourself — ask the user to stop it, then retry the build once they confirm.
 
+## Options and configuration
+
+- Bind every options class through `builder.AddValidatedOptions<TOptions>("Section")`
+  (`Boards.Services.WebApplicationBuilderExtensions`) rather than a bare
+  `Configure<T>(GetSection(...))`. It always binds; **in the Production environment only** it also
+  validates data annotations and calls `ValidateOnStart()`, so a missing or malformed setting stops
+  the deployed host instead of surfacing as a null-reference on first use, while local development
+  (any non-Production environment) isn't forced to configure every setting of every host. Mark
+  required values `[Required]` (plus `[Url]` for URLs). Checks annotations can't express go in the
+  helper's `validation`/`failureMessage` parameters - not a `.Validate(...)` chained on the returned
+  builder, which would also run outside Production - e.g. `Telegram:FilesChatId != 0` (`[Required]`
+  never fails for a value type), or `TelegramNetOptions` from Laraue.Telegram.NET, which has no
+  annotations. `ValidateDataAnnotations` doesn't descend into
+  nested objects - see `AppOptions.Validate` for validating a nested options object.
+- Register an options class only in the hosts that use it, so a host is never forced to configure
+  something it doesn't need. Options needed by core services go in `AddCoreServices()`
+  (`TelegramOptions`, `FileStorageOptions`, `IdentityOptions`, `BillingOptions`, since
+  `CoreFilesService`/the gRPC clients use them in every host); the AI summarizer is opt-in via
+  `AddAiContentSummarizer()` (WebApiHost, TelegramHost - not McpHost).
+- The integration tests' `appsettings.json` must satisfy the same validation - add a value there
+  whenever a new required setting is introduced. `WebApplicationFactory`-based hosts run as
+  Development (no validation), but `TelegramIntegrationTest` builds its host with a bare
+  `WebApplication.CreateBuilder()`, i.e. Production, so validation does apply there.
+  `OptionsValidationTests` covers both environments.
+
 ## Logging
 
 - Always use `ILogger<T>` (the generic, type-scoped interface), never the bare non-generic

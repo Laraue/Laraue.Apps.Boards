@@ -5,6 +5,7 @@ using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.Exceptions.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.ComponentModel.DataAnnotations;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -14,6 +15,7 @@ public class GoogleAuthOptions
     /// OAuth client id of the web app in Google Cloud Console. An ID token is accepted only if it
     /// was issued for this client (its <c>aud</c> claim).
     /// </summary>
+    [Required]
     public required string ClientId { get; set; }
 }
 
