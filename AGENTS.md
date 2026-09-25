@@ -425,6 +425,15 @@ Boards calls two sibling services over gRPC:
   `TelegramUserQueryService` maps that into a `TelegramUserProfile` for
   `ICoreUserService.CreateIfTelegramIdNotExists`, which forwards it to Identity. Don't re-add profile columns to `users`; if Boards needs a new profile value, ask
   whether it's really a Boards-side preference (→ `UserPreferences`) or belongs in Identity.
+
+  **Google sign-in** (`POST /api/user/auth-via-google`, `GoogleAuthService` in `WebApiServices`):
+  Boards verifies the Google ID token itself (`GoogleIdTokenValidator`, Google.Apis.Auth) against
+  `GoogleAuth:ClientId` and passes only the verified claims on to Identity
+  (`CreateUserIfNotExistsByGoogle`) - Identity never sees the raw token. `GoogleIdTokenValidator`
+  throws if `ClientId` is empty on purpose: with no audience configured, Google.Apis.Auth skips the
+  audience check and would accept a token issued for *any* Google OAuth client. Google and Telegram
+  sign-ins create separate users for now (linking is BRD-218); a Google-only user has
+  `TelegramId == null` and no personal Telegram chat.
 - `Laraue.Apps.Billing` — AI token reserve/commit/cancel and subscription/limit lookups, wrapped
   behind `IBillingTokenClient`/`IBillingSubscriptionClient`
   (`Laraue.Apps.Boards.Services.Billing`) rather than exposing the generated gRPC clients

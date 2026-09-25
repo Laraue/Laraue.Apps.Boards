@@ -22,6 +22,8 @@ public static class WebApplicationBuilderExtensions
 
             builder.Services
                 .AddScoped<ITelegramAuthService, TelegramAuthService>()
+                .AddScoped<IGoogleAuthService, GoogleAuthService>()
+                .AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>()
                 .AddSingleton<ITelegramBotClient, TelegramBotClient>(
                     sp => new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.Token));
 
@@ -63,6 +65,7 @@ public static class WebApplicationBuilderExtensions
 
             builder.Services.AddOptions<AuthOptions>();
             builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
+            builder.Services.Configure<GoogleAuthOptions>(builder.Configuration.GetSection("GoogleAuth"));
             
             builder.Services.AddSingleton<IAuthService, AuthService>();
             builder.Services
