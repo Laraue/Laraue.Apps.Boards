@@ -34,14 +34,14 @@ public class CoreAccountLinkingTests(WebApiTestHost host) : IClassFixture<WebApi
     }
 
     [Fact]
-    public async Task ApplyTelegramAccountLink_ShouldThrow_WhenCalledOutsideTransaction()
+    public async Task LinkTelegramAccountInBoards_ShouldThrow_WhenCalledOutsideTransaction()
     {
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
         var userId = await service.CreateIfGoogleSubjectNotExists(GoogleProfile("google-518"), default);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.ApplyTelegramAccountLink(userId, TelegramProfile(518), default));
+            () => service.LinkTelegramAccountInBoards(userId, TelegramProfile(518), default));
         Assert.Null((await testScope.Database.Users.SingleAsync(x => x.Id == userId)).TelegramId);
     }
 

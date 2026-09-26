@@ -36,7 +36,7 @@ public interface ICoreUserService
     /// another user who has this one has no data, then links it in Laraue.Apps.Identity (moving it from
     /// that empty user there). Writes nothing to the Boards database, so call it outside a transaction;
     /// if it returns <see cref="AccountLinkOutcome.Linked"/>, finish with
-    /// <see cref="ApplyTelegramAccountLink"/>. The caller must have verified the Telegram login data.
+    /// <see cref="LinkTelegramAccountInBoards"/>. The caller must have verified the Telegram login data.
     /// </summary>
     Task<AccountLinkOutcome> LinkTelegramAccountInIdentity(
         Guid userId,
@@ -50,7 +50,7 @@ public interface ICoreUserService
     /// Telegram chat to their personal organization, as Telegram sign-up does. Safe to repeat. Must be
     /// called within a transaction.
     /// </summary>
-    Task ApplyTelegramAccountLink(
+    Task LinkTelegramAccountInBoards(
         Guid userId,
         TelegramUserProfile profile,
         CancellationToken cancellationToken);
@@ -65,9 +65,9 @@ public interface ICoreUserService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Google counterpart of <see cref="ApplyTelegramAccountLink"/>. Must be called within a transaction.
+    /// Google counterpart of <see cref="LinkTelegramAccountInBoards"/>. Must be called within a transaction.
     /// </summary>
-    Task ApplyGoogleAccountLink(
+    Task LinkGoogleAccountInBoards(
         Guid userId,
         GoogleUserProfile profile,
         CancellationToken cancellationToken);
@@ -273,7 +273,7 @@ public class CoreUserService(
         return ToOutcome(await identityClient.LinkTelegramAccountAsync(request, cancellationToken: cancellationToken));
     }
 
-    public async Task ApplyTelegramAccountLink(
+    public async Task LinkTelegramAccountInBoards(
         Guid userId,
         TelegramUserProfile profile,
         CancellationToken cancellationToken)
@@ -362,7 +362,7 @@ public class CoreUserService(
         return ToOutcome(await identityClient.LinkGoogleAccountAsync(request, cancellationToken: cancellationToken));
     }
 
-    public async Task ApplyGoogleAccountLink(
+    public async Task LinkGoogleAccountInBoards(
         Guid userId,
         GoogleUserProfile profile,
         CancellationToken cancellationToken)

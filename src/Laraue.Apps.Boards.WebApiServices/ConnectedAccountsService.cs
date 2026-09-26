@@ -56,7 +56,7 @@ public class ConnectedAccountsService(
         if (outcome == AccountLinkOutcome.Linked)
         {
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-            await coreUserService.ApplyTelegramAccountLink(userId, verifiedProfile, cancellationToken);
+            await coreUserService.LinkTelegramAccountInBoards(userId, verifiedProfile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
 
@@ -81,7 +81,7 @@ public class ConnectedAccountsService(
         if (outcome == AccountLinkOutcome.Linked)
         {
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-            await coreUserService.ApplyGoogleAccountLink(userId, profile, cancellationToken);
+            await coreUserService.LinkGoogleAccountInBoards(userId, profile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
 

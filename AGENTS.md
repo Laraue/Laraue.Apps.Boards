@@ -466,11 +466,11 @@ Boards calls two sibling services over gRPC:
   account is moved from them; if they have data, Identity isn't called at all - Identity's link contract
   requires the caller to check its own data first. Linking is two core steps so the gRPC call never
   runs inside a database transaction: `Link…AccountInIdentity` (checks + Identity, no Boards writes,
-  outside a transaction), then - only on `Linked` - `Apply…AccountLink` (Boards writes, asserts
-  `EnsureTransactionStarted()`), run by `ConnectedAccountsService` in its own transaction. The apply
+  outside a transaction), then - only on `Linked` - `Link…AccountInBoards` (Boards writes, asserts
+  `EnsureTransactionStarted()`), run by `ConnectedAccountsService` in its own transaction. The Boards
   step re-finds the previous owner and skips an existing personal chat, so repeating a connect after a
   failure between the two steps completes it (Identity's link is idempotent). When the moved account was the
-  previous owner's only sign-in method, the apply step also soft-deletes that user (`User.DeletedAt`/
+  previous owner's only sign-in method, the Boards step also soft-deletes that user (`User.DeletedAt`/
   `DeletedByUserId` = the user who took the account over) and their personal organization. Which user
   they were absorbed into is recorded only in Identity (`merged_into` on the global user) - Boards
   doesn't keep its own copy. An owner who keeps their other account stays a regular user. Telegram data is verified by
