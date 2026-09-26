@@ -11,7 +11,7 @@ public class TelegramAuthController(
 {
     [HttpPost("auth-via-mini-app")]
     public async Task<string> Authenticate(
-        AuthenticateViaStringInitDataRequest request,
+        [FromBody] AuthenticateViaStringInitDataRequest request,
         CancellationToken cancellationToken)
     {
         var token = await authService.Authenticate(request, cancellationToken);
@@ -21,7 +21,7 @@ public class TelegramAuthController(
     
     [HttpPost("auth")]
     public async Task<string> Authenticate(
-        TelegramWidgetAuthRequest request,
+        [FromBody] TelegramWidgetAuthRequest request,
         CancellationToken cancellationToken)
     {
         var token = await authService.Authenticate(request, cancellationToken);

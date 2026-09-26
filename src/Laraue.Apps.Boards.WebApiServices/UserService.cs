@@ -38,13 +38,14 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
 
     public async Task<UserDto> GetUser(Guid userId, CancellationToken cancellationToken)
     {
-        var user = await context.Users
+        var user = await context.ActiveUsers()
             .Where(x => x.Id == userId)
             .Select(x => new UserDto
             {
                 DisplayName = x.DisplayName,
                 Color = x.Color,
                 TelegramId = x.TelegramId,
+                HasGoogleAccount = x.GoogleSubject != null,
                 Initials = x.Initials,
                 Palette = Palette.Colors
             })
@@ -60,6 +61,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
 public class UserDto
 {
     public long? TelegramId { get; set; }
+    public bool HasGoogleAccount { get; set; }
     public required string DisplayName { get; set; }
     public string LanguageCode { get; set; } = string.Empty;
     public required string Color { get; set; }

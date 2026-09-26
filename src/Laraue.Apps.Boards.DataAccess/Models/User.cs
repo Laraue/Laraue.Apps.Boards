@@ -35,6 +35,19 @@ public class User
     [MaxLength(7)]
     public string Color { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// UTC timestamp the user was soft-deleted at, or null if the account is active. Set when account
+    /// linking moved this user's last sign-in method to another user (their personal organization is
+    /// soft-deleted at the same time).
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who soft-deleted this one, if any - for a merge, the user who took over the account.
+    /// </summary>
+    public Guid? DeletedByUserId { get; set; }
+    public User? DeletedByUser { get; set; }
     public IList<Epic>? Epics { get; set; }
     public IList<Space>? Spaces { get; set; }
     public IList<Organization>? Organizations { get; set; }
