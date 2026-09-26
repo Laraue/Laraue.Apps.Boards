@@ -449,49 +449,17 @@ public class CoreUserService(
 
     /// <summary>
     /// The previous owner is losing their last sign-in account to <paramref name="userId"/>, so nobody
-    /// can use their account any more: soft-deletes the user and their personal organization (it's
-    /// untouched - see <see cref="HasDataAsync"/> - so there are no issues below its statuses), with
-    /// <paramref name="userId"/> as the deleter. Laraue.Apps.Identity records which user they were
-    /// absorbed into.
+    /// can use their account any more: soft-deletes the user, with <paramref name="userId"/> as the deleter.
+    /// Their personal organization stays as is - nobody else is a member of it (see <see cref="HasDataAsync"/>),
+    /// so it can't be reached any more. Laraue.Apps.Identity records which user they were absorbed into.
     /// </summary>
     private async Task SoftDeleteMergedUserAsync(Guid previousOwnerId, Guid userId, CancellationToken cancellationToken)
     {
-        var now = dateTimeProvider.UtcNow;
-
         await context.Users
             .Where(x => x.Id == previousOwnerId)
             .ExecuteUpdateAsync(x => x
-                .SetProperty(u => u.DeletedAt, now)
+                .SetProperty(u => u.DeletedAt, dateTimeProvider.UtcNow)
                 .SetProperty(u => u.DeletedByUserId, userId),
-                cancellationToken);
-
-        var organizationIds = context.Organizations
-            .Where(x => x.OwnerId == previousOwnerId && x.Type == OrganizationType.Personal && x.DeletedAt == null)
-            .Select(x => x.Id);
-
-        await context.Statuses
-            .Where(x => organizationIds.Contains(x.Epic!.Space!.OrganizationId))
-            .ExecuteUpdateAsync(x => x
-                .SetProperty(s => s.DeletedAt, now)
-                .SetProperty(s => s.DeletedByUserId, userId),
-                cancellationToken);
-        await context.Epics
-            .Where(x => organizationIds.Contains(x.Space!.OrganizationId))
-            .ExecuteUpdateAsync(x => x
-                .SetProperty(e => e.DeletedAt, now)
-                .SetProperty(e => e.DeletedByUserId, userId),
-                cancellationToken);
-        await context.Spaces
-            .Where(x => organizationIds.Contains(x.OrganizationId))
-            .ExecuteUpdateAsync(x => x
-                .SetProperty(s => s.DeletedAt, now)
-                .SetProperty(s => s.DeletedByUserId, userId),
-                cancellationToken);
-        await context.Organizations
-            .Where(x => x.OwnerId == previousOwnerId && x.Type == OrganizationType.Personal && x.DeletedAt == null)
-            .ExecuteUpdateAsync(x => x
-                .SetProperty(o => o.DeletedAt, now)
-                .SetProperty(o => o.DeletedByUserId, userId),
                 cancellationToken);
     }
 

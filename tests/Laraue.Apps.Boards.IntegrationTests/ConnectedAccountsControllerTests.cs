@@ -69,7 +69,6 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
         Assert.Null(owner.GoogleSubject);
         Assert.NotNull(owner.DeletedAt);
         Assert.Equal(userId, owner.DeletedByUserId);
-        Assert.NotNull((await testScope.Database.Organizations.SingleAsync(x => x.OwnerId == ownerId)).DeletedAt);
         Assert.Equal(503, (await testScope.Database.Users.SingleAsync(x => x.Id == userId)).TelegramId);
         var chat = await testScope.Database.LinkedTelegramChats
             .Include(x => x.Status!.Epic!.Space!.Organization)
@@ -300,7 +299,6 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
         Assert.Null(owner.TelegramId);
         Assert.NotNull(owner.DeletedAt);
         Assert.Equal(userId, owner.DeletedByUserId);
-        Assert.NotNull((await testScope.Database.Organizations.SingleAsync(x => x.OwnerId == ownerId)).DeletedAt);
         Assert.Equal("google-22", (await testScope.Database.Users.SingleAsync(x => x.Id == userId)).GoogleSubject);
     }
 
@@ -335,7 +333,6 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
         Assert.Equal(525, owner.TelegramId);
         Assert.Null(owner.GoogleSubject);
         Assert.Null(owner.DeletedAt);
-        Assert.Null((await testScope.Database.Organizations.SingleAsync(x => x.OwnerId == ownerId)).DeletedAt);
     }
 
     [Fact]

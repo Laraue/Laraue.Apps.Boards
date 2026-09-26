@@ -328,7 +328,7 @@ yourself — ask the user to stop it, then retry the build once they confirm.
 the row, and cascades the same flag down to its descendants in that list (e.g. deleting a `Space`
 also soft-deletes its `Epic`s, `Status`es, `Issue`s). `User` isn't part of that content cascade:
 today a user is soft-deleted only when account linking moves their last sign-in method to another
-user (BRD-218), together with their personal organization. Nothing else in the schema is
+user (BRD-218); their personal organization is left as is, since nobody else can reach it. Nothing else in the schema is
 soft-deletable; everything else stays hard-deleted.
 
 There is deliberately **no EF Core global query filter** (`HasQueryFilter`) for this — every query
@@ -339,7 +339,7 @@ against one of these seven entities states its own choice explicitly:
   `ActiveUsers()` (`Laraue.Apps.Boards.DataAccess.DatabaseContextActiveEntityExtensions`) instead of
   the raw `context.Issues`/etc. DbSet. Existing `context.Users` queries weren't switched when `User`
   became soft-deletable: a soft-deleted (merged) user has no sign-in id to be found by and no
-  membership outside their own deleted personal organization, so they can't show up there - use
+  membership outside their own personal organization, so they can't show up there - use
   `ActiveUsers()` in new user queries where a deleted user could otherwise appear. `UserService.GetUser`
   (`GET /api/user`) already does: a browser still signed in as a merged user gets 404 there until
   their token expires (proper revocation of such tokens is BRD-222).
@@ -471,7 +471,8 @@ Boards calls two sibling services over gRPC:
   step re-finds the previous owner and skips an existing personal chat, so repeating a connect after a
   failure between the two steps completes it (Identity's link is idempotent). When the moved account was the
   previous owner's only sign-in method, the Boards step also soft-deletes that user (`User.DeletedAt`/
-  `DeletedByUserId` = the user who took the account over) and their personal organization. Which user
+  `DeletedByUserId` = the user who took the account over); their personal organization is left as is -
+  it has no other members, so nobody can reach it. Which user
   they were absorbed into is recorded only in Identity (`merged_into` on the global user) - Boards
   doesn't keep its own copy. An owner who keeps their other account stays a regular user. Telegram data is verified by
   `TelegramAuthService.ConnectTelegram` with the same widget check as login.
