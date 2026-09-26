@@ -280,6 +280,10 @@ public class CoreUserService(
     {
         context.Database.EnsureTransactionStarted();
 
+        // Serializes concurrent links of the same user or account (e.g. a double-submitted connect), so the
+        // second one sees the first one's result instead of failing on the unique personal chat.
+        await context.LockUsers(x => x.Id == userId || x.TelegramId == profile.TelegramId, cancellationToken);
+
         var previousOwner = await context.Users
             .Where(x => x.Id != userId && x.TelegramId == profile.TelegramId)
             .Select(x => new { x.Id, HasOtherAccount = x.GoogleSubject != null })
@@ -368,6 +372,8 @@ public class CoreUserService(
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+
+        await context.LockUsers(x => x.Id == userId || x.GoogleSubject == profile.GoogleSubject, cancellationToken);
 
         var previousOwner = await context.Users
             .Where(x => x.Id != userId && x.GoogleSubject == profile.GoogleSubject)
