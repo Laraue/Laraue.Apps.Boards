@@ -52,11 +52,13 @@ public class ConnectedAccountsService(
         TelegramUserProfile verifiedProfile,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        var outcome = await coreUserService.LinkTelegramAccount(userId, verifiedProfile, cancellationToken);
-
-        await transaction.CommitAsync(cancellationToken);
+        var outcome = await coreUserService.LinkTelegramAccountInIdentity(userId, verifiedProfile, cancellationToken);
+        if (outcome == AccountLinkOutcome.Linked)
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            await coreUserService.ApplyTelegramAccountLink(userId, verifiedProfile, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
 
         return new ConnectAccountResponse { Outcome = outcome };
     }
@@ -67,21 +69,21 @@ public class ConnectedAccountsService(
         CancellationToken cancellationToken)
     {
         var payload = await googleIdTokenValidator.ValidateAsync(request.IdToken, cancellationToken);
+        var profile = new GoogleUserProfile(
+            payload.Subject,
+            payload.Email,
+            payload.Name,
+            payload.GivenName,
+            payload.FamilyName,
+            LanguageCode: null);
 
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        var outcome = await coreUserService.LinkGoogleAccount(
-            userId,
-            new GoogleUserProfile(
-                payload.Subject,
-                payload.Email,
-                payload.Name,
-                payload.GivenName,
-                payload.FamilyName,
-                LanguageCode: null),
-            cancellationToken);
-
-        await transaction.CommitAsync(cancellationToken);
+        var outcome = await coreUserService.LinkGoogleAccountInIdentity(userId, profile, cancellationToken);
+        if (outcome == AccountLinkOutcome.Linked)
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            await coreUserService.ApplyGoogleAccountLink(userId, profile, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
 
         return new ConnectAccountResponse { Outcome = outcome };
     }

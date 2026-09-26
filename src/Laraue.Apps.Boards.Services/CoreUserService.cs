@@ -31,23 +31,43 @@ public interface ICoreUserService
     Task<Guid> CreateIfGoogleSubjectNotExists(GoogleUserProfile profile, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Connects a Telegram account to the existing user <paramref name="userId"/> (e.g. one who signed
-    /// up with Google), so the Telegram bot recognizes them, and links their personal Telegram chat to
-    /// their personal organization, as Telegram sign-up does. If another user already has this Telegram
-    /// account and has no data, the account is moved from them (that user is left without a sign-in
-    /// method, not deleted). The caller must have verified the Telegram login data already, and must
-    /// call this within a transaction.
+    /// First step of connecting a Telegram account to the existing user <paramref name="userId"/> (e.g.
+    /// one who signed up with Google): checks the user doesn't have another Telegram account and that
+    /// another user who has this one has no data, then links it in Laraue.Apps.Identity (moving it from
+    /// that empty user there). Writes nothing to the Boards database, so call it outside a transaction;
+    /// if it returns <see cref="AccountLinkOutcome.Linked"/>, finish with
+    /// <see cref="ApplyTelegramAccountLink"/>. The caller must have verified the Telegram login data.
     /// </summary>
-    Task<AccountLinkOutcome> LinkTelegramAccount(
+    Task<AccountLinkOutcome> LinkTelegramAccountInIdentity(
         Guid userId,
         TelegramUserProfile profile,
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Google counterpart of <see cref="LinkTelegramAccount"/>. The caller must have verified the
-    /// Google ID token already, and must call this within a transaction.
+    /// Second step, after <see cref="LinkTelegramAccountInIdentity"/> returned
+    /// <see cref="AccountLinkOutcome.Linked"/>: moves the Telegram account to the user in Boards (taking
+    /// it and its personal chat from an empty previous user, if any) and links the user's personal
+    /// Telegram chat to their personal organization, as Telegram sign-up does. Safe to repeat. Must be
+    /// called within a transaction.
     /// </summary>
-    Task<AccountLinkOutcome> LinkGoogleAccount(
+    Task ApplyTelegramAccountLink(
+        Guid userId,
+        TelegramUserProfile profile,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Google counterpart of <see cref="LinkTelegramAccountInIdentity"/>. The caller must have verified
+    /// the Google ID token.
+    /// </summary>
+    Task<AccountLinkOutcome> LinkGoogleAccountInIdentity(
+        Guid userId,
+        GoogleUserProfile profile,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Google counterpart of <see cref="ApplyTelegramAccountLink"/>. Must be called within a transaction.
+    /// </summary>
+    Task ApplyGoogleAccountLink(
         Guid userId,
         GoogleUserProfile profile,
         CancellationToken cancellationToken);
@@ -210,7 +230,7 @@ public class CoreUserService(
         return user.Id;
     }
 
-    public async Task<AccountLinkOutcome> LinkTelegramAccount(
+    public async Task<AccountLinkOutcome> LinkTelegramAccountInIdentity(
         Guid userId,
         TelegramUserProfile profile,
         CancellationToken cancellationToken)
@@ -250,46 +270,47 @@ public class CoreUserService(
         if (profile.LastName is { } lastName) request.TelegramLastName = lastName;
         if (profile.LanguageCode is { } languageCode) request.TelegramLanguageCode = languageCode;
 
-        var identityOutcome = ToOutcome(
-            await identityClient.LinkTelegramAccountAsync(request, cancellationToken: cancellationToken));
-        if (identityOutcome != AccountLinkOutcome.Linked)
-        {
-            return identityOutcome;
-        }
+        return ToOutcome(await identityClient.LinkTelegramAccountAsync(request, cancellationToken: cancellationToken));
+    }
 
-        if (ownerId is not null)
-        {
-            await context.LinkedTelegramChats
-                .Where(x => x.OwnerId == ownerId && x.ExternalChatId == profile.TelegramId)
-                .ExecuteDeleteAsync(cancellationToken);
-            await context.Users
-                .Where(x => x.Id == ownerId)
-                .ExecuteUpdateAsync(x => x.SetProperty(u => u.TelegramId, (long?)null), cancellationToken);
-        }
+    public async Task ApplyTelegramAccountLink(
+        Guid userId,
+        TelegramUserProfile profile,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
 
+        await context.LinkedTelegramChats
+            .Where(x => x.OwnerId != userId && x.ExternalChatId == profile.TelegramId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await context.Users
+            .Where(x => x.Id != userId && x.TelegramId == profile.TelegramId)
+            .ExecuteUpdateAsync(x => x.SetProperty(u => u.TelegramId, (long?)null), cancellationToken);
         await context.Users
             .Where(x => x.Id == userId)
             .ExecuteUpdateAsync(x => x.SetProperty(u => u.TelegramId, profile.TelegramId), cancellationToken);
 
+        var hasPersonalChat = await context.LinkedTelegramChats
+            .AnyAsync(x => x.OwnerId == userId && x.ExternalChatId == profile.TelegramId, cancellationToken);
         var personalStatusId = await GetPersonalOrganizationDefaultStatusIdAsync(userId, cancellationToken);
-        if (personalStatusId is not null)
+        if (hasPersonalChat || personalStatusId is null)
         {
-            context.LinkedTelegramChats.Add(new LinkedTelegramChat
-            {
-                ExternalChatId = profile.TelegramId,
-                Title = profile.UserName ?? profile.FirstName,
-                StatusId = personalStatusId.Value,
-                OwnerId = userId,
-                SaveMode = SaveMode.EachMessage,
-                LinkedAt = dateTimeProvider.UtcNow,
-            });
-            await context.SaveChangesAsync(cancellationToken);
+            return;
         }
 
-        return AccountLinkOutcome.Linked;
+        context.LinkedTelegramChats.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = profile.TelegramId,
+            Title = profile.UserName ?? profile.FirstName,
+            StatusId = personalStatusId.Value,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = dateTimeProvider.UtcNow,
+        });
+        await context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<AccountLinkOutcome> LinkGoogleAccount(
+    public async Task<AccountLinkOutcome> LinkGoogleAccountInIdentity(
         Guid userId,
         GoogleUserProfile profile,
         CancellationToken cancellationToken)
@@ -329,25 +350,22 @@ public class CoreUserService(
         if (profile.GivenName is { } givenName) request.GivenName = givenName;
         if (profile.FamilyName is { } familyName) request.FamilyName = familyName;
 
-        var identityOutcome = ToOutcome(
-            await identityClient.LinkGoogleAccountAsync(request, cancellationToken: cancellationToken));
-        if (identityOutcome != AccountLinkOutcome.Linked)
-        {
-            return identityOutcome;
-        }
+        return ToOutcome(await identityClient.LinkGoogleAccountAsync(request, cancellationToken: cancellationToken));
+    }
 
-        if (ownerId is not null)
-        {
-            await context.Users
-                .Where(x => x.Id == ownerId)
-                .ExecuteUpdateAsync(x => x.SetProperty(u => u.GoogleSubject, (string?)null), cancellationToken);
-        }
+    public async Task ApplyGoogleAccountLink(
+        Guid userId,
+        GoogleUserProfile profile,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
 
+        await context.Users
+            .Where(x => x.Id != userId && x.GoogleSubject == profile.GoogleSubject)
+            .ExecuteUpdateAsync(x => x.SetProperty(u => u.GoogleSubject, (string?)null), cancellationToken);
         await context.Users
             .Where(x => x.Id == userId)
             .ExecuteUpdateAsync(x => x.SetProperty(u => u.GoogleSubject, profile.GoogleSubject), cancellationToken);
-
-        return AccountLinkOutcome.Linked;
     }
 
     /// <summary>
