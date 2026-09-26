@@ -29,6 +29,28 @@ public interface ICoreUserService
     /// A Google-only user has no Telegram account, so no personal Telegram chat is linked.
     /// </summary>
     Task<Guid> CreateIfGoogleSubjectNotExists(GoogleUserProfile profile, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Connects a Telegram account to the existing user <paramref name="userId"/> (e.g. one who signed
+    /// up with Google), so the Telegram bot recognizes them, and links their personal Telegram chat to
+    /// their personal organization, as Telegram sign-up does. If another user already has this Telegram
+    /// account and has no data, the account is moved from them (that user is left without a sign-in
+    /// method, not deleted). The caller must have verified the Telegram login data already, and must
+    /// call this within a transaction.
+    /// </summary>
+    Task<AccountLinkOutcome> LinkTelegramAccount(
+        Guid userId,
+        TelegramUserProfile profile,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Google counterpart of <see cref="LinkTelegramAccount"/>. The caller must have verified the
+    /// Google ID token already, and must call this within a transaction.
+    /// </summary>
+    Task<AccountLinkOutcome> LinkGoogleAccount(
+        Guid userId,
+        GoogleUserProfile profile,
+        CancellationToken cancellationToken);
 }
 
 public class CoreUserService(
@@ -188,6 +210,198 @@ public class CoreUserService(
         return user.Id;
     }
 
+    public async Task<AccountLinkOutcome> LinkTelegramAccount(
+        Guid userId,
+        TelegramUserProfile profile,
+        CancellationToken cancellationToken)
+    {
+        var user = await context.Users
+            .Where(x => x.Id == userId)
+            .Select(x => new { x.GlobalUserId, x.TelegramId })
+            .FirstAsyncEF(cancellationToken);
+
+        if (user.TelegramId == profile.TelegramId)
+        {
+            return AccountLinkOutcome.Linked;
+        }
+
+        if (user.TelegramId is not null)
+        {
+            return AccountLinkOutcome.UserHasOtherAccount;
+        }
+
+        var ownerId = await context.Users
+            .Where(x => x.TelegramId == profile.TelegramId)
+            .Select(x => (Guid?)x.Id)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (ownerId is not null && await HasDataAsync(ownerId.Value, profile.TelegramId, cancellationToken))
+        {
+            return AccountLinkOutcome.OwnerHasData;
+        }
+
+        var request = new LinkTelegramAccountRequest
+        {
+            UserId = user.GlobalUserId.ToString(),
+            TelegramId = profile.TelegramId,
+        };
+        if (profile.UserName is { } userName) request.TelegramUsername = userName;
+        if (profile.FirstName is { } firstName) request.TelegramFirstName = firstName;
+        if (profile.LastName is { } lastName) request.TelegramLastName = lastName;
+        if (profile.LanguageCode is { } languageCode) request.TelegramLanguageCode = languageCode;
+
+        var identityOutcome = ToOutcome(
+            await identityClient.LinkTelegramAccountAsync(request, cancellationToken: cancellationToken));
+        if (identityOutcome != AccountLinkOutcome.Linked)
+        {
+            return identityOutcome;
+        }
+
+        if (ownerId is not null)
+        {
+            await context.LinkedTelegramChats
+                .Where(x => x.OwnerId == ownerId && x.ExternalChatId == profile.TelegramId)
+                .ExecuteDeleteAsync(cancellationToken);
+            await context.Users
+                .Where(x => x.Id == ownerId)
+                .ExecuteUpdateAsync(x => x.SetProperty(u => u.TelegramId, (long?)null), cancellationToken);
+        }
+
+        await context.Users
+            .Where(x => x.Id == userId)
+            .ExecuteUpdateAsync(x => x.SetProperty(u => u.TelegramId, profile.TelegramId), cancellationToken);
+
+        var personalStatusId = await GetPersonalOrganizationDefaultStatusIdAsync(userId, cancellationToken);
+        if (personalStatusId is not null)
+        {
+            context.LinkedTelegramChats.Add(new LinkedTelegramChat
+            {
+                ExternalChatId = profile.TelegramId,
+                Title = profile.UserName ?? profile.FirstName,
+                StatusId = personalStatusId.Value,
+                OwnerId = userId,
+                SaveMode = SaveMode.EachMessage,
+                LinkedAt = dateTimeProvider.UtcNow,
+            });
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        return AccountLinkOutcome.Linked;
+    }
+
+    public async Task<AccountLinkOutcome> LinkGoogleAccount(
+        Guid userId,
+        GoogleUserProfile profile,
+        CancellationToken cancellationToken)
+    {
+        var user = await context.Users
+            .Where(x => x.Id == userId)
+            .Select(x => new { x.GlobalUserId, x.GoogleSubject })
+            .FirstAsyncEF(cancellationToken);
+
+        if (user.GoogleSubject == profile.GoogleSubject)
+        {
+            return AccountLinkOutcome.Linked;
+        }
+
+        if (user.GoogleSubject is not null)
+        {
+            return AccountLinkOutcome.UserHasOtherAccount;
+        }
+
+        var ownerId = await context.Users
+            .Where(x => x.GoogleSubject == profile.GoogleSubject)
+            .Select(x => (Guid?)x.Id)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (ownerId is not null && await HasDataAsync(ownerId.Value, telegramId: null, cancellationToken))
+        {
+            return AccountLinkOutcome.OwnerHasData;
+        }
+
+        var request = new LinkGoogleAccountRequest
+        {
+            UserId = user.GlobalUserId.ToString(),
+            GoogleSubject = profile.GoogleSubject,
+        };
+        if (profile.Email is { } email) request.Email = email;
+        if (profile.Name is { } name) request.Name = name;
+        if (profile.GivenName is { } givenName) request.GivenName = givenName;
+        if (profile.FamilyName is { } familyName) request.FamilyName = familyName;
+
+        var identityOutcome = ToOutcome(
+            await identityClient.LinkGoogleAccountAsync(request, cancellationToken: cancellationToken));
+        if (identityOutcome != AccountLinkOutcome.Linked)
+        {
+            return identityOutcome;
+        }
+
+        if (ownerId is not null)
+        {
+            await context.Users
+                .Where(x => x.Id == ownerId)
+                .ExecuteUpdateAsync(x => x.SetProperty(u => u.GoogleSubject, (string?)null), cancellationToken);
+        }
+
+        await context.Users
+            .Where(x => x.Id == userId)
+            .ExecuteUpdateAsync(x => x.SetProperty(u => u.GoogleSubject, profile.GoogleSubject), cancellationToken);
+
+        return AccountLinkOutcome.Linked;
+    }
+
+    /// <summary>
+    /// Maps Identity's link result. <c>MOVED</c> counts as linked: Boards already checked the previous
+    /// owner has no data before calling (see <see cref="HasDataAsync"/>).
+    /// </summary>
+    private static AccountLinkOutcome ToOutcome(LinkAccountResponse response)
+    {
+        return response.Result switch
+        {
+            LinkAccountResult.Linked or LinkAccountResult.Moved => AccountLinkOutcome.Linked,
+            LinkAccountResult.OwnerUsedByAnotherService => AccountLinkOutcome.OwnerUsedByAnotherService,
+            LinkAccountResult.UserHasOtherAccount => AccountLinkOutcome.UserHasOtherAccount,
+            _ => throw new InvalidOperationException($"Unexpected Identity link result '{response.Result}'."),
+        };
+    }
+
+    /// <summary>
+    /// Whether the user has done anything in Boards - if not, one of their sign-in accounts can be moved
+    /// to another user without losing anything. Their personal Telegram chat
+    /// (<paramref name="telegramId"/>) and untouched personal organization don't count; any change
+    /// they made anywhere does (it's in the organization history).
+    /// </summary>
+    private async Task<bool> HasDataAsync(Guid userId, long? telegramId, CancellationToken cancellationToken)
+    {
+        return await context.Issues.AnyAsync(x => x.OwnerId == userId || x.AssigneeId == userId, cancellationToken)
+            || await context.IssueComments.AnyAsync(x => x.OwnerId == userId, cancellationToken)
+            || await context.OrganizationLogs.AnyAsync(x => x.OwnerId == userId, cancellationToken)
+            || await context.OrganizationUsers.AnyAsync(
+                x => x.UserId == userId && x.Organization!.OwnerId != userId, cancellationToken)
+            || await context.Organizations.AnyAsync(
+                x => x.OwnerId == userId && x.Type != OrganizationType.Personal, cancellationToken)
+            || await context.ApiKeys.AnyAsync(x => x.CreatedByUserId == userId, cancellationToken)
+            || await context.Retros.AnyAsync(x => x.OwnerId == userId, cancellationToken)
+            || await context.RetroParticipants.AnyAsync(x => x.UserId == userId, cancellationToken)
+            || await context.RetroCards.AnyAsync(x => x.AuthorId == userId, cancellationToken)
+            || await context.RetroCardVotes.AnyAsync(x => x.UserId == userId, cancellationToken)
+            || await context.LinkedTelegramChats.AnyAsync(
+                x => x.OwnerId == userId && x.ExternalChatId != telegramId, cancellationToken);
+    }
+
+    private Task<long?> GetPersonalOrganizationDefaultStatusIdAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        return context.ActiveStatuses()
+            .Where(x => x.Epic!.IsDefault
+                && x.Epic.Space!.IsDefault
+                && x.Epic.Space.Organization!.OwnerId == userId
+                && x.Epic.Space.Organization.Type == OrganizationType.Personal
+                && x.Epic.Space.Organization.DeletedAt == null)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => (long?)x.Id)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+    }
+
     /// <summary>
     /// Adds (without saving) what every newly registered user gets regardless of how they signed
     /// in: a personal organization and their preferences, with the interface language taken from
@@ -324,3 +538,21 @@ public sealed record GoogleUserProfile(
     string? GivenName,
     string? FamilyName,
     string? LanguageCode);
+
+public enum AccountLinkOutcome
+{
+    /// <summary>The account is now connected to the user (it may have been already).</summary>
+    Linked,
+
+    /// <summary>The user already has a different account of this kind - one Telegram, one Google per user.</summary>
+    UserHasOtherAccount,
+
+    /// <summary>Another Boards user already has this account and has data, so it wasn't moved.</summary>
+    OwnerHasData,
+
+    /// <summary>
+    /// Another Laraue app uses the account's current owner, so Identity didn't move it - moving it
+    /// would lose that app's user.
+    /// </summary>
+    OwnerUsedByAnotherService,
+}

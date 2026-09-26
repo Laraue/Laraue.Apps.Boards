@@ -44,4 +44,32 @@ public class FakeUserIdentityServiceClient : UserIdentityService.UserIdentitySer
             () => new Metadata(),
             () => { });
     }
+
+    public override AsyncUnaryCall<LinkAccountResponse> LinkTelegramAccountAsync(
+        LinkTelegramAccountRequest request,
+        Metadata? headers = null,
+        DateTime? deadline = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Linked();
+    }
+
+    public override AsyncUnaryCall<LinkAccountResponse> LinkGoogleAccountAsync(
+        LinkGoogleAccountRequest request,
+        Metadata? headers = null,
+        DateTime? deadline = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Linked();
+    }
+
+    private static AsyncUnaryCall<LinkAccountResponse> Linked()
+    {
+        return new AsyncUnaryCall<LinkAccountResponse>(
+            Task.FromResult(new LinkAccountResponse { Result = LinkAccountResult.Linked }),
+            Task.FromResult(new Metadata()),
+            () => global::Grpc.Core.Status.DefaultSuccess,
+            () => new Metadata(),
+            () => { });
+    }
 }

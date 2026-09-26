@@ -17,7 +17,7 @@
   
   <PropertyGroup>
     <LaraueTelegramNetVersion>5.0.0</LaraueTelegramNetVersion>
-    <LaraueIdentityInternalContractsVersion>0.0.3</LaraueIdentityInternalContractsVersion>
+    <LaraueIdentityInternalContractsVersion>0.0.4-alpha.5</LaraueIdentityInternalContractsVersion>
     <GrpcNetClientFactoryVersion>2.66.0</GrpcNetClientFactoryVersion>
     <LaraueGrpcVersion>0.0.3</LaraueGrpcVersion>
     <LaraueBillingInternalContractsVersion>0.0.6</LaraueBillingInternalContractsVersion>
