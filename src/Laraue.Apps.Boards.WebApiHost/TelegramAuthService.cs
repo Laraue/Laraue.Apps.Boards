@@ -24,6 +24,15 @@ public interface ITelegramAuthService
         TelegramWidgetAuthRequest request,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Verifies Telegram login widget data exactly as <see cref="Authenticate(TelegramWidgetAuthRequest, CancellationToken)"/>
+    /// does, then connects that Telegram account to the signed-in user.
+    /// </summary>
+    Task<ConnectAccountResponse> ConnectTelegram(
+        Guid userId,
+        TelegramWidgetAuthRequest request,
+        CancellationToken cancellationToken);
+
     Task<Guid> RegisterUser(
         MiniAppUser user,
         CancellationToken cancellationToken);
@@ -35,7 +44,8 @@ public class TelegramAuthService(
     IOptions<TelegramOptions> options,
     DatabaseContext context,
     IAuthService authService,
-    ICoreUserService coreUserService)
+    ICoreUserService coreUserService,
+    IConnectedAccountsService connectedAccountsService)
     : ITelegramAuthService
 {
     public Task<string> Authenticate(
@@ -52,6 +62,19 @@ public class TelegramAuthService(
     {
         var userData = ValidateWidgetData(request);
         return CreateBearerToken(userData, cancellationToken);
+    }
+
+    public Task<ConnectAccountResponse> ConnectTelegram(
+        Guid userId,
+        TelegramWidgetAuthRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = ValidateWidgetData(request);
+
+        return connectedAccountsService.ConnectTelegram(
+            userId,
+            new TelegramUserProfile(user.Id, user.Username, user.FirstName, user.LastName, user.LanguageCode),
+            cancellationToken);
     }
 
     private async Task<string> CreateBearerToken(MiniAppUser userData, CancellationToken cancellationToken)

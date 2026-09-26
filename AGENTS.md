@@ -451,6 +451,15 @@ Boards calls two sibling services over gRPC:
   `ICoreUserService.CreateIfTelegramIdNotExists`, which forwards it to Identity. Don't re-add profile columns to `users`; if Boards needs a new profile value, ask
   whether it's really a Boards-side preference (→ `UserPreferences`) or belongs in Identity.
 
+  **Connecting the other sign-in method** (BRD-218, `POST /api/user/connected-accounts/telegram|google`,
+  `ConnectedAccountsController` → `ConnectedAccountsService` → `ICoreUserService.LinkTelegramAccount`/
+  `LinkGoogleAccount`): refusals come back as a 200 with an `AccountLinkOutcome`, not an HTTP error, so
+  the frontend can show a specific message for each (its error handling only looks at the status code).
+  If another Boards user already has the account and has no data (`CoreUserService.HasDataAsync`), the
+  account is moved from them; if they have data, Identity isn't called at all - Identity's link contract
+  requires the caller to check its own data first. Telegram data is verified by
+  `TelegramAuthService.ConnectTelegram` with the same widget check as login.
+
   **Google sign-in** (`POST /api/user/auth-via-google`, `GoogleAuthService` in `WebApiServices`):
   Boards verifies the Google ID token itself (`GoogleIdTokenValidator`, Google.Apis.Auth) against
   `GoogleAuth:ClientId` and passes only the verified claims on to Identity

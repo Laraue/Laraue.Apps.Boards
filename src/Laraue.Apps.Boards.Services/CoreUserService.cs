@@ -367,9 +367,11 @@ public class CoreUserService(
 
     /// <summary>
     /// Whether the user has done anything in Boards - if not, one of their sign-in accounts can be moved
-    /// to another user without losing anything. Their personal Telegram chat
-    /// (<paramref name="telegramId"/>) and untouched personal organization don't count; any change
-    /// they made anywhere does (it's in the organization history).
+    /// to another user without losing anything. What sign-up created doesn't count: their personal
+    /// Telegram chat (<paramref name="telegramId"/>) and a personal organization that still has only
+    /// its default space, default board and single status, no attributes and no other members.
+    /// Organization history only records issues and comments, so changes to that structure are
+    /// checked directly.
     /// </summary>
     private async Task<bool> HasDataAsync(Guid userId, long? telegramId, CancellationToken cancellationToken)
     {
@@ -380,6 +382,15 @@ public class CoreUserService(
                 x => x.UserId == userId && x.Organization!.OwnerId != userId, cancellationToken)
             || await context.Organizations.AnyAsync(
                 x => x.OwnerId == userId && x.Type != OrganizationType.Personal, cancellationToken)
+            || await context.Spaces.AnyAsync(
+                x => x.Organization!.OwnerId == userId && !x.IsDefault, cancellationToken)
+            || await context.Epics.AnyAsync(
+                x => x.Space!.Organization!.OwnerId == userId && !x.IsDefault, cancellationToken)
+            || await context.Statuses.CountAsync(
+                x => x.Epic!.Space!.Organization!.OwnerId == userId, cancellationToken) > 1
+            || await context.Attributes.AnyAsync(x => x.Organization!.OwnerId == userId, cancellationToken)
+            || await context.OrganizationUsers.AnyAsync(
+                x => x.Organization!.OwnerId == userId && x.UserId != userId, cancellationToken)
             || await context.ApiKeys.AnyAsync(x => x.CreatedByUserId == userId, cancellationToken)
             || await context.Retros.AnyAsync(x => x.OwnerId == userId, cancellationToken)
             || await context.RetroParticipants.AnyAsync(x => x.UserId == userId, cancellationToken)

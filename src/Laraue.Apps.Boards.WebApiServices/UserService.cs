@@ -45,6 +45,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
                 DisplayName = x.DisplayName,
                 Color = x.Color,
                 TelegramId = x.TelegramId,
+                HasGoogleAccount = x.GoogleSubject != null,
                 Initials = x.Initials,
                 Palette = Palette.Colors
             })
@@ -60,6 +61,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
 public class UserDto
 {
     public long? TelegramId { get; set; }
+    public bool HasGoogleAccount { get; set; }
     public required string DisplayName { get; set; }
     public string LanguageCode { get; set; } = string.Empty;
     public required string Color { get; set; }
