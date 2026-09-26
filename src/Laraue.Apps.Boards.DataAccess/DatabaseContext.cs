@@ -300,6 +300,11 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             builder.HasIndex(x => x.TelegramId).IsUnique();
             builder.HasIndex(x => x.GoogleSubject).IsUnique();
+            builder
+                .HasOne(x => x.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
         
         modelBuilder.Entity<IssueAttachment>(builder =>

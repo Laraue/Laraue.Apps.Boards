@@ -4,7 +4,7 @@ namespace Laraue.Apps.Boards.DataAccess;
 
 /// <summary>
 /// Explicit "active rows only" query roots for the soft-deletable content hierarchy
-/// (Organization/Space/Epic/Status/Issue/IssueComment). Prefer these over the raw <see cref="DatabaseContext"/>
+/// (Organization/Space/Epic/Status/Issue/IssueComment) and users. Prefer these over the raw <see cref="DatabaseContext"/>
 /// DbSets for normal reads - use the raw DbSets only for audit/history features that must see
 /// through soft-deletion (e.g. <c>OrganizationHistoryService</c>).
 /// </summary>
@@ -27,4 +27,7 @@ public static class DatabaseContextActiveEntityExtensions
 
     public static IQueryable<IssueComment> ActiveIssueComments(this DatabaseContext context) =>
         context.IssueComments.Where(x => x.DeletedAt == null);
+
+    public static IQueryable<User> ActiveUsers(this DatabaseContext context) =>
+        context.Users.Where(x => x.DeletedAt == null);
 }

@@ -38,7 +38,7 @@ public class UserService(ICoreUserService coreService, DatabaseContext context) 
 
     public async Task<UserDto> GetUser(Guid userId, CancellationToken cancellationToken)
     {
-        var user = await context.Users
+        var user = await context.ActiveUsers()
             .Where(x => x.Id == userId)
             .Select(x => new UserDto
             {

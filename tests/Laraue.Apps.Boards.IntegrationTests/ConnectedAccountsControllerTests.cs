@@ -64,10 +64,18 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
         var outcome = await ConnectTelegramAsync(userId, 503);
 
         Assert.Equal(AccountLinkOutcome.Linked, outcome);
-        Assert.Null((await testScope.Database.Users.SingleAsync(x => x.Id == ownerId)).TelegramId);
+        var owner = await testScope.Database.Users.SingleAsync(x => x.Id == ownerId);
+        Assert.Null(owner.TelegramId);
+        Assert.Null(owner.GoogleSubject);
+        Assert.NotNull(owner.DeletedAt);
+        Assert.Equal(userId, owner.DeletedByUserId);
+        Assert.NotNull((await testScope.Database.Organizations.SingleAsync(x => x.OwnerId == ownerId)).DeletedAt);
         Assert.Equal(503, (await testScope.Database.Users.SingleAsync(x => x.Id == userId)).TelegramId);
-        var chat = await testScope.Database.LinkedTelegramChats.SingleAsync(x => x.ExternalChatId == 503);
+        var chat = await testScope.Database.LinkedTelegramChats
+            .Include(x => x.Status!.Epic!.Space!.Organization)
+            .SingleAsync(x => x.ExternalChatId == 503);
         Assert.Equal(userId, chat.OwnerId);
+        Assert.Equal(userId, chat.Status!.Epic!.Space!.Organization!.OwnerId);
     }
 
     [Fact]
@@ -287,8 +295,47 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
         var outcome = await ConnectGoogleAsync(userId, "google-22");
 
         Assert.Equal(AccountLinkOutcome.Linked, outcome);
-        Assert.Null((await testScope.Database.Users.SingleAsync(x => x.Id == ownerId)).GoogleSubject);
+        var owner = await testScope.Database.Users.SingleAsync(x => x.Id == ownerId);
+        Assert.Null(owner.GoogleSubject);
+        Assert.Null(owner.TelegramId);
+        Assert.NotNull(owner.DeletedAt);
+        Assert.Equal(userId, owner.DeletedByUserId);
+        Assert.NotNull((await testScope.Database.Organizations.SingleAsync(x => x.OwnerId == ownerId)).DeletedAt);
         Assert.Equal("google-22", (await testScope.Database.Users.SingleAsync(x => x.Id == userId)).GoogleSubject);
+    }
+
+    [Fact]
+    public async Task GetUser_ShouldReturnNotFound_WhenUserWasMergedIntoAnotherOne()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await SignUpWithGoogleAsync(testScope, "google-24");
+        var userId = await SignUpWithTelegramAsync(testScope, 524);
+        await ConnectGoogleAsync(userId, "google-24");
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => host
+            .Controller<UserController>()
+            .WithUserAuthorization(ownerId)
+            .Execute(x => x.GetAsync(default)));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConnectGoogle_ShouldKeepOwnerAsRegularUser_WhenOwnerKeepsTelegram()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await SignUpWithTelegramAsync(testScope, 525);
+        await ConnectGoogleAsync(ownerId, "google-25");
+        var userId = await SignUpWithTelegramAsync(testScope, 526);
+
+        var outcome = await ConnectGoogleAsync(userId, "google-25");
+
+        Assert.Equal(AccountLinkOutcome.Linked, outcome);
+        var owner = await testScope.Database.Users.SingleAsync(x => x.Id == ownerId);
+        Assert.Equal(525, owner.TelegramId);
+        Assert.Null(owner.GoogleSubject);
+        Assert.Null(owner.DeletedAt);
+        Assert.Null((await testScope.Database.Organizations.SingleAsync(x => x.OwnerId == ownerId)).DeletedAt);
     }
 
     [Fact]

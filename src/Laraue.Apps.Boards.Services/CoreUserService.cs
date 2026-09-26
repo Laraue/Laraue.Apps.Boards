@@ -255,7 +255,7 @@ public class CoreUserService(
             .Select(x => (Guid?)x.Id)
             .FirstOrDefaultAsyncEF(cancellationToken);
 
-        if (ownerId is not null && await HasDataAsync(ownerId.Value, profile.TelegramId, cancellationToken))
+        if (ownerId is not null && await HasDataAsync(ownerId.Value, cancellationToken))
         {
             return AccountLinkOutcome.OwnerHasData;
         }
@@ -279,6 +279,15 @@ public class CoreUserService(
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+
+        var previousOwner = await context.Users
+            .Where(x => x.Id != userId && x.TelegramId == profile.TelegramId)
+            .Select(x => new { x.Id, HasOtherAccount = x.GoogleSubject != null })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+        if (previousOwner is { HasOtherAccount: false })
+        {
+            await SoftDeleteMergedUserAsync(previousOwner.Id, userId, cancellationToken);
+        }
 
         await context.LinkedTelegramChats
             .Where(x => x.OwnerId != userId && x.ExternalChatId == profile.TelegramId)
@@ -335,7 +344,7 @@ public class CoreUserService(
             .Select(x => (Guid?)x.Id)
             .FirstOrDefaultAsyncEF(cancellationToken);
 
-        if (ownerId is not null && await HasDataAsync(ownerId.Value, telegramId: null, cancellationToken))
+        if (ownerId is not null && await HasDataAsync(ownerId.Value, cancellationToken))
         {
             return AccountLinkOutcome.OwnerHasData;
         }
@@ -359,6 +368,15 @@ public class CoreUserService(
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+
+        var previousOwner = await context.Users
+            .Where(x => x.Id != userId && x.GoogleSubject == profile.GoogleSubject)
+            .Select(x => new { x.Id, HasOtherAccount = x.TelegramId != null })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+        if (previousOwner is { HasOtherAccount: false })
+        {
+            await SoftDeleteMergedUserAsync(previousOwner.Id, userId, cancellationToken);
+        }
 
         await context.Users
             .Where(x => x.Id != userId && x.GoogleSubject == profile.GoogleSubject)
@@ -386,13 +404,18 @@ public class CoreUserService(
     /// <summary>
     /// Whether the user has done anything in Boards - if not, one of their sign-in accounts can be moved
     /// to another user without losing anything. What sign-up created doesn't count: their personal
-    /// Telegram chat (<paramref name="telegramId"/>) and a personal organization that still has only
+    /// Telegram chat (the chat whose id is their own Telegram id) and a personal organization that still has only
     /// its default space, default board and single status, no attributes and no other members.
     /// Organization history only records issues and comments, so changes to that structure are
     /// checked directly.
     /// </summary>
-    private async Task<bool> HasDataAsync(Guid userId, long? telegramId, CancellationToken cancellationToken)
+    private async Task<bool> HasDataAsync(Guid userId, CancellationToken cancellationToken)
     {
+        var telegramId = await context.Users
+            .Where(x => x.Id == userId)
+            .Select(x => x.TelegramId)
+            .FirstAsyncEF(cancellationToken);
+
         return await context.Issues.AnyAsync(x => x.OwnerId == userId || x.AssigneeId == userId, cancellationToken)
             || await context.IssueComments.AnyAsync(x => x.OwnerId == userId, cancellationToken)
             || await context.OrganizationLogs.AnyAsync(x => x.OwnerId == userId, cancellationToken)
@@ -416,6 +439,54 @@ public class CoreUserService(
             || await context.RetroCardVotes.AnyAsync(x => x.UserId == userId, cancellationToken)
             || await context.LinkedTelegramChats.AnyAsync(
                 x => x.OwnerId == userId && x.ExternalChatId != telegramId, cancellationToken);
+    }
+
+    /// <summary>
+    /// The previous owner is losing their last sign-in account to <paramref name="userId"/>, so nobody
+    /// can use their account any more: soft-deletes the user and their personal organization (it's
+    /// untouched - see <see cref="HasDataAsync"/> - so there are no issues below its statuses), with
+    /// <paramref name="userId"/> as the deleter. Laraue.Apps.Identity records which user they were
+    /// absorbed into.
+    /// </summary>
+    private async Task SoftDeleteMergedUserAsync(Guid previousOwnerId, Guid userId, CancellationToken cancellationToken)
+    {
+        var now = dateTimeProvider.UtcNow;
+
+        await context.Users
+            .Where(x => x.Id == previousOwnerId)
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(u => u.DeletedAt, now)
+                .SetProperty(u => u.DeletedByUserId, userId),
+                cancellationToken);
+
+        var organizationIds = context.Organizations
+            .Where(x => x.OwnerId == previousOwnerId && x.Type == OrganizationType.Personal && x.DeletedAt == null)
+            .Select(x => x.Id);
+
+        await context.Statuses
+            .Where(x => organizationIds.Contains(x.Epic!.Space!.OrganizationId))
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(s => s.DeletedAt, now)
+                .SetProperty(s => s.DeletedByUserId, userId),
+                cancellationToken);
+        await context.Epics
+            .Where(x => organizationIds.Contains(x.Space!.OrganizationId))
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(e => e.DeletedAt, now)
+                .SetProperty(e => e.DeletedByUserId, userId),
+                cancellationToken);
+        await context.Spaces
+            .Where(x => organizationIds.Contains(x.OrganizationId))
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(s => s.DeletedAt, now)
+                .SetProperty(s => s.DeletedByUserId, userId),
+                cancellationToken);
+        await context.Organizations
+            .Where(x => x.OwnerId == previousOwnerId && x.Type == OrganizationType.Personal && x.DeletedAt == null)
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(o => o.DeletedAt, now)
+                .SetProperty(o => o.DeletedByUserId, userId),
+                cancellationToken);
     }
 
     private Task<long?> GetPersonalOrganizationDefaultStatusIdAsync(Guid userId, CancellationToken cancellationToken)
