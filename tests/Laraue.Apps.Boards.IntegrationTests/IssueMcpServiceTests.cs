@@ -103,56 +103,23 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task GetCurrentUser_ShouldReturnUserOrganizationAndPermissions_WhenCalled()
+    public async Task GetMe_ShouldReturnUserAndOrganization_WhenCalled()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var memberId = await testScope.CreateUser(user => user.DisplayName = "Ada");
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddUser(memberId, builder => builder
-                .SetGlobalAccessLevel(x =>
-                {
-                    x.CanRead = true;
-                    x.CanCreateIssues = true;
-                })
-                .SetAdminAccessLevel(AdminAccessLevel.ManageAttributes | AdminAccessLevel.ViewBilling)));
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
         var organizationName = await testScope.Database.Organizations
             .Where(x => x.Id == organization.Id)
             .Select(x => x.Name)
             .SingleAsync();
 
-        var currentUser = await CreateIssueMcpService(testScope).GetCurrentUser(
+        var meInfo = await CreateIssueMcpService(testScope).GetMe(
             AuthDataFor(organization.Id, memberId), CancellationToken.None);
 
-        Assert.Equal(memberId, currentUser.Id);
-        Assert.Equal("Ada", currentUser.DisplayName);
-        Assert.True(currentUser.HasTelegramAccount);
-        Assert.False(currentUser.HasGoogleAccount);
-        Assert.Null(currentUser.ApiKeyName);
-        Assert.Equal(organization.Id, currentUser.Organization.Id);
-        Assert.Equal(organizationName, currentUser.Organization.Name);
-        Assert.False(currentUser.Organization.IsPersonal);
-        var permissions = currentUser.Organization.Permissions;
-        Assert.True(permissions.CanRead);
-        Assert.True(permissions.CanCreateIssues);
-        Assert.False(permissions.CanUpdateIssues);
-        Assert.False(permissions.CanCreateSpaces);
-        Assert.Equal(["ManageAttributes", "ViewBilling"], permissions.Admin);
-    }
-
-    [Fact]
-    public async Task GetCurrentUser_ShouldReturnApiKeyName_WhenCalledThroughApiKey()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId);
-        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
-            .CreateAsync(organization.Id, ownerId, "Claude", CancellationToken.None);
-
-        var currentUser = await CreateIssueMcpService(testScope).GetCurrentUser(
-            AuthDataFor(organization.Id, ownerId, apiKey.Id), CancellationToken.None);
-
-        Assert.Equal("Claude", currentUser.ApiKeyName);
+        Assert.Equal(new MeUser(memberId, "Ada"), meInfo.User);
+        Assert.Equal(new MeOrganization(organization.Id, organizationName, false), meInfo.Organization);
     }
 
     [Fact]

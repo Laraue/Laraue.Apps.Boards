@@ -615,11 +615,11 @@ not an exact count.
 
 Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
 `create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools
-`get_current_user`/`list_spaces`/`list_statuses`/`list_attributes`/`list_members`.
-`get_current_user` returns only **organization-wide** permissions (`OrganizationUser`, read through
-`IAccessService.GetOrganizations` like REST's `OrganizationsService.GetOrganization`) - space-level
-grants can add more in one space, which `list_spaces`' `canCreateIssue` and each issue's
-`canEdit`/`canDelete` already reflect, so its description points there for the effective answer. Each maps to the REST API's own
+`get_me`/`list_spaces`/`list_statuses`/`list_attributes`/`list_members`.
+`get_me` returns only the user (id, display name) and organization (id, name, personal) -
+deliberately no permissions: no MCP tool manages spaces/epics or needs the administrative flags, and the
+effective issue permissions already come per space/issue (`list_spaces`' `canCreateIssue`, each issue's
+`canEdit`/`canDelete`), where organization-wide flags would miss space-level grants and mislead. Each maps to the REST API's own
 permission check (`CanCreateIssue` off the target status's epic, `CanUpdateIssue` for
 edits/comments, `CanDeleteIssue` for delete, owner-only for editing/deleting a comment). Design
 guardrails worth preserving:
