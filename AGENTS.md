@@ -199,14 +199,15 @@ Solution: `Laraue.Apps.Boards.sln`
   from routing them through core, and duplicating a `Core*Service`'s read method for TelegramServices/
   WebApiServices when only one host actually calls it is dead-weight API surface.
   **Exception - `Services.History.OrganizationHistoryReader`**: the issue/organization history read
-  (log entries mapped into typed changes, ~300 lines) lives in `Boards.Services` because both WebApiHost
-  (REST history) and McpHost (`get_issue_history`) need exactly the same mapping, and duplicating it would
-  let the two drift. It's named `*Reader`, not `Core*Service`, and it does **no permission checks** - each
-  host resolves the issue/readable spaces and checks access itself (`WebApiServices.OrganizationHistoryService`,
-  `IssueMcpService.GetIssueHistory`), then passes the ids in. Its DTOs (`OrganizationHistoryItem`,
-  `HistoryItemChange` subtypes, `UserDetails`) moved with it; OpenAPI schema names are type names, so the
-  REST contract and the frontend's generated types didn't change. Only reach for this when a read's
-  mapping is genuinely shared and non-trivial - a plain query still belongs in the host's own service.
+  (log entries mapped into typed changes, ~300 lines) lives in `Boards.Services` because both
+  WebApiHost (REST history) and McpHost (`get_issue_history`) need exactly the same mapping, and
+  duplicating it would let the two drift. It's named `*Reader`, not `Core*Service`, and it does **no
+  permission checks** - each host resolves the issue/readable spaces and checks access itself
+  (`WebApiServices.OrganizationHistoryService`, `IssueMcpService.GetIssueHistory`), then passes the ids
+  in. Its DTOs (`OrganizationHistoryItem`, `HistoryItemChange` subtypes, `UserDetails`) moved with it;
+  OpenAPI schema names are type names, so the REST contract and the frontend's generated types didn't
+  change. Only reach for this when a read's mapping is genuinely shared and non-trivial - a plain query
+  still belongs in the host's own service.
 - `WebApiServices` and `TelegramServices` sit on top of core and hold logic specific to their own
   surface (request/response shaping, Telegram formatting and commands, permission checks tied to
   that surface's flow, etc.). They call into core services rather than duplicating their logic.
@@ -340,8 +341,8 @@ yourself — ask the user to stop it, then retry the build once they confirm.
 the row, and cascades the same flag down to its descendants in that list (e.g. deleting a `Space`
 also soft-deletes its `Epic`s, `Status`es, `Issue`s). `User` isn't part of that content cascade:
 today a user is soft-deleted only when account linking moves their last sign-in method to another
-user (BRD-218); their personal organization is left as is, since nobody else can reach it. Nothing else in the schema is
-soft-deletable; everything else stays hard-deleted.
+user (BRD-218); their personal organization is left as is, since nobody else can reach it. Nothing
+else in the schema is soft-deletable; everything else stays hard-deleted.
 
 There is deliberately **no EF Core global query filter** (`HasQueryFilter`) for this — every query
 against one of these seven entities states its own choice explicitly:
@@ -467,35 +468,40 @@ Boards calls two sibling services over gRPC:
   Telegram.NET interface: since Laraue.Telegram.NET 5.0, `ITelegramUserQueryService<Guid>` only
   finds a user id by Telegram id and receives the library's `TelegramData` on first contact -
   `TelegramUserQueryService` maps that into a `TelegramUserProfile` for
-  `ICoreUserService.CreateIfTelegramIdNotExists`, which forwards it to Identity. Don't re-add profile columns to `users`; if Boards needs a new profile value, ask
-  whether it's really a Boards-side preference (→ `UserPreferences`) or belongs in Identity.
+  `ICoreUserService.CreateIfTelegramIdNotExists`, which forwards it to Identity. Don't re-add profile
+  columns to `users`; if Boards needs a new profile value, ask whether it's really a Boards-side
+  preference (→ `UserPreferences`) or belongs in Identity.
 
   **Connecting the other sign-in method** (BRD-218, `POST /api/user/connected-accounts/telegram|google`,
-  `ConnectedAccountsController` → `ConnectedAccountsService` → `ICoreUserService.LinkTelegramAccount`/
-  `LinkGoogleAccount`): refusals come back as a 200 with an `AccountLinkOutcome`, not an HTTP error, so
-  the frontend can show a specific message for each (its error handling only looks at the status code).
+  `ConnectedAccountsController` → `ConnectedAccountsService` → `ICoreUserService`'s
+  `Link…AccountInIdentity`/`Link…AccountInBoards`): refusals come back as a 200 with an
+  `AccountLinkOutcome`, not an HTTP error, so the frontend can show a specific message for each (its
+  error handling only looks at the status code).
   If another Boards user already has the account and has no data (`CoreUserService.HasDataAsync`), the
   account is moved from them; if they have data, Identity isn't called at all - Identity's link contract
   requires the caller to check its own data first. Linking is two core steps so the gRPC call never
   runs inside a database transaction: `Link…AccountInIdentity` (checks + Identity, no Boards writes,
   outside a transaction), then - only on `Linked` - `Link…AccountInBoards` (Boards writes, asserts
   `EnsureTransactionStarted()`), run by `ConnectedAccountsService` in its own transaction. The Boards
-  step re-finds the previous owner and skips an existing personal chat, so repeating a connect after a
-  failure between the two steps completes it (Identity's link is idempotent). When the moved account was the
-  previous owner's only sign-in method, the Boards step also soft-deletes that user (`User.DeletedAt`/
-  `DeletedByUserId` = the user who took the account over); their personal organization is left as is -
-  it has no other members, so nobody can reach it. Which user
-  they were absorbed into is recorded only in Identity (`merged_into` on the global user) - Boards
-  doesn't keep its own copy. An owner who keeps their other account stays a regular user. Telegram data is verified by
-  `TelegramAuthService.ConnectTelegram` with the same widget check as login.
+  step first locks the user and the account's current owner (`DatabaseExtensions.LockUsers`, `SELECT
+  ... FOR UPDATE` in id order), so concurrent connects - e.g. a double submit - run one after another.
+  It re-finds the previous owner and skips an existing personal chat, so repeating a connect after a
+  failure between the two steps completes it (Identity's link is idempotent). When the moved account
+  was the previous owner's only sign-in method, the Boards step also soft-deletes that user
+  (`User.DeletedAt`/`DeletedByUserId` = the user who took the account over); their personal
+  organization is left as is - it has no other members, so nobody can reach it. Which user they were
+  absorbed into is recorded only in Identity (`merged_into` on the global user) - Boards doesn't keep
+  its own copy. An owner who keeps their other account stays a regular user. Telegram data is
+  verified by `TelegramAuthService.ConnectTelegram` with the same widget check as login. Known gaps
+  (token replay, the no-data check racing with the move) are tracked in BRD-231.
 
   **Google sign-in** (`POST /api/user/auth-via-google`, `GoogleAuthService` in `WebApiServices`):
   Boards verifies the Google ID token itself (`GoogleIdTokenValidator`, Google.Apis.Auth) against
   `GoogleAuth:ClientId` and passes only the verified claims on to Identity
   (`CreateUserIfNotExistsByGoogle`) - Identity never sees the raw token. `GoogleIdTokenValidator`
   throws if `ClientId` is empty on purpose: with no audience configured, Google.Apis.Auth skips the
-  audience check and would accept a token issued for *any* Google OAuth client. Google and Telegram
-  sign-ins create separate users for now (linking is BRD-218); a Google-only user has
+  audience check and would accept a token issued for *any* Google OAuth client. A Google sign-in and a
+  Telegram sign-in are separate users unless one connected the other (above); a Google-only user has
   `TelegramId == null` and no personal Telegram chat.
 - `Laraue.Apps.Billing` — AI token reserve/commit/cancel and subscription/limit lookups, wrapped
   behind `IBillingTokenClient`/`IBillingSubscriptionClient`
@@ -569,62 +575,24 @@ thin adapters like a controller: resolve `OrganizationAuthData` from `IHttpConte
 a plain service, return the result. All query/permission/mutation logic lives in
 `Services/IssueMcpService.cs` (`IIssueMcpService`), delegating into the same `IAccessService`/
 `ICoreIssuesService` path the REST API uses — no parallel logic. `McpServerOptions
-.ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting client. Tests
-construct `IssueMcpService` directly against the test database (`IssueMcpServiceTests.cs`) rather
-than driving a real MCP transport; `IssueTools` has no dedicated tests, same as a thin controller -
-except `get_attachment`, which builds the MCP content block itself (`ImageContentBlock.FromBytes`: the
-block's `Data` is the *base64-encoded* bytes, so assigning raw bytes to it sends broken base64, BRD-229).
+.ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting client - keep it a short
+overview of how the tools fit together; per-tool details belong in each tool's `[Description]`.
 
-**Comments are not part of `get_issue`** - it returns only `commentCount`; `list_issue_comments` pages
-through them (oldest first, same page/count/hasNextPage shape as `list_issues`), with each comment's own
-attachments. A long discussion used to bloat every issue read. This split was a breaking change for
-connected clients (BRD-230), accepted like the earlier tool renames. `get_attachment` takes any
-attachment id (an issue's or a comment's) and does **no permission check** - the same capability model as
-REST's `GET /api/files/{id}` (which isn't even authenticated): attachment/file ids are unguessable GUIDs
-(UUIDv7, 74 random bits) that a caller only learns from something it can already read. Consequence to keep
-in mind: an id stays usable after the caller loses access to the issue.
+Tests construct `IssueMcpService` directly against the test database (`IssueMcpServiceTests.cs`);
+`IssueTools` has no dedicated tests, same as a thin controller - except `get_attachment`, which builds
+the MCP content block itself (`ImageContentBlock.FromBytes`: the block's `Data` is the
+*base64-encoded* bytes, so assigning raw bytes to it sends broken base64, BRD-229). When a test must see
+exactly what a client receives (error results, metrics), drive a real MCP client instead:
+`McpHostTestHost.ConnectMcpClientAsync` with an API key created in the test database (see
+`McpToolErrorTests`, `McpMetricsTests`).
 
-**`get_issue_history`** reads through the shared `OrganizationHistoryReader` (see "Service layering") and
-flattens each change into a readable line (`status: To Do -> Done`, `attachment added: x.png`; content
-shortened to 200 chars) instead of REST's UI-oriented objects with colors/preview ids. Covers existing
-issues only - like every MCP tool, a deleted issue's key isn't found.
-
-**Issue links:** `list_issues`/`get_issue` return each issue's `url` (its page in the web app), built by
-`IIssueUrlBuilder` (`Boards.Services`, shared with the Telegram previews - one place owns the URL format).
-
-**Tool errors** go through `McpToolCallFilter` (a call-tool filter registered in `Program.cs`),
-the MCP counterpart of WebApiHost's `ExceptionHandleMiddleware`. Without it the SDK turns *any* tool
-exception into a bare `An error occurred invoking '<tool>'.` and logs it as an unhandled error -
-middleware can't help, since a tool's exception never leaves the MCP request (HTTP 200 either way). The
-filter turns `HttpException`s (`NotFoundException`, `ForbiddenException`, `BadRequestException` with its
-field errors, ...) into `CallToolResult { IsError = true }` with `"{StatusCode}: {message}"` plus one
-`- field: error` line per field error, logged at Information (Warning for 5xx). Anything else still
-takes the SDK's generic path. So throw the same `HttpException`s as REST - the message reaches the
-client. `McpToolErrorTests` covers this through a real MCP client (`McpClient` over `McpHostTestHost`,
-authenticated with an API key created in the test database) - the pattern to follow for any future test
-that needs to see exactly what a client receives.
-
-**Metrics** (`/_metrics`, Prometheus): besides the usual ASP.NET/HTTP/runtime ones - useless for MCP on
-their own, since every call is the same `POST /mcp` answering 200 - McpHost exports the MCP SDK's meter
-(`Experimental.ModelContextProtocol`: `mcp_server_operation_duration_seconds` per MCP method, with
-`error_type="tool_error"` on failed tool calls; `mcp_server_session_duration_seconds`) and its own
-`boards_mcp_tool_duration_seconds{tool, status}` (`McpToolMetrics`, recorded by `McpToolCallFilter`). The
-SDK's metrics don't say *which* tool was called - only our histogram does; `status` is `ok`, the HTTP
-status code of an expected error, or `unhandled`. The SDK meter's name is marked experimental and may
-change with an SDK upgrade - check dashboards when bumping `ModelContextProtocol`. `McpMetricsTests`
-scrapes `/_metrics` after real calls; meters are observed process-wide, so tests assert a series exists,
-not an exact count.
-
-Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
-`create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools
-`get_me`/`list_spaces`/`list_statuses`/`list_attributes`/`list_members`.
-`get_me` returns only the user (id, display name) and organization (id, name, personal) -
-deliberately no permissions: no MCP tool manages spaces/epics or needs the administrative flags, and the
-effective issue permissions already come per space/issue (`list_spaces`' `canCreateIssue`, each issue's
-`canEdit`/`canDelete`), where organization-wide flags would miss space-level grants and mislead. Each maps to the REST API's own
-permission check (`CanCreateIssue` off the target status's epic, `CanUpdateIssue` for
-edits/comments, `CanDeleteIssue` for delete, owner-only for editing/deleting a comment). Design
-guardrails worth preserving:
+Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`,
+`create_issue`/`edit_issue`/`delete_issue`, `create_comment`/`edit_comment`/`delete_comment`,
+`get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_statuses`/`list_attributes`/
+`list_members`. Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
+mutating tool maps to the REST API's own permission check (`CanCreateIssue` off the target status's
+epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for delete, owner-only for
+editing/deleting a comment). Design guardrails worth preserving:
 
 - **No separate attachment tool.** Attaching is `create_issue`/`edit_issue`'s `files` param;
   removing is `edit_issue`'s `removeAttachmentIds`. A per-file `add_attachment`/`remove_attachment`
@@ -661,6 +629,40 @@ guardrails worth preserving:
   the same transaction. Lets a status transition carry a note ("moving this to Done because...")
   in one call instead of a separate follow-up `create_comment`/comment endpoint call. Purely
   additive — omitting it is unchanged behavior, so this wasn't a breaking version bump.
+- **Comments aren't part of `get_issue`** - it returns only `commentCount`; `list_issue_comments`
+  pages through them (oldest first, same page/count/hasNextPage shape as `list_issues`), with each
+  comment's own attachments, so a long discussion doesn't bloat every issue read. The split was a
+  breaking change for connected clients (BRD-230), accepted like the renames above.
+- **`get_me` returns no permissions** - only the user (id, display name) and organization (id, name,
+  personal). No MCP tool manages spaces/epics or needs the administrative flags, and the effective
+  issue permissions already come per space/issue (`canCreateIssue`, `canEdit`/`canDelete`), where
+  organization-wide flags would miss space-level grants and mislead.
+- **Issues carry their web `url`** (`list_issues`/`get_issue`), built by `IIssueUrlBuilder`
+  (`Boards.Services`, shared with the Telegram previews - one place owns the URL format).
+- **`get_issue_history`** reads through the shared `OrganizationHistoryReader` (see "Service
+  layering") and flattens each change into a readable line (`status: To Do -> Done`, `attachment
+  added: x.png`; content shortened to 200 chars) instead of REST's UI-oriented objects with
+  colors/preview ids. Existing issues only - like every MCP tool, a deleted issue's key isn't found.
+
+**Tool errors** go through `McpToolCallFilter` (a call-tool filter registered in `Program.cs`), the
+MCP counterpart of WebApiHost's `ExceptionHandleMiddleware`. Without it the SDK turns *any* tool
+exception into a bare `An error occurred invoking '<tool>'.` and logs it as an unhandled error -
+middleware can't help, since a tool's exception never leaves the MCP request (HTTP 200 either way).
+The filter turns `HttpException`s (`NotFoundException`, `ForbiddenException`, `BadRequestException`
+with its field errors, ...) into `CallToolResult { IsError = true }` with `"{StatusCode}: {message}"`
+plus one `- field: error` line per field error, logged at Information (Warning for 5xx). Anything
+else still takes the SDK's generic path. So throw the same `HttpException`s as REST - the message
+reaches the client.
+
+**Metrics** (`/_metrics`, Prometheus): the usual ASP.NET/HTTP/runtime ones say little about MCP,
+since every call is the same `POST /mcp` answering 200. McpHost also exports the MCP SDK's meter
+(`Experimental.ModelContextProtocol`: `mcp_server_operation_duration_seconds` per MCP method, with
+`error_type="tool_error"` on failed tool calls; `mcp_server_session_duration_seconds`) and its own
+`boards_mcp_tool_duration_seconds{tool, status}` (`McpToolMetrics`, recorded by `McpToolCallFilter`) -
+the SDK's metrics don't say *which* tool was called. `status` is `ok`, the HTTP status code of an
+expected error, or `unhandled`. The SDK meter's name is marked experimental and may change with an
+SDK upgrade - check dashboards when bumping `ModelContextProtocol`. Meters are observed
+process-wide, so `McpMetricsTests` asserts a series exists, not an exact count.
 
 **Attributes** (`Attribute`/`AttributeListValue`, org-wide, never space/epic-scoped) — MCP callers
 can only send plain text, so `IssueMcpService.ParseAttributeValue` parses it into the typed
@@ -677,7 +679,11 @@ and calls the same `ICoreFilesService.UploadFile` REST uses (same type/size rest
 `SystemMimeTypes.MaxFileSizeBytes` = 3MB). `get_attachment` returns a real MCP `ImageContentBlock`
 rather than a base64 JSON field, enforcing the same 3MB cap in two layers: a DB-recorded-size
 check before opening a stream (optimization) and a hard runtime cap while buffering into memory
-(the actual OOM guard, in case `File.Size` is missing/wrong).
+(the actual OOM guard, in case `File.Size` is missing/wrong). `get_attachment` takes any attachment id
+(an issue's or a comment's) and does **no permission check** - the same capability model as REST's
+`GET /api/files/{id}` (which isn't even authenticated): attachment/file ids are unguessable GUIDs
+(UUIDv7, 74 random bits) that a caller only learns from something it can already read. Consequence
+to keep in mind: an id stays usable after the caller loses access to the issue.
 
 **`list_members`/`list_spaces`** wrap `IAccessService.GetAvailableSpaces`/`GetVisibleUsers` (same
 as REST's `OrganizationsController.GetMembers`) purely for discoverability — `list_members`'
