@@ -195,7 +195,15 @@ public interface IIssueMcpService
 /// actually succeed before calling them, rather than discovering it via a thrown
 /// <see cref="ForbiddenException"/>.
 /// </summary>
-public sealed record IssueSummary(string Key, string Title, string Status, string Assignee, bool CanEdit, bool CanDelete);
+/// <see cref="Url"/> is the issue's page in the web app, for handing the user a clickable link.
+public sealed record IssueSummary(
+    string Key,
+    string Url,
+    string Title,
+    string Status,
+    string Assignee,
+    bool CanEdit,
+    bool CanDelete);
 
 /// <summary>
 /// One page of <see cref="IssueSummary"/> results - same page/perPage/hasNextPage shape the REST
@@ -225,6 +233,7 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 /// </summary>
 public sealed record IssueDetail(
     string Key,
+    string Url,
     string? Content,
     string Status,
     string Assignee,
@@ -283,7 +292,8 @@ public class IssueMcpService(
     ICoreSpacesService coreSpacesService,
     ICoreIssueAttributesService coreIssueAttributesService,
     ICoreFilesService coreFilesService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IIssueUrlBuilder issueUrlBuilder)
     : IIssueMcpService
 {
     private const int MaxResults = 50;
@@ -352,9 +362,12 @@ public class IssueMcpService(
                         .ToArrayAsyncEF(cancellationToken),
                     cancellationToken)).ToHashSet();
 
+            var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
+
             var summaries = result.Data
                 .Select(x => new IssueSummary(
                     new IssueKey(x.SpaceKey, x.Number).ToString(),
+                    issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, new IssueKey(x.SpaceKey, x.Number)),
                     ContentSnippet(x.Content),
                     x.Status,
                     x.Assignee,
@@ -403,8 +416,11 @@ public class IssueMcpService(
             .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
             .ToListAsyncEF(cancellationToken);
 
+        var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
+
         return new IssueDetail(
             key.ToString(),
+            issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
             issue.Content,
             issue.StatusName,
             issue.AssigneeName,
@@ -922,6 +938,16 @@ public class IssueMcpService(
         await coreIssuesService.DeleteComment(comment.Id, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
+
+    private Task<OrganizationSlug> GetOrganizationSlugAsync(long organizationId, CancellationToken cancellationToken)
+    {
+        return context.ActiveOrganizations()
+            .Where(o => o.Id == organizationId)
+            .Select(o => new OrganizationSlug(o.Slug, o.SlugPostfix))
+            .SingleAsync(cancellationToken);
+    }
+
+    private sealed record OrganizationSlug(string Slug, string SlugPostfix);
 
     private Task<long> GetIssueIdByIssueKey(long organizationId, IssueKey issueKey, CancellationToken cancellationToken)
     {

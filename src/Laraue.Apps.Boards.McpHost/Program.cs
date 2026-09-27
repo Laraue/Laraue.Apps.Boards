@@ -39,6 +39,10 @@ public sealed class Program
 
         builder.Services.AddScoped<IIssueMcpService, IssueMcpService>();
 
+        // For each issue's web app link (get_issue/list_issues' url).
+        builder.AddValidatedOptions<WebAppOptions>("AppOptions");
+        builder.Services.AddSingleton<IIssueUrlBuilder, IssueUrlBuilder>();
+
         builder.Services.AddControllers();
         builder.AddValidatedOptions<ServerCardOptions>("ServerCard");
 

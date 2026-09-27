@@ -17,7 +17,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space, status id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it.")]
+    [Description("Lists issues in the caller's organization, optionally filtered by space, status id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it, and url is its page in the web app.")]
     public Task<IssueListPage> ListIssues(
         [Description("Only issues in this space (e.g. 'BRD'), from list_spaces. Omit to search every space.")] string? spaceKey = null,
         [Description("Only issues with this exact status id, from list_statuses. Omit to include every status.")] long? statusId = null,
@@ -30,7 +30,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, each comment's id and canManage (for edit_comment/delete_comment), and each attachment's id (for edit_issue's removeAttachmentIds parameter).")]
+    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, each comment's id and canManage (for edit_comment/delete_comment), each attachment's id (for edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)

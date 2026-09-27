@@ -297,7 +297,10 @@ yourself — ask the user to stop it, then retry the build once they confirm.
   something it doesn't need. Options needed by core services go in `AddCoreServices()`
   (`TelegramOptions`, `FileStorageOptions`, `IdentityOptions`, `BillingOptions`, since
   `CoreFilesService`/the gRPC clients use them in every host); the AI summarizer is opt-in via
-  `AddAiContentSummarizer()` (WebApiHost, TelegramHost - not McpHost).
+  `AddAiContentSummarizer()` (WebApiHost, TelegramHost - not McpHost). `WebAppOptions` (the web app's
+  URL, for `IIssueUrlBuilder`'s issue links) is registered by the hosts that build links - TelegramHost
+  and McpHost - and bound from their `AppOptions` section, so TelegramHost's existing `AppOptions:Url`
+  serves both its own wider `AppOptions` and `WebAppOptions` without being configured twice.
 - The integration tests' `appsettings.json` must satisfy the same validation - add a value there
   whenever a new required setting is introduced. `WebApplicationFactory`-based hosts run as
   Development (no validation), but `TelegramIntegrationTest` builds its host with a bare
@@ -562,6 +565,9 @@ construct `IssueMcpService` directly against the test database (`IssueMcpService
 than driving a real MCP transport; `IssueTools` has no dedicated tests, same as a thin controller -
 except `get_attachment`, which builds the MCP content block itself (`ImageContentBlock.FromBytes`: the
 block's `Data` is the *base64-encoded* bytes, so assigning raw bytes to it sends broken base64, BRD-229).
+
+**Issue links:** `list_issues`/`get_issue` return each issue's `url` (its page in the web app), built by
+`IIssueUrlBuilder` (`Boards.Services`, shared with the Telegram previews - one place owns the URL format).
 
 **Tool errors** go through `HttpExceptionToolFilter` (a call-tool filter registered in `Program.cs`),
 the MCP counterpart of WebApiHost's `ExceptionHandleMiddleware`. Without it the SDK turns *any* tool

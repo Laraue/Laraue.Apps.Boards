@@ -12,6 +12,7 @@ using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
@@ -32,6 +33,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     // Mirrors IssueMcpService's own MaxResults - the page size returned per ListIssues call.
     private const int IssuesPerPage = 50;
 
+    private const string WebAppUrl = "https://boards.example.com";
+
     private static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
     {
         return new IssueMcpService(
@@ -41,7 +44,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<ICoreSpacesService>(),
             testScope.Services.GetRequiredService<ICoreIssueAttributesService>(),
             testScope.Services.GetRequiredService<ICoreFilesService>(),
-            testScope.Services.GetRequiredService<IDateTimeProvider>());
+            testScope.Services.GetRequiredService<IDateTimeProvider>(),
+            new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })));
     }
 
     private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
@@ -93,6 +97,47 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal(ownerDisplayName, issue.Assignee);
         Assert.False(ownerIssues.HasNextPage);
         Assert.Empty(memberIssues.Issues);
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldReturnIssueWebUrl_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        var page = await CreateIssueMcpService(testScope).ListIssues(
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
+
+        var issue = Assert.Single(page.Issues);
+        Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
+    }
+
+    [Fact]
+    public async Task GetIssue_ShouldReturnIssueWebUrl_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        var issue = await CreateIssueMcpService(testScope).GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
+
+        Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
+    }
+
+    private static async Task<string> ExpectedIssueUrlAsync(
+        WebApiTestHostScope testScope,
+        long organizationId,
+        string issueKey)
+    {
+        var organization = await testScope.Database.Organizations.SingleAsync(x => x.Id == organizationId);
+
+        return $"{WebAppUrl}/organizations/{organization.Slug}-{organization.SlugPostfix}/issues/{issueKey}";
     }
 
     [Fact]
