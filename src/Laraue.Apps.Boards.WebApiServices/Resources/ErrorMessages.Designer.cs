@@ -132,6 +132,15 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Color: {0} is not one of the palette colors.
+        /// </summary>
+        internal static string ColorNotInPalette {
+            get {
+                return ResourceManager.GetString("ColorNotInPalette", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to User is not found in organization.
         /// </summary>
         internal static string UserNotFoundInOrganization {

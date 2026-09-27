@@ -123,4 +123,7 @@
     <data name="GoogleIdTokenInvalid" xml:space="preserve">
         <value>Google ID token is invalid</value>
     </data>
+    <data name="ColorNotInPalette" xml:space="preserve">
+        <value>Color: {0} is not one of the palette colors</value>
+    </data>
 </root>

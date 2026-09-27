@@ -20,6 +20,17 @@ public interface ICoreUserService
         Guid userId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sets the user's default display name (with initials derived from it) and color - the ones shown
+    /// in every organization where the user hasn't set their own
+    /// (<see cref="OrganizationUser.DisplayName"/>/<see cref="OrganizationUser.Color"/>).
+    /// </summary>
+    Task UpdateProfile(
+        Guid userId,
+        string displayName,
+        string color,
+        CancellationToken cancellationToken);
+
     Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken);
 
     /// <summary>
@@ -114,6 +125,24 @@ public class CoreUserService(
             EpicSortOrder = preferences.EpicSortOrder,
             InterfaceLanguage = InterfaceLanguage.ForCode(preferences.InterfaceLanguage).Code,
         };
+    }
+
+    public async Task UpdateProfile(
+        Guid userId,
+        string displayName,
+        string color,
+        CancellationToken cancellationToken)
+    {
+        var initials = UserInitials.FromDisplayName(displayName);
+
+        await context.Users
+            .Where(x => x.Id == userId)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(x => x.DisplayName, displayName)
+                    .SetProperty(x => x.Initials, initials)
+                    .SetProperty(x => x.Color, color),
+                cancellationToken);
     }
 
     public async Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken)

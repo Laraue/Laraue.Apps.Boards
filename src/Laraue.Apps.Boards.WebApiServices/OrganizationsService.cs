@@ -47,6 +47,10 @@ public interface IOrganizationsService
     Task<AttributeDto[]> GetAttributes(
         GetAttributesRequest request,
         CancellationToken cancellationToken);
+
+    Task UpdateMemberProfile(
+        UpdateMemberProfileRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class OrganizationsService(
@@ -104,6 +108,12 @@ public class OrganizationsService(
                     CanViewBilling = x.AdminAccessLevel.HasFlag(AdminAccessLevel.ViewBilling),
                     Slug = x.Organization.Slug,
                     SlugPostfix = x.Organization.SlugPostfix,
+                    MemberProfile = new MemberProfileDto
+                    {
+                        DisplayName = x.DisplayName ?? x.User!.DisplayName,
+                        Initials = x.Initials ?? x.User!.Initials,
+                        Color = x.Color ?? x.User!.Color,
+                    },
                 })
                 .FirstOrThrowNotFoundEFAsync($"Organization: {request.AuthData.OrganizationId} is not found", cancellationToken));
 
@@ -246,6 +256,34 @@ public class OrganizationsService(
 
         return result;
     }
+
+    public async Task UpdateMemberProfile(UpdateMemberProfileRequest request, CancellationToken cancellationToken)
+    {
+        var isMember = await accessService.GetOrganizations(
+            request.AuthData.UserId,
+            organizations => organizations
+                .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
+                .AnyAsyncEF(cancellationToken));
+
+        if (!isMember)
+            throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
+
+        if (request.Color is not null && !Palette.Contains(request.Color))
+            throw new BadRequestException(
+                nameof(request.Color),
+                string.Format(ErrorMessages.ColorNotInPalette, request.Color));
+
+        var displayName = string.IsNullOrWhiteSpace(request.DisplayName)
+            ? null
+            : request.DisplayName.Trim();
+
+        await coreOrganizationsService.UpdateMemberProfile(
+            request.AuthData.OrganizationId,
+            request.AuthData.UserId,
+            displayName,
+            request.Color,
+            cancellationToken);
+    }
 }
 
 public record CreateOrganizationRequest
@@ -303,6 +341,38 @@ public record OrganizationDto
     public required string Slug { get; set; }
     public required string SlugPostfix { get; set; }
     public UserOrganizationPreferencesResponse Preferences { get; set; } = new();
+
+    /// <summary>
+    /// How the current user is shown in this organization.
+    /// </summary>
+    public required MemberProfileDto MemberProfile { get; set; }
+}
+
+/// <summary>
+/// How a member is shown in an organization: the name/color they set there, or their default ones
+/// where they haven't.
+/// </summary>
+public record MemberProfileDto
+{
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
+    public required string Color { get; set; }
+}
+
+public record UpdateMemberProfileRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+
+    /// <summary>
+    /// The name to show in this organization; null or blank resets to the default name.
+    /// </summary>
+    [MaxLength(129)]
+    public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// One of <see cref="UserDto.Palette"/>; null resets to the default color.
+    /// </summary>
+    public string? Color { get; set; }
 }
 
 public record JoinOrganizationRequest

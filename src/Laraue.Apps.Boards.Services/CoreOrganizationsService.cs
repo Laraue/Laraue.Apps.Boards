@@ -57,15 +57,16 @@ public interface ICoreOrganizationsService
         long organizationId,
         CancellationToken cancellationToken);
     
-    Task UpdatePreferences(
-        long organizationId,
-        Guid userId,
-        Action<UpdateSettersBuilder<UserOrganizationPreferences>> updateSetters,
-        CancellationToken cancellationToken);
-    
     Task<UserOrganizationPreferencesResponse> GetPreferences(
         long organizationId,
         Guid userId,
+        CancellationToken cancellationToken);
+
+    Task UpdateMemberProfile(
+        long organizationId,
+        Guid userId,
+        string? displayName,
+        string? color,
         CancellationToken cancellationToken);
     
     Task<long> CreateAttribute(
@@ -385,31 +386,6 @@ public class CoreOrganizationsService(
             .ToArray();
     }
     
-    public async Task UpdatePreferences(
-        long organizationId,
-        Guid userId,
-        Action<UpdateSettersBuilder<UserOrganizationPreferences>> updateSetters,
-        CancellationToken cancellationToken)
-    {
-        var updatedCount = await context.UserOrganizationPreferences
-            .Where(x => x.UserId == userId)
-            .Where(x => x.OrganizationId == organizationId)
-            .ExecuteUpdateAsync(updateSetters, cancellationToken);
-        
-        if (updatedCount > 0)
-            return;
-        
-        // The first settings setup
-        var preferences = GetDefaultPreferences(organizationId, userId);
-        context.Add(preferences);
-        
-        await context.SaveChangesAsync(cancellationToken);
-        await context.UserOrganizationPreferences
-            .Where(x => x.UserId == userId)
-            .Where(x => x.OrganizationId == organizationId)
-            .ExecuteUpdateAsync(updateSetters, cancellationToken);
-    }
-
     public async Task<UserOrganizationPreferencesResponse> GetPreferences(
         long organizationId,
         Guid userId,
@@ -425,6 +401,26 @@ public class CoreOrganizationsService(
         {
             SelectedSpaceId = preferences.SelectedSpaceId,
         };
+    }
+
+    public async Task UpdateMemberProfile(
+        long organizationId,
+        Guid userId,
+        string? displayName,
+        string? color,
+        CancellationToken cancellationToken)
+    {
+        var initials = displayName is null ? null : UserInitials.FromDisplayName(displayName);
+
+        await context.OrganizationUsers
+            .Where(x => x.OrganizationId == organizationId)
+            .Where(x => x.UserId == userId)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(x => x.DisplayName, displayName)
+                    .SetProperty(x => x.Initials, initials)
+                    .SetProperty(x => x.Color, color),
+                cancellationToken);
     }
 
     public async Task<long> CreateAttribute(

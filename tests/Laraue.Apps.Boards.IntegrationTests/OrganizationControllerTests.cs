@@ -1294,4 +1294,90 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.Equal(3, members!.Length);
         Assert.True(Assert.Single(members, x => x.UserId == ownerId).IsCurrentUser);
     }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldSetNameAndColorOnlyInCurrentOrganization_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var otherOrganization = await testScope.InitializeOrganization(userId);
+        var color = Palette.Colors[^1];
+
+        await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { DisplayName = " Ivan Petrov ", Color = color },
+                default));
+
+        var result = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganization(default));
+        Assert.Equal("Ivan Petrov", result!.MemberProfile.DisplayName);
+        Assert.Equal("IP", result.MemberProfile.Initials);
+        Assert.Equal(color, result.MemberProfile.Color);
+
+        var user = await testScope.Database.Users.SingleAsync(x => x.Id == userId);
+        var otherResult = await _organizationsController
+            .WithOrganizationAuthorization(otherOrganization.Id, userId)
+            .Execute(x => x.GetOrganization(default));
+        Assert.Equal(user.DisplayName, otherResult!.MemberProfile.DisplayName);
+        Assert.Equal(user.Initials, otherResult.MemberProfile.Initials);
+        Assert.Equal(user.Color, otherResult.MemberProfile.Color);
+    }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldResetToDefault_WhenValuesAreCleared()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var proxy = _organizationsController.WithOrganizationAuthorization(organization.Id, userId);
+
+        await proxy.Execute(x => x.UpdateMemberProfile(
+            new UpdateMemberProfileRequest { DisplayName = "Ivan Petrov", Color = Palette.FirstColor },
+            default));
+        await proxy.Execute(x => x.UpdateMemberProfile(
+            new UpdateMemberProfileRequest { DisplayName = "  ", Color = null },
+            default));
+
+        var user = await testScope.Database.Users.SingleAsync(x => x.Id == userId);
+        var result = await proxy.Execute(x => x.GetOrganization(default));
+        Assert.Equal(user.DisplayName, result!.MemberProfile.DisplayName);
+        Assert.Equal(user.Initials, result.MemberProfile.Initials);
+        Assert.Equal(user.Color, result.MemberProfile.Color);
+    }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldReturn400_WhenColorIsNotInPalette()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { Color = "#123456" },
+                default)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldReturn404_WhenUserIsNotMember()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { DisplayName = "Ivan" },
+                default)));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
 }
