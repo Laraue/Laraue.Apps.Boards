@@ -240,7 +240,7 @@ public class RetrosService(
                 x.VotesPerUser,
                 x.PhaseEndsAt,
                 x.OwnerId,
-                Owner = RetroUser.WithoutProfile(x.OwnerId, x.OwnerId == authData.UserId),
+                Owner = new RetroUser { UserId = x.OwnerId, IsCurrentUser = x.OwnerId == authData.UserId },
             })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw RetroNotFound(id);
@@ -289,10 +289,10 @@ public class RetrosService(
                 GroupId = c.GroupId,
                 Assignee = c.AssigneeId == null
                     ? null
-                    : RetroUser.WithoutProfile(c.AssigneeId.Value, c.AssigneeId == authData.UserId),
+                    : new RetroUser { UserId = c.AssigneeId.Value, IsCurrentUser = c.AssigneeId == authData.UserId },
                 Votes = voteResultsVisible ? c.Votes.Count : 0,
                 VotedByMe = c.Votes.Any(v => v.UserId == authData.UserId),
-                Author = RetroUser.WithoutProfile(c.AuthorId, c.AuthorId == authData.UserId),
+                Author = new RetroUser { UserId = c.AuthorId, IsCurrentUser = c.AuthorId == authData.UserId },
             })
             .ToArrayAsync(cancellationToken);
 
@@ -310,7 +310,7 @@ public class RetrosService(
 
         var participants = await context.RetroParticipants
             .Where(x => x.RetroId == id)
-            .Select(x => RetroUser.WithoutProfile(x.UserId, x.UserId == authData.UserId))
+            .Select(x => new RetroUser { UserId = x.UserId, IsCurrentUser = x.UserId == authData.UserId })
             .ToArrayAsync(cancellationToken);
 
         // Every person on the retro, filled with one query.
@@ -1045,7 +1045,7 @@ public class RetrosService(
                     Covered = x.Section.Retro.Phase == RetroPhase.Collect && !x.Revealed,
                     Revealed = x.Revealed,
                     GroupId = x.GroupId,
-                    Author = RetroUser.WithoutProfile(x.AuthorId, isCurrentUser: false),
+                    Author = new RetroUser { UserId = x.AuthorId, IsCurrentUser = false },
                 },
             })
             .SingleAsync(cancellationToken);
@@ -1088,23 +1088,12 @@ public class RetrosService(
 
 public record RetroUser : IEnrichableUser
 {
-    /// <summary>
-    /// A user as a query projects them - just who they are; <see cref="IMemberProfileReader"/> fills the
-    /// profile afterwards, for everyone in the response at once.
-    /// </summary>
-    public static RetroUser WithoutProfile(Guid userId, bool isCurrentUser) => new()
-    {
-        UserId = userId,
-        DisplayName = string.Empty,
-        Initials = string.Empty,
-        Color = string.Empty,
-        IsCurrentUser = isCurrentUser,
-    };
-
     public required Guid UserId { get; set; }
-    public required string DisplayName { get; set; }
-    public required string Initials { get; set; }
-    public required string Color { get; set; }
+
+    /// <summary>Filled by <see cref="IMemberProfileReader"/>, for everyone in the response at once.</summary>
+    public string DisplayName { get; set; } = string.Empty;
+    public string Initials { get; set; } = string.Empty;
+    public string Color { get; set; } = string.Empty;
     public required bool IsCurrentUser { get; set; }
 
     public void Enrich(MemberProfile profile)

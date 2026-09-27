@@ -1,34 +1,20 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.Members;
 
 namespace Laraue.Apps.Boards.Services.History;
 
+/// <summary>
+/// A person: queries set just <see cref="UserId"/>, <see cref="IMemberProfileReader"/> fills the rest.
+/// </summary>
 public record UserDetails : IEnrichableUser
 {
-    public UserDetails()
-    {
-    }
-
-    /// <summary>
-    /// A person as a query knows them - just the id; <see cref="IMemberProfileReader"/> fills the rest.
-    /// </summary>
-    [SetsRequiredMembers]
-    public UserDetails(Guid userId)
-    {
-        UserId = userId;
-        Color = string.Empty;
-        DisplayName = string.Empty;
-        Initials = string.Empty;
-    }
-
     [JsonIgnore]
     public Guid UserId { get; init; }
 
-    public required string Color { get; set; }
-    public required string DisplayName { get; set; }
-    public required string Initials { get; set; }
+    public string Color { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Initials { get; set; } = string.Empty;
 
     public void Enrich(MemberProfile profile)
     {

@@ -81,7 +81,7 @@ public class OrganizationHistoryReader(
         var result = updatesData.MapTo(x => new OrganizationHistoryItem
         {
             CreatedAt = x.CreatedAt,
-            Owner = new UserDetails(x.OwnerId),
+            Owner = new UserDetails { UserId = x.OwnerId },
             ApiKeyName = x.Name,
             Changes = changes[x.Id],
             EntityType = x.EntityType,
@@ -152,7 +152,7 @@ public class OrganizationHistoryReader(
         var result = updatesData.MapTo(x => new OrganizationHistoryItem
         {
             CreatedAt = x.CreatedAt,
-            Owner = new UserDetails(x.OwnerId),
+            Owner = new UserDetails { UserId = x.OwnerId },
             ApiKeyName = x.Name,
             Changes = changes[x.Id],
             EntityType = x.EntityType,

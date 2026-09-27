@@ -357,10 +357,10 @@ Don't join the membership table into a read query to get a name. Project just th
 DTO shows) on the DTO, and fill the whole page with `IMemberProfileReader.EnrichUsers` - one query:
 
 ```csharp
-var issue = new IssueDetailDto { Assignee = new IssueAssigneeDetails(assigneeId, isCurrentUser), Owner = new UserDetails(ownerId), ... };
+var issue = new IssueDetailDto { Owner = new UserDetails { UserId = ownerId }, ... };
 await memberProfileReader.EnrichUsers(
     organizationId,
-    [issue.Assignee, issue.Owner],
+    [issue.Owner],
     ct);
 ```
 

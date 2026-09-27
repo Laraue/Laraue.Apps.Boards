@@ -624,9 +624,13 @@ public class IssuesService(
         {
             Id = result.Id,
             AssigneeId = result.AssigneeId,
-            Assignee = new IssueAssigneeDetails(result.AssigneeId, result.AssigneeId == request.AuthData.UserId),
+            Assignee = new IssueAssigneeDetails
+            {
+                UserId = result.AssigneeId,
+                IsCurrentUser = result.AssigneeId == request.AuthData.UserId,
+            },
             Content = result.Content,
-            Owner = new UserDetails(result.OwnerId),
+            Owner = new UserDetails { UserId = result.OwnerId },
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
@@ -873,7 +877,7 @@ public class IssuesService(
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt,
             CanModify = item.CanModify,
-            Owner = new UserDetails(item.OwnerId),
+            Owner = new UserDetails { UserId = item.OwnerId },
             Attachments = item.Attachments,
         });
 
@@ -1768,17 +1772,6 @@ public record CommentDto
 
 public record IssueAssigneeDetails : UserDetails
 {
-    public IssueAssigneeDetails()
-    {
-    }
-
-    /// <inheritdoc cref="UserDetails(Guid)"/>
-    [SetsRequiredMembers]
-    public IssueAssigneeDetails(Guid userId, bool isCurrentUser) : base(userId)
-    {
-        IsCurrentUser = isCurrentUser;
-    }
-
     public required bool IsCurrentUser { get; set; }
 }
 
