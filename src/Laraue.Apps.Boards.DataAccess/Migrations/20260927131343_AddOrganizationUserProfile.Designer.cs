@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260927075346_AddOrganizationUserProfileAndLeftAt")]
-    partial class AddOrganizationUserProfileAndLeftAt
+    [Migration("20260927131343_AddOrganizationUserProfile")]
+    partial class AddOrganizationUserProfile
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -2320,7 +2320,7 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                         .HasConstraintName("fk_organization_users_organizations_organization_id");
 
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
-                        .WithMany("OrganizationUsers")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
@@ -2672,8 +2672,6 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.User", b =>
                 {
                     b.Navigation("Epics");
-
-                    b.Navigation("OrganizationUsers");
 
                     b.Navigation("Organizations");
 
