@@ -559,7 +559,9 @@ a plain service, return the result. All query/permission/mutation logic lives in
 `ICoreIssuesService` path the REST API uses — no parallel logic. `McpServerOptions
 .ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting client. Tests
 construct `IssueMcpService` directly against the test database (`IssueMcpServiceTests.cs`) rather
-than driving a real MCP transport; `IssueTools` has no dedicated tests, same as a thin controller.
+than driving a real MCP transport; `IssueTools` has no dedicated tests, same as a thin controller -
+except `get_attachment`, which builds the MCP content block itself (`ImageContentBlock.FromBytes`: the
+block's `Data` is the *base64-encoded* bytes, so assigning raw bytes to it sends broken base64, BRD-229).
 
 Tools: `list_issues`/`get_issue`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
 `create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools
