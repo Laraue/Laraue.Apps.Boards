@@ -563,6 +563,18 @@ than driving a real MCP transport; `IssueTools` has no dedicated tests, same as 
 except `get_attachment`, which builds the MCP content block itself (`ImageContentBlock.FromBytes`: the
 block's `Data` is the *base64-encoded* bytes, so assigning raw bytes to it sends broken base64, BRD-229).
 
+**Tool errors** go through `HttpExceptionToolFilter` (a call-tool filter registered in `Program.cs`),
+the MCP counterpart of WebApiHost's `ExceptionHandleMiddleware`. Without it the SDK turns *any* tool
+exception into a bare `An error occurred invoking '<tool>'.` and logs it as an unhandled error -
+middleware can't help, since a tool's exception never leaves the MCP request (HTTP 200 either way). The
+filter turns `HttpException`s (`NotFoundException`, `ForbiddenException`, `BadRequestException` with its
+field errors, ...) into `CallToolResult { IsError = true }` with `"{StatusCode}: {message}"` plus one
+`- field: error` line per field error, logged at Information (Warning for 5xx). Anything else still
+takes the SDK's generic path. So throw the same `HttpException`s as REST - the message reaches the
+client. `McpToolErrorTests` covers this through a real MCP client (`McpClient` over `McpHostTestHost`,
+authenticated with an API key created in the test database) - the pattern to follow for any future test
+that needs to see exactly what a client receives.
+
 Tools: `list_issues`/`get_issue`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
 `create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools
 `list_spaces`/`list_statuses`/`list_attributes`/`list_members`. Each maps to the REST API's own

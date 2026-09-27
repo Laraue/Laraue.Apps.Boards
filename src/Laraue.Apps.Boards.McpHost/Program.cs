@@ -45,7 +45,8 @@ public sealed class Program
         builder.Services
             .AddMcpServer(options => options.ServerInstructions = McpServerInstructions.Text)
             .WithHttpTransport()
-            .WithToolsFromAssembly();
+            .WithToolsFromAssembly()
+            .WithRequestFilters(filters => filters.AddCallToolFilter(HttpExceptionToolFilter.Create));
 
         // Tools resolve the caller's OrganizationAuthData off the current request's
         // ClaimsPrincipal (see IssueTools.GetAuthData) the same way a controller does.

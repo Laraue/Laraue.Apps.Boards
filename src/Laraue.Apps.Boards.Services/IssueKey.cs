@@ -6,11 +6,14 @@ namespace Laraue.Apps.Boards.Services;
 public struct IssueKey
 {
     private const string ErrorMessage = "Issue Key should match format like SPA-12345";
-    private static readonly Regex IssueFormat = new(@"(\w{3})\-(\d{1,5})", RegexOptions.Compiled);
+    // Anchored: the whole key must match. Unanchored, a substring was enough - "XBRD-1" was read as
+    // "BRD-1" and "BRD-123456" as "BRD-12345". Space keys are always exactly 3 characters; up to 9
+    // digits always fits the int issue number.
+    private static readonly Regex IssueFormat = new(@"^(\w{3})-(\d{1,9})$", RegexOptions.Compiled);
 
     public IssueKey(string key)
     {
-        var match = IssueFormat.Match(key);
+        var match = IssueFormat.Match(key.Trim());
         if (!match.Success)
             throw new BadRequestException(nameof(key), ErrorMessage);
         
