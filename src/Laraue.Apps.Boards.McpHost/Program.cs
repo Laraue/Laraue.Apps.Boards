@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Auth;
+using Laraue.Apps.Boards.Services.History;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OpenTelemetry.Metrics;
@@ -42,6 +43,7 @@ public sealed class Program
         // For each issue's web app link (get_issue/list_issues' url).
         builder.AddValidatedOptions<WebAppOptions>("AppOptions");
         builder.Services.AddSingleton<IIssueUrlBuilder, IssueUrlBuilder>();
+        builder.Services.AddScoped<IOrganizationHistoryReader, OrganizationHistoryReader>();
 
         builder.Services.AddControllers();
         builder.AddValidatedOptions<ServerCardOptions>("ServerCard");

@@ -39,6 +39,17 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
+    [Description("Lists an issue's change history (the issue and its comments), newest first, up to 50 per page - check hasNextPage for more. Each entry has when, who (and the API key name if made through one), what (issue or comment; create, update or delete) and readable change lines, e.g. 'status: To Do -> Done', 'assignee: none -> Ada'. Long content is shortened.")]
+    public Task<IssueHistoryPage> GetIssueHistory(
+        [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
+        [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
+        [Description("Max entries per page, 1-50. Omit for the default of 50.")] int? count = null,
+        CancellationToken cancellationToken = default)
+    {
+        return issueMcpService.GetIssueHistory(GetAuthData(), issueKey, page, count, cancellationToken);
+    }
+
+    [McpServerTool]
     [Description("Lists an issue's comments, oldest first, up to 50 per page - check hasNextPage for more. Each comment has its id and canManage (for edit_comment/delete_comment - only the author can manage a comment), author, text, createdAt/updatedAt, and attachments (ids usable with get_attachment).")]
     public Task<IssueCommentPage> ListIssueComments(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,

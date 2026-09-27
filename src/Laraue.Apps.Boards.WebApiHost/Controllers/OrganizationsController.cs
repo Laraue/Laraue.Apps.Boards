@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Laraue.Apps.Boards.Services.History;
 
 namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 

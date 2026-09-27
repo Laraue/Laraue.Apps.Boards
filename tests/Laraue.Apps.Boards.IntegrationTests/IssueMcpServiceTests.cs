@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.History;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -46,7 +47,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<ICoreIssueAttributesService>(),
             testScope.Services.GetRequiredService<ICoreFilesService>(),
             testScope.Services.GetRequiredService<IDateTimeProvider>(),
-            new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })));
+            new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
+            new OrganizationHistoryReader(testScope.Database));
     }
 
     private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
@@ -318,6 +320,78 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal(issueData.Issue.CreatedAt, detail.CreatedAt, new TimeSpan(10));
         Assert.Equal(issueData.Issue.UpdatedAt, detail.UpdatedAt, new TimeSpan(10));
         Assert.Equal(1, detail.CommentCount);
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldDescribeChangesNewestFirst_WhenAccessible()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(user => user.DisplayName = "Ada");
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organization.Id, ownerId, "Claude", CancellationToken.None);
+        var authData = AuthDataFor(organization.Id, ownerId, apiKey.Id);
+        var mcpService = CreateIssueMcpService(testScope);
+        await mcpService.EditIssue(authData, issueKey, "Fix the thing properly", null, null, null, null, CancellationToken.None);
+        await mcpService.CreateComment(authData, issueKey, "Done", CancellationToken.None);
+
+        var history = await mcpService.GetIssueHistory(authData, issueKey, null, null, CancellationToken.None);
+
+        Assert.False(history.HasNextPage);
+        Assert.Collection(
+            history.Entries,
+            comment =>
+            {
+                Assert.Equal("comment", comment.Entity);
+                Assert.Equal("create", comment.Action);
+                Assert.Equal(["content: \"Done\""], comment.Changes);
+            },
+            edit =>
+            {
+                Assert.Equal("issue", edit.Entity);
+                Assert.Equal("update", edit.Action);
+                Assert.Equal("Ada", edit.Author);
+                Assert.Equal("Claude", edit.ApiKeyName);
+                Assert.Equal(["content: \"Fix the thing\" -> \"Fix the thing properly\""], edit.Changes);
+            });
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldPaginate_WhenCountIsGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var mcpService = CreateIssueMcpService(testScope);
+        await mcpService.CreateComment(authData, issueKey, "First", CancellationToken.None);
+        await mcpService.CreateComment(authData, issueKey, "Second", CancellationToken.None);
+
+        var firstPage = await mcpService.GetIssueHistory(authData, issueKey, null, 1, CancellationToken.None);
+        var secondPage = await mcpService.GetIssueHistory(authData, issueKey, 1, 1, CancellationToken.None);
+
+        Assert.Equal(["content: \"Second\""], Assert.Single(firstPage.Entries).Changes);
+        Assert.True(firstPage.HasNextPage);
+        Assert.Equal(["content: \"First\""], Assert.Single(secondPage.Entries).Changes);
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldThrowNotFound_WhenCallerCannotReadIssue()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, _ => { })
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).GetIssueHistory(
+            AuthDataFor(organization.Id, memberId), issueKey, null, null, CancellationToken.None));
     }
 
     [Fact]

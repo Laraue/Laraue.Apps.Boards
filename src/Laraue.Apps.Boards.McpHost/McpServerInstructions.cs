@@ -36,7 +36,8 @@ public static class McpServerInstructions
         "return canEdit/canDelete per issue - check these before calling edit_issue/" +
         "edit_issue_status/delete_issue on it, rather than finding out from a permission error. " +
         "list_spaces returns canCreateIssue per space - check it before calling " +
-        "list_statuses/create_issue there. get_current_user tells you who you act as - your " +
+        "list_statuses/create_issue there. get_issue_history shows who changed what and " +
+        "when (including changes made through an API key). get_current_user tells you who you act as - your " +
         "user id (e.g. to list your own issues via list_issues' assigneeId) and your " +
         "organization-wide permissions. list_issues/get_issue return each issue's url - its " +
         "page in the web app; when you mention an issue to the user, link it with that url. A failed call returns an error result saying why " +

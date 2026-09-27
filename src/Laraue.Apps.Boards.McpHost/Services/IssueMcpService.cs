@@ -5,6 +5,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Apps.Boards.Services.History;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -36,6 +37,18 @@ public interface IIssueMcpService
     /// returns a count), so a long discussion doesn't bloat every issue read.
     /// </summary>
     Task<IssueCommentPage> ListIssueComments(
+        OrganizationAuthData authData,
+        string issueKey,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One page of an issue's change history (the issue and its comments), newest first - read through
+    /// the same <see cref="IOrganizationHistoryReader"/> as REST's issue history, flattened into
+    /// readable change lines.
+    /// </summary>
+    Task<IssueHistoryPage> GetIssueHistory(
         OrganizationAuthData authData,
         string issueKey,
         int? page,
@@ -255,6 +268,22 @@ public sealed record IssueCommentSummary(
 /// </summary>
 public sealed record IssueCommentPage(IReadOnlyList<IssueCommentSummary> Comments, long Page, bool HasNextPage);
 
+/// <summary>
+/// One change set, as returned by <see cref="IIssueMcpService.GetIssueHistory"/>. <see cref="Entity"/> is
+/// "issue" or "comment", <see cref="Action"/> "create", "update" or "delete". <see cref="ApiKeyName"/> is
+/// set when the change was made through an API key (e.g. by an agent). Each of <see cref="Changes"/> is one
+/// readable line, e.g. "status: To Do -> Done".
+/// </summary>
+public sealed record IssueHistoryEntry(
+    DateTime At,
+    string Author,
+    string? ApiKeyName,
+    string Entity,
+    string Action,
+    IReadOnlyList<string> Changes);
+
+public sealed record IssueHistoryPage(IReadOnlyList<IssueHistoryEntry> Entries, long Page, bool HasNextPage);
+
 /// <summary>An issue's attachment, as returned by <see cref="IIssueMcpService.GetIssue"/> - its
 /// <see cref="Id"/> is what <see cref="IIssueMcpService.EditIssue"/>'s <c>removeAttachmentIds</c>
 /// takes to remove it.</summary>
@@ -363,7 +392,8 @@ public class IssueMcpService(
     ICoreIssueAttributesService coreIssueAttributesService,
     ICoreFilesService coreFilesService,
     IDateTimeProvider dateTimeProvider,
-    IIssueUrlBuilder issueUrlBuilder)
+    IIssueUrlBuilder issueUrlBuilder,
+    IOrganizationHistoryReader historyReader)
     : IIssueMcpService
 {
     private const int MaxResults = 50;
@@ -496,6 +526,68 @@ public class IssueMcpService(
             issue.UpdatedAt,
             commentCount,
             attachments);
+    }
+
+    public async Task<IssueHistoryPage> GetIssueHistory(
+        OrganizationAuthData authData,
+        string issueKey,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(issueKey);
+
+        var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
+
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
+            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "read"));
+
+        var pagination = new PaginationData
+        {
+            Page = page ?? 0,
+            PerPage = Math.Clamp(count ?? MaxResults, 1, MaxResults),
+        };
+
+        var history = await historyReader.GetIssueHistory(issueId, key.ToString(), pagination, cancellationToken);
+
+        var entries = history.Data
+            .Select(x => new IssueHistoryEntry(
+                x.CreatedAt,
+                x.Owner.DisplayName,
+                x.ApiKeyName,
+                x.EntityType.ToString().ToLowerInvariant(),
+                x.Action.ToString().ToLowerInvariant(),
+                x.Changes.Select(DescribeChange).ToList()))
+            .ToList();
+
+        return new IssueHistoryPage(entries, history.Page, history.HasNextPage);
+    }
+
+    private const int HistoryContentSnippetLength = 200;
+
+    private static string DescribeChange(HistoryItemChange change)
+    {
+        return change switch
+        {
+            IssueHistoryContentChange c => c.OldContent is null
+                ? $"content: \"{HistorySnippet(c.NewContent)}\""
+                : $"content: \"{HistorySnippet(c.OldContent)}\" -> \"{HistorySnippet(c.NewContent)}\"",
+            IssueHistoryAssigneeChange c => $"assignee: {c.OldAssigneeDisplayName ?? "none"} -> {c.NewAssigneeDisplayName ?? "none"}",
+            IssueHistoryStatusChange c => $"status: {c.OldStatusName ?? "none"} -> {c.NewStatusName ?? "none"}",
+            IssueHistoryPropertyChange c => $"attribute {c.PropertyName}: {c.OldValueName ?? "empty"} -> {c.NewValueName ?? "empty"}",
+            IssueHistoryAttachmentChange c => c.Action == AttachmentAction.Created
+                ? $"attachment added: {c.FileName}"
+                : $"attachment removed: {c.FileName}",
+            IssueHistoryEpicChange c => $"epic: {c.OldEpicName ?? "none"} -> {c.NewEpicName ?? "none"}",
+            IssueHistorySpaceChange c => $"space: {c.OldSpaceName ?? "none"} -> {c.NewSpaceName ?? "none"}",
+            _ => change.GetType().Name,
+        };
+    }
+
+    private static string HistorySnippet(string? content)
+    {
+        return content is null ? string.Empty : TextTruncation.Truncate(content, HistoryContentSnippetLength);
     }
 
     public async Task<IssueCommentPage> ListIssueComments(
