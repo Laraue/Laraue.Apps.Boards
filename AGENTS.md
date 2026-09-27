@@ -577,6 +577,10 @@ a plain service, return the result. All query/permission/mutation logic lives in
 `ICoreIssuesService` path the REST API uses — no parallel logic. `McpServerOptions
 .ServerInstructions` (`McpServerInstructions.cs`) is sent to every connecting client - keep it a short
 overview of how the tools fit together; per-tool details belong in each tool's `[Description]`.
+`server.json` (the MCP registry manifest, published with `mcp-publisher`) is the single source of the
+server's name/title/description/version/auth header: it's embedded into the assembly (`ServerManifest`)
+and `GET /mcp/server-card` serves the same values - only the URL comes from `ServerCard:PublicMcpUrl`.
+Bump the version there, major for a breaking tool change (as for 2.0.0's renames and 3.0.0's comment split).
 
 Tests construct `IssueMcpService` directly against the test database (`IssueMcpServiceTests.cs`);
 `IssueTools` has no dedicated tests, same as a thin controller - except `get_attachment`, which builds
