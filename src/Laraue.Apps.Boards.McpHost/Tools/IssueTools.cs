@@ -130,7 +130,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
 
         return new CallToolResult
         {
-            Content = [new ImageContentBlock { Data = bytes, MimeType = content.MimeType }],
+            Content = [ImageContentBlock.FromBytes(bytes, content.MimeType)],
         };
     }
 

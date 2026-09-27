@@ -1,13 +1,18 @@
-﻿using Laraue.Apps.Boards.Common;
+﻿using System.Security.Claims;
+using System.Text;
+using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
+using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Protocol;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -18,7 +23,8 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 /// the service wires the caller's identity and those checks together correctly.
 /// <see cref="Laraue.Apps.Boards.McpHost.Tools.IssueTools"/> itself is a thin MCP adapter with
 /// nothing left to test beyond "does it call this service" - the same reason a controller doesn't
-/// usually get its own dedicated tests separate from the service it calls into.
+/// usually get its own dedicated tests separate from the service it calls into. The exception is
+/// <c>get_attachment</c>, which builds the MCP content block itself (encoding the file to base64).
 /// </summary>
 [Collection("IntegrationTest")]
 public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
@@ -41,6 +47,19 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
     {
         return new OrganizationAuthData { OrganizationId = organizationId, UserId = userId, ApiKeyId = apiKeyId };
+    }
+
+    /// <summary>
+    /// What <see cref="IssueTools"/> reads the caller from - the same claims the API key scheme sets.
+    /// </summary>
+    private static IHttpContextAccessor HttpContextAccessorFor(OrganizationAuthData authData)
+    {
+        var identity = new ClaimsIdentity([
+            new Claim("orgId", authData.OrganizationId.ToString()),
+            new Claim("id", authData.UserId.ToString()),
+        ]);
+
+        return new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) } };
     }
 
     [Fact]
@@ -1098,6 +1117,38 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         Assert.Equal("image/png", content.MimeType);
         Assert.NotEmpty(memoryStream.ToArray());
+    }
+
+    [Fact]
+    public async Task GetAttachment_ShouldReturnBase64EncodedFileContent_WhenAccessible()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        await mcpService.EditIssue(
+            authData,
+            issueData.Key,
+            "Fix the thing",
+            null,
+            null,
+            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
+            null,
+            CancellationToken.None);
+        var detail = await mcpService.GetIssue(authData, issueData.Key, CancellationToken.None);
+        var attachmentId = Assert.Single(detail.Attachments).Id;
+        var tools = new IssueTools(mcpService, HttpContextAccessorFor(authData));
+
+        var result = await tools.GetAttachment(attachmentId, CancellationToken.None);
+
+        var image = Assert.IsType<ImageContentBlock>(Assert.Single(result.Content));
+        Assert.Equal("image/png", image.MimeType);
+        Assert.Equal(SampleImageBase64(), Encoding.UTF8.GetString(image.Data.Span));
     }
 
     [Fact]
