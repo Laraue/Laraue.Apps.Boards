@@ -976,7 +976,6 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var organization = await testScope.InitializePersonalOrganization(
             userId,
             o => o
-                .AddUser(userId)
                 .AddIssueToDefaultStatus(userId, issue => issue.WithContent("1"))
                 .AddIssueToDefaultStatus(userId, issue => issue.WithContent("2"))
                 .AddIssueToDefaultStatus(userId, issue => issue.WithContent("3"))

@@ -1100,6 +1100,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var organization = await testScope.InitializeOrganization(
             userId,
             initializer => initializer
+                .AddUser(participatorId)
                 .AddListAttribute("Type", ["Bug", "Feature"])
                 .AddListAttribute("Urgency", ["Low", "High"], "#333333")
                 .AddTextAttribute("Note")
@@ -1839,5 +1840,37 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var monthlyCount = await testScope.Database.IssueMonthlyCounts
             .SingleAsyncEF(x => x.OrganizationId == organization.Id && x.Year == now.Year && x.Month == now.Month);
         Assert.Equal(2, monthlyCount.Count);
+    }
+
+    [Fact]
+    public async Task GetIssue_ShouldShowOrganizationProfile_OnlyInThatOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(user => user.DisplayName = "default name");
+        var organization = await testScope.InitializeOrganization(userId, o => o.AddIssueToDefaultStatus(userId));
+        var otherOrganization = await testScope.InitializeOrganization(userId, o => o.AddIssueToDefaultStatus(userId));
+        var color = Palette.Colors[^1];
+
+        await host.Controller<OrganizationsController>()
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { DisplayName = "Ivan Petrov", Color = color },
+                default));
+
+        var issueDto = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssue(organization.GetIssueData(0, 0, 0, 0).Key));
+
+        Assert.Equal("Ivan Petrov", issueDto!.Assignee.DisplayName);
+        Assert.Equal("IP", issueDto.Assignee.Initials);
+        Assert.Equal(color, issueDto.Assignee.Color);
+        Assert.Equal("Ivan Petrov", issueDto.Owner.DisplayName);
+
+        var otherIssueDto = await _issuesController
+            .WithOrganizationAuthorization(otherOrganization.Id, userId)
+            .Execute(x => x.GetIssue(otherOrganization.GetIssueData(0, 0, 0, 0).Key));
+
+        Assert.Equal("default name", otherIssueDto!.Assignee.DisplayName);
+        Assert.Equal("default name", otherIssueDto.Owner.DisplayName);
     }
 }

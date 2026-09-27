@@ -8,6 +8,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
@@ -103,6 +104,7 @@ public class IssuesService(
     IBillingTokenClient billingTokenClient,
     ITokenEstimate tokenEstimate,
     IUsageLimitService usageLimitService,
+    IMemberProfileReader memberProfileReader,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -137,6 +139,10 @@ public class IssuesService(
 
         var temporaryResult = ProjectToTemporaryDto(query);
         var result = await ToBatchResult(temporaryResult, request, cancellationToken);
+        await memberProfileReader.EnrichUsers(
+            request.AuthData.OrganizationId,
+            result.Data,
+            cancellationToken);
 
         var projected = result.Data
             .Select(Map)
@@ -189,7 +195,7 @@ public class IssuesService(
             .Select(x => x.Id)
             .ToListAsyncEF(cancellationToken);
 
-        var result = new List<ColumnIssues>();
+        var statusResults = new List<(long StatusId, FullPaginatedResult<IssueListDtoData> Result)>();
         
         var commonQuery = context.ActiveIssues();
         commonQuery = await ApplyFilters(commonQuery, request, cancellationToken);
@@ -213,20 +219,28 @@ public class IssuesService(
                     },
                     cancellationToken);
 
-            var mappedStatusResult = new InitialBatchResult<IssueListDto>
-            {
-                Data = statusResult.Data.Select(Map).ToArray(),
-                HasNext = statusResult.HasNextPage,
-                Offset = statusResult.Data.Count,
-                TotalCount = statusResult.Total,
-            };
-            
-            result.Add(new ColumnIssues
-            {
-                StatusId = statusId,
-                Items = mappedStatusResult,
-            });
+            statusResults.Add((statusId, statusResult));
         }
+
+        await memberProfileReader.EnrichUsers(
+            request.AuthData.OrganizationId,
+            statusResults
+                .SelectMany(x => x.Result.Data),
+            cancellationToken);
+
+        var result = statusResults
+            .Select(x => new ColumnIssues
+            {
+                StatusId = x.StatusId,
+                Items = new InitialBatchResult<IssueListDto>
+                {
+                    Data = x.Result.Data.Select(Map).ToArray(),
+                    HasNext = x.Result.HasNextPage,
+                    Offset = x.Result.Data.Count,
+                    TotalCount = x.Result.Total,
+                },
+            })
+            .ToList();
 
         var allData = result
             .SelectMany(x => x.Items.Data)
@@ -526,6 +540,11 @@ public class IssuesService(
                     .ShortPaginateLinq2DbAsync(request, ct);
             }, ct);
         
+        await memberProfileReader.EnrichUsers(
+            request.AuthData.OrganizationId,
+            temporaryResult.Data,
+            ct);
+
         var mapped = temporaryResult.MapTo(Map);
         await EnrichAttributes(mapped.Data, ct);
         
@@ -552,9 +571,7 @@ public class IssuesService(
             {
                 Id = x.Id,
                 AssigneeId = x.AssigneeId,
-                AssigneeDisplayName = x.Assignee!.DisplayName,
-                AssigneeInitials = x.Assignee.Initials,
-                AssigneeColor = x.Assignee.Color,
+                OwnerId = x.OwnerId,
                 Content = x.Content,
                 Time = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
@@ -562,10 +579,7 @@ public class IssuesService(
                 CategoryName = x.Status!.Epic!.Name,
                 StatusId = x.StatusId,
                 StatusName = x.Status!.Epic!.IsDefault ? null : x.Status!.Name,
-                OwnerDisplayName = x.Owner!.DisplayName,
-                OwnerInitials = x.Owner.Initials,
-                TelegramId = x.Owner.TelegramId,
-                OwnerColor = x.Owner.Color,
+                TelegramId = x.Owner!.TelegramId,
                 CategoryColor = x.Status.Epic.Color,
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
                 OrganizationId = x.Status.Epic.Space!.OrganizationId,
@@ -576,6 +590,7 @@ public class IssuesService(
                 SpaceColor = x.Status.Epic.Space.Color,
             })
             .FirstAsyncEF(cancellationToken);
+
 
         var attributeValues = await context.Attributes
             .Where(x => x.OrganizationId == result.OrganizationId)
@@ -605,24 +620,13 @@ public class IssuesService(
 
         var media = await GetAttachments(result.Id, cancellationToken);
 
-        return new IssueDetailDto
+        var issue = new IssueDetailDto
         {
             Id = result.Id,
             AssigneeId = result.AssigneeId,
-            Assignee = new IssueAssigneeDetails
-            {
-                Color = result.AssigneeColor,
-                DisplayName = result.AssigneeDisplayName,
-                Initials = result.AssigneeInitials,
-                IsCurrentUser = result.AssigneeId == request.AuthData.UserId,
-            },
+            Assignee = new IssueAssigneeDetails(result.AssigneeId, result.AssigneeId == request.AuthData.UserId),
             Content = result.Content,
-            Owner = new UserDetails
-            {
-                Color = result.OwnerColor,
-                DisplayName = result.OwnerDisplayName,
-                Initials = result.OwnerInitials,
-            },
+            Owner = new UserDetails(result.OwnerId),
             Time = result.Time,
             UpdatedAt = result.UpdatedAt,
             EpicId = result.CategoryId,
@@ -639,6 +643,13 @@ public class IssuesService(
             SpaceColor = result.SpaceColor,
             Attachments = media,
         };
+
+        await memberProfileReader.EnrichUsers(
+            result.OrganizationId,
+            [issue.Assignee, issue.Owner],
+            cancellationToken);
+
+        return issue;
     }
 
     private Task<List<AttachmentData>> GetAttachments(long issueId, CancellationToken ct)
@@ -840,9 +851,7 @@ public class IssuesService(
                 x.Id,
                 x.CreatedAt,
                 x.UpdatedAt,
-                x.Owner!.Color,
-                x.Owner.DisplayName,
-                x.Owner.Initials,
+                x.OwnerId,
                 CanModify = x.OwnerId == request.AuthData.UserId,
                 Attachments = x.Attachments
                     .Select(a => new AttachmentData
@@ -864,14 +873,15 @@ public class IssuesService(
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt,
             CanModify = item.CanModify,
-            Owner = new UserDetails
-            {
-                Color = item.Color,
-                DisplayName = item.DisplayName,
-                Initials = item.Initials,
-            },
+            Owner = new UserDetails(item.OwnerId),
             Attachments = item.Attachments,
         });
+
+        await memberProfileReader.EnrichUsers(
+            request.AuthData.OrganizationId,
+            result.Data
+                .Select(x => x.Owner),
+            ct);
 
         return result;
     }
@@ -1131,15 +1141,14 @@ public class IssuesService(
             Time = x.CreatedAt,
             EpicId = x.Status!.EpicId,
             StatusId = x.StatusId,
-            AssigneeDisplayName = x.Assignee!.DisplayName,
-            AssigneeInitials = x.Assignee.Initials,
-            AssigneeTelegramId = x.Assignee.TelegramId,
-            AssigneeUserColor = x.Assignee.Color,
+            AssigneeId = x.AssigneeId,
+            AssigneeTelegramId = x.Assignee!.TelegramId,
             Number = x.IssueNumber!.Number,
             SpaceKey = x.Status.Epic!.Space!.Key,
             SpaceId = x.Status.Epic.SpaceId
         });
     }
+
     
     private static IssueListDto Map(IssueListDtoData source)
     {
@@ -1526,15 +1535,27 @@ public record ColumnIssues
     public required InitialBatchResult<IssueListDto> Items { get; set; }
 }
 
-public class IssueListDtoData
+public class IssueListDtoData : IEnrichableUser
 {
+    Guid IEnrichableUser.UserId => AssigneeId;
+
+    public void Enrich(MemberProfile profile)
+    {
+        AssigneeDisplayName = profile.DisplayName;
+        AssigneeInitials = profile.Initials;
+        AssigneeUserColor = profile.Color;
+    }
+
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
+    public required Guid AssigneeId { get; set; }
     public required long? AssigneeTelegramId { get; set; }
-    public required string AssigneeDisplayName { get; set; }
-    public required string AssigneeInitials { get; set; }
+
+    /// <summary>The assignee's profile, filled after the query by <see cref="IMemberProfileReader"/>.</summary>
+    public string AssigneeDisplayName { get; set; } = string.Empty;
+    public string AssigneeInitials { get; set; } = string.Empty;
+    public string AssigneeUserColor { get; set; } = string.Empty;
     public required string? Content { get; set; }
-    public required string AssigneeUserColor { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
     public required int Number { get; set; }
@@ -1747,6 +1768,17 @@ public record CommentDto
 
 public record IssueAssigneeDetails : UserDetails
 {
+    public IssueAssigneeDetails()
+    {
+    }
+
+    /// <inheritdoc cref="UserDetails(Guid)"/>
+    [SetsRequiredMembers]
+    public IssueAssigneeDetails(Guid userId, bool isCurrentUser) : base(userId)
+    {
+        IsCurrentUser = isCurrentUser;
+    }
+
     public required bool IsCurrentUser { get; set; }
 }
 
@@ -1770,15 +1802,10 @@ public class IssueDetailDtoData
 {
     public required long Id { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required string AssigneeDisplayName { get; set; }
-    public required string AssigneeInitials { get; set; }
-    public required string AssigneeColor { get; set; }
+    public required Guid OwnerId { get; set; }
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long? TelegramId { get; set; }
-    public required string OwnerDisplayName { get; set; }
-    public required string OwnerInitials { get; set; }
-    public required string OwnerColor { get; set; }
     public required string? Content { get; set; }
     public required long CategoryId { get; set; }
     public required string? CategoryName { get; set; }

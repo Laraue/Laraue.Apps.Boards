@@ -1,5 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Identity;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB;
@@ -164,6 +166,8 @@ public class CoreUserService(
             GlobalUserId = await GetGlobalUserIdAsync(profile, cancellationToken),
         };
 
+        var ownerProfile = await identityClient.GetNewMemberProfileAsync(user.GlobalUserId, cancellationToken);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         
         var insertedCount = await context.Users
@@ -188,7 +192,8 @@ public class CoreUserService(
             user.Id,
             OrganizationDefaults.GetPersonalOrganizationSlug(profile.UserName),
             profile.LanguageCode,
-            timestamp);
+            timestamp,
+            ownerProfile);
 
         context.LinkedTelegramChats.Add(new LinkedTelegramChat
         {
@@ -227,6 +232,8 @@ public class CoreUserService(
             GlobalUserId = await GetGlobalUserIdAsync(profile, cancellationToken),
         };
 
+        var ownerProfile = await identityClient.GetNewMemberProfileAsync(user.GlobalUserId, cancellationToken);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         var insertedCount = await context.Users
@@ -251,7 +258,8 @@ public class CoreUserService(
             user.Id,
             OrganizationDefaults.GetPersonalOrganizationSlug(ToSlug(emailLocalPart)),
             profile.LanguageCode,
-            timestamp);
+            timestamp,
+            ownerProfile);
 
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -510,7 +518,12 @@ public class CoreUserService(
     /// in: a personal organization and their preferences, with the interface language taken from
     /// the sign-in method. Returns the personal organization's default status.
     /// </summary>
-    private DataAccess.Models.Status AddPersonalWorkspace(Guid userId, string slug, string? languageCode, DateTime timestamp)
+    private DataAccess.Models.Status AddPersonalWorkspace(
+        Guid userId,
+        string slug,
+        string? languageCode,
+        DateTime timestamp,
+        MemberProfile ownerProfile)
     {
         var organization = OrganizationDefaults.GetNewOrganizationEntity(
             userId,
@@ -518,7 +531,8 @@ public class CoreUserService(
             OrganizationDefaults.GetPersonalOrganizationName(languageCode),
             Palette.RandomColor(),
             timestamp,
-            isPersonal: true);
+            isPersonal: true,
+            ownerProfile);
 
         context.Organizations.Add(organization);
         context.UserPreferences.Add(GetDefaultPreferences(userId, languageCode));

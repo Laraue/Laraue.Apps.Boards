@@ -237,6 +237,16 @@ Solution: `Laraue.Apps.Boards.sln`
   name once. E.g. `ICoreApiKeysService.CreateAsync` returns `ApiKeyCreationResult(Guid Id, string
   RawKey)`, not `(Guid, string)`. Tuples are fine as a private/internal implementation detail
   (e.g. a local variable inside a method body) — the rule is about what a public signature exposes.
+- **Wrapping calls**: when a call doesn't fit comfortably on one line, or an argument is a LINQ
+  chain, put each argument on its own line, and each call of a LINQ chain on its own line too:
+  ```csharp
+  await memberProfileReader.EnrichUsers(
+      authData.OrganizationId,
+      result.Data
+          .Select(x => x.Assignee),
+      cancellationToken);
+  ```
+  not `EnrichUsers(authData.OrganizationId, result.Data.Select(x => x.Assignee), cancellationToken)`.
 
 ## Workflow for new features
 
@@ -333,6 +343,33 @@ yourself — ask the user to stop it, then retry the build once they confirm.
   etc., via `LinqToDB.EntityFrameworkCore`) only where EF Core's LINQ provider can't translate the
   query (or translates it inefficiently) and LinqToDB can. Don't reach for LinqToDB by default —
   it's the fallback, not the first choice.
+
+## Per-organization names
+
+A person is shown per organization (BRD-220): `OrganizationUser.DisplayName`/`Initials`/`Color` is how
+the member is shown there - copied from their Laraue.Apps.Identity profile when they join (Identity is
+the source of truth for the profile), then changeable by the member. Don't read `User.DisplayName`/
+`Initials`/`Color` for this - they're left from before and are being removed. The row is kept after the member leaves (`LeftAt`), so their name keeps showing on their issues,
+comments and history.
+
+Don't join the membership table into a read query to get a name. Project just the user id, implement
+`IEnrichableUser` (`Boards.Services.Members`: `UserId` + `Enrich(MemberProfile)`, taking only what the
+DTO shows) on the DTO, and fill the whole page with `IMemberProfileReader.EnrichUsers` - one query:
+
+```csharp
+var issue = new IssueDetailDto { Assignee = new IssueAssigneeDetails(assigneeId, isCurrentUser), Owner = new UserDetails(ownerId), ... };
+await memberProfileReader.EnrichUsers(
+    organizationId,
+    [issue.Assignee, issue.Owner],
+    ct);
+```
+
+`UserDetails`, `RetroUser`, `IssueListDtoData` and `AdminBillingTransaction` implement it; where a
+person has no DTO of their own (a name written into history, a row mapped into an immutable MCP
+record) use `EnrichableUser`. Use the organization the shown thing belongs to (the issue's, the retro's,
+the log's); a read spanning several organizations (Telegram search) passes an organization selector
+instead. A query already over `OrganizationUser` (member lists) just reads its own
+`DisplayName`/`Initials`/`Color`. A user with no row in the organization gets `MemberProfile.Unknown`.
 
 ## Soft delete
 

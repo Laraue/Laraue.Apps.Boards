@@ -2,6 +2,9 @@
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Identity;
+using Laraue.Apps.Boards.Services.Members;
+using Microsoft.EntityFrameworkCore;
 using Attribute = Laraue.Apps.Boards.DataAccess.Models.Attribute;
 using File = Laraue.Apps.Boards.DataAccess.Models.File;
 using Models_Status = Laraue.Apps.Boards.DataAccess.Models.Status;
@@ -105,13 +108,22 @@ public class OrganizationInitializer(
 
     public async Task<Organization> Initialize()
     {
+        // The owner is shown by the name the test user was created with - what the mocked Identity
+        // client would answer (see TestIdentityProfiles) - and by the color it was created with, if any,
+        // so a test can expect a known color instead of a random palette one.
+        var owner = await context.Users
+            .Where(x => x.Id == ownerId)
+            .Select(x => new { x.DisplayName, x.Initials, x.Color })
+            .FirstAsync();
+
         var organization = OrganizationDefaults.GetNewOrganizationEntity(
             ownerId,
             "slug",
             _organizationName,
             _organizationColor,
             _timestamp,
-            _isPersonal);
+            _isPersonal,
+            new MemberProfile(owner.DisplayName, owner.Initials, owner.Color.Length > 0 ? owner.Color : Palette.RandomColor()));
 
         organization.Spaces = new List<Space>(); // Add all children manually
         
@@ -275,6 +287,16 @@ public class OrganizationInitializer(
             };
             
             var organizationUserId = await coreOrganizationsService.AddMember(organization.Id, user.Key, CancellationToken.None);
+
+            // Same as the owner: keep the test user's color, if it was created with one.
+            var userColor = await context.Users.Where(x => x.Id == user.Key).Select(x => x.Color).FirstAsync();
+            if (userColor.Length > 0)
+            {
+                await context.OrganizationUsers
+                    .Where(x => x.Id == organizationUserId)
+                    .ExecuteUpdateAsync(x => x.SetProperty(ou => ou.Color, userColor));
+            }
+
             await coreOrganizationsService.SetUserPermissions(
                 organizationUserId,
                 userPermissions,

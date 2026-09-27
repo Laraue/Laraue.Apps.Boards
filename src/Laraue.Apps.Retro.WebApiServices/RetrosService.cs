@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -140,6 +141,7 @@ public class RetrosService(
     DatabaseContext context,
     ICoreRetrosService coreRetrosService,
     IAccessService accessService,
+    IMemberProfileReader memberProfileReader,
     IHubContext<RetroHub> retroHub) : IRetrosService
 {
     public async Task<RetroUser> JoinRealtime(
@@ -238,14 +240,7 @@ public class RetrosService(
                 x.VotesPerUser,
                 x.PhaseEndsAt,
                 x.OwnerId,
-                Owner = new RetroUser
-                {
-                    UserId = x.Owner!.Id,
-                    DisplayName = x.Owner.DisplayName,
-                    Initials = x.Owner.Initials,
-                    Color = x.Owner.Color,
-                    IsCurrentUser = x.Owner.Id == authData.UserId,
-                },
+                Owner = RetroUser.WithoutProfile(x.OwnerId, x.OwnerId == authData.UserId),
             })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw RetroNotFound(id);
@@ -294,24 +289,10 @@ public class RetrosService(
                 GroupId = c.GroupId,
                 Assignee = c.AssigneeId == null
                     ? null
-                    : new RetroUser
-                    {
-                        UserId = c.Assignee!.Id,
-                        DisplayName = c.Assignee.DisplayName,
-                        Initials = c.Assignee.Initials,
-                        Color = c.Assignee.Color,
-                        IsCurrentUser = c.AssigneeId == authData.UserId,
-                    },
+                    : RetroUser.WithoutProfile(c.AssigneeId.Value, c.AssigneeId == authData.UserId),
                 Votes = voteResultsVisible ? c.Votes.Count : 0,
                 VotedByMe = c.Votes.Any(v => v.UserId == authData.UserId),
-                Author = new RetroUser
-                {
-                    UserId = c.AuthorId,
-                    DisplayName = c.Author!.DisplayName,
-                    Initials = c.Author.Initials,
-                    Color = c.Author.Color,
-                    IsCurrentUser = c.AuthorId == authData.UserId,
-                },
+                Author = RetroUser.WithoutProfile(c.AuthorId, c.AuthorId == authData.UserId),
             })
             .ToArrayAsync(cancellationToken);
 
@@ -329,15 +310,17 @@ public class RetrosService(
 
         var participants = await context.RetroParticipants
             .Where(x => x.RetroId == id)
-            .Select(p => new RetroUser
-            {
-                UserId = p.UserId,
-                DisplayName = p.User!.DisplayName,
-                Initials = p.User.Initials,
-                Color = p.User.Color,
-                IsCurrentUser = p.UserId == authData.UserId,
-            })
+            .Select(x => RetroUser.WithoutProfile(x.UserId, x.UserId == authData.UserId))
             .ToArrayAsync(cancellationToken);
+
+        // Every person on the retro, filled with one query.
+        await memberProfileReader.EnrichUsers(
+            authData.OrganizationId,
+            participants
+                .Append(retro.Owner)
+                .Concat(cards.Select(x => x.Author))
+                .Concat(cards.Select(x => x.Assignee).OfType<RetroUser>()),
+            cancellationToken);
 
         return new GetRetroResponse
         {
@@ -802,7 +785,7 @@ public class RetrosService(
 
     private async Task EnsureMember(OrganizationAuthData authData, CancellationToken cancellationToken)
     {
-        var isMember = await context.OrganizationUsers
+        var isMember = await context.ActiveOrganizationUsers()
             .Where(x => x.OrganizationId == authData.OrganizationId && x.UserId == authData.UserId)
             .AnyAsync(cancellationToken);
         if (!isMember)
@@ -816,7 +799,7 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        var isOwner = await context.OrganizationUsers
+        var isOwner = await context.ActiveOrganizationUsers()
             .Where(x => x.OrganizationId == authData.OrganizationId && x.UserId == authData.UserId)
             .Select(x => (bool?)(x.Organization!.OwnerId == authData.UserId))
             .FirstOrDefaultAsync(cancellationToken);
@@ -834,14 +817,14 @@ public class RetrosService(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        return context.OrganizationUsers
+        return context.ActiveOrganizationUsers()
             .Where(x => x.OrganizationId == authData.OrganizationId && x.UserId == authData.UserId)
             .Select(x => new RetroUser
             {
                 UserId = x.UserId,
-                DisplayName = x.User!.DisplayName,
-                Initials = x.User.Initials,
-                Color = x.User.Color,
+                DisplayName = x.DisplayName,
+                Initials = x.Initials,
+                Color = x.Color,
                 IsCurrentUser = true,
             })
             .FirstOrThrowNotFoundEFAsync(
@@ -1043,32 +1026,36 @@ public class RetrosService(
 
     private async Task CardChanged(Guid cardId, CancellationToken cancellationToken)
     {
-        var card = await context.RetroCards
+        var changed = await context.RetroCards
             .Where(x => x.Id == cardId)
-            .Select(x => new RetroCardChangedDto
+            .Select(x => new
             {
-                Id = x.Id,
-                RetroId = x.Section!.RetroId,
-                SectionId = x.SectionId,
-                Text = x.Section.Retro!.Phase == RetroPhase.Collect && !x.Revealed
-                    ? string.Empty
-                    : x.Text,
-                X = x.X,
-                Y = x.Y,
-                Done = x.Done,
-                Covered = x.Section.Retro.Phase == RetroPhase.Collect && !x.Revealed,
-                Revealed = x.Revealed,
-                GroupId = x.GroupId,
-                Author = new RetroUser
+                x.Section!.Retro!.OrganizationId,
+                Card = new RetroCardChangedDto
                 {
-                    UserId = x.AuthorId,
-                    DisplayName = x.Author!.DisplayName,
-                    Initials = x.Author.Initials,
-                    Color = x.Author.Color,
-                    IsCurrentUser = false,
+                    Id = x.Id,
+                    RetroId = x.Section!.RetroId,
+                    SectionId = x.SectionId,
+                    Text = x.Section.Retro!.Phase == RetroPhase.Collect && !x.Revealed
+                        ? string.Empty
+                        : x.Text,
+                    X = x.X,
+                    Y = x.Y,
+                    Done = x.Done,
+                    Covered = x.Section.Retro.Phase == RetroPhase.Collect && !x.Revealed,
+                    Revealed = x.Revealed,
+                    GroupId = x.GroupId,
+                    Author = RetroUser.WithoutProfile(x.AuthorId, isCurrentUser: false),
                 },
             })
             .SingleAsync(cancellationToken);
+
+        await memberProfileReader.EnrichUsers(
+            changed.OrganizationId,
+            [changed.Card.Author],
+            cancellationToken);
+
+        var card = changed.Card;
 
         await retroHub.Clients
             .Group(RetroHub.GroupName(card.RetroId))
@@ -1099,13 +1086,33 @@ public class RetrosService(
         id));
 }
 
-public record RetroUser
+public record RetroUser : IEnrichableUser
 {
+    /// <summary>
+    /// A user as a query projects them - just who they are; <see cref="IMemberProfileReader"/> fills the
+    /// profile afterwards, for everyone in the response at once.
+    /// </summary>
+    public static RetroUser WithoutProfile(Guid userId, bool isCurrentUser) => new()
+    {
+        UserId = userId,
+        DisplayName = string.Empty,
+        Initials = string.Empty,
+        Color = string.Empty,
+        IsCurrentUser = isCurrentUser,
+    };
+
     public required Guid UserId { get; set; }
     public required string DisplayName { get; set; }
     public required string Initials { get; set; }
     public required string Color { get; set; }
     public required bool IsCurrentUser { get; set; }
+
+    public void Enrich(MemberProfile profile)
+    {
+        DisplayName = profile.DisplayName;
+        Initials = profile.Initials;
+        Color = profile.Color;
+    }
 }
 
 public record GetRetrosRequest : IPaginatedRequest

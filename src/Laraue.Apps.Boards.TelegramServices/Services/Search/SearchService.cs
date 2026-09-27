@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
@@ -33,6 +34,7 @@ public class SearchService(
     ITokenFilterRegistry filterRegistry,
     IOptions<AppOptions> options,
     IIssueUrlBuilder issueUrlBuilder,
+    IMemberProfileReader memberProfileReader,
     ITelegramBotClient botClient)
     : ISearchService
 {
@@ -189,17 +191,16 @@ public class SearchService(
             // meaningful and can visibly change between otherwise-identical searches (and would
             // make paging incoherent - rows could shuffle between pages between requests).
             .OrderByDescending(x => x.Id)
-            .Select(x => new
+            .Select(x => new IssueSearchRow
             {
                 Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
-                x.Content, // nullable — a key-matched issue may have no content
+                Content = x.Content, // nullable — a key-matched issue may have no content
                 OrganizationName = x.Status.Epic.Space.Organization!.Name,
                 OrganizationSlug = x.Status.Epic.Space.Organization!.Slug,
                 OrganizationSlugPostfix = x.Status.Epic.Space.Organization!.SlugPostfix,
                 ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
-                SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
-                    ? x.TelegramMessage.Sender.DisplayName
-                    : null,
+                OrganizationId = x.Status.Epic.Space.OrganizationId,
+                SenderId = x.TelegramMessage != null ? x.TelegramMessage.SenderId : null,
                 SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
             .ShortPaginateLinq2DbAsync(new PaginationData { Page = page, PerPage = PageSize }, ct);
@@ -226,6 +227,13 @@ public class SearchService(
             await AnswerNoResults(request.InlineQueryId, "no-issues", "No issues found", message, ct);
             return;
         }
+
+        // A sender is shown by their name in the issue's organization.
+        await memberProfileReader.EnrichUsers(
+            issues
+                .Where(x => x.SenderId is not null),
+            x => x.OrganizationId,
+            ct);
 
         var result = new List<InlineQueryResult>();
         foreach (var issue in issues)
@@ -277,7 +285,10 @@ public class SearchService(
                 }
 
                 var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
-                var footer = IssuePreviewFormatter.BuildSourceFooter(issue.ChatTitle, issue.SenderName, issue.SentAt);
+                var footer = IssuePreviewFormatter.BuildSourceFooter(
+                    issue.ChatTitle,
+                    issue.SenderName,
+                    issue.SentAt);
 
                 // The text actually posted to the chat once the user taps this result
                 // (InputTextMessageContent) always starts from the beginning of the issue, like
@@ -358,7 +369,7 @@ public class SearchService(
         SearchRequest requestContext,
         CancellationToken ct)
     {
-        var organizationsData = context.OrganizationUsers
+        var organizationsData = context.ActiveOrganizationUsers()
             .Where(x => x.UserId == requestContext.UserId)
             .Select(x => new { x.CanRead, x.OrganizationId });
 
@@ -435,4 +446,27 @@ public class SearchService(
             isPersonal: true,
             cancellationToken: ct);
     }
+}
+
+/// <summary>One issue found by an inline search, as the query projects it.</summary>
+internal sealed class IssueSearchRow : IEnrichableUser
+{
+    public required IssueKey Key { get; init; }
+    public required string? Content { get; init; }
+    public required string OrganizationName { get; init; }
+    public required string OrganizationSlug { get; init; }
+    public required string OrganizationSlugPostfix { get; init; }
+    public required string? ChatTitle { get; init; }
+    public required long OrganizationId { get; init; }
+    public required Guid? SenderId { get; init; }
+    public required DateTime? SentAt { get; init; }
+
+    /// <summary>
+    /// The sender's name in the issue's organization, filled by <see cref="IMemberProfileReader"/>.
+    /// </summary>
+    public string? SenderName { get; private set; }
+
+    Guid IEnrichableUser.UserId => SenderId!.Value;
+
+    public void Enrich(MemberProfile profile) => SenderName = profile.DisplayName;
 }

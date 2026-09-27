@@ -63,6 +63,23 @@ public class FakeUserIdentityServiceClient : UserIdentityService.UserIdentitySer
         return Linked();
     }
 
+    /// <summary>
+    /// There's no real profile to read locally - every user is shown as "Local User".
+    /// </summary>
+    public override AsyncUnaryCall<GetUserProfileResponse> GetUserProfileAsync(
+        GetUserProfileRequest request,
+        Metadata? headers = null,
+        DateTime? deadline = null,
+        CancellationToken cancellationToken = default)
+    {
+        return new AsyncUnaryCall<GetUserProfileResponse>(
+            Task.FromResult(new GetUserProfileResponse { DisplayName = "Local User", Initials = "LU" }),
+            Task.FromResult(new Metadata()),
+            () => global::Grpc.Core.Status.DefaultSuccess,
+            () => new Metadata(),
+            () => { });
+    }
+
     private static AsyncUnaryCall<LinkAccountResponse> Linked()
     {
         return new AsyncUnaryCall<LinkAccountResponse>(

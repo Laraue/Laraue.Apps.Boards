@@ -84,6 +84,14 @@ public class WebApiTestHost
             // about the returned id should re-Setup it (via Mock.Get on the resolved instance).
             var identityClientMock = new Mock<UserIdentityService.UserIdentityServiceClient>();
             identityClientMock
+                .Setup(x => x.GetUserProfileAsync(
+                    It.IsAny<GetUserProfileRequest>(),
+                    It.IsAny<Metadata>(),
+                    It.IsAny<DateTime?>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((GetUserProfileRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.AsyncUnaryCallOf(TestIdentityProfiles.Get(request.UserId)));
+            identityClientMock
                 .Setup(x => x.CreateUserIfNotExistsAsync(
                     It.IsAny<CreateUserIfNotExistsRequest>(),
                     It.IsAny<Metadata>(),
@@ -183,6 +191,9 @@ public class WebApiTestHostScope : IDisposable
         var initials = new UserInitials(user.DisplayName.Length > 0 ? user.DisplayName : null, null, null);
         user.DisplayName = initials.DisplayName;
         user.Initials = initials.Initials;
+        if (user.GlobalUserId == Guid.Empty)
+            user.GlobalUserId = Guid.NewGuid();
+        TestIdentityProfiles.Set(user.GlobalUserId, user.DisplayName, user.Initials);
 
         Database.Users.Add(user);
         

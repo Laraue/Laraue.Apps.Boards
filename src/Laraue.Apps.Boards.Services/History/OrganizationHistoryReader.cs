@@ -5,6 +5,8 @@ using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DataAccess.Extensions;
 using LinqToDB.EntityFrameworkCore;
 
+using Laraue.Apps.Boards.Services.Members;
+
 namespace Laraue.Apps.Boards.Services.History;
 
 /// <summary>
@@ -17,6 +19,7 @@ public interface IOrganizationHistoryReader
 {
     /// <summary>History of one issue and its comments, newest first.</summary>
     Task<ShortPaginatedResult<OrganizationHistoryItem>> GetIssueHistory(
+        long organizationId,
         long issueId,
         string issueKey,
         PaginationData pagination,
@@ -36,9 +39,13 @@ public sealed record OrganizationHistoryQuery(
     DateTime? DateTo,
     PaginationData Pagination);
 
-public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationHistoryReader
+public class OrganizationHistoryReader(
+    DatabaseContext context,
+    IMemberProfileReader memberProfileReader)
+    : IOrganizationHistoryReader
 {
     public async Task<ShortPaginatedResult<OrganizationHistoryItem>> GetIssueHistory(
+        long organizationId,
         long issueId,
         string issueKey,
         PaginationData pagination,
@@ -56,9 +63,7 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
                 x.CreatedAt,
                 x.EntityType,
                 x.Action,
-                x.Owner!.Color,
-                x.Owner.DisplayName,
-                x.Owner.Initials,
+                x.OwnerId,
                 x.ApiKey!.Name,
                 Items = x.Items!
                     .OrderBy(i => i.Id)
@@ -67,6 +72,7 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
             .ShortPaginateEFAsync(pagination, ct);
 
         var changes = await MapHistoryChanges(
+            organizationId,
             updatesData.Data.ToDictionary(
                 x => x.Id,
                 x => x.Items),
@@ -75,18 +81,19 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
         var result = updatesData.MapTo(x => new OrganizationHistoryItem
         {
             CreatedAt = x.CreatedAt,
-            Owner = new UserDetails
-            {
-                Color = x.Color,
-                DisplayName = x.DisplayName,
-                Initials = x.Initials,
-            },
+            Owner = new UserDetails(x.OwnerId),
             ApiKeyName = x.Name,
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
             IssueKey = issueKey,
         });
+
+        await memberProfileReader.EnrichUsers(
+            organizationId,
+            result.Data
+                .Select(x => x.Owner),
+            ct);
 
         return result;
     }
@@ -123,9 +130,7 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
                 x.CreatedAt,
                 x.EntityType,
                 x.Action,
-                x.Owner!.Color,
-                x.Owner.DisplayName,
-                x.Owner.Initials,
+                x.OwnerId,
                 x.ApiKey!.Name,
                 Items = x.Items!
                     .OrderBy(i => i.Id)
@@ -134,6 +139,7 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
             .ShortPaginateEFAsync(query.Pagination, ct);
 
         var changes = await MapHistoryChanges(
+            query.OrganizationId,
             updatesData.Data.ToDictionary(
                 x => x.Id,
                 x => x.Items),
@@ -146,18 +152,19 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
         var result = updatesData.MapTo(x => new OrganizationHistoryItem
         {
             CreatedAt = x.CreatedAt,
-            Owner = new UserDetails
-            {
-                Color = x.Color,
-                DisplayName = x.DisplayName,
-                Initials = x.Initials,
-            },
+            Owner = new UserDetails(x.OwnerId),
             ApiKeyName = x.Name,
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
             IssueKey = issueKeysByLogId.GetValueOrDefault(x.Id),
         });
+
+        await memberProfileReader.EnrichUsers(
+            query.OrganizationId,
+            result.Data
+                .Select(x => x.Owner),
+            ct);
 
         return result;
     }
@@ -209,6 +216,7 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
     }
 
     private async Task<Dictionary<long, HistoryItemChange[]>> MapHistoryChanges(
+        long organizationId,
         Dictionary<long, OrganizationLogItem[]> changes,
         CancellationToken cancellationToken)
     {
@@ -255,9 +263,12 @@ public class OrganizationHistoryReader(DatabaseContext context) : IOrganizationH
             .Where(s => possibleStatusIds.Contains(s.Id))
             .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
 
-        var userColors = await context.Users
-            .Where(s => possibleAssigneeIds.Contains(s.Id))
-            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+        var assignees = possibleAssigneeIds.Select(x => new EnrichableUser(x)).ToArray();
+        await memberProfileReader.EnrichUsers(
+            organizationId,
+            assignees,
+            cancellationToken);
+        var userColors = assignees.ToDictionary(x => x.UserId.ToString(), x => x.Color);
 
         var attributes = (await context.Attributes
             .Where(s => possibleAttributeIds.Contains(s.Id))

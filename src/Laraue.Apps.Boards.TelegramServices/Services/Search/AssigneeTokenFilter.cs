@@ -13,10 +13,12 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Search;
 /// scoped to users who can read at least one of the spaces currently in play
 /// (<see cref="FilterContext.EffectiveSpaceIds"/>) — not just org membership, since a user
 /// might have only a direct per-space grant without org-wide read access.
+/// A member can have a different name in each organization, so a candidate is one membership, and
+/// a name matches the user's issues only in the organization where they go by that name.
 /// </summary>
 public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessService accessService) : IQueryTokenFilter
 {
-    private readonly record struct UserCandidate(Guid Id, string DisplayName);
+    private readonly record struct UserCandidate(long OrganizationUserId, Guid Id, string DisplayName);
 
     public string Key => "assignee";
 
@@ -45,35 +47,35 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
 
         if (!isWildcard)
         {
-            var exactMatch = candidates
-                .FirstOrDefault(u => string.Equals(u.DisplayName, value, StringComparison.OrdinalIgnoreCase));
+            var exactMatches = candidates
+                .Where(u => string.Equals(u.DisplayName, value, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
 
-            if (exactMatch.DisplayName is not null)
+            if (exactMatches.Length > 0)
             {
-                var filtered = query.Where(x => x.AssigneeId == exactMatch.Id);
-                return new AppliedResolution(filtered, Description: $"assignee \"{exactMatch.DisplayName}\"");
+                var filtered = FilterByAssignees(context, query, exactMatches);
+                return new AppliedResolution(filtered, Description: $"assignee \"{exactMatches[0].DisplayName}\"");
             }
         }
 
-        var prefixMatchIds = candidates
+        var prefixMatches = candidates
             .Where(u => u.DisplayName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            .Select(u => (Guid?)u.Id)
             .ToArray();
 
         if (isWildcard || isFollowedByAnotherToken)
         {
-            if (prefixMatchIds.Length == 0)
+            if (prefixMatches.Length == 0)
             {
                 return new ErrorResolution(
                     "User not found",
                     $"No user starting with \"{prefix}\" exists or is accessible to you.");
             }
 
-            var filtered = query.Where(x => prefixMatchIds.Contains(x.AssigneeId));
+            var filtered = FilterByAssignees(context, query, prefixMatches);
             return new AppliedResolution(filtered, Description: $"assignee starting with \"{prefix}\"");
         }
 
-        if (prefixMatchIds.Length == 0)
+        if (prefixMatches.Length == 0)
         {
             return new ErrorResolution(
                 "User not found",
@@ -106,17 +108,25 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
 
         // "me" already represents the current user — exclude their own row below, or they'd
         // show up twice.
+        // The same user can go by different names in different organizations - one row per name,
+        // and a result id has to stay unique within the answer.
+        var rowsPerUser = new Dictionary<Guid, int>();
         results.AddRange(candidates
             .Where(u => u.Id != context.RequestContext.UserId)
+            .DistinctBy(u => (u.Id, u.DisplayName.ToUpperInvariant()))
             .OrderBy(u => u.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Take(8)
             .Select(u =>
             {
+                var previousRows = rowsPerUser.GetValueOrDefault(u.Id);
+                rowsPerUser[u.Id] = previousRows + 1;
+                var resultId = previousRows == 0 ? $"assignee-{u.Id}" : $"assignee-{u.Id}-{previousRows}";
+
                 var isMatch = value.Length > 0 && u.DisplayName.StartsWith(value, StringComparison.OrdinalIgnoreCase);
                 var title = isMatch ? $"✅ {u.DisplayName}" : u.DisplayName;
 
                 return (InlineQueryResult)new InlineQueryResultArticle(
-                    $"assignee-{u.Id}",
+                    resultId,
                     title,
                     new InputTextMessageContent(SearchTextFormatter.EscapeMarkdownV2($"assignee:{u.DisplayName}"))
                     {
@@ -167,12 +177,28 @@ public sealed class AssigneeTokenFilter(IOptions<AppOptions> options, IAccessSer
         var candidates = await accessService.GetVisibleUsers(
             scopeSpaceIds,
             query => query
-                .Select(ou => new { ou.UserId, ou.User!.DisplayName })
-                .Distinct()
+                .Select(ou => new { ou.Id, ou.UserId, ou.DisplayName })
                 .ToListAsyncLinqToDB(ct));
 
         return candidates
-            .Select(u => new UserCandidate(u.UserId, u.DisplayName))
+            .Select(u => new UserCandidate(u.Id, u.UserId, u.DisplayName))
             .ToList();
+    }
+
+    /// <summary>
+    /// Issues assigned to one of <paramref name="matches"/> in the organization of that membership -
+    /// the name a user was matched by is theirs only there.
+    /// </summary>
+    private static IQueryable<Issue> FilterByAssignees(
+        FilterContext context,
+        IQueryable<Issue> query,
+        IReadOnlyCollection<UserCandidate> matches)
+    {
+        var organizationUserIds = matches.Select(u => u.OrganizationUserId).ToArray();
+
+        return query.Where(x => context.DbContext.OrganizationUsers.Any(ou =>
+            organizationUserIds.Contains(ou.Id)
+            && ou.UserId == x.AssigneeId
+            && ou.OrganizationId == x.Status!.Epic!.Space!.OrganizationId));
     }
 }

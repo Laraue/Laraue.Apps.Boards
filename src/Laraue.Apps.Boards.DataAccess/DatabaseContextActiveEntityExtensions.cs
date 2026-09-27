@@ -30,4 +30,11 @@ public static class DatabaseContextActiveEntityExtensions
 
     public static IQueryable<User> ActiveUsers(this DatabaseContext context) =>
         context.Users.Where(x => x.DeletedAt == null);
+
+    /// <summary>
+    /// Current members only - see <see cref="OrganizationUser.LeftAt"/>. Use the raw
+    /// <see cref="DatabaseContext.OrganizationUsers"/> only to show a (possibly former) member's name.
+    /// </summary>
+    public static IQueryable<OrganizationUser> ActiveOrganizationUsers(this DatabaseContext context) =>
+        context.OrganizationUsers.Where(x => x.LeftAt == null);
 }

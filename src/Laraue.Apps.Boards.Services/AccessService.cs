@@ -187,7 +187,7 @@ public class AccessService(DatabaseContext context) : IAccessService
 {
     public Task<T> GetOrganizations<T>(Guid userId, Func<IQueryable<OrganizationUser>, Task<T>> map)
     {
-        var query = context.OrganizationUsers
+        var query = context.ActiveOrganizationUsers()
             .Where(x => x.UserId == userId);
 
         return map(query);
@@ -195,7 +195,7 @@ public class AccessService(DatabaseContext context) : IAccessService
 
     public Task<T> GetOrganizationMembers<T>(long organizationId, Func<IQueryable<OrganizationUser>, Task<T>> map)
     {
-        var query = context.OrganizationUsers
+        var query = context.ActiveOrganizationUsers()
             .Where(x => x.OrganizationId == organizationId);
 
         return map(query);
@@ -253,7 +253,7 @@ public class AccessService(DatabaseContext context) : IAccessService
             .Select(s => s.OrganizationId)
             .Distinct();
 
-        var organizationUsersWithOrganizationLevelRead = context.OrganizationUsers
+        var organizationUsersWithOrganizationLevelRead = context.ActiveOrganizationUsers()
             .Where(ou => orgIds.Contains(ou.OrganizationId))
             .Where(ou => ou.CanRead)
             .Select(ou => ou.Id);
@@ -266,7 +266,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         var visibleUserIds = organizationUsersWithOrganizationLevelRead
             .Union(organizationUsersWithDirectSpaceRead);
 
-        var query = context.OrganizationUsers
+        var query = context.ActiveOrganizationUsers()
             .Where(ou => visibleUserIds.Contains(ou.Id));
 
         return await map(query);
@@ -539,7 +539,7 @@ public class AccessService(DatabaseContext context) : IAccessService
         Expression<Func<OrganizationUser, T>> map,
         CancellationToken cancellationToken)
     {
-        return context.OrganizationUsers
+        return context.ActiveOrganizationUsers()
             .Where(o => o.OrganizationId == authData.OrganizationId)
             .Where(o => o.UserId == authData.UserId)
             .Select(map)

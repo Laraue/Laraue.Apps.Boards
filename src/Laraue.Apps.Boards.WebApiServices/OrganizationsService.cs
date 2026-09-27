@@ -110,9 +110,9 @@ public class OrganizationsService(
                     SlugPostfix = x.Organization.SlugPostfix,
                     MemberProfile = new MemberProfileDto
                     {
-                        DisplayName = x.DisplayName ?? x.User!.DisplayName,
-                        Initials = x.Initials ?? x.User!.Initials,
-                        Color = x.Color ?? x.User!.Color,
+                        DisplayName = x.DisplayName,
+                        Initials = x.Initials,
+                        Color = x.Color,
                     },
                 })
                 .FirstOrThrowNotFoundEFAsync($"Organization: {request.AuthData.OrganizationId} is not found", cancellationToken));
@@ -167,20 +167,19 @@ public class OrganizationsService(
 
     public async Task Leave(LeaveOrganizationRequest request, CancellationToken cancellationToken)
     {
-        var isOwner = await context.OrganizationUsers
+        var member = await context.ActiveOrganizationUsers()
             .Where(x => x.UserId == request.UserId)
             .Where(x => x.OrganizationId == request.OrganizationId)
-            .AnyAsync(x => x.Organization!.OwnerId == x.UserId, cancellationToken);
+            .Select(x => new { x.Id, IsOwner = x.Organization!.OwnerId == x.UserId })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
 
-        if (isOwner)
+        if (member.IsOwner)
             throw new ForbiddenException(ErrorMessages.OwnerAccessCannotBeRevoked);
 
-        await context.OrganizationUsers
-            .Where(x => x.UserId == request.UserId)
-            .Where(x => x.OrganizationId == request.OrganizationId)
-            .DeleteOrThrowNotFoundLinq2DbAsync(
-                "Organization is not found or user is not a participator of organization",
-                cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreOrganizationsService.RemoveMember(member.Id, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task<string> Login(LoginRequest request, CancellationToken cancellationToken)
@@ -225,9 +224,9 @@ public class OrganizationsService(
                 .Select(x => new VisibleUser
                 {
                     UserId = x.UserId,
-                    Initials = x.User!.Initials,
-                    DisplayName = x.User.DisplayName,
-                    Color = x.User.Color,
+                    Initials = x.Initials,
+                    DisplayName = x.DisplayName,
+                    Color = x.Color,
                     IsCurrentUser = x.UserId == request.AuthData.UserId,
                 })
                 .ToArrayAsyncEF(cancellationToken));
@@ -268,7 +267,7 @@ public class OrganizationsService(
         if (!isMember)
             throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
 
-        if (request.Color is not null && !Palette.Contains(request.Color))
+        if (!Palette.Contains(request.Color))
             throw new BadRequestException(
                 nameof(request.Color),
                 string.Format(ErrorMessages.ColorNotInPalette, request.Color));
@@ -364,15 +363,16 @@ public record UpdateMemberProfileRequest
     public OrganizationAuthData AuthData { get; set; }
 
     /// <summary>
-    /// The name to show in this organization; null or blank resets to the default name.
+    /// The name to show in this organization; null or blank takes it from the user's profile again.
     /// </summary>
     [MaxLength(129)]
     public string? DisplayName { get; set; }
 
     /// <summary>
-    /// One of <see cref="UserDto.Palette"/>; null resets to the default color.
+    /// One of <see cref="UserDto.Palette"/>.
     /// </summary>
-    public string? Color { get; set; }
+    [Required]
+    public required string Color { get; set; }
 }
 
 public record JoinOrganizationRequest

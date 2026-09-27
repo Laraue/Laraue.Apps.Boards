@@ -3,6 +3,10 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
+/// <summary>
+/// A user's membership in an organization - also how they're shown there. Kept after the user leaves
+/// or is removed (<see cref="LeftAt"/>), so issues, comments and history still show their name.
+/// </summary>
 public class OrganizationUser
 {
     public long Id { get; set; }
@@ -15,25 +19,34 @@ public class OrganizationUser
     public AdminAccessLevel AdminAccessLevel { get; set; }
 
     /// <summary>
-    /// The member's name in this organization, set by the member themselves. Null means the default
-    /// <see cref="Models.User.DisplayName"/> is shown - read the effective name as
-    /// <c>DisplayName ?? User.DisplayName</c>.
+    /// How the member is shown in this organization. Copied from the user's Laraue.Apps.Identity
+    /// profile when they join (Identity is the source of truth for the profile) and kept from then
+    /// on - a later change of the global profile doesn't touch it; the member can change it here.
     /// </summary>
-    [MaxLength(129)]
-    public string? DisplayName { get; set; }
+    // 257 = Identity's display name limit: given + " " + family name, 128 each.
+    [MaxLength(257)]
+    public string DisplayName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Initials derived from <see cref="DisplayName"/>, set and cleared together with it.
+    /// Initials matching <see cref="DisplayName"/>, set together with it.
     /// </summary>
     [MaxLength(2)]
-    public string? Initials { get; set; }
+    public string Initials { get; set; } = string.Empty;
 
     /// <summary>
-    /// The member's color in this organization, set by the member themselves. Null means the default
-    /// <see cref="Models.User.Color"/> is shown. Independent of <see cref="DisplayName"/>.
+    /// The member's color in this organization - a random palette color on joining, changeable by the
+    /// member.
     /// </summary>
     [MaxLength(7)]
-    public string? Color { get; set; }
+    public string Color { get; set; } = string.Empty;
+
+    /// <summary>
+    /// When the user left or was removed from the organization; null for a current member. A former
+    /// member has no permissions (they're cleared on leaving) and isn't a member for any check - read
+    /// members through <c>ActiveOrganizationUsers()</c>. Joining again brings the row back, with the
+    /// name/color it had.
+    /// </summary>
+    public DateTime? LeftAt { get; set; }
 
     public bool CanRead { get; set; }
     public bool CanManageRetros { get; set; }

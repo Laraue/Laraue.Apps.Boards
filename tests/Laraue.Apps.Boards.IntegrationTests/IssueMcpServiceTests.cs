@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
@@ -48,7 +49,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<ICoreFilesService>(),
             testScope.Services.GetRequiredService<IDateTimeProvider>(),
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
-            new OrganizationHistoryReader(testScope.Database));
+            new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
+            new MemberProfileReader(testScope.Database));
     }
 
     private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)

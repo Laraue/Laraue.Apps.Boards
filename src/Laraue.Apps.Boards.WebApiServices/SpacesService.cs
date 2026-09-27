@@ -144,9 +144,9 @@ public class SpacesService(
                 .Select(x => new SpaceMember
                 {
                     UserId = x.UserId,
-                    Initials = x.User!.Initials,
-                    DisplayName = x.User.DisplayName,
-                    Color = x.User.Color,
+                    Initials = x.Initials,
+                    DisplayName = x.DisplayName,
+                    Color = x.Color,
                     IsCurrentUser = x.UserId == request.AuthData.UserId,
                 })
                 .ToArrayAsyncEF(cancellationToken));

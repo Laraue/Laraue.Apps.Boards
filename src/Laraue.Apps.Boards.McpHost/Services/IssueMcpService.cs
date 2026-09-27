@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Core.DataAccess.Contracts;
@@ -366,7 +367,8 @@ public class IssueMcpService(
     ICoreFilesService coreFilesService,
     IDateTimeProvider dateTimeProvider,
     IIssueUrlBuilder issueUrlBuilder,
-    IOrganizationHistoryReader historyReader)
+    IOrganizationHistoryReader historyReader,
+    IMemberProfileReader memberProfileReader)
     : IIssueMcpService
 {
     private const int MaxResults = 50;
@@ -405,9 +407,15 @@ public class IssueMcpService(
                     i.IssueNumber.Number,
                     i.Content,
                     Status = i.Status!.Name,
-                    Assignee = i.Assignee!.DisplayName,
+                    Assignee = new EnrichableUser(i.AssigneeId),
                 })
                 .ShortPaginateEFAsync(pagination, cancellationToken);
+
+            await memberProfileReader.EnrichUsers(
+                authData.OrganizationId,
+                result.Data
+                    .Select(x => x.Assignee),
+                cancellationToken);
 
             // Permissions are space-scoped (see IAccessService), so every issue in the same space
             // shares the same CanEdit/CanDelete - one batched query per permission across just the
@@ -443,7 +451,7 @@ public class IssueMcpService(
                     issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, new IssueKey(x.SpaceKey, x.Number)),
                     ContentSnippet(x.Content),
                     x.Status,
-                    x.Assignee,
+                    x.Assignee.DisplayName,
                     spaceKeysWithUpdate.Contains(x.SpaceKey),
                     spaceKeysWithDelete.Contains(x.SpaceKey)))
                 .ToList();
@@ -471,7 +479,7 @@ public class IssueMcpService(
             {
                 i.Content,
                 StatusName = i.Status!.Name,
-                AssigneeName = i.Assignee!.DisplayName,
+                Assignee = new EnrichableUser(i.AssigneeId),
                 i.CreatedAt,
                 i.UpdatedAt,
             })
@@ -486,13 +494,17 @@ public class IssueMcpService(
             .ToListAsyncEF(cancellationToken);
 
         var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
+        await memberProfileReader.EnrichUsers(
+            authData.OrganizationId,
+            [issue.Assignee],
+            cancellationToken);
 
         return new IssueDetail(
             key.ToString(),
             issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
             issue.Content,
             issue.StatusName,
-            issue.AssigneeName,
+            issue.Assignee.DisplayName,
             accessLevels.CanUpdateIssue,
             accessLevels.CanDeleteIssue,
             issue.CreatedAt,
@@ -522,7 +534,7 @@ public class IssueMcpService(
             PerPage = Math.Clamp(count ?? MaxResults, 1, MaxResults),
         };
 
-        var history = await historyReader.GetIssueHistory(issueId, key.ToString(), pagination, cancellationToken);
+        var history = await historyReader.GetIssueHistory(authData.OrganizationId, issueId, key.ToString(), pagination, cancellationToken);
 
         var entries = history.Data
             .Select(x => new IssueHistoryEntry(
@@ -587,19 +599,38 @@ public class IssueMcpService(
         var result = await context.ActiveIssueComments()
             .Where(c => c.IssueId == issueId)
             .OrderBy(c => c.Id)
-            .Select(c => new IssueCommentSummary(
+            .Select(c => new
+            {
                 c.Id,
-                c.Owner!.DisplayName,
+                c.OwnerId,
+                Author = new EnrichableUser(c.OwnerId),
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,
-                c.Attachments
+                Attachments = c.Attachments
                     .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
                     .ToList(),
-                c.OwnerId == authData.UserId))
+            })
             .ShortPaginateEFAsync(pagination, cancellationToken);
 
-        return new IssueCommentPage(result.Data.ToList(), result.Page, result.HasNextPage);
+        await memberProfileReader.EnrichUsers(
+            authData.OrganizationId,
+            result.Data
+                .Select(c => c.Author),
+            cancellationToken);
+
+        var comments = result.Data
+            .Select(c => new IssueCommentSummary(
+                c.Id,
+                c.Author.DisplayName,
+                c.Text,
+                c.CreatedAt,
+                c.UpdatedAt,
+                c.Attachments,
+                c.OwnerId == authData.UserId))
+            .ToList();
+
+        return new IssueCommentPage(comments, result.Page, result.HasNextPage);
     }
 
     public async Task EditIssueStatus(
@@ -753,7 +784,7 @@ public class IssueMcpService(
         return accessService.GetOrganizations(authData.UserId, organizationUsers => organizationUsers
             .Where(x => x.OrganizationId == authData.OrganizationId)
             .Select(x => new MeInfo(
-                new MeUser(x.UserId, x.User!.DisplayName),
+                new MeUser(x.UserId, x.DisplayName),
                 new MeOrganization(
                     x.Organization!.Id,
                     x.Organization.Name,
@@ -857,7 +888,7 @@ public class IssueMcpService(
         return await accessService.GetVisibleUsers(
             spaceIds,
             query => query
-                .Select(x => new MemberSummary(x.UserId, x.User!.DisplayName))
+                .Select(x => new MemberSummary(x.UserId, x.DisplayName))
                 .ToListAsyncEF(cancellationToken));
     }
 

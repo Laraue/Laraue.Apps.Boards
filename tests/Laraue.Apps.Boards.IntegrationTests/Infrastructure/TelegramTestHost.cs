@@ -89,6 +89,9 @@ public class AppTelegramTestHost(IServiceCollection serviceCollection)
             var initials = new UserInitials(user.DisplayName.Length > 0 ? user.DisplayName : null, null, null);
             user.DisplayName = initials.DisplayName;
             user.Initials = initials.Initials;
+            if (user.GlobalUserId == Guid.Empty)
+                user.GlobalUserId = Guid.NewGuid();
+            TestIdentityProfiles.Set(user.GlobalUserId, user.DisplayName, user.Initials);
 
             Database.Users.Add(user);
         

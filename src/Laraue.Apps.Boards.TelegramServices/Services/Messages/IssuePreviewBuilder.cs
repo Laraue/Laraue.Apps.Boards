@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,7 @@ public interface IIssuePreviewBuilder
 public class IssuePreviewBuilder(
     DatabaseContext context,
     IIssueUrlBuilder issueUrlBuilder,
+    IMemberProfileReader memberProfileReader,
     ILogger<IssuePreviewBuilder> logger)
     : IIssuePreviewBuilder
 {
@@ -33,14 +35,20 @@ public class IssuePreviewBuilder(
                 OrganizationSlugPostfix = x.IssueNumber.Space.Organization!.SlugPostfix,
                 x.Content,
                 ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
-                SenderName = x.TelegramMessage != null && x.TelegramMessage.Sender != null
-                    ? x.TelegramMessage.Sender.DisplayName
-                    : null,
+                x.IssueNumber.Space.OrganizationId,
+                SenderId = x.TelegramMessage != null ? x.TelegramMessage.SenderId : null,
                 SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
             .FirstAsyncEF(cancellationToken);
 
         var url = issueUrlBuilder.Build(issueData.OrganizationSlug, issueData.OrganizationSlugPostfix, issueData.Key);
+
+        var sender = issueData.SenderId is { } senderId ? new EnrichableUser(senderId) : null;
+        if (sender is not null)
+            await memberProfileReader.EnrichUsers(
+                issueData.OrganizationId,
+                [sender],
+                cancellationToken);
 
         string text;
         try
@@ -50,7 +58,7 @@ public class IssuePreviewBuilder(
                 searchText: string.Empty,
                 IssuePreviewFormatter.FragmentContextChars);
 
-            var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, issueData.SenderName, issueData.SentAt);
+            var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, sender?.DisplayName, issueData.SentAt);
 
             text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" + fragment.ToMarkdownV2();
             if (footer is not null)

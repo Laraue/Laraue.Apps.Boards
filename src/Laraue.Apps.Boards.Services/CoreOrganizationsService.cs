@@ -1,6 +1,9 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Identity;
+using Laraue.Apps.Boards.Services.Members;
+using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
@@ -30,14 +33,31 @@ public interface ICoreOrganizationsService
         Guid deleterId,
         CancellationToken cancellationToken);
     
+    /// <summary>
+    /// Whether the user is a current member (see <see cref="OrganizationUser.LeftAt"/>).
+    /// </summary>
     Task<bool> HasMember(
         long organizationId,
         Guid userId,
         CancellationToken cancellationToken);
     
+    /// <summary>
+    /// Adds the user as a member with no permissions. A former member gets their row back, with the
+    /// name/color they had; a new one is shown by their Laraue.Apps.Identity profile. Calls Identity,
+    /// so call it outside a transaction.
+    /// </summary>
     Task<long> AddMember(
         long organizationId,
         Guid userId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Makes the member a former member (<see cref="OrganizationUser.LeftAt"/>): clears their
+    /// organization-wide and space permissions, keeping the row so their name is still shown. Must be
+    /// called within a transaction.
+    /// </summary>
+    Task RemoveMember(
+        long organizationUserId,
         CancellationToken cancellationToken);
     
     Task<long?> GetOrganizationIdByJoinCode(
@@ -62,11 +82,16 @@ public interface ICoreOrganizationsService
         Guid userId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sets how the member is shown in the organization, with initials derived from
+    /// <paramref name="displayName"/>. A null <paramref name="displayName"/> takes the name and initials
+    /// from the user's Laraue.Apps.Identity profile again, so call it outside a transaction.
+    /// </summary>
     Task UpdateMemberProfile(
         long organizationId,
         Guid userId,
         string? displayName,
-        string? color,
+        string color,
         CancellationToken cancellationToken);
     
     Task<long> CreateAttribute(
@@ -91,7 +116,8 @@ public interface ICoreOrganizationsService
 
 public class CoreOrganizationsService(
     DatabaseContext context,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    UserIdentityService.UserIdentityServiceClient identityClient)
     : ICoreOrganizationsService
 {
     public async Task<CreateOrganizationResponse> Create(
@@ -101,6 +127,7 @@ public class CoreOrganizationsService(
         string color,
         CancellationToken cancellationToken)
     {
+        var ownerProfile = await GetNewMemberProfileAsync(ownerId, cancellationToken);
         var timestamp = dateTimeProvider.UtcNow;
 
         var entity = OrganizationDefaults.GetNewOrganizationEntity(
@@ -109,7 +136,8 @@ public class CoreOrganizationsService(
             name,
             color,
             timestamp,
-            isPersonal: false);
+            isPersonal: false,
+            ownerProfile);
 
         context.Organizations.Add(entity);
         await context.SaveChangesAsync(cancellationToken);
@@ -204,7 +232,7 @@ public class CoreOrganizationsService(
 
     public Task<bool> HasMember(long organizationId, Guid userId, CancellationToken cancellationToken)
     {
-        return context.OrganizationUsers
+        return context.ActiveOrganizationUsers()
             .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.UserId == userId)
             .AnyAsyncEF(cancellationToken);
@@ -212,10 +240,28 @@ public class CoreOrganizationsService(
 
     public async Task<long> AddMember(long organizationId, Guid userId, CancellationToken cancellationToken)
     {
+        var formerMemberId = await context.OrganizationUsers
+            .Where(x => x.OrganizationId == organizationId && x.UserId == userId)
+            .Select(x => (long?)x.Id)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (formerMemberId is not null)
+        {
+            await context.OrganizationUsers
+                .Where(x => x.Id == formerMemberId)
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.LeftAt, (DateTime?)null), cancellationToken);
+
+            return formerMemberId.Value;
+        }
+
+        var profile = await GetNewMemberProfileAsync(userId, cancellationToken);
         var user = new OrganizationUser
         {
             OrganizationId = organizationId,
             UserId = userId,
+            DisplayName = profile.DisplayName,
+            Initials = profile.Initials,
+            Color = profile.Color,
         };
         
         context.OrganizationUsers.Add(user);
@@ -223,6 +269,45 @@ public class CoreOrganizationsService(
         await context.SaveChangesAsync(cancellationToken);
 
         return user.Id;
+    }
+
+    public async Task RemoveMember(long organizationUserId, CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        await context.DirectSpacePermissions
+            .Where(x => x.OrganizationUserId == organizationUserId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var leftAt = dateTimeProvider.UtcNow;
+        await context.OrganizationUsers
+            .Where(x => x.Id == organizationUserId)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(x => x.LeftAt, leftAt)
+                    .SetProperty(x => x.AdminAccessLevel, AdminAccessLevel.None)
+                    .SetProperty(x => x.CanRead, false)
+                    .SetProperty(x => x.CanManageRetros, false)
+                    .SetProperty(x => x.CanCreateSpaces, false)
+                    .SetProperty(x => x.CanUpdateSpaces, false)
+                    .SetProperty(x => x.CanDeleteSpaces, false)
+                    .SetProperty(x => x.CanCreateEpics, false)
+                    .SetProperty(x => x.CanUpdateEpics, false)
+                    .SetProperty(x => x.CanDeleteEpics, false)
+                    .SetProperty(x => x.CanCreateIssues, false)
+                    .SetProperty(x => x.CanUpdateIssues, false)
+                    .SetProperty(x => x.CanDeleteIssues, false),
+                cancellationToken);
+    }
+
+    private async Task<MemberProfile> GetNewMemberProfileAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var globalUserId = await context.Users
+            .Where(x => x.Id == userId)
+            .Select(x => x.GlobalUserId)
+            .FirstAsyncEF(cancellationToken);
+
+        return await identityClient.GetNewMemberProfileAsync(globalUserId, cancellationToken);
     }
 
     public async Task<long?> GetOrganizationIdByJoinCode(string code, CancellationToken cancellationToken)
@@ -407,19 +492,21 @@ public class CoreOrganizationsService(
         long organizationId,
         Guid userId,
         string? displayName,
-        string? color,
+        string color,
         CancellationToken cancellationToken)
     {
-        var initials = displayName is null ? null : UserInitials.FromDisplayName(displayName);
+        var profile = displayName is null
+            ? await GetNewMemberProfileAsync(userId, cancellationToken) with { Color = color }
+            : new MemberProfile(displayName, UserInitials.FromDisplayName(displayName), color);
 
         await context.OrganizationUsers
             .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.UserId == userId)
             .ExecuteUpdateAsync(
                 update => update
-                    .SetProperty(x => x.DisplayName, displayName)
-                    .SetProperty(x => x.Initials, initials)
-                    .SetProperty(x => x.Color, color),
+                    .SetProperty(x => x.DisplayName, profile.DisplayName)
+                    .SetProperty(x => x.Initials, profile.Initials)
+                    .SetProperty(x => x.Color, profile.Color),
                 cancellationToken);
     }
 
