@@ -1,5 +1,6 @@
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
@@ -102,6 +103,14 @@ public interface IIssueMcpService
     Task DeleteIssue(
         OrganizationAuthData authData,
         string issueKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Who the API key acts as: the user, their connected sign-in accounts, the key's own name, and
+    /// the organization with the user's organization-wide permissions there.
+    /// </summary>
+    Task<CurrentUser> GetCurrentUser(
+        OrganizationAuthData authData,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -259,6 +268,41 @@ public sealed record SpaceSummary(string Key, string Name, bool CanCreateIssue);
 public sealed record StatusSummary(long Id, string Name);
 
 public sealed record EpicStatusSummary(string EpicName, IReadOnlyList<StatusSummary> Statuses);
+
+/// <summary>
+/// The caller, as returned by <see cref="IIssueMcpService.GetCurrentUser"/>. <see cref="Id"/> is the
+/// same id <see cref="IIssueMcpService.ListIssues"/>'s <c>assigneeId</c> takes, so a caller can filter by
+/// its own issues without <see cref="IIssueMcpService.ListMembers"/>.
+/// </summary>
+public sealed record CurrentUser(
+    Guid Id,
+    string DisplayName,
+    bool HasTelegramAccount,
+    bool HasGoogleAccount,
+    string? ApiKeyName,
+    CurrentOrganization Organization);
+
+public sealed record CurrentOrganization(long Id, string Name, bool IsPersonal, OrganizationPermissions Permissions);
+
+/// <summary>
+/// The caller's <b>organization-wide</b> permissions (<c>OrganizationUser</c>). A space-level grant can
+/// allow more in one specific space - <see cref="SpaceSummary.CanCreateIssue"/> and each issue's
+/// canEdit/canDelete are the effective per-space answer. <see cref="Admin"/> lists the administrative
+/// permissions (<see cref="AdminAccessLevel"/> flag names, e.g. "ManageAttributes").
+/// </summary>
+public sealed record OrganizationPermissions(
+    bool CanRead,
+    bool CanCreateSpaces,
+    bool CanUpdateSpaces,
+    bool CanDeleteSpaces,
+    bool CanCreateEpics,
+    bool CanUpdateEpics,
+    bool CanDeleteEpics,
+    bool CanCreateIssues,
+    bool CanUpdateIssues,
+    bool CanDeleteIssues,
+    bool CanManageRetros,
+    IReadOnlyList<string> Admin);
 
 /// <summary>An organization member, as returned by <see cref="IIssueMcpService.ListMembers"/> -
 /// its <see cref="Id"/> is what <see cref="IIssueMcpService.ListIssues"/>'s <c>assigneeId</c> and
@@ -574,6 +618,75 @@ public class IssueMcpService(
 
         if (!userExists)
             throw new NotFoundException(string.Format(ErrorMessages.UserNotBelongsToOrganization, userId));
+    }
+
+    public async Task<CurrentUser> GetCurrentUser(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var membership = await accessService.GetOrganizations(authData.UserId, organizationUsers => organizationUsers
+            .Where(x => x.OrganizationId == authData.OrganizationId)
+            .Select(x => new
+            {
+                x.Organization!.Id,
+                x.Organization.Name,
+                IsPersonal = x.Organization.Type == OrganizationType.Personal,
+                x.User!.DisplayName,
+                HasTelegramAccount = x.User.TelegramId != null,
+                HasGoogleAccount = x.User.GoogleSubject != null,
+                x.CanRead,
+                x.CanCreateSpaces,
+                x.CanUpdateSpaces,
+                x.CanDeleteSpaces,
+                x.CanCreateEpics,
+                x.CanUpdateEpics,
+                x.CanDeleteEpics,
+                x.CanCreateIssues,
+                x.CanUpdateIssues,
+                x.CanDeleteIssues,
+                x.CanManageRetros,
+                x.AdminAccessLevel,
+            })
+            .FirstOrThrowNotFoundEFAsync(
+                string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Organization", authData.OrganizationId),
+                cancellationToken));
+
+        var apiKeyName = authData.ApiKeyId is { } apiKeyId
+            ? await context.ApiKeys
+                .Where(x => x.Id == apiKeyId)
+                .Select(x => x.Name)
+                .FirstOrDefaultAsyncEF(cancellationToken)
+            : null;
+
+        var admin = Enum.GetValues<AdminAccessLevel>()
+            .Where(x => x is not AdminAccessLevel.None and not AdminAccessLevel.All
+                && membership.AdminAccessLevel.HasFlag(x))
+            .Select(x => x.ToString())
+            .ToList();
+
+        return new CurrentUser(
+            authData.UserId,
+            membership.DisplayName,
+            membership.HasTelegramAccount,
+            membership.HasGoogleAccount,
+            apiKeyName,
+            new CurrentOrganization(
+                membership.Id,
+                membership.Name,
+                membership.IsPersonal,
+                new OrganizationPermissions(
+                    membership.CanRead,
+                    membership.CanCreateSpaces,
+                    membership.CanUpdateSpaces,
+                    membership.CanDeleteSpaces,
+                    membership.CanCreateEpics,
+                    membership.CanUpdateEpics,
+                    membership.CanDeleteEpics,
+                    membership.CanCreateIssues,
+                    membership.CanUpdateIssues,
+                    membership.CanDeleteIssues,
+                    membership.CanManageRetros,
+                    admin)));
     }
 
     public async Task<IReadOnlyList<SpaceSummary>> ListSpaces(

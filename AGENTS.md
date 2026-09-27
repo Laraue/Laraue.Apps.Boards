@@ -583,7 +583,11 @@ that needs to see exactly what a client receives.
 
 Tools: `list_issues`/`get_issue`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
 `create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools
-`list_spaces`/`list_statuses`/`list_attributes`/`list_members`. Each maps to the REST API's own
+`get_current_user`/`list_spaces`/`list_statuses`/`list_attributes`/`list_members`.
+`get_current_user` returns only **organization-wide** permissions (`OrganizationUser`, read through
+`IAccessService.GetOrganizations` like REST's `OrganizationsService.GetOrganization`) - space-level
+grants can add more in one space, which `list_spaces`' `canCreateIssue` and each issue's
+`canEdit`/`canDelete` already reflect, so its description points there for the effective answer. Each maps to the REST API's own
 permission check (`CanCreateIssue` off the target status's epic, `CanUpdateIssue` for
 edits/comments, `CanDeleteIssue` for delete, owner-only for editing/deleting a comment). Design
 guardrails worth preserving:

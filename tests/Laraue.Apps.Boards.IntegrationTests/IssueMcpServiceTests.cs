@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using System.Text;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
@@ -97,6 +98,59 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal(ownerDisplayName, issue.Assignee);
         Assert.False(ownerIssues.HasNextPage);
         Assert.Empty(memberIssues.Issues);
+    }
+
+    [Fact]
+    public async Task GetCurrentUser_ShouldReturnUserOrganizationAndPermissions_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser(user => user.DisplayName = "Ada");
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder
+                .SetGlobalAccessLevel(x =>
+                {
+                    x.CanRead = true;
+                    x.CanCreateIssues = true;
+                })
+                .SetAdminAccessLevel(AdminAccessLevel.ManageAttributes | AdminAccessLevel.ViewBilling)));
+        var organizationName = await testScope.Database.Organizations
+            .Where(x => x.Id == organization.Id)
+            .Select(x => x.Name)
+            .SingleAsync();
+
+        var currentUser = await CreateIssueMcpService(testScope).GetCurrentUser(
+            AuthDataFor(organization.Id, memberId), CancellationToken.None);
+
+        Assert.Equal(memberId, currentUser.Id);
+        Assert.Equal("Ada", currentUser.DisplayName);
+        Assert.True(currentUser.HasTelegramAccount);
+        Assert.False(currentUser.HasGoogleAccount);
+        Assert.Null(currentUser.ApiKeyName);
+        Assert.Equal(organization.Id, currentUser.Organization.Id);
+        Assert.Equal(organizationName, currentUser.Organization.Name);
+        Assert.False(currentUser.Organization.IsPersonal);
+        var permissions = currentUser.Organization.Permissions;
+        Assert.True(permissions.CanRead);
+        Assert.True(permissions.CanCreateIssues);
+        Assert.False(permissions.CanUpdateIssues);
+        Assert.False(permissions.CanCreateSpaces);
+        Assert.Equal(["ManageAttributes", "ViewBilling"], permissions.Admin);
+    }
+
+    [Fact]
+    public async Task GetCurrentUser_ShouldReturnApiKeyName_WhenCalledThroughApiKey()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organization.Id, ownerId, "Claude", CancellationToken.None);
+
+        var currentUser = await CreateIssueMcpService(testScope).GetCurrentUser(
+            AuthDataFor(organization.Id, ownerId, apiKey.Id), CancellationToken.None);
+
+        Assert.Equal("Claude", currentUser.ApiKeyName);
     }
 
     [Fact]

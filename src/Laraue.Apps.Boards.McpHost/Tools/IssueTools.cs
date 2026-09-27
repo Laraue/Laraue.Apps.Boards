@@ -86,6 +86,13 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
+    [Description("Returns who you act as: your user id (usable as list_issues' assigneeId to find your own issues), display name, connected sign-in accounts, this API key's name, and the organization with your organization-wide permissions (create/update/delete spaces, epics and issues, plus administrative ones). Space-level grants can allow more in specific spaces - check list_spaces' canCreateIssue and each issue's canEdit/canDelete for the effective answer.")]
+    public Task<CurrentUser> GetCurrentUser(CancellationToken cancellationToken)
+    {
+        return issueMcpService.GetCurrentUser(GetAuthData(), cancellationToken);
+    }
+
+    [McpServerTool]
     [Description("Lists the spaces available to the caller - the keys list_issues' spaceKey filter and list_statuses accept. Each space's canCreateIssue reflects the caller's actual permission there.")]
     public Task<IReadOnlyList<SpaceSummary>> ListSpaces(CancellationToken cancellationToken)
     {
