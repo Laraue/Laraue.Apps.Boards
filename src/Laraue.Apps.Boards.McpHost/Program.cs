@@ -52,7 +52,8 @@ public sealed class Program
             .AddMcpServer(options => options.ServerInstructions = McpServerInstructions.Text)
             .WithHttpTransport()
             .WithToolsFromAssembly()
-            .WithRequestFilters(filters => filters.AddCallToolFilter(HttpExceptionToolFilter.Create));
+            .WithRequestFilters(filters => filters.AddCallToolFilter(McpToolCallFilter.Create));
+        builder.Services.AddSingleton<McpToolMetrics>();
 
         // Tools resolve the caller's OrganizationAuthData off the current request's
         // ClaimsPrincipal (see IssueTools.GetAuthData) the same way a controller does.
@@ -63,6 +64,7 @@ public sealed class Program
         builder.Services
             .AddOpenTelemetry()
             .WithMetrics(metrics => metrics
+                .AddMeter(McpToolMetrics.SdkMeterName, McpToolMetrics.MeterName)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()

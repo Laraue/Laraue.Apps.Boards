@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using Laraue.Core.Exceptions.Web;
 using ModelContextProtocol.Protocol;
@@ -12,10 +13,12 @@ namespace Laraue.Apps.Boards.McpHost;
 /// as an unhandled error. This filter turns our expected <see cref="HttpException"/>s (not found,
 /// forbidden, bad request, ...) into an error result carrying the message and field errors, so the
 /// client can tell what went wrong and correct itself. Any other exception still takes the SDK's path.
+/// It also records every call's duration and outcome per tool (<see cref="McpToolMetrics"/>) - the one
+/// place that sees both the tool name and how the call ended.
 /// </summary>
-public sealed class HttpExceptionToolFilter
+public sealed class McpToolCallFilter
 {
-    private HttpExceptionToolFilter()
+    private McpToolCallFilter()
     {
     }
 
@@ -24,13 +27,22 @@ public sealed class HttpExceptionToolFilter
     {
         return async (context, cancellationToken) =>
         {
+            var metrics = context.Services?.GetService<McpToolMetrics>();
+            var startedAt = Stopwatch.GetTimestamp();
+            var status = McpToolMetrics.StatusUnhandled;
+
             try
             {
-                return await next(context, cancellationToken);
+                var result = await next(context, cancellationToken);
+                status = McpToolMetrics.StatusOk;
+
+                return result;
             }
             catch (HttpException exception)
             {
-                context.Services?.GetService<ILogger<HttpExceptionToolFilter>>()?.Log(
+                status = ((int)exception.StatusCode).ToString();
+
+                context.Services?.GetService<ILogger<McpToolCallFilter>>()?.Log(
                     exception.StatusCode >= HttpStatusCode.InternalServerError ? LogLevel.Warning : LogLevel.Information,
                     "Tool {ToolName} returned {StatusCode}: {Message}",
                     context.Params?.Name,
@@ -42,6 +54,10 @@ public sealed class HttpExceptionToolFilter
                     IsError = true,
                     Content = [new TextContentBlock { Text = ToText(exception) }],
                 };
+            }
+            finally
+            {
+                metrics?.RecordToolCall(context.Params?.Name, status, Stopwatch.GetElapsedTime(startedAt));
             }
         };
     }

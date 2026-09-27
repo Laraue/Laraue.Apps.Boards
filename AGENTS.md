@@ -590,7 +590,7 @@ issues only - like every MCP tool, a deleted issue's key isn't found.
 **Issue links:** `list_issues`/`get_issue` return each issue's `url` (its page in the web app), built by
 `IIssueUrlBuilder` (`Boards.Services`, shared with the Telegram previews - one place owns the URL format).
 
-**Tool errors** go through `HttpExceptionToolFilter` (a call-tool filter registered in `Program.cs`),
+**Tool errors** go through `McpToolCallFilter` (a call-tool filter registered in `Program.cs`),
 the MCP counterpart of WebApiHost's `ExceptionHandleMiddleware`. Without it the SDK turns *any* tool
 exception into a bare `An error occurred invoking '<tool>'.` and logs it as an unhandled error -
 middleware can't help, since a tool's exception never leaves the MCP request (HTTP 200 either way). The
@@ -601,6 +601,17 @@ takes the SDK's generic path. So throw the same `HttpException`s as REST - the m
 client. `McpToolErrorTests` covers this through a real MCP client (`McpClient` over `McpHostTestHost`,
 authenticated with an API key created in the test database) - the pattern to follow for any future test
 that needs to see exactly what a client receives.
+
+**Metrics** (`/_metrics`, Prometheus): besides the usual ASP.NET/HTTP/runtime ones - useless for MCP on
+their own, since every call is the same `POST /mcp` answering 200 - McpHost exports the MCP SDK's meter
+(`Experimental.ModelContextProtocol`: `mcp_server_operation_duration_seconds` per MCP method, with
+`error_type="tool_error"` on failed tool calls; `mcp_server_session_duration_seconds`) and its own
+`boards_mcp_tool_duration_seconds{tool, status}` (`McpToolMetrics`, recorded by `McpToolCallFilter`). The
+SDK's metrics don't say *which* tool was called - only our histogram does; `status` is `ok`, the HTTP
+status code of an expected error, or `unhandled`. The SDK meter's name is marked experimental and may
+change with an SDK upgrade - check dashboards when bumping `ModelContextProtocol`. `McpMetricsTests`
+scrapes `/_metrics` after real calls; meters are observed process-wide, so tests assert a series exists,
+not an exact count.
 
 Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
 `create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools

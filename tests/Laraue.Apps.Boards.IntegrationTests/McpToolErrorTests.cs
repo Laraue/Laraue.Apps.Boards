@@ -9,7 +9,7 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 
 /// <summary>
 /// Calls tools through a real MCP client against McpHost, to check what a client actually receives when
-/// a tool fails (see <see cref="HttpExceptionToolFilter"/>). Data is seeded through the Boards
+/// a tool fails (see <see cref="McpToolCallFilter"/>). Data is seeded through the Boards
 /// <see cref="WebApiTestHost"/>, which shares the test database.
 /// </summary>
 [Collection("IntegrationTest")]
@@ -86,18 +86,7 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
         var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
             .CreateAsync(organizationId, userId, "Test key", CancellationToken.None);
 
-        var httpClient = mcpHost.CreateClient();
-        var transport = new HttpClientTransport(
-            new HttpClientTransportOptions
-            {
-                Endpoint = new Uri(httpClient.BaseAddress!, "mcp"),
-                TransportMode = HttpTransportMode.StreamableHttp,
-                AdditionalHeaders = new Dictionary<string, string> { ["X-Api-Key"] = apiKey.RawKey },
-            },
-            httpClient,
-            ownsHttpClient: true);
-
-        return await McpClient.CreateAsync(transport);
+        return await mcpHost.ConnectMcpClientAsync(apiKey.RawKey);
     }
 
     private static string GetText(CallToolResult result)
