@@ -453,7 +453,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var comments = await mcpService.ListIssueComments(authData, issueData.Key, null, null, CancellationToken.None);
         var attachment = Assert.Single(Assert.Single(comments.Comments).Attachments);
 
-        var content = await mcpService.GetAttachmentContent(authData, attachment.Id, CancellationToken.None);
+        var content = await mcpService.GetAttachmentContent(attachment.Id, CancellationToken.None);
 
         await using var stream = content.Content;
         using var memoryStream = new MemoryStream();
@@ -1344,8 +1344,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
         var attachmentId = Assert.Single(detail.Attachments).Id;
 
-        var content = await mcpService.GetAttachmentContent(
-            AuthDataFor(organization.Id, ownerId), attachmentId, CancellationToken.None);
+        var content = await mcpService.GetAttachmentContent(attachmentId, CancellationToken.None);
 
         await using var stream = content.Content;
         using var memoryStream = new MemoryStream();
@@ -1394,39 +1393,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId);
 
-        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).GetAttachmentContent(
-            AuthDataFor(organization.Id, ownerId), Guid.NewGuid(), CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task GetAttachmentContent_ShouldThrow_WhenCallerCannotReadIssue()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var memberId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = false))
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-
-        var issueData = organization.GetIssueData(0, 0, 0, 0);
-        var mcpService = CreateIssueMcpService(testScope);
-
-        await mcpService.EditIssue(
-            AuthDataFor(organization.Id, ownerId),
-            issueData.Key,
-            "Fix the thing",
-            null,
-            null,
-            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
-            null,
-            CancellationToken.None);
-
-        var detail = await mcpService.GetIssue(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
-        var attachmentId = Assert.Single(detail.Attachments).Id;
-
-        await Assert.ThrowsAsync<NotFoundException>(() => mcpService.GetAttachmentContent(
-            AuthDataFor(organization.Id, memberId), attachmentId, CancellationToken.None));
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).GetAttachmentContent(Guid.NewGuid(), CancellationToken.None));
     }
 
     [Fact]
@@ -1464,8 +1431,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .Where(x => x.Id == fileId)
             .ExecuteUpdateAsync(x => x.SetProperty(f => f.Size, SystemMimeTypes.MaxFileSizeBytes + 1));
 
-        await Assert.ThrowsAsync<BadRequestException>(() => mcpService.GetAttachmentContent(
-            AuthDataFor(organization.Id, ownerId), attachmentId, CancellationToken.None));
+        await Assert.ThrowsAsync<BadRequestException>(() => mcpService.GetAttachmentContent(attachmentId, CancellationToken.None));
     }
 
     [Fact]

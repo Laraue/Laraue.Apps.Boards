@@ -180,13 +180,12 @@ public interface IIssueMcpService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Reads an issue attachment's original file content, by the id <see cref="GetIssue"/>'s
-    /// <c>Attachments</c> already exposes (the same one <c>removeAttachmentIds</c> takes) - not a
-    /// separate file id, so there's only ever one id per attachment for a caller to track.
-    /// Permission is checked against the attachment's own issue, same as <see cref="GetIssue"/>.
+    /// Reads an attachment's original file content (an issue's or a comment's), by the id
+    /// <see cref="GetIssue"/>/<see cref="ListIssueComments"/> expose - not a separate file id, so there's
+    /// only ever one id per attachment for a caller to track. No permission check, same as REST's file
+    /// endpoint: the id is an unguessable GUID the caller could only have got from something they can read.
     /// </summary>
     Task<FileContent> GetAttachmentContent(
-        OrganizationAuthData authData,
         Guid attachmentId,
         CancellationToken cancellationToken);
 
@@ -1035,23 +1034,15 @@ public class IssueMcpService(
     }
 
     public async Task<FileContent> GetAttachmentContent(
-        OrganizationAuthData authData,
         Guid attachmentId,
         CancellationToken cancellationToken)
     {
-        // An attachment belongs either to the issue itself or to one of its comments - either way
-        // it's readable exactly when the issue is.
-        var attachmentData = await context.IssueAttachments
-            .Where(x => x.AttachmentId == attachmentId)
-            .Select(x => new { x.IssueId, FileId = x.Attachment!.FileId, FileSize = x.Attachment.File!.Size })
-            .Concat(context.IssueCommentsAttachments
-                .Where(x => x.AttachmentId == attachmentId && x.Comment!.DeletedAt == null)
-                .Select(x => new { x.Comment!.IssueId, FileId = x.Attachment!.FileId, FileSize = x.Attachment.File!.Size }))
+        // No permission check, same as REST's GET /api/files/{id}: the id is an unguessable GUID that a
+        // caller only learns from get_issue/list_issue_comments, i.e. from something they could already read.
+        var attachmentData = await context.Attachments
+            .Where(x => x.Id == attachmentId)
+            .Select(x => new { x.FileId, FileSize = x.File!.Size })
             .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Attachment", attachmentId), cancellationToken);
-
-        await accessService.GetAccessLevelsByIssueId(authData, attachmentData.IssueId, includeDeleted: false, cancellationToken)
-            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", attachmentData.IssueId))
-            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", attachmentData.IssueId, "read"));
 
         // Uploads are already capped at SystemMimeTypes.MaxFileSizeBytes (see UploadFiles below),
         // but this guards against a legacy/otherwise-larger file predating that cap - reject it

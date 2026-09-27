@@ -578,9 +578,11 @@ block's `Data` is the *base64-encoded* bytes, so assigning raw bytes to it sends
 **Comments are not part of `get_issue`** - it returns only `commentCount`; `list_issue_comments` pages
 through them (oldest first, same page/count/hasNextPage shape as `list_issues`), with each comment's own
 attachments. A long discussion used to bloat every issue read. This split was a breaking change for
-connected clients (BRD-230), accepted like the earlier tool renames. `get_attachment` resolves an
-attachment id from either the issue's attachments or a (non-deleted) comment's - both readable exactly
-when the issue is.
+connected clients (BRD-230), accepted like the earlier tool renames. `get_attachment` takes any
+attachment id (an issue's or a comment's) and does **no permission check** - the same capability model as
+REST's `GET /api/files/{id}` (which isn't even authenticated): attachment/file ids are unguessable GUIDs
+(UUIDv7, 74 random bits) that a caller only learns from something it can already read. Consequence to keep
+in mind: an id stays usable after the caller loses access to the issue.
 
 **`get_issue_history`** reads through the shared `OrganizationHistoryReader` (see "Service layering") and
 flattens each change into a readable line (`status: To Do -> Done`, `attachment added: x.png`; content

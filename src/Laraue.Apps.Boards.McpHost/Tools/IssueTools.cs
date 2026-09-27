@@ -152,7 +152,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("The attachment's id, from get_issue or list_issue_comments.")] Guid attachmentId,
         CancellationToken cancellationToken)
     {
-        var content = await issueMcpService.GetAttachmentContent(GetAuthData(), attachmentId, cancellationToken);
+        var content = await issueMcpService.GetAttachmentContent(attachmentId, cancellationToken);
         await using var stream = content.Content;
 
         var bytes = await ReadBoundedAsync(stream, SystemMimeTypes.MaxFileSizeBytes, cancellationToken);
