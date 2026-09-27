@@ -13,6 +13,7 @@ using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Moq;
+using Laraue.Apps.Boards.Services.History;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 

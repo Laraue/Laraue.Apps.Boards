@@ -8,6 +8,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Billing;
@@ -1742,13 +1743,6 @@ public record CommentDto
     public required DateTime UpdatedAt { get; set; }
     public required bool CanModify { get; set; }
     public required UserDetails Owner { get; set; }
-}
-
-public record UserDetails
-{
-    public required string Color { get; set; }
-    public required string DisplayName { get; set; }
-    public required string Initials { get; set; }
 }
 
 public record IssueAssigneeDetails : UserDetails

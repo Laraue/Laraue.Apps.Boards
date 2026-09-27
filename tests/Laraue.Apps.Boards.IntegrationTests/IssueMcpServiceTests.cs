@@ -1,17 +1,20 @@
 ﻿using System.Security.Claims;
 using System.Text;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.History;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
@@ -32,6 +35,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     // Mirrors IssueMcpService's own MaxResults - the page size returned per ListIssues call.
     private const int IssuesPerPage = 50;
 
+    private const string WebAppUrl = "https://boards.example.com";
+
     private static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
     {
         return new IssueMcpService(
@@ -41,7 +46,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<ICoreSpacesService>(),
             testScope.Services.GetRequiredService<ICoreIssueAttributesService>(),
             testScope.Services.GetRequiredService<ICoreFilesService>(),
-            testScope.Services.GetRequiredService<IDateTimeProvider>());
+            testScope.Services.GetRequiredService<IDateTimeProvider>(),
+            new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
+            new OrganizationHistoryReader(testScope.Database));
     }
 
     private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
@@ -93,6 +100,67 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal(ownerDisplayName, issue.Assignee);
         Assert.False(ownerIssues.HasNextPage);
         Assert.Empty(memberIssues.Issues);
+    }
+
+    [Fact]
+    public async Task GetMe_ShouldReturnUserAndOrganization_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser(user => user.DisplayName = "Ada");
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
+        var organizationName = await testScope.Database.Organizations
+            .Where(x => x.Id == organization.Id)
+            .Select(x => x.Name)
+            .SingleAsync();
+
+        var meInfo = await CreateIssueMcpService(testScope).GetMe(
+            AuthDataFor(organization.Id, memberId), CancellationToken.None);
+
+        Assert.Equal(new MeUser(memberId, "Ada"), meInfo.User);
+        Assert.Equal(new MeOrganization(organization.Id, organizationName, false), meInfo.Organization);
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldReturnIssueWebUrl_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        var page = await CreateIssueMcpService(testScope).ListIssues(
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
+
+        var issue = Assert.Single(page.Issues);
+        Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
+    }
+
+    [Fact]
+    public async Task GetIssue_ShouldReturnIssueWebUrl_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        var issue = await CreateIssueMcpService(testScope).GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
+
+        Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
+    }
+
+    private static async Task<string> ExpectedIssueUrlAsync(
+        WebApiTestHostScope testScope,
+        long organizationId,
+        string issueKey)
+    {
+        var organization = await testScope.Database.Organizations.SingleAsync(x => x.Id == organizationId);
+
+        return $"{WebAppUrl}/organizations/{organization.Slug}-{organization.SlugPostfix}/issues/{issueKey}";
     }
 
     [Fact]
@@ -193,7 +261,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task GetIssue_ShouldReturnContentAndComments_WhenAccessible()
+    public async Task GetIssue_ShouldReturnContentAndCommentCount_WhenAccessible()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -204,7 +272,6 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var expectedStatus = organization.GetStatus(0, 0, 0);
-        var expectedComment = issueData.Issue.IssueComments!.Single();
         var ownerDisplayName = await testScope.Database.Users
             .Where(x => x.Id == ownerId)
             .Select(x => x.DisplayName)
@@ -219,12 +286,181 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal(ownerDisplayName, detail.Assignee);
         Assert.Equal(issueData.Issue.CreatedAt, detail.CreatedAt, new TimeSpan(10));
         Assert.Equal(issueData.Issue.UpdatedAt, detail.UpdatedAt, new TimeSpan(10));
+        Assert.Equal(1, detail.CommentCount);
+    }
 
-        var comment = Assert.Single(detail.Comments);
+    [Fact]
+    public async Task GetIssueHistory_ShouldDescribeChangesNewestFirst_WhenAccessible()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(user => user.DisplayName = "Ada");
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organization.Id, ownerId, "Claude", CancellationToken.None);
+        var authData = AuthDataFor(organization.Id, ownerId, apiKey.Id);
+        var mcpService = CreateIssueMcpService(testScope);
+        await mcpService.EditIssue(authData, issueKey, "Fix the thing properly", null, null, null, null, CancellationToken.None);
+        await mcpService.CreateComment(authData, issueKey, "Done", CancellationToken.None);
+
+        var history = await mcpService.GetIssueHistory(authData, issueKey, null, null, CancellationToken.None);
+
+        Assert.False(history.HasNextPage);
+        Assert.Collection(
+            history.Entries,
+            comment =>
+            {
+                Assert.Equal("comment", comment.Entity);
+                Assert.Equal("create", comment.Action);
+                Assert.Equal(["content: \"Done\""], comment.Changes);
+            },
+            edit =>
+            {
+                Assert.Equal("issue", edit.Entity);
+                Assert.Equal("update", edit.Action);
+                Assert.Equal("Ada", edit.Author);
+                Assert.Equal("Claude", edit.ApiKeyName);
+                Assert.Equal(["content: \"Fix the thing\" -> \"Fix the thing properly\""], edit.Changes);
+            });
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldPaginate_WhenCountIsGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var mcpService = CreateIssueMcpService(testScope);
+        await mcpService.CreateComment(authData, issueKey, "First", CancellationToken.None);
+        await mcpService.CreateComment(authData, issueKey, "Second", CancellationToken.None);
+
+        var firstPage = await mcpService.GetIssueHistory(authData, issueKey, null, 1, CancellationToken.None);
+        var secondPage = await mcpService.GetIssueHistory(authData, issueKey, 1, 1, CancellationToken.None);
+
+        Assert.Equal(["content: \"Second\""], Assert.Single(firstPage.Entries).Changes);
+        Assert.True(firstPage.HasNextPage);
+        Assert.Equal(["content: \"First\""], Assert.Single(secondPage.Entries).Changes);
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldThrowNotFound_WhenCallerCannotReadIssue()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, _ => { })
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).GetIssueHistory(
+            AuthDataFor(organization.Id, memberId), issueKey, null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ListIssueComments_ShouldReturnCommentsOldestFirst_WhenAccessible()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "First comment")
+                .AddComment(ownerId, "Second comment")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var expectedComment = issueData.Issue.IssueComments!.OrderBy(x => x.Id).First();
+        var ownerDisplayName = await testScope.Database.Users
+            .Where(x => x.Id == ownerId)
+            .Select(x => x.DisplayName)
+            .SingleAsyncEF();
+
+        var page = await CreateIssueMcpService(testScope).ListIssueComments(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, null, null, CancellationToken.None);
+
+        Assert.Equal(["First comment", "Second comment"], page.Comments.Select(x => x.Text));
+        Assert.False(page.HasNextPage);
+        var comment = page.Comments[0];
         Assert.Equal(expectedComment.Id, comment.Id);
         Assert.Equal(ownerDisplayName, comment.Author);
-        Assert.Equal("First comment", comment.Text);
         Assert.Equal(expectedComment.CreatedAt, comment.CreatedAt, new TimeSpan(10));
+        Assert.Equal(expectedComment.UpdatedAt, comment.UpdatedAt, new TimeSpan(10));
+        Assert.Empty(comment.Attachments);
+    }
+
+    [Fact]
+    public async Task ListIssueComments_ShouldPaginate_WhenCountIsGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "First comment")
+                .AddComment(ownerId, "Second comment")
+                .AddComment(ownerId, "Third comment")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var firstPage = await mcpService.ListIssueComments(authData, issueKey, null, 2, CancellationToken.None);
+        var secondPage = await mcpService.ListIssueComments(authData, issueKey, 1, 2, CancellationToken.None);
+
+        Assert.Equal(["First comment", "Second comment"], firstPage.Comments.Select(x => x.Text));
+        Assert.True(firstPage.HasNextPage);
+        Assert.Equal(["Third comment"], secondPage.Comments.Select(x => x.Text));
+        Assert.False(secondPage.HasNextPage);
+    }
+
+    [Fact]
+    public async Task ListIssueComments_ShouldThrowNotFound_WhenCallerCannotReadIssue()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, _ => { })
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "First comment")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).ListIssueComments(
+            AuthDataFor(organization.Id, memberId), issueKey, null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetAttachmentContent_ShouldReturnCommentAttachment_WhenListedOnComment()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var mediaInfo = await testScope.Services.GetRequiredService<ICoreFilesService>().UploadFile(
+            "photo.png", "image/png", new MemoryStream(Convert.FromBase64String(SampleImageBase64())), CancellationToken.None);
+        await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
+        {
+            await testScope.Services.GetRequiredService<ICoreIssuesService>().AddComment(
+                issueData.Issue.Id, ownerId, "See the photo", [mediaInfo], CancellationToken.None);
+            await transaction.CommitAsync();
+        }
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var comments = await mcpService.ListIssueComments(authData, issueData.Key, null, null, CancellationToken.None);
+        var attachment = Assert.Single(Assert.Single(comments.Comments).Attachments);
+
+        var content = await mcpService.GetAttachmentContent(attachment.Id, CancellationToken.None);
+
+        await using var stream = content.Content;
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream);
+        Assert.Equal("photo.png", attachment.FileName);
+        Assert.Equal("image/png", content.MimeType);
+        Assert.NotEmpty(memoryStream.ToArray());
     }
 
     [Fact]
@@ -1108,8 +1344,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
         var attachmentId = Assert.Single(detail.Attachments).Id;
 
-        var content = await mcpService.GetAttachmentContent(
-            AuthDataFor(organization.Id, ownerId), attachmentId, CancellationToken.None);
+        var content = await mcpService.GetAttachmentContent(attachmentId, CancellationToken.None);
 
         await using var stream = content.Content;
         using var memoryStream = new MemoryStream();
@@ -1158,39 +1393,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId);
 
-        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).GetAttachmentContent(
-            AuthDataFor(organization.Id, ownerId), Guid.NewGuid(), CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task GetAttachmentContent_ShouldThrow_WhenCallerCannotReadIssue()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var memberId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = false))
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-
-        var issueData = organization.GetIssueData(0, 0, 0, 0);
-        var mcpService = CreateIssueMcpService(testScope);
-
-        await mcpService.EditIssue(
-            AuthDataFor(organization.Id, ownerId),
-            issueData.Key,
-            "Fix the thing",
-            null,
-            null,
-            [new FileAttachment("photo.png", "image/png", SampleImageBase64())],
-            null,
-            CancellationToken.None);
-
-        var detail = await mcpService.GetIssue(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
-        var attachmentId = Assert.Single(detail.Attachments).Id;
-
-        await Assert.ThrowsAsync<NotFoundException>(() => mcpService.GetAttachmentContent(
-            AuthDataFor(organization.Id, memberId), attachmentId, CancellationToken.None));
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).GetAttachmentContent(Guid.NewGuid(), CancellationToken.None));
     }
 
     [Fact]
@@ -1228,8 +1431,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .Where(x => x.Id == fileId)
             .ExecuteUpdateAsync(x => x.SetProperty(f => f.Size, SystemMimeTypes.MaxFileSizeBytes + 1));
 
-        await Assert.ThrowsAsync<BadRequestException>(() => mcpService.GetAttachmentContent(
-            AuthDataFor(organization.Id, ownerId), attachmentId, CancellationToken.None));
+        await Assert.ThrowsAsync<BadRequestException>(() => mcpService.GetAttachmentContent(attachmentId, CancellationToken.None));
     }
 
     [Fact]
@@ -1420,7 +1622,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task GetIssue_ShouldExposeCanManagePerComment_BasedOnCommentOwnership()
+    public async Task ListIssueComments_ShouldExposeCanManagePerComment_BasedOnCommentOwnership()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -1438,12 +1640,12 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var issueMcpService = CreateIssueMcpService(testScope);
 
-        var ownerDetail = await issueMcpService.GetIssue(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
-        var memberDetail = await issueMcpService.GetIssue(
-            AuthDataFor(organization.Id, memberId), issueData.Key, CancellationToken.None);
+        var ownerPage = await issueMcpService.ListIssueComments(
+            AuthDataFor(organization.Id, ownerId), issueData.Key, null, null, CancellationToken.None);
+        var memberPage = await issueMcpService.ListIssueComments(
+            AuthDataFor(organization.Id, memberId), issueData.Key, null, null, CancellationToken.None);
 
-        Assert.True(Assert.Single(ownerDetail.Comments).CanManage);
-        Assert.False(Assert.Single(memberDetail.Comments).CanManage);
+        Assert.True(Assert.Single(ownerPage.Comments).CanManage);
+        Assert.False(Assert.Single(memberPage.Comments).CanManage);
     }
 }

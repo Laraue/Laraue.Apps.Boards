@@ -15,6 +15,7 @@ using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using Laraue.Apps.Boards.Services.History;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 

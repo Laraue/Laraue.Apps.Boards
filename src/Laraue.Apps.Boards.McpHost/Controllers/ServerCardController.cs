@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -15,33 +15,32 @@ namespace Laraue.Apps.Boards.McpHost.Controllers;
 [Route("/mcp/server-card")]
 public class ServerCardController(IOptions<ServerCardOptions> options) : ControllerBase
 {
+    /// <summary>
+    /// MCP protocol versions this server negotiates (ModelContextProtocol SDK 1.4). Update when bumping
+    /// the SDK.
+    /// </summary>
+    private static readonly string[] SupportedProtocolVersions = ["2025-06-18", "2025-11-25"];
+
     [HttpGet]
     public Task<ServerCard> Get()
     {
-        var publicMcpUrl = options.Value.PublicMcpUrl;
+        // Everything but the URL comes from server.json; the URL is per environment (ServerCardOptions).
+        var manifest = ServerManifest.Current;
+        var manifestRemote = manifest.Remotes.Single();
 
         var card = new ServerCard(
-            Name: "com.laraue/boards",
-            Version: "1.0.0",
-            Description: "Read and update issues in a Laraue Boards organization - list/search " +
-                          "issues, view details, create/edit issues and comments, and move issues " +
-                          "between statuses.",
-            Title: "Laraue Boards",
-            WebsiteUrl: "https://boards.laraue.com",
+            Name: manifest.Name,
+            Version: manifest.Version,
+            Description: manifest.Description,
+            Title: manifest.Title,
+            WebsiteUrl: manifest.WebsiteUrl,
             Remotes:
             [
                 new ServerCardRemote(
-                    Type: "streamable-http",
-                    Url: publicMcpUrl,
-                    Headers:
-                    [
-                        new ServerCardHeader(
-                            Name: "X-Api-Key",
-                            Description: "Boards API key - create one from your organization's settings.",
-                            IsRequired: true,
-                            IsSecret: true)
-                    ],
-                    SupportedProtocolVersions: ["2025-06-18"])
+                    Type: manifestRemote.Type,
+                    Url: options.Value.PublicMcpUrl,
+                    Headers: manifestRemote.Headers,
+                    SupportedProtocolVersions: SupportedProtocolVersions)
             ]);
 
         return Task.FromResult(card);

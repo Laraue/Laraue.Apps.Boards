@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
@@ -17,7 +17,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space, status id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it.")]
+    [Description("Lists issues in the caller's organization, optionally filtered by space, status id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it, and url is its page in the web app.")]
     public Task<IssueListPage> ListIssues(
         [Description("Only issues in this space (e.g. 'BRD'), from list_spaces. Omit to search every space.")] string? spaceKey = null,
         [Description("Only issues with this exact status id, from list_statuses. Omit to include every status.")] long? statusId = null,
@@ -30,12 +30,34 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's full content, comments and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, each comment's id and canManage (for edit_comment/delete_comment), and each attachment's id (for edit_issue's removeAttachmentIds parameter).")]
+    [Description("Gets one issue's full content and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
     {
         return issueMcpService.GetIssue(GetAuthData(), issueKey, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Lists an issue's change history (the issue and its comments), newest first, up to 50 per page - check hasNextPage for more. Each entry has when, who (and the API key name if made through one), what (issue or comment; create, update or delete) and readable change lines, e.g. 'status: To Do -> Done', 'assignee: none -> Ada'. Long content is shortened.")]
+    public Task<IssueHistoryPage> GetIssueHistory(
+        [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
+        [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
+        [Description("Max entries per page, 1-50. Omit for the default of 50.")] int? count = null,
+        CancellationToken cancellationToken = default)
+    {
+        return issueMcpService.GetIssueHistory(GetAuthData(), issueKey, page, count, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Lists an issue's comments, oldest first, up to 50 per page - check hasNextPage for more. Each comment has its id and canManage (for edit_comment/delete_comment - only the author can manage a comment), author, text, createdAt/updatedAt, and attachments (ids usable with get_attachment).")]
+    public Task<IssueCommentPage> ListIssueComments(
+        [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
+        [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
+        [Description("Max comments per page, 1-50. Omit for the default of 50.")] int? count = null,
+        CancellationToken cancellationToken = default)
+    {
+        return issueMcpService.ListIssueComments(GetAuthData(), issueKey, page, count, cancellationToken);
     }
 
     [McpServerTool]
@@ -86,6 +108,13 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
+    [Description("Returns who you are: your user id (usable as list_issues' assigneeId to find your own issues) and display name, and the organization (id, name, whether it's personal).")]
+    public Task<MeInfo> GetMe(CancellationToken cancellationToken)
+    {
+        return issueMcpService.GetMe(GetAuthData(), cancellationToken);
+    }
+
+    [McpServerTool]
     [Description("Lists the spaces available to the caller - the keys list_issues' spaceKey filter and list_statuses accept. Each space's canCreateIssue reflects the caller's actual permission there.")]
     public Task<IReadOnlyList<SpaceSummary>> ListSpaces(CancellationToken cancellationToken)
     {
@@ -118,12 +147,12 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Downloads an issue attachment's original file content, by the id from get_issue's Attachments list. Only image attachments are supported today.")]
+    [Description("Downloads an attachment's original file content, by its id from get_issue's attachments (the issue's own) or list_issue_comments' attachments (a comment's). Only image attachments are supported today.")]
     public async Task<CallToolResult> GetAttachment(
-        [Description("The attachment's id, from get_issue's Attachments list.")] Guid attachmentId,
+        [Description("The attachment's id, from get_issue or list_issue_comments.")] Guid attachmentId,
         CancellationToken cancellationToken)
     {
-        var content = await issueMcpService.GetAttachmentContent(GetAuthData(), attachmentId, cancellationToken);
+        var content = await issueMcpService.GetAttachmentContent(attachmentId, cancellationToken);
         await using var stream = content.Content;
 
         var bytes = await ReadBoundedAsync(stream, SystemMimeTypes.MaxFileSizeBytes, cancellationToken);
@@ -169,9 +198,9 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Edits a comment's text. Only the comment's own author can edit it - check canManage on get_issue's comment list before calling.")]
+    [Description("Edits a comment's text. Only the comment's own author can edit it - check canManage in list_issue_comments before calling.")]
     public Task EditComment(
-        [Description("The comment's id, from get_issue's comment list.")] long commentId,
+        [Description("The comment's id, from list_issue_comments.")] long commentId,
         [Description("The comment's new text, replacing what's there now.")] string text,
         CancellationToken cancellationToken)
     {
@@ -179,9 +208,9 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Deletes a comment - it stops appearing anywhere except the issue's audit history, and this cannot be undone through this API. Only the comment's own author can delete it - check canManage on get_issue's comment list before calling. To just change its text instead, use edit_comment.")]
+    [Description("Deletes a comment - it stops appearing anywhere except the issue's audit history, and this cannot be undone through this API. Only the comment's own author can delete it - check canManage in list_issue_comments before calling. To just change its text instead, use edit_comment.")]
     public Task DeleteComment(
-        [Description("The comment's id, from get_issue's comment list.")] long commentId,
+        [Description("The comment's id, from list_issue_comments.")] long commentId,
         CancellationToken cancellationToken)
     {
         return issueMcpService.DeleteComment(GetAuthData(), commentId, cancellationToken);

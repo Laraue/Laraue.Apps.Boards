@@ -24,6 +24,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Registry manifest; embedded so the server card serves the same values (ServerManifest). -->
+        <Content Remove="server.json" />
+        <EmbeddedResource Include="server.json" LogicalName="server.json" />
+    </ItemGroup>
+
+    <ItemGroup>
         <EmbeddedResource Update="Resources\ErrorMessages.resx">
             <Generator>ResXFileCodeGenerator</Generator>
             <LastGenOutput>ErrorMessages.Designer.cs</LastGenOutput>

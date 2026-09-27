@@ -39,6 +39,7 @@ public static class WebApplicationBuilderExtensions
                 .AddAiContentSummarizer();
 
             builder.AddValidatedOptions<AppOptions>(nameof(AppOptions));
+            builder.AddValidatedOptions<WebAppOptions>(nameof(AppOptions));
             
             builder.Services
                 .AddTelegramCore()

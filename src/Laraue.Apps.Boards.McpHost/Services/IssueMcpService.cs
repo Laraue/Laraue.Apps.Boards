@@ -1,9 +1,10 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Apps.Boards.Services.History;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -26,6 +27,29 @@ public interface IIssueMcpService
         string? spaceKey,
         long? statusId,
         Guid? assigneeId,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One page of an issue's comments, oldest first. Kept out of <see cref="GetIssue"/> (which only
+    /// returns a count), so a long discussion doesn't bloat every issue read.
+    /// </summary>
+    Task<IssueCommentPage> ListIssueComments(
+        OrganizationAuthData authData,
+        string issueKey,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One page of an issue's change history (the issue and its comments), newest first - read through
+    /// the same <see cref="IOrganizationHistoryReader"/> as REST's issue history, flattened into
+    /// readable change lines.
+    /// </summary>
+    Task<IssueHistoryPage> GetIssueHistory(
+        OrganizationAuthData authData,
+        string issueKey,
         int? page,
         int? count,
         CancellationToken cancellationToken);
@@ -105,6 +129,13 @@ public interface IIssueMcpService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Who the API key acts as: the user and the organization.
+    /// </summary>
+    Task<MeInfo> GetMe(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Lists the spaces available to the caller (same set the REST API's own
     /// <c>SpacesController.GetAll</c> returns) - the keys <see cref="ListIssues"/>'s
     /// <c>spaceKey</c> filter and <see cref="ListStatuses"/> take. Not paginated, same as the
@@ -149,13 +180,12 @@ public interface IIssueMcpService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Reads an issue attachment's original file content, by the id <see cref="GetIssue"/>'s
-    /// <c>Attachments</c> already exposes (the same one <c>removeAttachmentIds</c> takes) - not a
-    /// separate file id, so there's only ever one id per attachment for a caller to track.
-    /// Permission is checked against the attachment's own issue, same as <see cref="GetIssue"/>.
+    /// Reads an attachment's original file content (an issue's or a comment's), by the id
+    /// <see cref="GetIssue"/>/<see cref="ListIssueComments"/> expose - not a separate file id, so there's
+    /// only ever one id per attachment for a caller to track. No permission check, same as REST's file
+    /// endpoint: the id is an unguessable GUID the caller could only have got from something they can read.
     /// </summary>
     Task<FileContent> GetAttachmentContent(
-        OrganizationAuthData authData,
         Guid attachmentId,
         CancellationToken cancellationToken);
 
@@ -195,7 +225,15 @@ public interface IIssueMcpService
 /// actually succeed before calling them, rather than discovering it via a thrown
 /// <see cref="ForbiddenException"/>.
 /// </summary>
-public sealed record IssueSummary(string Key, string Title, string Status, string Assignee, bool CanEdit, bool CanDelete);
+/// <see cref="Url"/> is the issue's page in the web app, for handing the user a clickable link.
+public sealed record IssueSummary(
+    string Key,
+    string Url,
+    string Title,
+    string Status,
+    string Assignee,
+    bool CanEdit,
+    bool CanDelete);
 
 /// <summary>
 /// One page of <see cref="IssueSummary"/> results - same page/perPage/hasNextPage shape the REST
@@ -209,8 +247,39 @@ public sealed record IssueListPage(IReadOnlyList<IssueSummary> Issues, long Page
 /// <see cref="IIssueMcpService.EditComment"/>/<see cref="IIssueMcpService.DeleteComment"/> both
 /// enforce (not gated by <c>CanUpdateIssue</c>) - so a caller can tell upfront whether either will
 /// succeed, rather than discovering it via a thrown <see cref="ForbiddenException"/>.
+/// <see cref="Attachments"/>' ids are what <see cref="IIssueMcpService.GetAttachmentContent"/> takes,
+/// same as the issue's own attachments.
 /// </summary>
-public sealed record IssueCommentSummary(long Id, string Author, string Text, DateTime CreatedAt, bool CanManage);
+public sealed record IssueCommentSummary(
+    long Id,
+    string Author,
+    string Text,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    IReadOnlyList<IssueAttachmentSummary> Attachments,
+    bool CanManage);
+
+/// <summary>
+/// One page of <see cref="IssueCommentSummary"/> results - same page/hasNextPage shape as
+/// <see cref="IssueListPage"/>.
+/// </summary>
+public sealed record IssueCommentPage(IReadOnlyList<IssueCommentSummary> Comments, long Page, bool HasNextPage);
+
+/// <summary>
+/// One change set, as returned by <see cref="IIssueMcpService.GetIssueHistory"/>. <see cref="Entity"/> is
+/// "issue" or "comment", <see cref="Action"/> "create", "update" or "delete". <see cref="ApiKeyName"/> is
+/// set when the change was made through an API key (e.g. by an agent). Each of <see cref="Changes"/> is one
+/// readable line, e.g. "status: To Do -> Done".
+/// </summary>
+public sealed record IssueHistoryEntry(
+    DateTime At,
+    string Author,
+    string? ApiKeyName,
+    string Entity,
+    string Action,
+    IReadOnlyList<string> Changes);
+
+public sealed record IssueHistoryPage(IReadOnlyList<IssueHistoryEntry> Entries, long Page, bool HasNextPage);
 
 /// <summary>An issue's attachment, as returned by <see cref="IIssueMcpService.GetIssue"/> - its
 /// <see cref="Id"/> is what <see cref="IIssueMcpService.EditIssue"/>'s <c>removeAttachmentIds</c>
@@ -225,6 +294,7 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 /// </summary>
 public sealed record IssueDetail(
     string Key,
+    string Url,
     string? Content,
     string Status,
     string Assignee,
@@ -232,7 +302,7 @@ public sealed record IssueDetail(
     bool CanDelete,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    IReadOnlyList<IssueCommentSummary> Comments,
+    int CommentCount,
     IReadOnlyList<IssueAttachmentSummary> Attachments);
 
 /// <summary>A space, as returned by <see cref="IIssueMcpService.ListSpaces"/> - its
@@ -250,6 +320,17 @@ public sealed record SpaceSummary(string Key, string Name, bool CanCreateIssue);
 public sealed record StatusSummary(long Id, string Name);
 
 public sealed record EpicStatusSummary(string EpicName, IReadOnlyList<StatusSummary> Statuses);
+
+/// <summary>
+/// The caller, as returned by <see cref="IIssueMcpService.GetMe"/>. <see cref="MeUser.Id"/> is the same id
+/// <see cref="IIssueMcpService.ListIssues"/>'s <c>assigneeId</c> takes, so a caller can filter by its own issues
+/// without <see cref="IIssueMcpService.ListMembers"/>.
+/// </summary>
+public sealed record MeInfo(MeUser User, MeOrganization Organization);
+
+public sealed record MeUser(Guid Id, string DisplayName);
+
+public sealed record MeOrganization(long Id, string Name, bool IsPersonal);
 
 /// <summary>An organization member, as returned by <see cref="IIssueMcpService.ListMembers"/> -
 /// its <see cref="Id"/> is what <see cref="IIssueMcpService.ListIssues"/>'s <c>assigneeId</c> and
@@ -283,7 +364,9 @@ public class IssueMcpService(
     ICoreSpacesService coreSpacesService,
     ICoreIssueAttributesService coreIssueAttributesService,
     ICoreFilesService coreFilesService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IIssueUrlBuilder issueUrlBuilder,
+    IOrganizationHistoryReader historyReader)
     : IIssueMcpService
 {
     private const int MaxResults = 50;
@@ -352,9 +435,12 @@ public class IssueMcpService(
                         .ToArrayAsyncEF(cancellationToken),
                     cancellationToken)).ToHashSet();
 
+            var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
+
             var summaries = result.Data
                 .Select(x => new IssueSummary(
                     new IssueKey(x.SpaceKey, x.Number).ToString(),
+                    issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, new IssueKey(x.SpaceKey, x.Number)),
                     ContentSnippet(x.Content),
                     x.Status,
                     x.Assignee,
@@ -391,20 +477,19 @@ public class IssueMcpService(
             })
             .SingleAsync(cancellationToken);
 
-        var comments = await context.ActiveIssueComments()
-            .Where(c => c.IssueId == issueId)
-            .OrderBy(c => c.Id)
-            .Select(c => new IssueCommentSummary(
-                c.Id, c.Owner!.DisplayName, c.Text, c.CreatedAt, c.OwnerId == authData.UserId))
-            .ToListAsyncEF(cancellationToken);
+        var commentCount = await context.ActiveIssueComments()
+            .CountAsync(c => c.IssueId == issueId, cancellationToken);
 
         var attachments = await context.IssueAttachments
             .Where(a => a.IssueId == issueId)
             .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
             .ToListAsyncEF(cancellationToken);
 
+        var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
+
         return new IssueDetail(
             key.ToString(),
+            issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
             issue.Content,
             issue.StatusName,
             issue.AssigneeName,
@@ -412,8 +497,109 @@ public class IssueMcpService(
             accessLevels.CanDeleteIssue,
             issue.CreatedAt,
             issue.UpdatedAt,
-            comments,
+            commentCount,
             attachments);
+    }
+
+    public async Task<IssueHistoryPage> GetIssueHistory(
+        OrganizationAuthData authData,
+        string issueKey,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(issueKey);
+
+        var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
+
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
+            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "read"));
+
+        var pagination = new PaginationData
+        {
+            Page = page ?? 0,
+            PerPage = Math.Clamp(count ?? MaxResults, 1, MaxResults),
+        };
+
+        var history = await historyReader.GetIssueHistory(issueId, key.ToString(), pagination, cancellationToken);
+
+        var entries = history.Data
+            .Select(x => new IssueHistoryEntry(
+                x.CreatedAt,
+                x.Owner.DisplayName,
+                x.ApiKeyName,
+                x.EntityType.ToString().ToLowerInvariant(),
+                x.Action.ToString().ToLowerInvariant(),
+                x.Changes.Select(DescribeChange).ToList()))
+            .ToList();
+
+        return new IssueHistoryPage(entries, history.Page, history.HasNextPage);
+    }
+
+    private const int HistoryContentSnippetLength = 200;
+
+    private static string DescribeChange(HistoryItemChange change)
+    {
+        return change switch
+        {
+            IssueHistoryContentChange c => c.OldContent is null
+                ? $"content: \"{HistorySnippet(c.NewContent)}\""
+                : $"content: \"{HistorySnippet(c.OldContent)}\" -> \"{HistorySnippet(c.NewContent)}\"",
+            IssueHistoryAssigneeChange c => $"assignee: {c.OldAssigneeDisplayName ?? "none"} -> {c.NewAssigneeDisplayName ?? "none"}",
+            IssueHistoryStatusChange c => $"status: {c.OldStatusName ?? "none"} -> {c.NewStatusName ?? "none"}",
+            IssueHistoryPropertyChange c => $"attribute {c.PropertyName}: {c.OldValueName ?? "empty"} -> {c.NewValueName ?? "empty"}",
+            IssueHistoryAttachmentChange c => c.Action == AttachmentAction.Created
+                ? $"attachment added: {c.FileName}"
+                : $"attachment removed: {c.FileName}",
+            IssueHistoryEpicChange c => $"epic: {c.OldEpicName ?? "none"} -> {c.NewEpicName ?? "none"}",
+            IssueHistorySpaceChange c => $"space: {c.OldSpaceName ?? "none"} -> {c.NewSpaceName ?? "none"}",
+            _ => change.GetType().Name,
+        };
+    }
+
+    private static string HistorySnippet(string? content)
+    {
+        return content is null ? string.Empty : TextTruncation.Truncate(content, HistoryContentSnippetLength);
+    }
+
+    public async Task<IssueCommentPage> ListIssueComments(
+        OrganizationAuthData authData,
+        string issueKey,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(issueKey);
+
+        var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
+
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
+            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "read"));
+
+        var pagination = new PaginationData
+        {
+            Page = page ?? 0,
+            PerPage = Math.Clamp(count ?? MaxResults, 1, MaxResults),
+        };
+
+        var result = await context.ActiveIssueComments()
+            .Where(c => c.IssueId == issueId)
+            .OrderBy(c => c.Id)
+            .Select(c => new IssueCommentSummary(
+                c.Id,
+                c.Owner!.DisplayName,
+                c.Text,
+                c.CreatedAt,
+                c.UpdatedAt,
+                c.Attachments
+                    .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
+                    .ToList(),
+                c.OwnerId == authData.UserId))
+            .ShortPaginateEFAsync(pagination, cancellationToken);
+
+        return new IssueCommentPage(result.Data.ToList(), result.Page, result.HasNextPage);
     }
 
     public async Task EditIssueStatus(
@@ -558,6 +744,23 @@ public class IssueMcpService(
 
         if (!userExists)
             throw new NotFoundException(string.Format(ErrorMessages.UserNotBelongsToOrganization, userId));
+    }
+
+    public Task<MeInfo> GetMe(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        return accessService.GetOrganizations(authData.UserId, organizationUsers => organizationUsers
+            .Where(x => x.OrganizationId == authData.OrganizationId)
+            .Select(x => new MeInfo(
+                new MeUser(x.UserId, x.User!.DisplayName),
+                new MeOrganization(
+                    x.Organization!.Id,
+                    x.Organization.Name,
+                    x.Organization.Type == OrganizationType.Personal)))
+            .FirstOrThrowNotFoundEFAsync(
+                string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Organization", authData.OrganizationId),
+                cancellationToken));
     }
 
     public async Task<IReadOnlyList<SpaceSummary>> ListSpaces(
@@ -831,18 +1034,15 @@ public class IssueMcpService(
     }
 
     public async Task<FileContent> GetAttachmentContent(
-        OrganizationAuthData authData,
         Guid attachmentId,
         CancellationToken cancellationToken)
     {
-        var attachmentData = await context.IssueAttachments
-            .Where(x => x.AttachmentId == attachmentId)
-            .Select(x => new { x.IssueId, FileId = x.Attachment!.FileId, FileSize = x.Attachment.File!.Size })
+        // No permission check, same as REST's GET /api/files/{id}: the id is an unguessable GUID that a
+        // caller only learns from get_issue/list_issue_comments, i.e. from something they could already read.
+        var attachmentData = await context.Attachments
+            .Where(x => x.Id == attachmentId)
+            .Select(x => new { x.FileId, FileSize = x.File!.Size })
             .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Attachment", attachmentId), cancellationToken);
-
-        await accessService.GetAccessLevelsByIssueId(authData, attachmentData.IssueId, includeDeleted: false, cancellationToken)
-            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", attachmentData.IssueId))
-            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", attachmentData.IssueId, "read"));
 
         // Uploads are already capped at SystemMimeTypes.MaxFileSizeBytes (see UploadFiles below),
         // but this guards against a legacy/otherwise-larger file predating that cap - reject it
@@ -922,6 +1122,16 @@ public class IssueMcpService(
         await coreIssuesService.DeleteComment(comment.Id, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
+
+    private Task<OrganizationSlug> GetOrganizationSlugAsync(long organizationId, CancellationToken cancellationToken)
+    {
+        return context.ActiveOrganizations()
+            .Where(o => o.Id == organizationId)
+            .Select(o => new OrganizationSlug(o.Slug, o.SlugPostfix))
+            .SingleAsync(cancellationToken);
+    }
+
+    private sealed record OrganizationSlug(string Slug, string SlugPostfix);
 
     private Task<long> GetIssueIdByIssueKey(long organizationId, IssueKey issueKey, CancellationToken cancellationToken)
     {

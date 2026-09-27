@@ -5,6 +5,7 @@ using Laraue.Core.DataAccess.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using CreateIssueRequest = Laraue.Apps.Boards.WebApiServices.CreateIssueRequest;
+using Laraue.Apps.Boards.Services.History;
 
 namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 
