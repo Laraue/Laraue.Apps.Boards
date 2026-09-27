@@ -373,5 +373,14 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
                 return ResourceManager.GetString("GoogleIdTokenInvalid", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Either a Google ID token or an authorization code is required.
+        /// </summary>
+        internal static string GoogleCredentialMissing {
+            get {
+                return ResourceManager.GetString("GoogleCredentialMissing", resourceCulture);
+            }
+        }
     }
 }

@@ -1,4 +1,7 @@
 ﻿using Google.Apis.Auth;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Flows;
+using Google.Apis.Auth.OAuth2.Responses;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
@@ -17,14 +20,27 @@ public class GoogleAuthOptions
     /// </summary>
     [Required]
     public required string ClientId { get; set; }
+
+    /// <summary>
+    /// OAuth client secret of the same client. Needed only to exchange an authorization code from
+    /// the frontend's own "Sign in with Google" button for an ID token.
+    /// </summary>
+    public string ClientSecret { get; set; } = string.Empty;
 }
 
 public sealed class GoogleAuthRequest
 {
     /// <summary>
-    /// The ID token (credential) the frontend got from Google's sign-in button.
+    /// The ID token (credential) the frontend got from Google's sign-in button. Pass either this
+    /// or <see cref="Code"/>.
     /// </summary>
-    public required string IdToken { get; init; }
+    public string? IdToken { get; init; }
+
+    /// <summary>
+    /// The authorization code the frontend got from Google's OAuth popup (code client with the
+    /// <c>postmessage</c> redirect). Pass either this or <see cref="IdToken"/>.
+    /// </summary>
+    public string? Code { get; init; }
 
     /// <summary>
     /// The browser's language, used as the interface language of a newly registered user. The ID
@@ -51,6 +67,34 @@ public interface IGoogleIdTokenValidator
     /// check fails.
     /// </summary>
     Task<GoogleIdTokenPayload> ValidateAsync(string idToken, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Exchanges an authorization code from the frontend's OAuth popup for an ID token and
+    /// validates it like <see cref="ValidateAsync"/>. Throws <see cref="ForbiddenException"/> if
+    /// the code is invalid, expired or already used.
+    /// </summary>
+    Task<GoogleIdTokenPayload> ExchangeCodeAsync(string code, CancellationToken cancellationToken);
+}
+
+public static class GoogleIdTokenValidatorExtensions
+{
+    /// <summary>
+    /// Validates whichever Google credential the frontend sent - an authorization code or an ID
+    /// token.
+    /// </summary>
+    public static Task<GoogleIdTokenPayload> ValidateAsync(
+        this IGoogleIdTokenValidator validator,
+        string? idToken,
+        string? code,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrEmpty(code))
+            return validator.ExchangeCodeAsync(code, cancellationToken);
+        if (!string.IsNullOrEmpty(idToken))
+            return validator.ValidateAsync(idToken, cancellationToken);
+
+        throw new BadRequestException("code", ErrorMessages.GoogleCredentialMissing);
+    }
 }
 
 public class GoogleIdTokenValidator(IOptions<GoogleAuthOptions> options) : IGoogleIdTokenValidator
@@ -93,6 +137,38 @@ public class GoogleIdTokenValidator(IOptions<GoogleAuthOptions> options) : IGoog
             payload.GivenName,
             payload.FamilyName);
     }
+
+    public async Task<GoogleIdTokenPayload> ExchangeCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        var (clientId, clientSecret) = (options.Value.ClientId, options.Value.ClientSecret);
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            throw new InvalidOperationException("GoogleAuth:ClientId and GoogleAuth:ClientSecret must be configured.");
+
+        var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+        {
+            ClientSecrets = new ClientSecrets { ClientId = clientId, ClientSecret = clientSecret },
+        });
+
+        TokenResponse response;
+        try
+        {
+            // "postmessage" is the redirect URI of Google's JS code client in popup mode.
+            response = await flow.ExchangeCodeForTokenAsync(
+                userId: string.Empty,
+                code,
+                redirectUri: "postmessage",
+                cancellationToken);
+        }
+        catch (TokenResponseException)
+        {
+            throw new ForbiddenException(ErrorMessages.GoogleIdTokenInvalid);
+        }
+
+        if (string.IsNullOrEmpty(response.IdToken))
+            throw new ForbiddenException(ErrorMessages.GoogleIdTokenInvalid);
+
+        return await ValidateAsync(response.IdToken, cancellationToken);
+    }
 }
 
 public interface IGoogleAuthService
@@ -113,7 +189,7 @@ public class GoogleAuthService(
 {
     public async Task<string> Authenticate(GoogleAuthRequest request, CancellationToken cancellationToken)
     {
-        var payload = await tokenValidator.ValidateAsync(request.IdToken, cancellationToken);
+        var payload = await tokenValidator.ValidateAsync(request.IdToken, request.Code, cancellationToken);
 
         var existingUserId = await context.Users
             .Where(x => x.GoogleSubject == payload.Subject)
