@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
@@ -27,6 +27,17 @@ public interface IIssueMcpService
         string? spaceKey,
         long? statusId,
         Guid? assigneeId,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One page of an issue's comments, oldest first. Kept out of <see cref="GetIssue"/> (which only
+    /// returns a count), so a long discussion doesn't bloat every issue read.
+    /// </summary>
+    Task<IssueCommentPage> ListIssueComments(
+        OrganizationAuthData authData,
+        string issueKey,
         int? page,
         int? count,
         CancellationToken cancellationToken);
@@ -226,8 +237,23 @@ public sealed record IssueListPage(IReadOnlyList<IssueSummary> Issues, long Page
 /// <see cref="IIssueMcpService.EditComment"/>/<see cref="IIssueMcpService.DeleteComment"/> both
 /// enforce (not gated by <c>CanUpdateIssue</c>) - so a caller can tell upfront whether either will
 /// succeed, rather than discovering it via a thrown <see cref="ForbiddenException"/>.
+/// <see cref="Attachments"/>' ids are what <see cref="IIssueMcpService.GetAttachmentContent"/> takes,
+/// same as the issue's own attachments.
 /// </summary>
-public sealed record IssueCommentSummary(long Id, string Author, string Text, DateTime CreatedAt, bool CanManage);
+public sealed record IssueCommentSummary(
+    long Id,
+    string Author,
+    string Text,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    IReadOnlyList<IssueAttachmentSummary> Attachments,
+    bool CanManage);
+
+/// <summary>
+/// One page of <see cref="IssueCommentSummary"/> results - same page/hasNextPage shape as
+/// <see cref="IssueListPage"/>.
+/// </summary>
+public sealed record IssueCommentPage(IReadOnlyList<IssueCommentSummary> Comments, long Page, bool HasNextPage);
 
 /// <summary>An issue's attachment, as returned by <see cref="IIssueMcpService.GetIssue"/> - its
 /// <see cref="Id"/> is what <see cref="IIssueMcpService.EditIssue"/>'s <c>removeAttachmentIds</c>
@@ -250,7 +276,7 @@ public sealed record IssueDetail(
     bool CanDelete,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    IReadOnlyList<IssueCommentSummary> Comments,
+    int CommentCount,
     IReadOnlyList<IssueAttachmentSummary> Attachments);
 
 /// <summary>A space, as returned by <see cref="IIssueMcpService.ListSpaces"/> - its
@@ -448,12 +474,8 @@ public class IssueMcpService(
             })
             .SingleAsync(cancellationToken);
 
-        var comments = await context.ActiveIssueComments()
-            .Where(c => c.IssueId == issueId)
-            .OrderBy(c => c.Id)
-            .Select(c => new IssueCommentSummary(
-                c.Id, c.Owner!.DisplayName, c.Text, c.CreatedAt, c.OwnerId == authData.UserId))
-            .ToListAsyncEF(cancellationToken);
+        var commentCount = await context.ActiveIssueComments()
+            .CountAsync(c => c.IssueId == issueId, cancellationToken);
 
         var attachments = await context.IssueAttachments
             .Where(a => a.IssueId == issueId)
@@ -472,8 +494,47 @@ public class IssueMcpService(
             accessLevels.CanDeleteIssue,
             issue.CreatedAt,
             issue.UpdatedAt,
-            comments,
+            commentCount,
             attachments);
+    }
+
+    public async Task<IssueCommentPage> ListIssueComments(
+        OrganizationAuthData authData,
+        string issueKey,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(issueKey);
+
+        var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
+
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
+            .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "read"));
+
+        var pagination = new PaginationData
+        {
+            Page = page ?? 0,
+            PerPage = Math.Clamp(count ?? MaxResults, 1, MaxResults),
+        };
+
+        var result = await context.ActiveIssueComments()
+            .Where(c => c.IssueId == issueId)
+            .OrderBy(c => c.Id)
+            .Select(c => new IssueCommentSummary(
+                c.Id,
+                c.Owner!.DisplayName,
+                c.Text,
+                c.CreatedAt,
+                c.UpdatedAt,
+                c.Attachments
+                    .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
+                    .ToList(),
+                c.OwnerId == authData.UserId))
+            .ShortPaginateEFAsync(pagination, cancellationToken);
+
+        return new IssueCommentPage(result.Data.ToList(), result.Page, result.HasNextPage);
     }
 
     public async Task EditIssueStatus(
@@ -964,9 +1025,14 @@ public class IssueMcpService(
         Guid attachmentId,
         CancellationToken cancellationToken)
     {
+        // An attachment belongs either to the issue itself or to one of its comments - either way
+        // it's readable exactly when the issue is.
         var attachmentData = await context.IssueAttachments
             .Where(x => x.AttachmentId == attachmentId)
             .Select(x => new { x.IssueId, FileId = x.Attachment!.FileId, FileSize = x.Attachment.File!.Size })
+            .Concat(context.IssueCommentsAttachments
+                .Where(x => x.AttachmentId == attachmentId && x.Comment!.DeletedAt == null)
+                .Select(x => new { x.Comment!.IssueId, FileId = x.Attachment!.FileId, FileSize = x.Attachment.File!.Size }))
             .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Attachment", attachmentId), cancellationToken);
 
         await accessService.GetAccessLevelsByIssueId(authData, attachmentData.IssueId, includeDeleted: false, cancellationToken)

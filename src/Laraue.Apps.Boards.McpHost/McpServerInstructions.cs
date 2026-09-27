@@ -16,7 +16,8 @@ public static class McpServerInstructions
         "an issue's status (optionally posting a comment in the same call, e.g. to explain the " +
         "move), create_issue to add a new issue to a space, edit_issue to replace " +
         "an issue's content, delete_issue to remove one, and create_comment/edit_comment/" +
-        "delete_comment for its comments. get_issue's comment list includes each comment's id " +
+        "delete_comment for its comments. get_issue returns only a comment count - " +
+        "list_issue_comments pages through the comments, each with its id " +
         "and canManage, needed by edit_comment/delete_comment - only the comment's own author " +
         "can edit or delete it, and canManage tells you upfront whether the caller is that " +
         "author. There's no separate attachment tool: create_issue/edit_issue's files " +

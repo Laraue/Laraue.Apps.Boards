@@ -566,6 +566,13 @@ than driving a real MCP transport; `IssueTools` has no dedicated tests, same as 
 except `get_attachment`, which builds the MCP content block itself (`ImageContentBlock.FromBytes`: the
 block's `Data` is the *base64-encoded* bytes, so assigning raw bytes to it sends broken base64, BRD-229).
 
+**Comments are not part of `get_issue`** - it returns only `commentCount`; `list_issue_comments` pages
+through them (oldest first, same page/count/hasNextPage shape as `list_issues`), with each comment's own
+attachments. A long discussion used to bloat every issue read. This split was a breaking change for
+connected clients (BRD-230), accepted like the earlier tool renames. `get_attachment` resolves an
+attachment id from either the issue's attachments or a (non-deleted) comment's - both readable exactly
+when the issue is.
+
 **Issue links:** `list_issues`/`get_issue` return each issue's `url` (its page in the web app), built by
 `IIssueUrlBuilder` (`Boards.Services`, shared with the Telegram previews - one place owns the URL format).
 
@@ -581,7 +588,7 @@ client. `McpToolErrorTests` covers this through a real MCP client (`McpClient` o
 authenticated with an API key created in the test database) - the pattern to follow for any future test
 that needs to see exactly what a client receives.
 
-Tools: `list_issues`/`get_issue`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
+Tools: `list_issues`/`get_issue`/`list_issue_comments`/`edit_issue_status`, `create_issue`/`edit_issue`/`delete_issue`,
 `create_comment`/`edit_comment`/`delete_comment`, `get_attachment`, and the discovery tools
 `get_current_user`/`list_spaces`/`list_statuses`/`list_attributes`/`list_members`.
 `get_current_user` returns only **organization-wide** permissions (`OrganizationUser`, read through
@@ -604,7 +611,7 @@ guardrails worth preserving:
   filter can match zero or several people). `list_statuses`/`list_attributes`/`list_members` exist
   specifically to make these discoverable before the mutating call.
 - **`list_issues`/`get_issue` return `canEdit`/`canDelete`**, `list_spaces` returns
-  `canCreateIssue`, `get_issue`'s comment list returns `canManage` per comment — so a caller can
+  `canCreateIssue`, `list_issue_comments` returns `canManage` per comment — so a caller can
   check upfront whether a mutation will succeed instead of discovering a permission gap from a
   thrown exception (a bare tool description gives an LLM nothing actionable ahead of time).
   Because Boards' permission model is space-scoped, not per-issue, `ListIssues` computes its two
