@@ -98,6 +98,20 @@ public class OrganizationsController(
     }
 
     [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
+    [HttpPut("current/profile")]
+    public Task UpdateMemberProfile(
+        [FromBody] UpdateMemberProfileRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return organizationsService.UpdateMemberProfile(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
     [HttpPost("history")]
     public Task<ShortPaginatedResult<OrganizationHistoryItem>> GetOrganizationHistory(
         [FromBody] GetOrganizationHistoryRequest request,

@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
@@ -48,7 +49,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<ICoreFilesService>(),
             testScope.Services.GetRequiredService<IDateTimeProvider>(),
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
-            new OrganizationHistoryReader(testScope.Database));
+            new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
+            new MemberProfileReader(testScope.Database));
     }
 
     private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
@@ -81,8 +83,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var expectedStatus = organization.GetStatus(0, 0, 0);
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 
@@ -272,8 +274,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var expectedStatus = organization.GetStatus(0, 0, 0);
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 
@@ -373,8 +375,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
                 .AddComment(ownerId, "Second comment")));
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var expectedComment = issueData.Issue.IssueComments!.OrderBy(x => x.Id).First();
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 
@@ -947,12 +949,12 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
 
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
-        var memberDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == memberId)
+        var memberDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == memberId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 

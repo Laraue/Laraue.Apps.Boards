@@ -84,6 +84,14 @@ public class WebApiTestHost
             // about the returned id should re-Setup it (via Mock.Get on the resolved instance).
             var identityClientMock = new Mock<UserIdentityService.UserIdentityServiceClient>();
             identityClientMock
+                .Setup(x => x.GetUserProfileAsync(
+                    It.IsAny<GetUserProfileRequest>(),
+                    It.IsAny<Metadata>(),
+                    It.IsAny<DateTime?>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((GetUserProfileRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.AsyncUnaryCallOf(TestUsers.GetIdentityProfile(request.UserId)));
+            identityClientMock
                 .Setup(x => x.CreateUserIfNotExistsAsync(
                     It.IsAny<CreateUserIfNotExistsRequest>(),
                     It.IsAny<Metadata>(),
@@ -171,21 +179,24 @@ public class WebApiTestHostScope : IDisposable
         _scope.Dispose();
     }
     
-    public async Task<Guid> CreateUser(Action<User>? setupUser = null)
+    public async Task<Guid> CreateUser(Action<TestUser>? setupUser = null)
     {
-        var user = new User
+        var testUser = new TestUser
         {
             TelegramId = ++_lastTelegramId,
         };
-        
-        setupUser?.Invoke(user);
 
-        var initials = new UserInitials(user.DisplayName.Length > 0 ? user.DisplayName : null, null, null);
-        user.DisplayName = initials.DisplayName;
-        user.Initials = initials.Initials;
+        setupUser?.Invoke(testUser);
+
+        var user = new User
+        {
+            TelegramId = testUser.TelegramId,
+            GlobalUserId = Guid.NewGuid(),
+        };
 
         Database.Users.Add(user);
-        
+        TestUsers.Register(user.Id, user.GlobalUserId, testUser);
+
         await Database.SaveChangesAsync();
         
         return user.Id;

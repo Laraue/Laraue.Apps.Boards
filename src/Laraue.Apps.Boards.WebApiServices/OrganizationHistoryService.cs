@@ -63,7 +63,7 @@ public class OrganizationHistoryService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey))
             .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", request.IssueKey));
 
-        return await historyReader.GetIssueHistory(issueId, request.IssueKey, request.Pagination, ct);
+        return await historyReader.GetIssueHistory(request.AuthData.OrganizationId, issueId, request.IssueKey, request.Pagination, ct);
     }
 
     public async Task<ShortPaginatedResult<OrganizationHistoryItem>> GetOrganizationHistory(

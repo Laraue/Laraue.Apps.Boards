@@ -47,6 +47,10 @@ public interface IOrganizationsService
     Task<AttributeDto[]> GetAttributes(
         GetAttributesRequest request,
         CancellationToken cancellationToken);
+
+    Task UpdateMemberProfile(
+        UpdateMemberProfileRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class OrganizationsService(
@@ -104,6 +108,12 @@ public class OrganizationsService(
                     CanViewBilling = x.AdminAccessLevel.HasFlag(AdminAccessLevel.ViewBilling),
                     Slug = x.Organization.Slug,
                     SlugPostfix = x.Organization.SlugPostfix,
+                    MemberProfile = new MemberProfileDto
+                    {
+                        DisplayName = x.DisplayName,
+                        Initials = x.Initials,
+                        Color = x.Color,
+                    },
                 })
                 .FirstOrThrowNotFoundEFAsync($"Organization: {request.AuthData.OrganizationId} is not found", cancellationToken));
 
@@ -157,20 +167,19 @@ public class OrganizationsService(
 
     public async Task Leave(LeaveOrganizationRequest request, CancellationToken cancellationToken)
     {
-        var isOwner = await context.OrganizationUsers
+        var member = await context.ActiveOrganizationUsers()
             .Where(x => x.UserId == request.UserId)
             .Where(x => x.OrganizationId == request.OrganizationId)
-            .AnyAsync(x => x.Organization!.OwnerId == x.UserId, cancellationToken);
+            .Select(x => new { x.Id, IsOwner = x.Organization!.OwnerId == x.UserId })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
 
-        if (isOwner)
+        if (member.IsOwner)
             throw new ForbiddenException(ErrorMessages.OwnerAccessCannotBeRevoked);
 
-        await context.OrganizationUsers
-            .Where(x => x.UserId == request.UserId)
-            .Where(x => x.OrganizationId == request.OrganizationId)
-            .DeleteOrThrowNotFoundLinq2DbAsync(
-                "Organization is not found or user is not a participator of organization",
-                cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreOrganizationsService.RemoveMember(member.Id, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task<string> Login(LoginRequest request, CancellationToken cancellationToken)
@@ -215,9 +224,9 @@ public class OrganizationsService(
                 .Select(x => new VisibleUser
                 {
                     UserId = x.UserId,
-                    Initials = x.User!.Initials,
-                    DisplayName = x.User.DisplayName,
-                    Color = x.User.Color,
+                    Initials = x.Initials,
+                    DisplayName = x.DisplayName,
+                    Color = x.Color,
                     IsCurrentUser = x.UserId == request.AuthData.UserId,
                 })
                 .ToArrayAsyncEF(cancellationToken));
@@ -245,6 +254,29 @@ public class OrganizationsService(
             .ToArrayAsync(cancellationToken);
 
         return result;
+    }
+
+    public async Task UpdateMemberProfile(UpdateMemberProfileRequest request, CancellationToken cancellationToken)
+    {
+        var isMember = await accessService.GetOrganizations(
+            request.AuthData.UserId,
+            organizations => organizations
+                .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
+                .AnyAsyncEF(cancellationToken));
+
+        if (!isMember)
+            throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
+
+        var displayName = string.IsNullOrWhiteSpace(request.DisplayName)
+            ? null
+            : request.DisplayName.Trim();
+
+        await coreOrganizationsService.UpdateMemberProfile(
+            request.AuthData.OrganizationId,
+            request.AuthData.UserId,
+            displayName,
+            request.Color,
+            cancellationToken);
     }
 }
 
@@ -303,6 +335,41 @@ public record OrganizationDto
     public required string Slug { get; set; }
     public required string SlugPostfix { get; set; }
     public UserOrganizationPreferencesResponse Preferences { get; set; } = new();
+
+    /// <summary>
+    /// How the current user is shown in this organization.
+    /// </summary>
+    public required MemberProfileDto MemberProfile { get; set; }
+}
+
+/// <summary>
+/// How a member is shown in an organization - taken from their profile when they joined, changeable by
+/// them.
+/// </summary>
+public record MemberProfileDto
+{
+    public required string DisplayName { get; set; }
+    public required string Initials { get; set; }
+    public required string Color { get; set; }
+}
+
+public record UpdateMemberProfileRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+
+    /// <summary>
+    /// The name to show in this organization; null or blank takes it from the user's profile again.
+    /// </summary>
+    [MaxLength(129)]
+    public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// A <c>#rrggbb</c> color, validated like the other colors in the app (organization, space, ...).
+    /// </summary>
+    [Required]
+    [MinLength(7)]
+    [MaxLength(7)]
+    public required string Color { get; set; }
 }
 
 public record JoinOrganizationRequest

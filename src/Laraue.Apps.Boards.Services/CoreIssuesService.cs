@@ -8,6 +8,8 @@ using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 
+using Laraue.Apps.Boards.Services.Members;
+
 namespace Laraue.Apps.Boards.Services;
 
 public interface ICoreIssuesService
@@ -96,7 +98,8 @@ public class CoreIssuesService(
     IIssueNumbersService issueNumbersService,
     IIssueHistoryService historyService,
     IOrganizationLogItemFactory logItemFactory,
-    ICoreIssueAttributesService issueAttributesService)
+    ICoreIssueAttributesService issueAttributesService,
+    IMemberProfileReader memberProfileReader)
     : ICoreIssuesService
 {
     public async Task<long> Create(
@@ -187,19 +190,16 @@ public class CoreIssuesService(
         if (!string.IsNullOrEmpty(content))
             items.Add(logItemFactory.ContentChanged(oldValue: null, newValue: content));
 
-        var userData = await context.Users
-            .Where(x => x.Id == assigneeId)
-            .Select(x => new
-            {
-                x.DisplayName,
-                x.Color,
-            })
-            .FirstAsyncEF(cancellationToken);
+        var assignee = new UserDetails { UserId = assigneeId };
+        await memberProfileReader.EnrichUsers(
+            issueData.OrganizationId,
+            [assignee],
+            cancellationToken);
 
         items.Add(
             logItemFactory.AssigneeChanged(
                 oldValue: null,
-                new IdName<Guid>(assigneeId, userData.DisplayName)));
+                new IdName<Guid>(assigneeId, assignee.DisplayName)));
 
         if (request.Attributes.IsSet)
         {
@@ -278,22 +278,18 @@ public class CoreIssuesService(
             var assigneeId = request.AssigneeId.Value;
             var oldAssigneeId = issueData.AssigneeId;
 
-            var usersData = await context.Users
-                .Where(x => x.Id == assigneeId || x.Id == oldAssigneeId)
-                .ToDictionaryAsyncEF(
-                    x => x.Id,
-                    x => new
-                    {
-                        x.DisplayName,
-                        x.Color,
-                    },
-                    cancellationToken);
+            var oldAssignee = new UserDetails { UserId = oldAssigneeId };
+            var newAssignee = new UserDetails { UserId = assigneeId };
+            await memberProfileReader.EnrichUsers(
+                issueData.OrganizationId,
+                [oldAssignee, newAssignee],
+                cancellationToken);
 
             settersBuilder += builder => builder.SetProperty(x => x.AssigneeId, assigneeId);
 
             items.Add(logItemFactory.AssigneeChanged(
-                new IdName<Guid>(oldAssigneeId, usersData[oldAssigneeId].DisplayName),
-                new IdName<Guid>(assigneeId, usersData[assigneeId].DisplayName)));
+                new IdName<Guid>(oldAssigneeId, oldAssignee.DisplayName),
+                new IdName<Guid>(assigneeId, newAssignee.DisplayName)));
         }
 
         await context.ActiveIssues()

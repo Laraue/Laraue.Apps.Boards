@@ -1,5 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Identity;
+using Laraue.Apps.Boards.Services.Members;
 
 namespace Laraue.Apps.Boards.Services;
 
@@ -11,7 +13,8 @@ public class OrganizationDefaults
         string organizationName,
         string organizationColor,
         DateTime timestamp,
-        bool isPersonal)
+        bool isPersonal,
+        MemberProfile ownerProfile)
     {
         var organizationUser = new OrganizationUser
         {
@@ -33,6 +36,9 @@ public class OrganizationDefaults
                   | AdminAccessLevel.LinkChats
                 : AdminAccessLevel.All,
             UserId = userId,
+            DisplayName = ownerProfile.DisplayName,
+            Initials = ownerProfile.Initials,
+            Color = ownerProfile.Color,
         };
         
         return new Organization

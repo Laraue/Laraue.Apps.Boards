@@ -51,6 +51,14 @@ public abstract class TelegramIntegrationTest
         // about the returned id should re-Setup it (via Mock.Get on the resolved instance).
         var identityClientMock = new Mock<UserIdentityService.UserIdentityServiceClient>();
         identityClientMock
+            .Setup(x => x.GetUserProfileAsync(
+                It.IsAny<GetUserProfileRequest>(),
+                It.IsAny<Metadata>(),
+                It.IsAny<DateTime?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((GetUserProfileRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
+                GrpcTestHelpers.AsyncUnaryCallOf(TestUsers.GetIdentityProfile(request.UserId)));
+        identityClientMock
             .Setup(x => x.CreateUserIfNotExistsAsync(
                 It.IsAny<CreateUserIfNotExistsRequest>(),
                 It.IsAny<Metadata>(),

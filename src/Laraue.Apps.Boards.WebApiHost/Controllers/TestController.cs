@@ -38,7 +38,7 @@ public class TestController(
         {
             Id = dbUser.TelegramId
                 ?? throw new BadRequestException(nameof(id), "Test bearer can be built only for a Telegram user"),
-            FirstName = dbUser.DisplayName,
+            FirstName = "Test",
         };
         
         var userJson = JsonSerializer.Serialize(user, JsonBotAPI.Options);

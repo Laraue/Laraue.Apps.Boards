@@ -19,8 +19,8 @@ public class CoreAccountLinkingTests(WebApiTestHost host) : IClassFixture<WebApi
     {
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
-        var ownerId = await service.CreateIfTelegramIdNotExists(TelegramProfile(516), default);
-        var userId = await service.CreateIfGoogleSubjectNotExists(GoogleProfile("google-516"), default);
+        var ownerId = await service.SignUpAsync(testScope.Database, TelegramProfile(516));
+        var userId = await service.SignUpAsync(testScope.Database, GoogleProfile("google-516"));
         await service.LinkTelegramAccountInIdentity(userId, TelegramProfile(516), default);
 
         var response = await testScope.Services.GetRequiredService<IConnectedAccountsService>()
@@ -38,7 +38,7 @@ public class CoreAccountLinkingTests(WebApiTestHost host) : IClassFixture<WebApi
     {
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
-        var userId = await service.CreateIfGoogleSubjectNotExists(GoogleProfile("google-518"), default);
+        var userId = await service.SignUpAsync(testScope.Database, GoogleProfile("google-518"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.LinkTelegramAccountInBoards(userId, TelegramProfile(518), default));

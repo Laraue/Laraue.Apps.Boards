@@ -5,6 +5,7 @@ using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.Services.Identity;
+using Laraue.Apps.Boards.Services.Members;
 using BillingServiceId = Laraue.Apps.Billing.Internal.Contracts.ServiceId;
 using BillingServiceIdInterceptor = Laraue.Apps.Billing.Internal.Contracts.ServiceIdInterceptor;
 using IdentityServiceId = Laraue.Apps.Identity.Internal.Contracts.ServiceId;
@@ -105,6 +106,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreEpicsService, CoreEpicsService>()
                 .AddScoped<ICoreStatusService, CoreStatusService>()
                 .AddScoped<ICoreUserService, CoreUserService>()
+                .AddScoped<IMemberProfileReader, MemberProfileReader>()
                 .AddScoped<ICoreSpacesService, CoreSpacesService>()
                 .AddScoped<ISpaceCounterService, SpaceCounterService>()
                 .AddScoped<IIssueMonthlyCountService, IssueMonthlyCountService>()

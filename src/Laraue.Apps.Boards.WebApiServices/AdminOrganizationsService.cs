@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
@@ -86,7 +87,8 @@ public class AdminOrganizationsService(
     ICoreOrganizationsService coreOrganizationsService,
     DatabaseContext context,
     IAccessService accessService,
-    IBillingTokenClient billingTokenClient)
+    IBillingTokenClient billingTokenClient,
+    IMemberProfileReader memberProfileReader)
     : IAdminOrganizationsService
 {
     public async Task Update(EditOrganizationRequest request, CancellationToken cancellationToken)
@@ -133,8 +135,9 @@ public class AdminOrganizationsService(
             "Revoking organization access",
             cancellationToken);
 
-        var userData = await context.OrganizationUsers
+        var userData = await context.ActiveOrganizationUsers()
             .Where(x => x.Id == request.OrganizationUserId)
+            .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
             .Select(x => new
             {
                 IsOwner = x.Organization!.OwnerId == x.UserId,
@@ -144,9 +147,9 @@ public class AdminOrganizationsService(
         if (userData.IsOwner)
             throw new ForbiddenException(ErrorMessages.OwnerAccessCannotBeRevoked);
 
-        await context.OrganizationUsers
-            .Where(x => x.Id == request.OrganizationUserId)
-            .ExecuteDeleteAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreOrganizationsService.RemoveMember(request.OrganizationUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task<string> RegenerateJoinCode(RegenerateJoinCodeRequest request, CancellationToken cancellationToken)
@@ -175,7 +178,7 @@ public class AdminOrganizationsService(
             "Setting user permissions",
             cancellationToken);
 
-        await context.OrganizationUsers
+        await context.ActiveOrganizationUsers()
             .Where(x => x.Id == request.OrganizationUserId)
             .AnyOrThrowNotFoundEFAsync(
                 x => x.OrganizationId == request.AuthData.OrganizationId,
@@ -233,7 +236,7 @@ public class AdminOrganizationsService(
             "Reading user permissions",
             cancellationToken);
 
-        await context.OrganizationUsers
+        await context.ActiveOrganizationUsers()
             .Where(x => x.Id == request.OrganizationUserId)
             .AnyOrThrowNotFoundEFAsync(
                 x => x.OrganizationId == request.AuthData.OrganizationId,
@@ -261,9 +264,9 @@ public class AdminOrganizationsService(
                 return query
                     .Select(x => new OrganizationMember
                     {
-                        Color = x.User!.Color,
-                        DisplayName = x.User.DisplayName,
-                        Initials = x.User.Initials,
+                        Color = x.Color,
+                        DisplayName = x.DisplayName,
+                        Initials = x.Initials,
                         OrganizationUserId = x.Id,
                         UserId = x.UserId,
                         IsOwner = x.Organization!.OwnerId == x.UserId,
@@ -395,16 +398,10 @@ public class AdminOrganizationsService(
                 string.Format(ErrorMessages.EntityNotFound, "Organization", request.AuthData.OrganizationId));
         }
 
-        var ownerIds = page.Data.Select(x => x.OwnerId).Distinct().ToArray();
-        var displayNames = await context.Users
-            .Where(u => ownerIds.Contains(u.Id))
-            .ToDictionaryAsyncEF(u => u.Id, u => u.DisplayName, cancellationToken);
-
-        return page.MapTo(item => new AdminBillingTransaction
+        var transactions = page.MapTo(item => new AdminBillingTransaction
         {
             Id = item.Id,
             OwnerUserId = item.OwnerId,
-            OwnerDisplayName = displayNames.GetValueOrDefault(item.OwnerId),
             Status = item.Status,
             Reason = item.Reason,
             CreatedAt = item.CreatedAt,
@@ -412,6 +409,13 @@ public class AdminOrganizationsService(
             Delta = item.Delta,
             Error = item.Error,
         });
+
+        await memberProfileReader.EnrichUsers(
+            request.AuthData.OrganizationId,
+            transactions.Data,
+            cancellationToken);
+
+        return transactions;
     }
 
     private async Task EnsureAttributeExists(long organizationId, long attributeId, CancellationToken cancellationToken)
@@ -575,15 +579,20 @@ public record GetAdminBillingTransactionsRequest : IPaginatedRequest
     public required PaginationData Pagination { get; set; }
 }
 
-public sealed record AdminBillingTransaction
+public sealed record AdminBillingTransaction : IEnrichableUser
 {
     public required Guid Id { get; init; }
     public required Guid OwnerUserId { get; init; }
 
     /// <summary>
-    /// Null if the owning user no longer exists.
+    /// The owner's name in the organization, filled by <see cref="IMemberProfileReader"/>.
     /// </summary>
-    public string? OwnerDisplayName { get; init; }
+    public string? OwnerDisplayName { get; set; }
+
+    Guid IEnrichableUser.UserId => OwnerUserId;
+    string IEnrichableUser.DisplayName { set => OwnerDisplayName = value; }
+    string IEnrichableUser.Initials { set { } }
+    string IEnrichableUser.Color { set { } }
 
     public required TokenTransactionStatus Status { get; init; }
     public required TokenTransactionReason Reason { get; init; }

@@ -4,7 +4,7 @@ namespace Laraue.Apps.Boards.Services;
 
 /// <summary>
 /// Settings for calling Laraue.Apps.Identity's internal gRPC API (global user identity - see
-/// <see cref="ICoreUserService.CreateIfTelegramIdNotExists"/>).
+/// <see cref="ICoreUserService.ResolveTelegramIdentity"/>).
 /// </summary>
 public class IdentityOptions
 {

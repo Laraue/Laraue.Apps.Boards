@@ -1,14 +1,8 @@
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Members;
 
 namespace Laraue.Apps.Boards.Services.History;
-
-public record UserDetails
-{
-    public required string Color { get; set; }
-    public required string DisplayName { get; set; }
-    public required string Initials { get; set; }
-}
 
 public record OrganizationHistoryItem
 {

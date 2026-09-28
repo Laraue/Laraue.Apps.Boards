@@ -2,6 +2,10 @@
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
+/// <summary>
+/// A Boards user: identifiers only. The profile (names, language) lives in Laraue.Apps.Identity, and how
+/// the user is shown in an organization is their <see cref="OrganizationUser"/> row there.
+/// </summary>
 public class User
 {
     public Guid Id { get; set; }
@@ -20,20 +24,6 @@ public class User
     [MaxLength(255)]
     public string? GoogleSubject { get; set; }
 
-    /// <summary>
-    /// Boards-side presentation name, derived once at sign-up from the sign-in method's profile.
-    /// The profile itself (Telegram username/names/language, Google email/name) isn't stored here -
-    /// Laraue.Apps.Identity is its source of truth.
-    /// </summary>
-    // 129 = Telegram's 64-char first/last name limit twice, plus the joining space ("{firstName} {lastName}")
-    [MaxLength(129)]
-    public string DisplayName { get; set; } = string.Empty;
-
-    [MaxLength(2)]
-    public string Initials { get; set; } = string.Empty;
-
-    [MaxLength(7)]
-    public string Color { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
 
     /// <summary>

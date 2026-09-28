@@ -146,7 +146,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var memberId = await testScope.CreateUser(x => x.DisplayName = "member1");
-        var organization = await testScope.InitializeOrganization(ownerId);
+        var organization = await testScope.InitializeOrganization(ownerId, o => o.AddUser(memberId));
 
         var transactionId = Guid.NewGuid();
         var createdAt = DateTime.UtcNow;
@@ -561,9 +561,9 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithUserAuthorization(newUserId)
             .Execute(x => x.Leave(organization.Id));
         
-        // Ensure that now the record is missing
-        organizationUsers = await testScope.Database.OrganizationUsers.ToListAsyncEF();
-        Assert.Null(organizationUsers.FirstOrDefault(x => x.UserId == newUserId));
+        // The record is kept, so the former member's name is still shown, but they're no longer a member
+        var formerMember = await testScope.Database.OrganizationUsers.AsNoTracking().SingleAsync(x => x.UserId == newUserId);
+        Assert.NotNull(formerMember.LeftAt);
     }
 
     [Fact]
@@ -840,9 +840,11 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithOrganizationAuthorization(organization.Id, adminId)
             .Execute(x => x.RevokeAccess(user.Id));
         
-        // Ensure that now the record is missing
-        organizationUsers = await testScope.Database.OrganizationUsers.ToListAsyncEF();
-        Assert.Null(organizationUsers.FirstOrDefault(x => x.UserId == participatorId));
+        // The record is kept, so the former member's name is still shown, but they're no longer a member
+        var revoked = await testScope.Database.OrganizationUsers.AsNoTracking().SingleAsync(x => x.UserId == participatorId);
+        Assert.NotNull(revoked.LeftAt);
+        Assert.False(revoked.CanRead);
+        Assert.Equal(AdminAccessLevel.None, revoked.AdminAccessLevel);
     }
 
     [Fact]
@@ -1293,5 +1295,216 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 
         Assert.Equal(3, members!.Length);
         Assert.True(Assert.Single(members, x => x.UserId == ownerId).IsCurrentUser);
+    }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldSetNameAndColorOnlyInCurrentOrganization_Always()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(user => user.DisplayName = "default name");
+        var organization = await testScope.InitializeOrganization(userId);
+        var otherOrganization = await testScope.InitializeOrganization(userId);
+        var color = Palette.Colors[^1];
+
+        await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { DisplayName = " Ivan Petrov ", Color = color },
+                default));
+
+        var result = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetOrganization(default));
+        Assert.Equal("Ivan Petrov", result!.MemberProfile.DisplayName);
+        Assert.Equal("IP", result.MemberProfile.Initials);
+        Assert.Equal(color, result.MemberProfile.Color);
+
+        var otherMember = await testScope.Database.OrganizationUsers
+            .AsNoTracking()
+            .SingleAsync(x => x.OrganizationId == otherOrganization.Id && x.UserId == userId);
+        var otherResult = await _organizationsController
+            .WithOrganizationAuthorization(otherOrganization.Id, userId)
+            .Execute(x => x.GetOrganization(default));
+        Assert.Equal("default name", otherResult!.MemberProfile.DisplayName);
+        Assert.Equal(otherMember.Color, otherResult.MemberProfile.Color);
+    }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldTakeNameFromIdentityProfile_WhenNameIsCleared()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(user => user.DisplayName = "identity name");
+        var organization = await testScope.InitializeOrganization(userId);
+        var proxy = _organizationsController.WithOrganizationAuthorization(organization.Id, userId);
+        var color = Palette.Colors[^1];
+
+        await proxy.Execute(x => x.UpdateMemberProfile(
+            new UpdateMemberProfileRequest { DisplayName = "Ivan Petrov", Color = Palette.FirstColor },
+            default));
+        await proxy.Execute(x => x.UpdateMemberProfile(
+            new UpdateMemberProfileRequest { DisplayName = "  ", Color = color },
+            default));
+
+        var result = await proxy.Execute(x => x.GetOrganization(default));
+        Assert.Equal("identity name", result!.MemberProfile.DisplayName);
+        Assert.Equal("ID", result.MemberProfile.Initials);
+        Assert.Equal(color, result.MemberProfile.Color);
+    }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldReturn400_WhenColorIsNotHexColor()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { Color = "blue" },
+                default)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateMemberProfile_ShouldReturn404_WhenUserIsNotMember()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { DisplayName = "Ivan", Color = Palette.FirstColor },
+                default)));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetMembers_ShouldShowOrganizationProfile_WhenMemberSetOne()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(user => user.DisplayName = "owner");
+        var memberId = await testScope.CreateUser(user => user.DisplayName = "member");
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true)));
+
+        await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, memberId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { DisplayName = "Ivan Petrov", Color = Palette.FirstColor },
+                default));
+
+        var members = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetMembers(null, default));
+
+        var member = Assert.Single(members!, x => x.UserId == memberId);
+        Assert.Equal("Ivan Petrov", member.DisplayName);
+        Assert.Equal("IP", member.Initials);
+        Assert.Equal("owner", Assert.Single(members!, x => x.UserId == ownerId).DisplayName);
+    }
+
+    [Fact]
+    public async Task Join_ShouldShowMemberByIdentityProfile_WhenUserJoinsFirstTime()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var newUserId = await testScope.CreateUser(user => user.DisplayName = "Ivan Petrov");
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await _organizationsController
+            .WithUserAuthorization(newUserId)
+            .Execute(x => x.Join(organization.JoinCode!));
+
+        var member = await testScope.Database.OrganizationUsers
+            .AsNoTracking()
+            .SingleAsync(x => x.OrganizationId == organization.Id && x.UserId == newUserId);
+        Assert.Equal("Ivan Petrov", member.DisplayName);
+        Assert.Equal("IV", member.Initials);
+        Assert.Contains(member.Color, Palette.Colors);
+    }
+
+    [Fact]
+    public async Task Join_ShouldBringFormerMemberBackWithTheirNameAndNoPermissions_WhenTheyLeftBefore()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true)));
+
+        await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, memberId)
+            .Execute(x => x.UpdateMemberProfile(
+                new UpdateMemberProfileRequest { DisplayName = "Ivan Petrov", Color = Palette.FirstColor },
+                default));
+        await _organizationsController
+            .WithUserAuthorization(memberId)
+            .Execute(x => x.Leave(organization.Id));
+        await _organizationsController
+            .WithUserAuthorization(memberId)
+            .Execute(x => x.Join(organization.JoinCode!));
+
+        var member = await testScope.Database.OrganizationUsers
+            .AsNoTracking()
+            .SingleAsync(x => x.OrganizationId == organization.Id && x.UserId == memberId);
+        Assert.Null(member.LeftAt);
+        Assert.Equal("Ivan Petrov", member.DisplayName);
+        Assert.Equal(Palette.FirstColor, member.Color);
+        Assert.False(member.CanRead);
+    }
+
+    [Fact]
+    public async Task Leave_ShouldRemoveUserFromMembersAndOrganizations_WhenTheyLeft()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddUser(memberId, b => b
+                .SetGlobalAccessLevel(g => g.CanRead = true)
+                .SetSpaceAccessLevel(0, l => l.CanRead = true)));
+
+        await _organizationsController
+            .WithUserAuthorization(memberId)
+            .Execute(x => x.Leave(organization.Id));
+
+        var members = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetMembers(null, default));
+        Assert.DoesNotContain(members!, x => x.UserId == memberId);
+
+        var organizations = await _organizationsController
+            .WithUserAuthorization(memberId)
+            .Execute(x => x.GetOrganizations(default));
+        Assert.DoesNotContain(organizations!, x => x.Id == organization.Id);
+
+        Assert.False(await testScope.Database.DirectSpacePermissions.AnyAsync(x => x.OrganizationUser!.UserId == memberId));
+    }
+
+    [Fact]
+    public async Task RevokeAccess_ShouldReturn404_WhenMemberBelongsToAnotherOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var otherOwnerId = await testScope.CreateUser();
+        var otherMemberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        var otherOrganization = await testScope.InitializeOrganization(otherOwnerId, o => o.AddUser(otherMemberId));
+        var otherMember = await testScope.Database.OrganizationUsers
+            .AsNoTracking()
+            .SingleAsync(x => x.OrganizationId == otherOrganization.Id && x.UserId == otherMemberId);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _adminOrganizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.RevokeAccess(otherMember.Id)));
+
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+        Assert.Null((await testScope.Database.OrganizationUsers.AsNoTracking().SingleAsync(x => x.Id == otherMember.Id)).LeftAt);
     }
 }

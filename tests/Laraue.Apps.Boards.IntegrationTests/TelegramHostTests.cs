@@ -1948,8 +1948,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var user = Assert.Single(await db.Users.ToListAsyncLinqToDB());
         
         Assert.Equal(777, user.TelegramId);
-        Assert.Equal("snake991", user.DisplayName);
-        
+
         var userOrganization = Assert.Single(await db.Organizations.ToListAsyncLinqToDB());
         Assert.Equal("snake991", userOrganization.Slug);
         Assert.Equal(OrganizationType.Personal, userOrganization.Type);
@@ -3009,6 +3008,47 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var noMatchWildcardRequest = host.Requests().Last<AnswerInlineQueryRequest>();
         Assert.Equal("space-error", Assert.Single(noMatchWildcardRequest.Results).Id);
+    }
+
+    [Fact]
+    public async Task InlineSearch_ShouldMatchAssigneeByOrganizationName_OnlyInThatOrganization()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+        var memberId = await testScope.CreateUser(x => x.DisplayName = "member_default");
+
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true))
+            .AddIssueToDefaultStatus(memberId, i => i.WithContent("RenamedOrgIssue")));
+        await testScope.InitializeOrganization(userId, o => o
+            .AddUser(memberId, b => b.SetGlobalAccessLevel(g => g.CanRead = true))
+            .AddSpace(userId, "OTH", s => s
+                .AddEpic(userId, e => e
+                    .AddIssue(memberId, 0, i => i.WithContent("DefaultNameOrgIssue")))));
+
+        await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == memberId)
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(ou => ou.DisplayName, "member_renamed")
+                .SetProperty(ou => ou.Initials, "ME"));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:member_renamed" }
+        });
+
+        var renamedResult = Assert.Single(host.Requests().Single<AnswerInlineQueryRequest>().Results);
+        Assert.Equal("DEF-1", renamedResult.Id);
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "assignee:member_default" }
+        });
+
+        var defaultResult = Assert.Single(host.Requests().OfType<AnswerInlineQueryRequest>().Last().Results);
+        Assert.Equal("OTH-1", defaultResult.Id);
     }
 
     [Fact]
