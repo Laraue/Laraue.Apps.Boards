@@ -41,6 +41,61 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal("User should be group admin", request.Text);
     }
 
+    [Theory]
+    [InlineData("ru", "Пользователь должен быть администратором группы")]
+    [InlineData("en", "User should be group admin")]
+    [InlineData("de", "User should be group admin")]
+    [InlineData(null, "User should be group admin")]
+    public async Task HandleLink_ShouldReplyInTelegramLanguage_WhenLanguageIsAvailable(
+        string? languageCode,
+        string expectedText)
+    {
+        using var host = GetTelegramTestHost();
+        var user = MemberUser;
+        user.LanguageCode = languageCode;
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = user,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(expectedText, request.Text);
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldFollowCurrentTelegramLanguage_WhenItChangedAfterSignUp()
+    {
+        using var host = GetTelegramTestHost();
+        var user = MemberUser;
+
+        // The first update signs the user up in Russian; the next one comes from an English app.
+        user.LanguageCode = "ru";
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = user, Id = 1, Text = "/link", Chat = GroupChat }
+        });
+        user.LanguageCode = "en";
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = user, Id = 2, Text = "/link", Chat = GroupChat }
+        });
+
+        var replies = host.Requests()
+            .OfType<SendMessageRequest>()
+            .Select(x => x.Text)
+            .ToArray();
+        Assert.Equal(
+            ["Пользователь должен быть администратором группы", "User should be group admin"],
+            replies);
+    }
+
     [Fact]
     public async Task HandleLink_ShouldShowOrganizationPicker_WhenAdminAndNoExistingLink()
     {

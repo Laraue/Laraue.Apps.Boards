@@ -7,21 +7,11 @@ using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Query;
 
 namespace Laraue.Apps.Boards.Services;
 
 public interface ICoreUserService
 {
-    Task UpdatePreferences(
-        Guid userId,
-        Action<UpdateSettersBuilder<UserPreferences>> updateSetters,
-        CancellationToken cancellationToken);
-    
-    Task<UserPreferencesResponse> GetPreferences(
-        Guid userId,
-        CancellationToken cancellationToken);
-
     /// <summary>
     /// First step of signing a Telegram account up: resolves (or creates) its Laraue.Apps.Identity user
     /// and the profile the user is shown by in their personal organization. Calls Identity and writes
@@ -32,7 +22,7 @@ public interface ICoreUserService
 
     /// <summary>
     /// Second step, after <see cref="ResolveTelegramIdentity"/>: creates a Boards user (plus their
-    /// personal organization, preferences and personal Telegram chat) for a Telegram account seen for
+    /// personal organization and personal Telegram chat) for a Telegram account seen for
     /// the first time, or returns the existing user's id. Must be called within a transaction.
     /// </summary>
     Task<Guid> CreateIfTelegramIdNotExists(
@@ -103,44 +93,6 @@ public class CoreUserService(
     IDateTimeProvider dateTimeProvider,
     UserIdentityService.UserIdentityServiceClient identityClient) : ICoreUserService
 {
-    public async Task UpdatePreferences(
-        Guid userId,
-        Action<UpdateSettersBuilder<UserPreferences>> updateSetters,
-        CancellationToken cancellationToken)
-    {
-        var updatedCount = await context.UserPreferences
-            .Where(x => x.UserId == userId)
-            .ExecuteUpdateAsync(updateSetters, cancellationToken);
-        
-        if (updatedCount > 0)
-            return;
-        
-        // The first settings setup
-        var preferences = GetDefaultPreferences(userId);
-        context.Add(preferences);
-        
-        await context.SaveChangesAsync(cancellationToken);
-        await context.UserPreferences
-            .Where(x => x.UserId == userId)
-            .ExecuteUpdateAsync(updateSetters, cancellationToken);
-    }
-
-    public async Task<UserPreferencesResponse> GetPreferences(
-        Guid userId,
-        CancellationToken cancellationToken)
-    {
-        var preferences = await context.UserPreferences
-            .Where(x => x.UserId == userId)
-            .FirstOrDefaultAsyncEF(cancellationToken)
-            ?? GetDefaultPreferences(userId);
-
-        return new UserPreferencesResponse
-        {
-            EpicSortOrder = preferences.EpicSortOrder,
-            InterfaceLanguage = InterfaceLanguage.ForCode(preferences.InterfaceLanguage).Code,
-        };
-    }
-
     public async Task<NewUserIdentity> ResolveTelegramIdentity(
         TelegramUserProfile profile,
         CancellationToken cancellationToken)
@@ -517,8 +469,8 @@ public class CoreUserService(
 
     /// <summary>
     /// Adds (without saving) what every newly registered user gets regardless of how they signed
-    /// in: a personal organization and their preferences, with the interface language taken from
-    /// the sign-in method. Returns the personal organization's default status.
+    /// in: a personal organization, named in the sign-in method's language. Returns the personal
+    /// organization's default status.
     /// </summary>
     private DataAccess.Models.Status AddPersonalWorkspace(
         Guid userId,
@@ -537,7 +489,6 @@ public class CoreUserService(
             ownerProfile);
 
         context.Organizations.Add(organization);
-        context.UserPreferences.Add(GetDefaultPreferences(userId, languageCode));
 
         return organization.Spaces!.Single().Epics!.Single().Statuses!.Single();
     }
@@ -608,40 +559,20 @@ public class CoreUserService(
 
         return Guid.Parse(response.UserId);
     }
-
-    private static UserPreferences GetDefaultPreferences(Guid userId, string? languageCode = null)
-    {
-        return new UserPreferences
-        {
-            UserId = userId,
-            EpicSortOrder = EpicSortOrder.LastTouched,
-            InterfaceLanguage = languageCode is null ? null : InterfaceLanguage.ForCode(languageCode).Code,
-        };
-    }
 }
 
-public record UserPreferencesResponse
-{
-    public EpicSortOrder EpicSortOrder { get; init; }
-
-    /// <summary>
-    /// Always one of <see cref="InterfaceLanguage.Available"/> - the default when not set.
-    /// </summary>
-    public required string InterfaceLanguage { get; init; }
-}
-
-/// <summary>
-/// A Telegram user's profile as the sign-in method (Mini App, login widget, or the bot itself)
-/// reported it. Used only while creating the user - forwarded to Laraue.Apps.Identity (the source of
-/// truth for profiles) and used to derive the Boards-side display name, initials, personal
-/// organization and interface language. Boards doesn't store it.
-/// </summary>
 /// <summary>
 /// A signing-up user's Laraue.Apps.Identity id and the profile they're shown by in their personal
 /// organization - resolved outside the database transaction the user is then created in.
 /// </summary>
 public sealed record NewUserIdentity(Guid GlobalUserId, MemberProfile Profile);
 
+/// <summary>
+/// A Telegram user's profile as the sign-in method (Mini App, login widget, or the bot itself)
+/// reported it. Used only while creating the user - forwarded to Laraue.Apps.Identity (the source of
+/// truth for profiles) and used to derive the Boards-side display name, initials and personal
+/// organization. Boards doesn't store it.
+/// </summary>
 public sealed record TelegramUserProfile(
     long TelegramId,
     string? UserName,

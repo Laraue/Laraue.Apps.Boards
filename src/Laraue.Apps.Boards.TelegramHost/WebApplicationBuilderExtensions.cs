@@ -48,7 +48,9 @@ public static class WebApplicationBuilderExtensions
                 .AddTelegramMiddleware<AutoCallbackResponseMiddleware>()
                 .AddTelegramMiddleware<HandlePrivateMessagesMiddleware>()
                 .AddTelegramMiddleware<HandleGroupMessageMiddleware>()
-                .AddTelegramRequestLocalization<LocalizationProvider>()
+                // The library's default provider: the language of the sender's Telegram app, sent with
+                // every update, or the default one when it isn't available.
+                .AddTelegramRequestLocalization()
                 .Configure<TelegramRequestLocalizationOptions>(opt =>
                 {
                     opt.AvailableLanguages = InterfaceLanguage.Available
