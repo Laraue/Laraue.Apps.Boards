@@ -17,16 +17,17 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space, status id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it, and url is its page in the web app.")]
+    [Description("Lists issues in the caller's organization, optionally filtered by space, epic id, status id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it, and url is its page in the web app.")]
     public Task<IssueListPage> ListIssues(
         [Description("Only issues in this space (e.g. 'BRD'), from list_spaces. Omit to search every space.")] string? spaceKey = null,
+        [Description("Only issues in this epic id, from list_epics. Omit to include every epic.")] long? epicId = null,
         [Description("Only issues with this exact status id, from list_statuses. Omit to include every status.")] long? statusId = null,
         [Description("Only issues assigned to this user id, from list_members. Omit to include every assignee.")] Guid? assigneeId = null,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
         [Description("Max issues per page, 1-50. Omit for the default of 50.")] int? count = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.ListIssues(GetAuthData(), spaceKey, statusId, assigneeId, page, count, cancellationToken);
+        return issueMcpService.ListIssues(GetAuthData(), spaceKey, epicId, statusId, assigneeId, page, count, cancellationToken);
     }
 
     [McpServerTool]
@@ -122,7 +123,18 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists the statuses in a space, grouped by epic - the ids create_issue/edit_issue_status accept.")]
+    [Description("Lists epics - of one space, or of every space the caller can read - up to 50 per page, ordered by space key - check hasNextPage for more. Each epic has its id (what list_issues' epicId filter accepts), name, spaceKey, isDefault (the space's backlog epic) and status (New, Active or Done).")]
+    public Task<EpicListPage> ListEpics(
+        [Description("Only epics of this space, e.g. 'BRD', from list_spaces. Omit to list epics of every space.")] string? spaceKey = null,
+        [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
+        [Description("Max epics per page, 1-50. Omit for the default of 50.")] int? count = null,
+        CancellationToken cancellationToken = default)
+    {
+        return issueMcpService.ListEpics(GetAuthData(), spaceKey, page, count, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Lists the statuses in a space, grouped by epic (with the epic's id, as list_epics returns it) - the ids create_issue/edit_issue_status accept.")]
     public Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
         [Description("The space to list statuses for, e.g. 'BRD', from list_spaces.")] string spaceKey,
         CancellationToken cancellationToken)

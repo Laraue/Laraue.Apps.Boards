@@ -14,10 +14,11 @@ public static class McpServerInstructions
 
         - When the user mentions an issue, fetch it with get_issue instead of asking them to paste it.
           Its comments come from list_issue_comments, its change history from get_issue_history.
-        - Find issues with list_issues (by space, status or assignee). get_me returns your own user id,
+        - Find issues with list_issues (by space, epic, status or assignee). get_me returns your own user id,
           e.g. to list issues assigned to you.
-        - Tools take ids, not names: space keys from list_spaces, status ids from list_statuses,
-          attribute ids and allowed values from list_attributes, user ids from list_members.
+        - Tools take ids, not names: space keys from list_spaces, epic ids from list_epics, status ids
+          from list_statuses, attribute ids and allowed values from list_attributes, user ids from
+          list_members.
         - Before changing something, check the permission flags you already have: canCreateIssue
           (list_spaces), canEdit/canDelete (list_issues, get_issue), canManage (list_issue_comments).
         - edit_issue replaces the whole content - read the issue first to keep what should stay.

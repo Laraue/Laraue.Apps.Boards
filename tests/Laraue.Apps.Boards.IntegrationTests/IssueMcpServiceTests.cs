@@ -91,9 +91,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
 
         var ownerIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, CancellationToken.None);
         var memberIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, memberId), null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, CancellationToken.None);
 
         var issue = Assert.Single(ownerIssues.Issues);
         Assert.Equal(issueData.Key, issue.Key);
@@ -134,7 +134,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
 
         var page = await CreateIssueMcpService(testScope).ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, CancellationToken.None);
 
         var issue = Assert.Single(page.Issues);
         Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
@@ -194,17 +194,44 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var authData = AuthDataFor(organization.Id, ownerId);
 
         var bySpace = await issueMcpService.ListIssues(
-            authData, organization.GetSpace(1).Key, null, null, null, null, CancellationToken.None);
+            authData, organization.GetSpace(1).Key, null, null, null, null, null, CancellationToken.None);
         var byStatus = await issueMcpService.ListIssues(
-            authData, null, inProgressStatusId, null, null, null, CancellationToken.None);
+            authData, null, null, inProgressStatusId, null, null, null, CancellationToken.None);
         var byAssignee = await issueMcpService.ListIssues(
-            authData, null, null, otherAssignee, null, null, CancellationToken.None);
+            authData, null, null, null, otherAssignee, null, null, CancellationToken.None);
 
         Assert.Equal(
             new HashSet<string> { targetIssueData.Key, wrongStatusIssueKey },
             bySpace.Issues.Select(x => x.Key).ToHashSet());
         Assert.Equal(targetIssueData.Key, Assert.Single(byStatus.Issues).Key);
         Assert.Equal(targetIssueData.Key, Assert.Single(byAssignee.Issues).Key);
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldFilterByEpic_WhenEpicIdGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Target")))
+                .AddEpic(ownerId, epic => epic
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Other epic")))));
+
+        var targetIssueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+
+        var result = await CreateIssueMcpService(testScope).ListIssues(
+            AuthDataFor(organization.Id, ownerId),
+            null,
+            organization.GetEpic(1, 1).Id,
+            null,
+            null,
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(targetIssueKey, Assert.Single(result.Issues).Key);
     }
 
     [Fact]
@@ -221,8 +248,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
         var authData = AuthDataFor(organization.Id, ownerId);
 
-        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, CancellationToken.None);
-        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, 1, null, CancellationToken.None);
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, 1, null, CancellationToken.None);
 
         Assert.Equal(IssuesPerPage, firstPage.Issues.Count);
         Assert.True(firstPage.HasNextPage);
@@ -249,9 +276,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
         var authData = AuthDataFor(organization.Id, ownerId);
 
-        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, 2, CancellationToken.None);
-        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, 1, 2, CancellationToken.None);
-        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, 1000, CancellationToken.None);
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 2, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, 1, 2, CancellationToken.None);
+        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 1000, CancellationToken.None);
 
         Assert.Equal(2, firstPage.Issues.Count);
         Assert.True(firstPage.HasNextPage);
@@ -904,11 +931,140 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         // Implicit "Backlog" epic + the two explicit ones.
         Assert.Equal(3, result.Count);
         var epicA = Assert.Single(result, x => x.EpicName == "Epic A");
+        Assert.Equal(organization.GetEpic(1, 1).Id, epicA.EpicId);
         var epicAStatus = Assert.Single(epicA.Statuses, x => x.Name == "In Progress");
         Assert.Equal(organization.GetStatus(1, 1, 1).Id, epicAStatus.Id);
         var epicB = Assert.Single(result, x => x.EpicName == "Epic B");
         var epicBStatus = Assert.Single(epicB.Statuses, x => x.Name == "Review");
         Assert.Equal(organization.GetStatus(1, 2, 1).Id, epicBStatus.Id);
+    }
+
+    [Fact]
+    public async Task ListEpics_ShouldReturnOnlyThatSpacesEpics_WhenSpaceKeyGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic.WithName("Sprint 1").WithStatus(EpicStatus.Active))));
+
+        var space = organization.GetSpace(1);
+        var backlog = organization.GetEpic(1, 0);
+        var sprint = organization.GetEpic(1, 1);
+
+        var result = await CreateIssueMcpService(testScope).ListEpics(
+            AuthDataFor(organization.Id, ownerId), space.Key, null, null, CancellationToken.None);
+
+        // The implicit "Backlog" epic + the explicit one; the default space's epic is left out.
+        Assert.Equal([backlog.Id, sprint.Id], result.Epics.Select(x => x.Id));
+        Assert.All(result.Epics, x => Assert.Equal(space.Key, x.SpaceKey));
+        Assert.True(result.Epics[0].IsDefault);
+        Assert.Equal(new EpicSummary(sprint.Id, "Sprint 1", space.Key, false, "Active"), result.Epics[1]);
+        Assert.False(result.HasNextPage);
+    }
+
+    [Fact]
+    public async Task ListEpics_ShouldReturnEpicsOfReadableSpacesOnly_WhenSpaceKeyOmitted()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetSpaceAccessLevel(1, x => x.CanRead = true))
+            .AddSpace(ownerId, space => space.AddEpic(ownerId, epic => epic.WithName("Sprint 1"))));
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+
+        var ownerEpics = await issueMcpService.ListEpics(
+            AuthDataFor(organization.Id, ownerId), null, null, null, CancellationToken.None);
+        var memberEpics = await issueMcpService.ListEpics(
+            AuthDataFor(organization.Id, memberId), null, null, null, CancellationToken.None);
+
+        Assert.Equal(
+            organization.Spaces!
+                .SelectMany(x => x.Epics!)
+                .Select(x => x.Id)
+                .ToHashSet(),
+            ownerEpics.Epics
+                .Select(x => x.Id)
+                .ToHashSet());
+        Assert.Equal(
+            organization.GetSpace(1).Epics!
+                .Select(x => x.Id)
+                .ToHashSet(),
+            memberEpics.Epics
+                .Select(x => x.Id)
+                .ToHashSet());
+    }
+
+    [Fact]
+    public async Task ListEpics_ShouldHideDeletedEpics_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space.AddEpic(ownerId, epic => epic.WithName("Deleted sprint"))));
+
+        var space = organization.GetSpace(1);
+        var deletedEpicId = organization.GetEpic(1, 1).Id;
+        await testScope.Database.Epics
+            .Where(x => x.Id == deletedEpicId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.DeletedAt, DateTime.UtcNow));
+
+        var issueMcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var bySpace = await issueMcpService.ListEpics(authData, space.Key, null, null, CancellationToken.None);
+        var all = await issueMcpService.ListEpics(authData, null, null, null, CancellationToken.None);
+
+        Assert.DoesNotContain(bySpace.Epics, x => x.Id == deletedEpicId);
+        Assert.DoesNotContain(all.Epics, x => x.Id == deletedEpicId);
+        Assert.Contains(bySpace.Epics, x => x.Id == organization.GetEpic(1, 0).Id);
+    }
+
+    [Fact]
+    public async Task ListEpics_ShouldThrowNotFound_WhenCallerCannotReadSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, _ => { }));
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).ListEpics(
+            AuthDataFor(organization.Id, memberId), organization.GetSpace(0).Key, null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ListEpics_ShouldThrowNotFound_WhenSpaceDoesNotExist()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).ListEpics(
+            AuthDataFor(organization.Id, ownerId), "NOPE", null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ListEpics_ShouldPaginate_WhenCountIsGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space.AddEpic(ownerId, epic => epic.WithName("Sprint 1"))));
+
+        var space = organization.GetSpace(1);
+        var issueMcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        var firstPage = await issueMcpService.ListEpics(authData, space.Key, null, 1, CancellationToken.None);
+        var secondPage = await issueMcpService.ListEpics(authData, space.Key, 1, 1, CancellationToken.None);
+
+        Assert.Equal(organization.GetEpic(1, 0).Id, Assert.Single(firstPage.Epics).Id);
+        Assert.True(firstPage.HasNextPage);
+        Assert.Equal(organization.GetEpic(1, 1).Id, Assert.Single(secondPage.Epics).Id);
+        Assert.False(secondPage.HasNextPage);
     }
 
     [Fact]
@@ -1581,9 +1737,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
 
         var ownerIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, CancellationToken.None);
         var memberIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, memberId), null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, CancellationToken.None);
 
         var ownerIssue = Assert.Single(ownerIssues.Issues);
         Assert.True(ownerIssue.CanEdit);
