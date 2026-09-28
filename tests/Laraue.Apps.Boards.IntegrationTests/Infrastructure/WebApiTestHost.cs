@@ -90,7 +90,7 @@ public class WebApiTestHost
                     It.IsAny<DateTime?>(),
                     It.IsAny<CancellationToken>()))
                 .Returns((GetUserProfileRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
-                    GrpcTestHelpers.AsyncUnaryCallOf(TestIdentityProfiles.Get(request.UserId)));
+                    GrpcTestHelpers.AsyncUnaryCallOf(TestUsers.GetIdentityProfile(request.UserId)));
             identityClientMock
                 .Setup(x => x.CreateUserIfNotExistsAsync(
                     It.IsAny<CreateUserIfNotExistsRequest>(),
@@ -179,24 +179,24 @@ public class WebApiTestHostScope : IDisposable
         _scope.Dispose();
     }
     
-    public async Task<Guid> CreateUser(Action<User>? setupUser = null)
+    public async Task<Guid> CreateUser(Action<TestUser>? setupUser = null)
     {
-        var user = new User
+        var testUser = new TestUser
         {
             TelegramId = ++_lastTelegramId,
         };
-        
-        setupUser?.Invoke(user);
 
-        var initials = new UserInitials(user.DisplayName.Length > 0 ? user.DisplayName : null, null, null);
-        user.DisplayName = initials.DisplayName;
-        user.Initials = initials.Initials;
-        if (user.GlobalUserId == Guid.Empty)
-            user.GlobalUserId = Guid.NewGuid();
-        TestIdentityProfiles.Set(user.GlobalUserId, user.DisplayName, user.Initials);
+        setupUser?.Invoke(testUser);
+
+        var user = new User
+        {
+            TelegramId = testUser.TelegramId,
+            GlobalUserId = Guid.NewGuid(),
+        };
 
         Database.Users.Add(user);
-        
+        TestUsers.Register(user.Id, user.GlobalUserId, testUser);
+
         await Database.SaveChangesAsync();
         
         return user.Id;

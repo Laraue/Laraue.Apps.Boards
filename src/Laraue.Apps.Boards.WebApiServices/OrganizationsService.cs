@@ -348,8 +348,8 @@ public record OrganizationDto
 }
 
 /// <summary>
-/// How a member is shown in an organization: the name/color they set there, or their default ones
-/// where they haven't.
+/// How a member is shown in an organization - taken from their profile when they joined, changeable by
+/// them.
 /// </summary>
 public record MemberProfileDto
 {

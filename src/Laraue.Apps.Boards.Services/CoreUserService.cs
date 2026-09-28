@@ -22,16 +22,6 @@ public interface ICoreUserService
         Guid userId,
         CancellationToken cancellationToken);
 
-    /// <summary>
-    /// Sets the user's default display name (with initials derived from it) and color - the ones shown
-    /// in every organization where the user hasn't set their own
-    /// (<see cref="OrganizationUser.DisplayName"/>/<see cref="OrganizationUser.Color"/>).
-    /// </summary>
-    Task UpdateProfile(
-        Guid userId,
-        string displayName,
-        string color,
-        CancellationToken cancellationToken);
 
     Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken);
 
@@ -129,36 +119,14 @@ public class CoreUserService(
         };
     }
 
-    public async Task UpdateProfile(
-        Guid userId,
-        string displayName,
-        string color,
-        CancellationToken cancellationToken)
-    {
-        var initials = UserInitials.FromDisplayName(displayName);
-
-        await context.Users
-            .Where(x => x.Id == userId)
-            .ExecuteUpdateAsync(
-                update => update
-                    .SetProperty(x => x.DisplayName, displayName)
-                    .SetProperty(x => x.Initials, initials)
-                    .SetProperty(x => x.Color, color),
-                cancellationToken);
-    }
-
     public async Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken)
     {
         var timestamp = dateTimeProvider.UtcNow;
 
-        var initials = new UserInitials(profile.UserName, profile.FirstName, profile.LastName);
         var user = new User
         {
             Id = Guid.NewGuid(),
             TelegramId = profile.TelegramId,
-            DisplayName = initials.DisplayName,
-            Initials = initials.Initials,
-            Color = Palette.RandomColor(),
             CreatedAt = timestamp,
             // Resolve/create the global Laraue identity for this Telegram account before touching
             // our own DB - if Laraue.Apps.Identity is unreachable, registration fails outright
@@ -216,17 +184,11 @@ public class CoreUserService(
         var timestamp = dateTimeProvider.UtcNow;
 
         var emailLocalPart = GetEmailLocalPart(profile.Email);
-        var initials = profile.GivenName is not null
-            ? new UserInitials(null, profile.GivenName, profile.FamilyName)
-            : new UserInitials(null, profile.Name ?? emailLocalPart, null);
 
         var user = new User
         {
             Id = Guid.NewGuid(),
             GoogleSubject = profile.GoogleSubject,
-            DisplayName = initials.DisplayName,
-            Initials = initials.Initials,
-            Color = Palette.RandomColor(),
             CreatedAt = timestamp,
             // Same "no Boards user without a global identity" rule as the Telegram flow.
             GlobalUserId = await GetGlobalUserIdAsync(profile, cancellationToken),

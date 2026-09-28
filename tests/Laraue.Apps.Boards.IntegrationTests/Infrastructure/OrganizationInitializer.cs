@@ -109,12 +109,13 @@ public class OrganizationInitializer(
     public async Task<Organization> Initialize()
     {
         // The owner is shown by the name the test user was created with - what the mocked Identity
-        // client would answer (see TestIdentityProfiles) - and by the color it was created with, if any,
-        // so a test can expect a known color instead of a random palette one.
-        var owner = await context.Users
+        // client would answer - and by the color it was created with, if any, so a test can expect a
+        // known color instead of a random palette one (see TestUsers).
+        var ownerGlobalUserId = await context.Users
             .Where(x => x.Id == ownerId)
-            .Select(x => new { x.DisplayName, x.Initials, x.Color })
+            .Select(x => x.GlobalUserId)
             .FirstAsync();
+        var ownerIdentityProfile = TestUsers.GetIdentityProfile(ownerGlobalUserId.ToString());
 
         var organization = OrganizationDefaults.GetNewOrganizationEntity(
             ownerId,
@@ -123,7 +124,10 @@ public class OrganizationInitializer(
             _organizationColor,
             _timestamp,
             _isPersonal,
-            new MemberProfile(owner.DisplayName, owner.Initials, owner.Color.Length > 0 ? owner.Color : Palette.RandomColor()));
+            new MemberProfile(
+                ownerIdentityProfile.DisplayName,
+                ownerIdentityProfile.Initials,
+                TestUsers.GetColor(ownerId) ?? Palette.RandomColor()));
 
         organization.Spaces = new List<Space>(); // Add all children manually
         
@@ -289,8 +293,7 @@ public class OrganizationInitializer(
             var organizationUserId = await coreOrganizationsService.AddMember(organization.Id, user.Key, CancellationToken.None);
 
             // Same as the owner: keep the test user's color, if it was created with one.
-            var userColor = await context.Users.Where(x => x.Id == user.Key).Select(x => x.Color).FirstAsync();
-            if (userColor.Length > 0)
+            if (TestUsers.GetColor(user.Key) is { } userColor)
             {
                 await context.OrganizationUsers
                     .Where(x => x.Id == organizationUserId)

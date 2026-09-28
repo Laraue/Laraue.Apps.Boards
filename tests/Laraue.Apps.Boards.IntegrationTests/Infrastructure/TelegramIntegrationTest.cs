@@ -57,7 +57,7 @@ public abstract class TelegramIntegrationTest
                 It.IsAny<DateTime?>(),
                 It.IsAny<CancellationToken>()))
             .Returns((GetUserProfileRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
-                GrpcTestHelpers.AsyncUnaryCallOf(TestIdentityProfiles.Get(request.UserId)));
+                GrpcTestHelpers.AsyncUnaryCallOf(TestUsers.GetIdentityProfile(request.UserId)));
         identityClientMock
             .Setup(x => x.CreateUserIfNotExistsAsync(
                 It.IsAny<CreateUserIfNotExistsRequest>(),

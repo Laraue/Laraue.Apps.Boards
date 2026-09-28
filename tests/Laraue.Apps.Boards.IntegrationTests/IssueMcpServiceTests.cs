@@ -83,8 +83,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var expectedStatus = organization.GetStatus(0, 0, 0);
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 
@@ -274,8 +274,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var expectedStatus = organization.GetStatus(0, 0, 0);
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 
@@ -375,8 +375,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
                 .AddComment(ownerId, "Second comment")));
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var expectedComment = issueData.Issue.IssueComments!.OrderBy(x => x.Id).First();
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 
@@ -949,12 +949,12 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true)));
 
-        var ownerDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == ownerId)
+        var ownerDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == ownerId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
-        var memberDisplayName = await testScope.Database.Users
-            .Where(x => x.Id == memberId)
+        var memberDisplayName = await testScope.Database.OrganizationUsers
+            .Where(x => x.OrganizationId == organization.Id && x.UserId == memberId)
             .Select(x => x.DisplayName)
             .SingleAsyncEF();
 

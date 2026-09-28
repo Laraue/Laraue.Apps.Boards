@@ -1948,8 +1948,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var user = Assert.Single(await db.Users.ToListAsyncLinqToDB());
         
         Assert.Equal(777, user.TelegramId);
-        Assert.Equal("snake991", user.DisplayName);
-        
+
         var userOrganization = Assert.Single(await db.Organizations.ToListAsyncLinqToDB());
         Assert.Equal("snake991", userOrganization.Slug);
         Assert.Equal(OrganizationType.Personal, userOrganization.Type);

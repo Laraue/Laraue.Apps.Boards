@@ -26,7 +26,6 @@ public class GoogleAuthControllerTests(WebApiTestHost host) : IClassFixture<WebA
 
         Assert.False(string.IsNullOrEmpty(token));
         var user = await testScope.Database.Users.SingleAsync(x => x.GoogleSubject == "google-10");
-        Assert.Equal("Ann Lee", user.DisplayName);
         Assert.Null(user.TelegramId);
     }
 

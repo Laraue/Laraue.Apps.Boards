@@ -1628,12 +1628,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<string>("Color")
-                        .IsRequired()
-                        .HasMaxLength(7)
-                        .HasColumnType("character varying(7)")
-                        .HasColumnName("color");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1646,12 +1640,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("deleted_by_user_id");
 
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(129)
-                        .HasColumnType("character varying(129)")
-                        .HasColumnName("display_name");
-
                     b.Property<Guid>("GlobalUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("global_user_id");
@@ -1660,12 +1648,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("google_subject");
-
-                    b.Property<string>("Initials")
-                        .IsRequired()
-                        .HasMaxLength(2)
-                        .HasColumnType("character varying(2)")
-                        .HasColumnName("initials");
 
                     b.Property<long?>("TelegramId")
                         .HasColumnType("bigint")

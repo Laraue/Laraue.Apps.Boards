@@ -348,9 +348,11 @@ yourself — ask the user to stop it, then retry the build once they confirm.
 
 A person is shown per organization (BRD-220): `OrganizationUser.DisplayName`/`Initials`/`Color` is how
 the member is shown there - copied from their Laraue.Apps.Identity profile when they join (Identity is
-the source of truth for the profile), then changeable by the member. Don't read `User.DisplayName`/
-`Initials`/`Color` for this - they're left from before and are being removed. The row is kept after the member leaves (`LeftAt`), so their name keeps showing on their issues,
-comments and history.
+the source of truth for the profile; `User` has no name of its own), then changeable by the member.
+The row is kept after the member leaves (`LeftAt`, with their permissions cleared), so their name
+keeps showing on their issues, comments and history; joining again brings the row back. Read current
+members through `ActiveOrganizationUsers()`, never the raw `OrganizationUsers` DbSet, for any "is a
+member" or permission check.
 
 Don't join the membership table into a read query to get a name. Project just the user id, implement
 `IEnrichableUser` (`Boards.Services.Members`: `UserId` + `Enrich(MemberProfile)`, taking only what the
@@ -378,7 +380,8 @@ instead. A query already over `OrganizationUser` (member lists) just reads its o
 the row, and cascades the same flag down to its descendants in that list (e.g. deleting a `Space`
 also soft-deletes its `Epic`s, `Status`es, `Issue`s). `User` isn't part of that content cascade:
 today a user is soft-deleted only when account linking moves their last sign-in method to another
-user (BRD-218); their personal organization is left as is, since nobody else can reach it. Nothing
+user (BRD-218); their personal organization is left as is, since nobody else can reach it.
+`OrganizationUser` has its own "left" state instead (`LeftAt`, see "Per-organization names"). Nothing
 else in the schema is soft-deletable; everything else stays hard-deleted.
 
 There is deliberately **no EF Core global query filter** (`HasQueryFilter`) for this — every query
@@ -423,8 +426,8 @@ cancellationToken)` (or the LinqToDB equivalent, `ShortPaginateLinq2DbAsync`) in
 
 - Don't `Include`/`ThenInclude` a full entity graph just to read a handful of fields off it.
   Project straight to the shape the caller needs with `.Select(...)` — pull only the columns
-  actually used. This avoids over-fetching (whole `User`/navigation entities when only
-  `DisplayName`/`Initials`/`Color` are needed) and skips `AsSplitQuery()` entirely, since EF
+  actually used. This avoids over-fetching (whole navigation entities when only a couple of their
+  columns are needed) and skips `AsSplitQuery()` entirely, since EF
   already issues one query per projected collection when you `Select` into nested arrays/DTOs —
   `AsSplitQuery()` is only relevant for `Include`-based graphs.
 - Don't add `AsNoTracking()` to a query that ends in `.Select(...)` into a non-entity type (a DTO,
@@ -432,7 +435,7 @@ cancellationToken)` (or the LinqToDB equivalent, `ShortPaginateLinq2DbAsync`) in
   no-op there. `AsNoTracking()` only matters when the query's result is the entity type itself
   (e.g. returned via `Include` or a bare `Where(...).ToListAsync()` with no projection).
 - Project directly into the final response DTO inside the `Select` (e.g. `new VisibleUser {
-  UserId = p.UserId, DisplayName = p.User!.DisplayName, ... }`) instead of projecting to an
+  UserId = p.UserId, DisplayName = p.DisplayName, ... }`) instead of projecting to an
   anonymous type first and mapping it to the DTO in a second, separate step — that second step is
   usually redundant work once the query already has everything the DTO needs.
 - When one response combines rows from several unrelated collections off the same aggregate root
@@ -499,8 +502,9 @@ Boards calls two sibling services over gRPC:
   single caller).
   **Identity is the source of truth for a user's profile** (Telegram username/first/last
   name/language, Google email/name). Boards' `User` stores only identifiers (`GlobalUserId`,
-  `TelegramId`, `GoogleSubject` - `TelegramId` is null for a Google-only user) plus its own
-  presentation fields (`DisplayName`/`Initials`/`Color`), derived once at sign-up. The interface
+  `TelegramId`, `GoogleSubject` - `TelegramId` is null for a Google-only user). How a user is shown
+  lives on their `OrganizationUser` rows, copied from Identity's `GetUserProfile` (its display name
+  and initials) when they join an organization - see "Per-organization names". The interface
   language lives in `UserPreferences.InterfaceLanguage`, seeded at sign-up. `User` implements no
   Telegram.NET interface: since Laraue.Telegram.NET 5.0, `ITelegramUserQueryService<Guid>` only
   finds a user id by Telegram id and receives the library's `TelegramData` on first contact -

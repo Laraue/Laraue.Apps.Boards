@@ -23,8 +23,6 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal("google-1", user.GoogleSubject);
         Assert.Null(user.TelegramId);
         Assert.NotEqual(Guid.Empty, user.GlobalUserId);
-        Assert.Equal("John Smith", user.DisplayName);
-        Assert.Equal("JS", user.Initials);
     }
 
     [Fact]
@@ -71,7 +69,7 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task CreateIfGoogleSubjectNotExists_ShouldUseEmailLocalPart_WhenProfileHasNoName()
+    public async Task CreateIfGoogleSubjectNotExists_ShouldShowOwnerByIdentityProfile_WhenGoogleSubjectIsNew()
     {
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
@@ -80,9 +78,11 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             new GoogleUserProfile("google-5", "jane@example.com", null, null, null, null),
             default);
 
-        var user = await testScope.Database.Users.SingleAsync(x => x.Id == userId);
-        Assert.Equal("jane", user.DisplayName);
-        Assert.Equal("JA", user.Initials);
+        // The name comes from Laraue.Apps.Identity (mocked: an unregistered user is "Test User").
+        var member = await testScope.Database.OrganizationUsers.SingleAsync(x => x.UserId == userId);
+        Assert.Equal("Test User", member.DisplayName);
+        Assert.Equal("TU", member.Initials);
+        Assert.Contains(member.Color, Palette.Colors);
     }
 
     [Fact]

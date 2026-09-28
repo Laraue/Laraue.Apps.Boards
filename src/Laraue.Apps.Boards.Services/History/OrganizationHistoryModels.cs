@@ -9,9 +9,7 @@ namespace Laraue.Apps.Boards.Services.History;
 /// </summary>
 public record UserDetails : IEnrichableUser
 {
-    [JsonIgnore]
     public Guid UserId { get; init; }
-
     public string Color { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string Initials { get; set; } = string.Empty;
