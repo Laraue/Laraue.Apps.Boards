@@ -17,6 +17,20 @@ public class UserController(IUserService service) : ControllerBase
         return service.GetUser(HttpContext.User.GetId(), ct);
     }
     
+    [HttpGet("profile")]
+    public Task<UserProfileDto> GetProfile(CancellationToken ct)
+    {
+        return service.GetProfile(HttpContext.User.GetId(), ct);
+    }
+
+    [HttpPut("profile")]
+    public Task<UserProfileDto> UpdateProfile(
+        [FromBody] UpdateProfileRequest request,
+        CancellationToken ct)
+    {
+        return service.UpdateProfile(HttpContext.User.GetId(), request, ct);
+    }
+
     [HttpPut("settings/epic-sort-order/{epicSortOrder}")]
     public Task UpdateEpicSortOrder(
         [FromRoute] EpicSortOrder epicSortOrder,

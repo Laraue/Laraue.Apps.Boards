@@ -1,4 +1,5 @@
-﻿using Grpc.Core;
+﻿using System.Collections.Concurrent;
+using Grpc.Core;
 using Laraue.Apps.Identity.Internal.Contracts;
 
 namespace Laraue.Apps.Boards.Services.Identity;
@@ -13,6 +14,12 @@ namespace Laraue.Apps.Boards.Services.Identity;
 /// </summary>
 public class FakeUserIdentityServiceClient : UserIdentityService.UserIdentityServiceClient
 {
+    /// <summary>
+    /// Profiles saved through <see cref="UpdateUserProfileAsync"/>, kept in memory (the client is a
+    /// singleton) so an edit shows up locally until the host restarts.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, GetUserProfileResponse> _profiles = new();
+
     public override AsyncUnaryCall<CreateUserIfNotExistsResponse> CreateUserIfNotExistsAsync(
         CreateUserIfNotExistsRequest request,
         Metadata? headers = null,
@@ -64,7 +71,7 @@ public class FakeUserIdentityServiceClient : UserIdentityService.UserIdentitySer
     }
 
     /// <summary>
-    /// There's no real profile to read locally - every user is shown as "Local User".
+    /// There's no real profile to read locally - a user is "Local User" until they edit their profile.
     /// </summary>
     public override AsyncUnaryCall<GetUserProfileResponse> GetUserProfileAsync(
         GetUserProfileRequest request,
@@ -73,7 +80,37 @@ public class FakeUserIdentityServiceClient : UserIdentityService.UserIdentitySer
         CancellationToken cancellationToken = default)
     {
         return new AsyncUnaryCall<GetUserProfileResponse>(
-            Task.FromResult(new GetUserProfileResponse { DisplayName = "Local User", Initials = "LU" }),
+            Task.FromResult(_profiles.GetValueOrDefault(request.UserId)
+                ?? new GetUserProfileResponse { DisplayName = "Local User", Initials = "LU" }),
+            Task.FromResult(new Metadata()),
+            () => global::Grpc.Core.Status.DefaultSuccess,
+            () => new Metadata(),
+            () => { });
+    }
+
+    /// <summary>
+    /// Stores the profile in memory, with initials derived the way Identity derives them.
+    /// </summary>
+    public override AsyncUnaryCall<GetUserProfileResponse> UpdateUserProfileAsync(
+        UpdateUserProfileRequest request,
+        Metadata? headers = null,
+        DateTime? deadline = null,
+        CancellationToken cancellationToken = default)
+    {
+        var response = new GetUserProfileResponse
+        {
+            DisplayName = request.DisplayName,
+            Initials = UserInitials.FromDisplayName(request.DisplayName),
+        };
+        if (request.HasGivenName)
+            response.GivenName = request.GivenName;
+        if (request.HasFamilyName)
+            response.FamilyName = request.FamilyName;
+
+        _profiles[request.UserId] = response;
+
+        return new AsyncUnaryCall<GetUserProfileResponse>(
+            Task.FromResult(response),
             Task.FromResult(new Metadata()),
             () => global::Grpc.Core.Status.DefaultSuccess,
             () => new Metadata(),

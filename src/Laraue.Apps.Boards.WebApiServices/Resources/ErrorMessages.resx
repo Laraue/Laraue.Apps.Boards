@@ -126,4 +126,7 @@
     <data name="GoogleCredentialMissing" xml:space="preserve">
         <value>Either a Google ID token or an authorization code is required</value>
     </data>
+    <data name="ProfileServiceUnavailable" xml:space="preserve">
+        <value>The profile service is temporarily unavailable, please try again later.</value>
+    </data>
 </root>

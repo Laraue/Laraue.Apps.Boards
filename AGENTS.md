@@ -520,6 +520,13 @@ Boards calls two sibling services over gRPC:
   columns to `users`; if Boards needs a new profile value, ask whether it's really a Boards-side
   preference (→ `UserPreferences`) or belongs in Identity.
 
+  **Editing the global profile** (BRD-238, `GET`/`PUT /api/user/profile`, `UserService`): a thin pass-through
+  to Identity's `GetUserProfile`/`UpdateUserProfile` - Boards writes nothing, so there's no transaction
+  involved. The request is validated in Boards (data annotations, same lengths as Identity's columns)
+  before the call, so any Identity failure becomes a 503 (`ProfileServiceUnavailableException`).
+  Initials aren't sent: Identity derives them from the display name. Existing organizations keep the
+  name copied when the member joined - the new global name reaches only organizations joined later.
+
   **Connecting the other sign-in method** (BRD-218, `POST /api/user/connected-accounts/telegram|google`,
   `ConnectedAccountsController` → `ConnectedAccountsService` → `ICoreUserService`'s
   `Link…AccountInIdentity`/`Link…AccountInBoards`): refusals come back as a 200 with an
