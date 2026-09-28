@@ -314,12 +314,17 @@ public class RetrosService(
             .ToArrayAsync(cancellationToken);
 
         // Every person on the retro, filled with one query.
+        var people = new List<RetroUser> { retro.Owner };
+        people.AddRange(participants);
+        people.AddRange(cards
+            .Select(x => x.Author));
+        people.AddRange(cards
+            .Where(x => x.Assignee is not null)
+            .Select(x => x.Assignee!));
+
         await memberProfileReader.EnrichUsers(
             authData.OrganizationId,
-            participants
-                .Append(retro.Owner)
-                .Concat(cards.Select(x => x.Author))
-                .Concat(cards.Select(x => x.Assignee).OfType<RetroUser>()),
+            people,
             cancellationToken);
 
         return new GetRetroResponse
