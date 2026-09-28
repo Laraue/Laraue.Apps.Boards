@@ -654,8 +654,8 @@ exactly what a client receives (error results, metrics), drive a real MCP client
 
 Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`,
 `create_issue`/`edit_issue`/`delete_issue`, `create_comment`/`edit_comment`/`delete_comment`,
-`get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_statuses`/`list_attributes`/
-`list_members`. Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
+`get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_epics`/`list_statuses`/
+`list_attributes`/`list_members`. Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
 mutating tool maps to the REST API's own permission check (`CanCreateIssue` off the target status's
 epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for delete, owner-only for
 editing/deleting a comment). Design guardrails worth preserving:
@@ -750,6 +750,13 @@ check before opening a stream (optimization) and a hard runtime cap while buffer
 `GET /api/files/{id}` (which isn't even authenticated): attachment/file ids are unguessable GUIDs
 (UUIDv7, 74 random bits) that a caller only learns from something it can already read. Consequence
 to keep in mind: an id stays usable after the caller loses access to the issue.
+
+**`list_epics`** (BRD-234) gives epics an id a caller can use: `list_issues`' `epicId` filter, and
+the `epicId` on each `list_statuses` group. With `spaceKey` it's that one space (404 when the space
+doesn't exist or isn't readable, same check as `list_statuses`); without it, every readable space via
+`IAccessService.GetAvailableEpics`, unreadable ones just left out. Unlike `list_spaces`/`list_members`
+it is paginated - epics keep accumulating (one per sprint) and span the whole organization without a
+space.
 
 **`list_members`/`list_spaces`** wrap `IAccessService.GetAvailableSpaces`/`GetVisibleUsers` (same
 as REST's `OrganizationsController.GetMembers`) purely for discoverability — `list_members`'

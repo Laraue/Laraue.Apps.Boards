@@ -26,6 +26,7 @@ public interface IIssueMcpService
     Task<IssueListPage> ListIssues(
         OrganizationAuthData authData,
         string? spaceKey,
+        long? epicId,
         long? statusId,
         Guid? assigneeId,
         int? page,
@@ -144,6 +145,19 @@ public interface IIssueMcpService
     /// </summary>
     Task<IReadOnlyList<SpaceSummary>> ListSpaces(
         OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One page of epics - of the one space <paramref name="spaceKey"/> names (404 when it doesn't
+    /// exist or isn't readable), or of every space the caller can read when it's omitted, where
+    /// unreadable spaces are just left out. Paginated, unlike <see cref="ListSpaces"/>: epics keep
+    /// accumulating (one per sprint), and without a space they span the whole organization.
+    /// </summary>
+    Task<EpicListPage> ListEpics(
+        OrganizationAuthData authData,
+        string? spaceKey,
+        int? page,
+        int? count,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -318,9 +332,15 @@ public sealed record IssueDetail(
 /// </summary>
 public sealed record SpaceSummary(string Key, string Name, bool CanCreateIssue);
 
+/// <summary>An epic, as returned by <see cref="IIssueMcpService.ListEpics"/>. <see cref="IsDefault"/>
+/// marks the space's backlog-equivalent epic, which can't be deleted.</summary>
+public sealed record EpicSummary(long Id, string Name, string SpaceKey, bool IsDefault, string Status);
+
+public sealed record EpicListPage(IReadOnlyList<EpicSummary> Epics, long Page, bool HasNextPage);
+
 public sealed record StatusSummary(long Id, string Name);
 
-public sealed record EpicStatusSummary(string EpicName, IReadOnlyList<StatusSummary> Statuses);
+public sealed record EpicStatusSummary(long EpicId, string EpicName, IReadOnlyList<StatusSummary> Statuses);
 
 /// <summary>
 /// The caller, as returned by <see cref="IIssueMcpService.GetMe"/>. <see cref="MeUser.Id"/> is the same id
@@ -377,6 +397,7 @@ public class IssueMcpService(
     public Task<IssueListPage> ListIssues(
         OrganizationAuthData authData,
         string? spaceKey,
+        long? epicId,
         long? statusId,
         Guid? assigneeId,
         int? page,
@@ -392,6 +413,9 @@ public class IssueMcpService(
 
             if (!string.IsNullOrWhiteSpace(spaceKey))
                 query = query.Where(i => i.Status!.Epic!.Space!.Key == spaceKey);
+
+            if (epicId is not null)
+                query = query.Where(i => i.Status!.EpicId == epicId);
 
             if (statusId is not null)
                 query = query.Where(i => i.StatusId == statusId);
@@ -816,6 +840,44 @@ public class IssueMcpService(
             .ToList();
     }
 
+    public async Task<EpicListPage> ListEpics(
+        OrganizationAuthData authData,
+        string? spaceKey,
+        int? page,
+        int? count,
+        CancellationToken cancellationToken)
+    {
+        long? spaceId = null;
+        if (!string.IsNullOrWhiteSpace(spaceKey))
+        {
+            spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
+
+            await accessService.GetAccessLevelsBySpaceId(authData, spaceId.Value, includeDeleted: false, cancellationToken)
+                .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
+                .EnsureOrThrowForbidden(a => a.CanRead, string.Format(ErrorMessages.EntityActionForbidden, "Space", spaceKey, "read"));
+        }
+
+        var perPage = Math.Clamp(count ?? MaxResults, 1, MaxResults);
+        var pagination = new PaginationData { Page = page ?? 0, PerPage = perPage };
+
+        var result = await accessService.GetAvailableEpics(
+            authData,
+            epics =>
+            {
+                if (spaceId is not null)
+                    epics = epics.Where(e => e.SpaceId == spaceId);
+
+                return epics
+                    .OrderBy(e => e.Space!.Key)
+                    .ThenBy(e => e.Id)
+                    .Select(e => new EpicSummary(e.Id, e.Name, e.Space!.Key, e.IsDefault, e.Status.ToString()))
+                    .ShortPaginateEFAsync(pagination, cancellationToken);
+            },
+            cancellationToken);
+
+        return new EpicListPage(result.Data.ToList(), result.Page, result.HasNextPage);
+    }
+
     public async Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
         OrganizationAuthData authData,
         string spaceKey,
@@ -831,6 +893,7 @@ public class IssueMcpService(
             .Where(e => e.SpaceId == spaceId)
             .OrderBy(e => e.Id)
             .Select(e => new EpicStatusSummary(
+                e.Id,
                 e.Name,
                 e.Statuses!
                     .Where(s => s.DeletedAt == null)
