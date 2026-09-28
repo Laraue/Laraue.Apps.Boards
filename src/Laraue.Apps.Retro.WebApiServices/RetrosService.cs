@@ -1095,9 +1095,17 @@ public record RetroUser : IEnrichableUser
 {
     public required Guid UserId { get; set; }
 
-    /// <summary>Filled by <see cref="IMemberProfileReader"/>, for everyone in the response at once.</summary>
+    /// <summary>
+    /// Filled by <see cref="IMemberProfileReader"/>, for everyone in the response at once;
+    /// <see cref="RequiredAttribute"/> keeps them required in the API schema.
+    /// </summary>
+    [Required]
     public string DisplayName { get; set; } = string.Empty;
+
+    [Required]
     public string Initials { get; set; } = string.Empty;
+
+    [Required]
     public string Color { get; set; } = string.Empty;
     public required bool IsCurrentUser { get; set; }
 }

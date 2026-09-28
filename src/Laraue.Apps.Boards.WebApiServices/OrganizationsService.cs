@@ -267,11 +267,6 @@ public class OrganizationsService(
         if (!isMember)
             throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
 
-        if (!Palette.Contains(request.Color))
-            throw new BadRequestException(
-                nameof(request.Color),
-                string.Format(ErrorMessages.ColorNotInPalette, request.Color));
-
         var displayName = string.IsNullOrWhiteSpace(request.DisplayName)
             ? null
             : request.DisplayName.Trim();
@@ -369,9 +364,11 @@ public record UpdateMemberProfileRequest
     public string? DisplayName { get; set; }
 
     /// <summary>
-    /// One of <see cref="UserDto.Palette"/>.
+    /// A <c>#rrggbb</c> color, validated like the other colors in the app (organization, space, ...).
     /// </summary>
     [Required]
+    [MinLength(7)]
+    [MaxLength(7)]
     public required string Color { get; set; }
 }
 

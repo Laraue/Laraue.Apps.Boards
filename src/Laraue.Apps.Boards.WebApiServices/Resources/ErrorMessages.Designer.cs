@@ -255,12 +255,6 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
-        internal static string ColorNotInPalette {
-            get {
-                return ResourceManager.GetString("ColorNotInPalette", resourceCulture);
-            }
-        }
-        
         internal static string GoogleCredentialMissing {
             get {
                 return ResourceManager.GetString("GoogleCredentialMissing", resourceCulture);

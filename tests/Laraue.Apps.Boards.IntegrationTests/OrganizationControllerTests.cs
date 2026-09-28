@@ -1352,7 +1352,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
-    public async Task UpdateMemberProfile_ShouldReturn400_WhenColorIsNotInPalette()
+    public async Task UpdateMemberProfile_ShouldReturn400_WhenColorIsNotHexColor()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
@@ -1361,7 +1361,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.UpdateMemberProfile(
-                new UpdateMemberProfileRequest { Color = "#123456" },
+                new UpdateMemberProfileRequest { Color = "blue" },
                 default)));
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);

@@ -25,5 +25,4 @@ public static class Palette
 
     public static string FirstColor => Colors[0];
     public static string RandomColor() => Colors[Random.Next(0, Colors.Length)];
-    public static bool Contains(string color) => Colors.Contains(color);
 }
