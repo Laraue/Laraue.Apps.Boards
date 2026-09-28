@@ -507,8 +507,11 @@ Boards calls two sibling services over gRPC:
   name/language, Google email/name). Boards' `User` stores only identifiers (`GlobalUserId`,
   `TelegramId`, `GoogleSubject` - `TelegramId` is null for a Google-only user). How a user is shown
   lives on their `OrganizationUser` rows, copied from Identity's `GetUserProfile` (its display name
-  and initials) when they join an organization - see "Per-organization names". The interface
-  language lives in `UserPreferences.InterfaceLanguage`, seeded at sign-up. `User` implements no
+  and initials) when they join an organization - see "Per-organization names". Boards stores no
+  interface language either (BRD-239): the web app keeps its own client-side, and the Telegram bot
+  uses the library's `DefaultCultureInfoProvider` - the language of the sender's Telegram app, sent
+  with every update, or English when it isn't one Boards has. The sign-in method's language is only
+  used once, to name the personal organization. `User` implements no
   Telegram.NET interface: since Laraue.Telegram.NET 5.0, `ITelegramUserQueryService<Guid>` only
   finds a user id by Telegram id and receives the library's `TelegramData` on first contact -
   `TelegramUserQueryService` maps that into a `TelegramUserProfile` for
@@ -518,7 +521,7 @@ Boards calls two sibling services over gRPC:
   `CreateIf{TelegramId,GoogleSubject}NotExists` (Boards writes, asserts `EnsureTransactionStarted()`),
   run by the host in its own transaction. Don't re-add profile
   columns to `users`; if Boards needs a new profile value, ask whether it's really a Boards-side
-  preference (→ `UserPreferences`) or belongs in Identity.
+  setting or belongs in Identity.
 
   **Editing the global profile** (BRD-238, `GET`/`PUT /api/user/profile`, `UserService`): a thin pass-through
   to Identity's `GetUserProfile`/`UpdateUserProfile` - Boards writes nothing, so there's no transaction

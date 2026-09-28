@@ -18,7 +18,6 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<Attachment> Attachments { get; set; }
     public DbSet<User> Users { get; init; }
     public DbSet<UserOnboarding> UserOnboardings { get; init; }
-    public DbSet<UserPreferences> UserPreferences { get; init; }
     public DbSet<UserOrganizationPreferences> UserOrganizationPreferences { get; init; }
     public DbSet<Issue> Issues { get; init; }
     public DbSet<IssueAttachment> IssueAttachments { get; init; }
@@ -199,11 +198,6 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsUnique();
         });
         
-        modelBuilder.Entity<UserPreferences>(entity =>
-        {
-            entity.HasKey(x => x.UserId);
-        });
-
         modelBuilder.Entity<UserOnboarding>(entity =>
         {
             entity.HasKey(x => new { x.UserId, x.OnboardingId });

@@ -42,20 +42,6 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task CreateIfGoogleSubjectNotExists_ShouldStoreInterfaceLanguage_WhenLanguageIsSupported()
-    {
-        using var testScope = host.CreateTestScope();
-        var service = testScope.Services.GetRequiredService<ICoreUserService>();
-
-        var userId = await service.SignUpAsync(
-            testScope.Database,
-            new GoogleUserProfile("google-3", "user@example.com", null, null, null, "ru"));
-
-        var preferences = await service.GetPreferences(userId, default);
-        Assert.Equal("ru", preferences.InterfaceLanguage);
-    }
-
-    [Fact]
     public async Task CreateIfGoogleSubjectNotExists_ShouldNotLinkTelegramChat_WhenUserIsGoogleOnly()
     {
         using var testScope = host.CreateTestScope();

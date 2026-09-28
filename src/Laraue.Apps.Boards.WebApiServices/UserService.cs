@@ -1,7 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Grpc.Core;
 using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Apps.Identity.Internal.Contracts;
@@ -12,11 +11,6 @@ namespace Laraue.Apps.Boards.WebApiServices;
 
 public interface IUserService
 {
-    Task UpdateEpicSortOrder(
-        Guid userId,
-        EpicSortOrder epicSortOrder,
-        CancellationToken cancellationToken = default);
-    
     Task<UserDto> GetUser(
         Guid userId,
         CancellationToken cancellationToken);
@@ -39,24 +33,11 @@ public interface IUserService
 }
 
 public class UserService(
-    ICoreUserService coreService,
     DatabaseContext context,
     UserIdentityService.UserIdentityServiceClient identityClient,
     ILogger<UserService> logger)
     : IUserService
 {
-    public Task UpdateEpicSortOrder(
-        Guid userId,
-        EpicSortOrder epicSortOrder,
-        CancellationToken cancellationToken = default)
-    {
-        return coreService
-            .UpdatePreferences(
-                userId,
-                update => update.SetProperty(p => p.EpicSortOrder, epicSortOrder),
-                cancellationToken);
-    }
-
     public async Task<UserDto> GetUser(Guid userId, CancellationToken cancellationToken)
     {
         var data = await context.ActiveUsers()
@@ -75,8 +56,6 @@ public class UserService(
 
         var user = data.User;
         user.Initials = await GetInitialsAsync(data.GlobalUserId, cancellationToken);
-        user.Preferences = await coreService.GetPreferences(userId, cancellationToken);
-        user.LanguageCode = user.Preferences.InterfaceLanguage;
 
         return user;
     }
@@ -191,9 +170,7 @@ public class UserDto
     /// </summary>
     public string? Initials { get; set; }
 
-    public string LanguageCode { get; set; } = string.Empty;
     public required string[] Palette { get; set; }
-    public UserPreferencesResponse Preferences { get; set; } = null!;
 }
 
 /// <summary>
