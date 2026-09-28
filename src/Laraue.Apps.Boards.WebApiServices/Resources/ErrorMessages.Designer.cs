@@ -69,6 +69,12 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
+        internal static string ProfileServiceUnavailable {
+            get {
+                return ResourceManager.GetString("ProfileServiceUnavailable", resourceCulture);
+            }
+        }
+        
         internal static string AiSummarizationUnavailable {
             get {
                 return ResourceManager.GetString("AiSummarizationUnavailable", resourceCulture);

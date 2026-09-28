@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Identity.Internal.Contracts;
 
 namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
@@ -46,6 +47,27 @@ public static class TestUsers
         return ProfilesByGlobalUserId.TryGetValue(Guid.Parse(globalUserId), out var profile)
             ? profile
             : new GetUserProfileResponse { DisplayName = "Test User", Initials = "TU" };
+    }
+
+    /// <summary>
+    /// What the mocked Identity client's <c>UpdateUserProfile</c> does: stores the new profile (so a later
+    /// <c>GetUserProfile</c> returns it) with initials derived from the display name, like Identity.
+    /// </summary>
+    public static GetUserProfileResponse UpdateIdentityProfile(UpdateUserProfileRequest request)
+    {
+        var profile = new GetUserProfileResponse
+        {
+            DisplayName = request.DisplayName,
+            Initials = UserInitials.FromDisplayName(request.DisplayName),
+        };
+        if (request.HasGivenName)
+            profile.GivenName = request.GivenName;
+        if (request.HasFamilyName)
+            profile.FamilyName = request.FamilyName;
+
+        ProfilesByGlobalUserId[Guid.Parse(request.UserId)] = profile;
+
+        return profile;
     }
 
     /// <summary>The color the test gave the user, if any.</summary>

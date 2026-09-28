@@ -92,6 +92,14 @@ public class WebApiTestHost
                 .Returns((GetUserProfileRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
                     GrpcTestHelpers.AsyncUnaryCallOf(TestUsers.GetIdentityProfile(request.UserId)));
             identityClientMock
+                .Setup(x => x.UpdateUserProfileAsync(
+                    It.IsAny<UpdateUserProfileRequest>(),
+                    It.IsAny<Metadata>(),
+                    It.IsAny<DateTime?>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((UpdateUserProfileRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.AsyncUnaryCallOf(TestUsers.UpdateIdentityProfile(request)));
+            identityClientMock
                 .Setup(x => x.CreateUserIfNotExistsAsync(
                     It.IsAny<CreateUserIfNotExistsRequest>(),
                     It.IsAny<Metadata>(),
