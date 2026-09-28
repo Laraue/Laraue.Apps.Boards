@@ -121,6 +121,7 @@ public class CoreIssuesService(
                 x.Color,
                 SpaceName = x.Epic.Space.Name,
                 EpicName = x.Epic.Name,
+                EpicIsDefault = x.Epic.IsDefault,
             })
             .FirstOrThrowNotFoundEFAsync("Space was not found", cancellationToken);
 
@@ -182,10 +183,17 @@ public class CoreIssuesService(
             logItemFactory.EpicChanged(
                 oldValue: null,
                 new IdName<long>(issueData.EpicId, issueData.EpicName)),
-            logItemFactory.StatusChanged(
-                oldValue: null,
-                new IdName<long>(request.StatusId, issueData.StatusName)),
         };
+
+        // An issue created in the backlog (the space's default epic) lands in its technical status -
+        // not a choice anyone made, so it isn't shown, same as when an issue is moved to the backlog.
+        if (!issueData.EpicIsDefault)
+        {
+            items.Add(
+                logItemFactory.StatusChanged(
+                    oldValue: null,
+                    new IdName<long>(request.StatusId, issueData.StatusName)));
+        }
 
         if (!string.IsNullOrEmpty(content))
             items.Add(logItemFactory.ContentChanged(oldValue: null, newValue: content));
@@ -678,6 +686,7 @@ public class CoreIssuesService(
                 i.Color,
                 i.EpicId,
                 EpicName = i.Epic.Name,
+                EpicIsDefault = i.Epic.IsDefault,
                 SpaceName = i.Epic.Space.Name,
             })
             .FirstOrThrowNotFoundEFAsync($"Status: {newStatusId} is not found", ct);
@@ -727,11 +736,17 @@ public class CoreIssuesService(
                         new IdName<long>(newStatusData.EpicId, newStatusData.EpicName)));
             }
 
-            logEntry.Items.Add(
-                logItemFactory.StatusChanged(
-                    new IdName<long>(issue.StatusId, issue.StatusName),
-                    new IdName<long>(newStatusId, newStatusData.StatusName)));
-            
+            // Moving an issue to the backlog (the space's default epic) is shown as the epic change
+            // alone - the backlog status it lands in is a technical detail, as when creating an issue.
+            var isMovedToBacklog = issue.EpicId != newStatusData.EpicId && newStatusData.EpicIsDefault;
+            if (!isMovedToBacklog)
+            {
+                logEntry.Items.Add(
+                    logItemFactory.StatusChanged(
+                        new IdName<long>(issue.StatusId, issue.StatusName),
+                        new IdName<long>(newStatusId, newStatusData.StatusName)));
+            }
+
             context.OrganizationLogs.Add(logEntry);
         }
         
