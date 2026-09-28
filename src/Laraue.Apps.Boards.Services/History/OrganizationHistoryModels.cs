@@ -4,17 +4,6 @@ using Laraue.Apps.Boards.Services.Members;
 
 namespace Laraue.Apps.Boards.Services.History;
 
-/// <summary>
-/// A person: queries set just <see cref="UserId"/>, <see cref="IMemberProfileReader"/> fills the rest.
-/// </summary>
-public record UserDetails : IEnrichableUser
-{
-    public Guid UserId { get; init; }
-    public string Color { get; set; } = string.Empty;
-    public string DisplayName { get; set; } = string.Empty;
-    public string Initials { get; set; } = string.Empty;
-}
-
 public record OrganizationHistoryItem
 {
     public required DateTime CreatedAt { get; set; }

@@ -1150,7 +1150,7 @@ public class IssuesService(
             Time = x.CreatedAt,
             EpicId = x.Status!.EpicId,
             StatusId = x.StatusId,
-            Assignee = new EnrichableUser { UserId = x.AssigneeId },
+            Assignee = new UserDetails { UserId = x.AssigneeId },
             AssigneeTelegramId = x.Assignee!.TelegramId,
             Number = x.IssueNumber!.Number,
             SpaceKey = x.Status.Epic!.Space!.Key,
@@ -1548,7 +1548,7 @@ public class IssueListDtoData
 {
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
-    public required EnrichableUser Assignee { get; init; }
+    public required UserDetails Assignee { get; init; }
     public required long? AssigneeTelegramId { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }

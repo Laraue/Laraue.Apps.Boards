@@ -201,7 +201,7 @@ public class SearchService(
                 ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
                 OrganizationId = x.Status.Epic.Space.OrganizationId,
                 Sender = x.TelegramMessage != null && x.TelegramMessage.SenderId != null
-                    ? new EnrichableUser { UserId = x.TelegramMessage.SenderId.Value }
+                    ? new UserDetails { UserId = x.TelegramMessage.SenderId.Value }
                     : null,
                 SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
@@ -460,6 +460,6 @@ internal sealed class IssueSearchRow
     public required string OrganizationSlugPostfix { get; init; }
     public required string? ChatTitle { get; init; }
     public required long OrganizationId { get; init; }
-    public required EnrichableUser? Sender { get; init; }
+    public required UserDetails? Sender { get; init; }
     public required DateTime? SentAt { get; init; }
 }

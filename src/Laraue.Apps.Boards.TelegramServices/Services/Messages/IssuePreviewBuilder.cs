@@ -43,7 +43,7 @@ public class IssuePreviewBuilder(
 
         var url = issueUrlBuilder.Build(issueData.OrganizationSlug, issueData.OrganizationSlugPostfix, issueData.Key);
 
-        var sender = issueData.SenderId is { } senderId ? new EnrichableUser { UserId = senderId } : null;
+        var sender = issueData.SenderId is { } senderId ? new UserDetails { UserId = senderId } : null;
         if (sender is not null)
             await memberProfileReader.EnrichUsers(
                 issueData.OrganizationId,

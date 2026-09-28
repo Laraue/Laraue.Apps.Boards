@@ -367,13 +367,14 @@ await memberProfileReader.EnrichUsers(
     ct);
 ```
 
-Response DTOs implement it (`UserDetails`, `RetroUser`, `AdminBillingTransaction`). A row that isn't a
-response DTO holds the person as an `EnrichableUser` property instead of implementing it (e.g.
-`IssueListDtoData.Assignee`, projected as `new EnrichableUser { UserId = x.AssigneeId }`); so does code
-with no row at all (a name written into history, an immutable MCP record). Use the organization the
-shown thing belongs to (the issue's, the retro's, the log's); a read spanning several organizations
-(Telegram search) passes organization and user selectors instead. A query already over `OrganizationUser` (member lists) just reads its own
-`DisplayName`/`Initials`/`Color`. A user with no row in the organization gets `MemberProfile.Unknown`.
+`UserDetails` (`Boards.Services.Members`) is the one general implementation: use it for a person in a
+response, and as the person property on a row that isn't a response itself (e.g.
+`IssueListDtoData.Assignee`, projected as `new UserDetails { UserId = x.AssigneeId }`), or with no row
+at all (a name written into history, an immutable MCP record). Implement the interface on another DTO
+only when it has to keep its own shape (`RetroUser`, `AdminBillingTransaction`). Use the organization
+the shown thing belongs to (the issue's, the retro's, the log's); a read spanning several organizations
+(Telegram search) passes organization and user selectors instead. A query already over
+`OrganizationUser` (member lists) just reads its own `DisplayName`/`Initials`/`Color`. A user with no row in the organization gets `MemberProfile.Unknown`.
 
 ## Soft delete
 
