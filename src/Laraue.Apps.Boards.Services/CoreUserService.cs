@@ -22,16 +22,38 @@ public interface ICoreUserService
         Guid userId,
         CancellationToken cancellationToken);
 
-
-    Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken);
+    /// <summary>
+    /// First step of signing a Telegram account up: resolves (or creates) its Laraue.Apps.Identity user
+    /// and the profile the user is shown by in their personal organization. Calls Identity and writes
+    /// nothing to the Boards database, so call it outside a transaction; finish with
+    /// <see cref="CreateIfTelegramIdNotExists"/>.
+    /// </summary>
+    Task<NewUserIdentity> ResolveTelegramIdentity(TelegramUserProfile profile, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Google counterpart of <see cref="CreateIfTelegramIdNotExists"/>: creates a Boards user (plus
-    /// their personal organization and preferences) for a Google account seen for the first time,
-    /// or returns the existing user's id. The caller must have verified the Google ID token already.
-    /// A Google-only user has no Telegram account, so no personal Telegram chat is linked.
+    /// Second step, after <see cref="ResolveTelegramIdentity"/>: creates a Boards user (plus their
+    /// personal organization, preferences and personal Telegram chat) for a Telegram account seen for
+    /// the first time, or returns the existing user's id. Must be called within a transaction.
     /// </summary>
-    Task<Guid> CreateIfGoogleSubjectNotExists(GoogleUserProfile profile, CancellationToken cancellationToken);
+    Task<Guid> CreateIfTelegramIdNotExists(
+        TelegramUserProfile profile,
+        NewUserIdentity identity,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Google counterpart of <see cref="ResolveTelegramIdentity"/>. The caller must have verified the
+    /// Google ID token already.
+    /// </summary>
+    Task<NewUserIdentity> ResolveGoogleIdentity(GoogleUserProfile profile, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Google counterpart of <see cref="CreateIfTelegramIdNotExists"/>. A Google-only user has no
+    /// Telegram account, so no personal Telegram chat is linked. Must be called within a transaction.
+    /// </summary>
+    Task<Guid> CreateIfGoogleSubjectNotExists(
+        GoogleUserProfile profile,
+        NewUserIdentity identity,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// First step of connecting a Telegram account to the existing user <paramref name="userId"/> (e.g.
@@ -119,8 +141,27 @@ public class CoreUserService(
         };
     }
 
-    public async Task<Guid> CreateIfTelegramIdNotExists(TelegramUserProfile profile, CancellationToken cancellationToken)
+    public async Task<NewUserIdentity> ResolveTelegramIdentity(
+        TelegramUserProfile profile,
+        CancellationToken cancellationToken)
     {
+        // Resolve/create the global Laraue identity before touching our own DB - if
+        // Laraue.Apps.Identity is unreachable, registration fails outright rather than creating a
+        // Boards user with no global identity.
+        var globalUserId = await GetGlobalUserIdAsync(profile, cancellationToken);
+
+        return new NewUserIdentity(
+            globalUserId,
+            await identityClient.GetNewMemberProfileAsync(globalUserId, cancellationToken));
+    }
+
+    public async Task<Guid> CreateIfTelegramIdNotExists(
+        TelegramUserProfile profile,
+        NewUserIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
         var timestamp = dateTimeProvider.UtcNow;
 
         var user = new User
@@ -128,15 +169,8 @@ public class CoreUserService(
             Id = Guid.NewGuid(),
             TelegramId = profile.TelegramId,
             CreatedAt = timestamp,
-            // Resolve/create the global Laraue identity for this Telegram account before touching
-            // our own DB - if Laraue.Apps.Identity is unreachable, registration fails outright
-            // rather than creating a Boards user with no global identity.
-            GlobalUserId = await GetGlobalUserIdAsync(profile, cancellationToken),
+            GlobalUserId = identity.GlobalUserId,
         };
-
-        var ownerProfile = await identityClient.GetNewMemberProfileAsync(user.GlobalUserId, cancellationToken);
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         
         var insertedCount = await context.Users
             .Merge()
@@ -148,8 +182,6 @@ public class CoreUserService(
         if (insertedCount == 0)
         {
             // Lost a race with a concurrent registration of the same Telegram account.
-            await transaction.CommitAsync(cancellationToken);
-
             return await context.Users
                 .Where(x => x.TelegramId == profile.TelegramId)
                 .Select(x => x.Id)
@@ -161,7 +193,7 @@ public class CoreUserService(
             OrganizationDefaults.GetPersonalOrganizationSlug(profile.UserName),
             profile.LanguageCode,
             timestamp,
-            ownerProfile);
+            identity.Profile);
 
         context.LinkedTelegramChats.Add(new LinkedTelegramChat
         {
@@ -174,13 +206,29 @@ public class CoreUserService(
         });
 
         await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
 
         return user.Id;
     }
 
-    public async Task<Guid> CreateIfGoogleSubjectNotExists(GoogleUserProfile profile, CancellationToken cancellationToken)
+    public async Task<NewUserIdentity> ResolveGoogleIdentity(
+        GoogleUserProfile profile,
+        CancellationToken cancellationToken)
     {
+        // Same "no Boards user without a global identity" rule as the Telegram flow.
+        var globalUserId = await GetGlobalUserIdAsync(profile, cancellationToken);
+
+        return new NewUserIdentity(
+            globalUserId,
+            await identityClient.GetNewMemberProfileAsync(globalUserId, cancellationToken));
+    }
+
+    public async Task<Guid> CreateIfGoogleSubjectNotExists(
+        GoogleUserProfile profile,
+        NewUserIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
         var timestamp = dateTimeProvider.UtcNow;
 
         var emailLocalPart = GetEmailLocalPart(profile.Email);
@@ -190,13 +238,8 @@ public class CoreUserService(
             Id = Guid.NewGuid(),
             GoogleSubject = profile.GoogleSubject,
             CreatedAt = timestamp,
-            // Same "no Boards user without a global identity" rule as the Telegram flow.
-            GlobalUserId = await GetGlobalUserIdAsync(profile, cancellationToken),
+            GlobalUserId = identity.GlobalUserId,
         };
-
-        var ownerProfile = await identityClient.GetNewMemberProfileAsync(user.GlobalUserId, cancellationToken);
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         var insertedCount = await context.Users
             .Merge()
@@ -208,8 +251,6 @@ public class CoreUserService(
         if (insertedCount == 0)
         {
             // Lost a race with a concurrent registration of the same Google account.
-            await transaction.CommitAsync(cancellationToken);
-
             return await context.Users
                 .Where(x => x.GoogleSubject == profile.GoogleSubject)
                 .Select(x => x.Id)
@@ -221,10 +262,9 @@ public class CoreUserService(
             OrganizationDefaults.GetPersonalOrganizationSlug(ToSlug(emailLocalPart)),
             profile.LanguageCode,
             timestamp,
-            ownerProfile);
+            identity.Profile);
 
         await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
 
         return user.Id;
     }
@@ -596,6 +636,12 @@ public record UserPreferencesResponse
 /// truth for profiles) and used to derive the Boards-side display name, initials, personal
 /// organization and interface language. Boards doesn't store it.
 /// </summary>
+/// <summary>
+/// A signing-up user's Laraue.Apps.Identity id and the profile they're shown by in their personal
+/// organization - resolved outside the database transaction the user is then created in.
+/// </summary>
+public sealed record NewUserIdentity(Guid GlobalUserId, MemberProfile Profile);
+
 public sealed record TelegramUserProfile(
     long TelegramId,
     string? UserName,

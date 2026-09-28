@@ -15,9 +15,9 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
 
-        var userId = await service.CreateIfGoogleSubjectNotExists(
-            new GoogleUserProfile("google-1", "john.smith@example.com", "John Smith", "John", "Smith", "en"),
-            default);
+        var userId = await service.SignUpAsync(
+            testScope.Database,
+            new GoogleUserProfile("google-1", "john.smith@example.com", "John Smith", "John", "Smith", "en"));
 
         var user = await testScope.Database.Users.SingleAsync(x => x.Id == userId);
         Assert.Equal("google-1", user.GoogleSubject);
@@ -31,9 +31,9 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
 
-        var userId = await service.CreateIfGoogleSubjectNotExists(
-            new GoogleUserProfile("google-2", "John.Smith+boards@example.com", "John Smith", "John", "Smith", "ru"),
-            default);
+        var userId = await service.SignUpAsync(
+            testScope.Database,
+            new GoogleUserProfile("google-2", "John.Smith+boards@example.com", "John Smith", "John", "Smith", "ru"));
 
         var organization = await testScope.Database.Organizations.SingleAsync(x => x.OwnerId == userId);
         Assert.Equal(OrganizationType.Personal, organization.Type);
@@ -47,9 +47,9 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
 
-        var userId = await service.CreateIfGoogleSubjectNotExists(
-            new GoogleUserProfile("google-3", "user@example.com", null, null, null, "ru"),
-            default);
+        var userId = await service.SignUpAsync(
+            testScope.Database,
+            new GoogleUserProfile("google-3", "user@example.com", null, null, null, "ru"));
 
         var preferences = await service.GetPreferences(userId, default);
         Assert.Equal("ru", preferences.InterfaceLanguage);
@@ -61,9 +61,9 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
 
-        var userId = await service.CreateIfGoogleSubjectNotExists(
-            new GoogleUserProfile("google-4", "user@example.com", "User", "User", null, "en"),
-            default);
+        var userId = await service.SignUpAsync(
+            testScope.Database,
+            new GoogleUserProfile("google-4", "user@example.com", "User", "User", null, "en"));
 
         Assert.False(await testScope.Database.LinkedTelegramChats.AnyAsync(x => x.OwnerId == userId));
     }
@@ -74,9 +74,9 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         using var testScope = host.CreateTestScope();
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
 
-        var userId = await service.CreateIfGoogleSubjectNotExists(
-            new GoogleUserProfile("google-5", "jane@example.com", null, null, null, null),
-            default);
+        var userId = await service.SignUpAsync(
+            testScope.Database,
+            new GoogleUserProfile("google-5", "jane@example.com", null, null, null, null));
 
         // The name comes from Laraue.Apps.Identity (mocked: an unregistered user is "Test User").
         var member = await testScope.Database.OrganizationUsers.SingleAsync(x => x.UserId == userId);
@@ -92,8 +92,8 @@ public class CoreUserServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var service = testScope.Services.GetRequiredService<ICoreUserService>();
         var profile = new GoogleUserProfile("google-6", "user@example.com", "User", "User", null, "en");
 
-        var firstId = await service.CreateIfGoogleSubjectNotExists(profile, default);
-        var secondId = await service.CreateIfGoogleSubjectNotExists(profile, default);
+        var firstId = await service.SignUpAsync(testScope.Database, profile);
+        var secondId = await service.SignUpAsync(testScope.Database, profile);
 
         Assert.Equal(firstId, secondId);
         Assert.Equal(1, await testScope.Database.Users.CountAsync(x => x.GoogleSubject == "google-6"));

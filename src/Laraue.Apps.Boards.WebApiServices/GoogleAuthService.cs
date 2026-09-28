@@ -196,7 +196,7 @@ public class GoogleAuthService(
             .Select(x => (Guid?)x.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var userId = existingUserId ?? await coreUserService.CreateIfGoogleSubjectNotExists(
+        var userId = existingUserId ?? await CreateUser(
             new GoogleUserProfile(
                 payload.Subject,
                 payload.Email,
@@ -207,5 +207,16 @@ public class GoogleAuthService(
             cancellationToken);
 
         return authService.CreateUserToken(userId);
+    }
+
+    private async Task<Guid> CreateUser(GoogleUserProfile profile, CancellationToken cancellationToken)
+    {
+        var identity = await coreUserService.ResolveGoogleIdentity(profile, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var userId = await coreUserService.CreateIfGoogleSubjectNotExists(profile, identity, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return userId;
     }
 }

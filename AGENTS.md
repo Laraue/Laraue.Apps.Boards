@@ -512,7 +512,11 @@ Boards calls two sibling services over gRPC:
   Telegram.NET interface: since Laraue.Telegram.NET 5.0, `ITelegramUserQueryService<Guid>` only
   finds a user id by Telegram id and receives the library's `TelegramData` on first contact -
   `TelegramUserQueryService` maps that into a `TelegramUserProfile` for
-  `ICoreUserService.CreateIfTelegramIdNotExists`, which forwards it to Identity. Don't re-add profile
+  `ICoreUserService.ResolveTelegramIdentity`, which forwards it to Identity. Signing up is two core
+  steps so the gRPC calls never run inside a database transaction, the same split as account linking
+  below: `Resolve{Telegram,Google}Identity` (Identity calls, no Boards writes) and then
+  `CreateIf{TelegramId,GoogleSubject}NotExists` (Boards writes, asserts `EnsureTransactionStarted()`),
+  run by the host in its own transaction. Don't re-add profile
   columns to `users`; if Boards needs a new profile value, ask whether it's really a Boards-side
   preference (→ `UserPreferences`) or belongs in Identity.
 

@@ -16,15 +16,20 @@ public class TelegramUserQueryService(DatabaseContext context, ICoreUserService 
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task<Guid> CreateAsync(TelegramData telegramData, CancellationToken cancellationToken = default)
+    public async Task<Guid> CreateAsync(TelegramData telegramData, CancellationToken cancellationToken = default)
     {
-        return userService.CreateIfTelegramIdNotExists(
-            new TelegramUserProfile(
-                telegramData.Id,
-                telegramData.Username,
-                telegramData.FirstName,
-                telegramData.LastName,
-                telegramData.LanguageCode),
-            cancellationToken);
+        var profile = new TelegramUserProfile(
+            telegramData.Id,
+            telegramData.Username,
+            telegramData.FirstName,
+            telegramData.LastName,
+            telegramData.LanguageCode);
+        var identity = await userService.ResolveTelegramIdentity(profile, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var userId = await userService.CreateIfTelegramIdNotExists(profile, identity, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return userId;
     }
 }

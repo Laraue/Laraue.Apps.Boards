@@ -177,13 +177,18 @@ public class TelegramAuthService(
         return generatedHash;
     }
     
-    public Task<Guid> RegisterUser(
+    public async Task<Guid> RegisterUser(
         MiniAppUser user,
         CancellationToken cancellationToken)
     {
-        return coreUserService.CreateIfTelegramIdNotExists(
-            new TelegramUserProfile(user.Id, user.Username, user.FirstName, user.LastName, user.LanguageCode),
-            cancellationToken);
+        var profile = new TelegramUserProfile(user.Id, user.Username, user.FirstName, user.LastName, user.LanguageCode);
+        var identity = await coreUserService.ResolveTelegramIdentity(profile, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var userId = await coreUserService.CreateIfTelegramIdNotExists(profile, identity, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return userId;
     }
 }
 
