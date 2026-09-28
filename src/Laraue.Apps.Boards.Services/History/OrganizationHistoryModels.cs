@@ -13,13 +13,6 @@ public record UserDetails : IEnrichableUser
     public string Color { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string Initials { get; set; } = string.Empty;
-
-    public void Enrich(MemberProfile profile)
-    {
-        Color = profile.Color;
-        DisplayName = profile.DisplayName;
-        Initials = profile.Initials;
-    }
 }
 
 public record OrganizationHistoryItem

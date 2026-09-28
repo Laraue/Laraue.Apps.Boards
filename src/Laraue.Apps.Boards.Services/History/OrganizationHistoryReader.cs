@@ -263,7 +263,7 @@ public class OrganizationHistoryReader(
             .Where(s => possibleStatusIds.Contains(s.Id))
             .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
 
-        var assignees = possibleAssigneeIds.Select(x => new EnrichableUser(x)).ToArray();
+        var assignees = possibleAssigneeIds.Select(x => new EnrichableUser { UserId = x }).ToArray();
         await memberProfileReader.EnrichUsers(
             organizationId,
             assignees,

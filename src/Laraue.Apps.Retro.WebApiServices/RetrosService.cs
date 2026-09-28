@@ -1095,13 +1095,6 @@ public record RetroUser : IEnrichableUser
     public string Initials { get; set; } = string.Empty;
     public string Color { get; set; } = string.Empty;
     public required bool IsCurrentUser { get; set; }
-
-    public void Enrich(MemberProfile profile)
-    {
-        DisplayName = profile.DisplayName;
-        Initials = profile.Initials;
-        Color = profile.Color;
-    }
 }
 
 public record GetRetrosRequest : IPaginatedRequest

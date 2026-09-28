@@ -1,20 +1,14 @@
 namespace Laraue.Apps.Boards.Services.Members;
 
 /// <summary>
-/// A plain <see cref="IEnrichableUser"/> for code that needs a person's profile but has no DTO of its own
-/// to put it on (e.g. a name written into an issue's history, a row mapped into an immutable record).
+/// A person on a row that isn't itself a response DTO - e.g. <c>Assignee</c> on an issue list row, a
+/// name written into an issue's history, a row mapped into an immutable record: queries set
+/// <see cref="UserId"/>, <see cref="IMemberProfileReader"/> fills the rest.
 /// </summary>
-public sealed class EnrichableUser(Guid userId) : IEnrichableUser
+public sealed class EnrichableUser : IEnrichableUser
 {
-    public Guid UserId { get; } = userId;
-    public string DisplayName { get; private set; } = string.Empty;
-    public string Initials { get; private set; } = string.Empty;
-    public string Color { get; private set; } = string.Empty;
-
-    public void Enrich(MemberProfile profile)
-    {
-        DisplayName = profile.DisplayName;
-        Initials = profile.Initials;
-        Color = profile.Color;
-    }
+    public required Guid UserId { get; init; }
+    public string DisplayName { get; set; } = string.Empty;
+    public string Initials { get; set; } = string.Empty;
+    public string Color { get; set; } = string.Empty;
 }

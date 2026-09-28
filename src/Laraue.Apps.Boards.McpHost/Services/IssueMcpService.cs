@@ -407,7 +407,7 @@ public class IssueMcpService(
                     i.IssueNumber.Number,
                     i.Content,
                     Status = i.Status!.Name,
-                    Assignee = new EnrichableUser(i.AssigneeId),
+                    Assignee = new EnrichableUser { UserId = i.AssigneeId },
                 })
                 .ShortPaginateEFAsync(pagination, cancellationToken);
 
@@ -479,7 +479,7 @@ public class IssueMcpService(
             {
                 i.Content,
                 StatusName = i.Status!.Name,
-                Assignee = new EnrichableUser(i.AssigneeId),
+                Assignee = new EnrichableUser { UserId = i.AssigneeId },
                 i.CreatedAt,
                 i.UpdatedAt,
             })
@@ -603,7 +603,7 @@ public class IssueMcpService(
             {
                 c.Id,
                 c.OwnerId,
-                Author = new EnrichableUser(c.OwnerId),
+                Author = new EnrichableUser { UserId = c.OwnerId },
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,

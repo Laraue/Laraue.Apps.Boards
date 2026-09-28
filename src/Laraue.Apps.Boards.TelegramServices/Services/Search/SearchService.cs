@@ -200,7 +200,9 @@ public class SearchService(
                 OrganizationSlugPostfix = x.Status.Epic.Space.Organization!.SlugPostfix,
                 ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
                 OrganizationId = x.Status.Epic.Space.OrganizationId,
-                SenderId = x.TelegramMessage != null ? x.TelegramMessage.SenderId : null,
+                Sender = x.TelegramMessage != null && x.TelegramMessage.SenderId != null
+                    ? new EnrichableUser { UserId = x.TelegramMessage.SenderId.Value }
+                    : null,
                 SentAt = x.TelegramMessage != null ? x.TelegramMessage.SentAt : null,
             })
             .ShortPaginateLinq2DbAsync(new PaginationData { Page = page, PerPage = PageSize }, ct);
@@ -230,9 +232,9 @@ public class SearchService(
 
         // A sender is shown by their name in the issue's organization.
         await memberProfileReader.EnrichUsers(
-            issues
-                .Where(x => x.SenderId is not null),
+            issues,
             x => x.OrganizationId,
+            x => x.Sender,
             ct);
 
         var result = new List<InlineQueryResult>();
@@ -287,7 +289,7 @@ public class SearchService(
                 var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
                 var footer = IssuePreviewFormatter.BuildSourceFooter(
                     issue.ChatTitle,
-                    issue.SenderName,
+                    issue.Sender?.DisplayName,
                     issue.SentAt);
 
                 // The text actually posted to the chat once the user taps this result
@@ -449,7 +451,7 @@ public class SearchService(
 }
 
 /// <summary>One issue found by an inline search, as the query projects it.</summary>
-internal sealed class IssueSearchRow : IEnrichableUser
+internal sealed class IssueSearchRow
 {
     public required IssueKey Key { get; init; }
     public required string? Content { get; init; }
@@ -458,15 +460,6 @@ internal sealed class IssueSearchRow : IEnrichableUser
     public required string OrganizationSlugPostfix { get; init; }
     public required string? ChatTitle { get; init; }
     public required long OrganizationId { get; init; }
-    public required Guid? SenderId { get; init; }
+    public required EnrichableUser? Sender { get; init; }
     public required DateTime? SentAt { get; init; }
-
-    /// <summary>
-    /// The sender's name in the issue's organization, filled by <see cref="IMemberProfileReader"/>.
-    /// </summary>
-    public string? SenderName { get; private set; }
-
-    Guid IEnrichableUser.UserId => SenderId!.Value;
-
-    public void Enrich(MemberProfile profile) => SenderName = profile.DisplayName;
 }

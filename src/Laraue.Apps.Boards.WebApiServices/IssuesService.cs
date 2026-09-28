@@ -141,7 +141,8 @@ public class IssuesService(
         var result = await ToBatchResult(temporaryResult, request, cancellationToken);
         await memberProfileReader.EnrichUsers(
             request.AuthData.OrganizationId,
-            result.Data,
+            result.Data
+                .Select(x => x.Assignee),
             cancellationToken);
 
         var projected = result.Data
@@ -225,7 +226,8 @@ public class IssuesService(
         await memberProfileReader.EnrichUsers(
             request.AuthData.OrganizationId,
             statusResults
-                .SelectMany(x => x.Result.Data),
+                .SelectMany(x => x.Result.Data)
+                .Select(x => x.Assignee),
             cancellationToken);
 
         var result = statusResults
@@ -544,7 +546,8 @@ public class IssuesService(
         
         await memberProfileReader.EnrichUsers(
             request.AuthData.OrganizationId,
-            temporaryResult.Data,
+            temporaryResult.Data
+                .Select(x => x.Assignee),
             ct);
 
         var mapped = temporaryResult.MapTo(Map);
@@ -1147,7 +1150,7 @@ public class IssuesService(
             Time = x.CreatedAt,
             EpicId = x.Status!.EpicId,
             StatusId = x.StatusId,
-            AssigneeId = x.AssigneeId,
+            Assignee = new EnrichableUser { UserId = x.AssigneeId },
             AssigneeTelegramId = x.Assignee!.TelegramId,
             Number = x.IssueNumber!.Number,
             SpaceKey = x.Status.Epic!.Space!.Key,
@@ -1164,10 +1167,10 @@ public class IssuesService(
             StatusId = source.StatusId,
             Content = source.Content,
             EpicId = source.EpicId,
-            Assignee = source.AssigneeDisplayName,
-            AssigneeInitial = source.AssigneeInitials,
+            Assignee = source.Assignee.DisplayName,
+            AssigneeInitial = source.Assignee.Initials,
             Time = source.Time,
-            AssigneeColor = source.AssigneeUserColor,
+            AssigneeColor = source.Assignee.Color,
             Key = new IssueKey(source.SpaceKey, source.Number).ToString(),
             SpaceKey = source.SpaceKey,
         };
@@ -1541,26 +1544,12 @@ public record ColumnIssues
     public required InitialBatchResult<IssueListDto> Items { get; set; }
 }
 
-public class IssueListDtoData : IEnrichableUser
+public class IssueListDtoData
 {
-    Guid IEnrichableUser.UserId => AssigneeId;
-
-    public void Enrich(MemberProfile profile)
-    {
-        AssigneeDisplayName = profile.DisplayName;
-        AssigneeInitials = profile.Initials;
-        AssigneeUserColor = profile.Color;
-    }
-
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
-    public required Guid AssigneeId { get; set; }
+    public required EnrichableUser Assignee { get; init; }
     public required long? AssigneeTelegramId { get; set; }
-
-    /// <summary>The assignee's profile, filled after the query by <see cref="IMemberProfileReader"/>.</summary>
-    public string AssigneeDisplayName { get; set; } = string.Empty;
-    public string AssigneeInitials { get; set; } = string.Empty;
-    public string AssigneeUserColor { get; set; } = string.Empty;
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }

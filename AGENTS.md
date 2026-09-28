@@ -355,8 +355,9 @@ members through `ActiveOrganizationUsers()`, never the raw `OrganizationUsers` D
 member" or permission check.
 
 Don't join the membership table into a read query to get a name. Project just the user id, implement
-`IEnrichableUser` (`Boards.Services.Members`: `UserId` + `Enrich(MemberProfile)`, taking only what the
-DTO shows) on the DTO, and fill the whole page with `IMemberProfileReader.EnrichUsers` - one query:
+`IEnrichableUser` (`Boards.Services.Members`: `UserId` plus settable `DisplayName`/`Initials`/`Color` -
+a DTO with other property names, or one that doesn't show some of them, maps them with an explicit
+implementation) on the DTO, and fill the whole page with `IMemberProfileReader.EnrichUsers` - one query:
 
 ```csharp
 var issue = new IssueDetailDto { Owner = new UserDetails { UserId = ownerId }, ... };
@@ -366,11 +367,12 @@ await memberProfileReader.EnrichUsers(
     ct);
 ```
 
-`UserDetails`, `RetroUser`, `IssueListDtoData` and `AdminBillingTransaction` implement it; where a
-person has no DTO of their own (a name written into history, a row mapped into an immutable MCP
-record) use `EnrichableUser`. Use the organization the shown thing belongs to (the issue's, the retro's,
-the log's); a read spanning several organizations (Telegram search) passes an organization selector
-instead. A query already over `OrganizationUser` (member lists) just reads its own
+Response DTOs implement it (`UserDetails`, `RetroUser`, `AdminBillingTransaction`). A row that isn't a
+response DTO holds the person as an `EnrichableUser` property instead of implementing it (e.g.
+`IssueListDtoData.Assignee`, projected as `new EnrichableUser { UserId = x.AssigneeId }`); so does code
+with no row at all (a name written into history, an immutable MCP record). Use the organization the
+shown thing belongs to (the issue's, the retro's, the log's); a read spanning several organizations
+(Telegram search) passes organization and user selectors instead. A query already over `OrganizationUser` (member lists) just reads its own
 `DisplayName`/`Initials`/`Color`. A user with no row in the organization gets `MemberProfile.Unknown`.
 
 ## Soft delete

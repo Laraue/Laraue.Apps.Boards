@@ -21,15 +21,15 @@ public interface IMemberProfileReader
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Same, for users from several organizations at once (e.g. search results spanning every
-    /// organization the caller can read) - each user is shown the way they are in their item's
-    /// organization.
+    /// Same, for items from several organizations at once (e.g. search results spanning every
+    /// organization the caller can read) - each item's user is shown the way they are in that item's
+    /// organization. Items whose <paramref name="user"/> is null are skipped.
     /// </summary>
     Task EnrichUsers<T>(
-        IEnumerable<T> users,
+        IEnumerable<T> items,
         Func<T, long> organizationId,
-        CancellationToken cancellationToken)
-        where T : IEnrichableUser;
+        Func<T, IEnrichableUser?> user,
+        CancellationToken cancellationToken);
 }
 
 public class MemberProfileReader(DatabaseContext context) : IMemberProfileReader
@@ -39,17 +39,19 @@ public class MemberProfileReader(DatabaseContext context) : IMemberProfileReader
         IEnumerable<IEnrichableUser> users,
         CancellationToken cancellationToken)
     {
-        return EnrichUsers(users, _ => organizationId, cancellationToken);
+        return EnrichUsers(users, _ => organizationId, user => user, cancellationToken);
     }
 
     public async Task EnrichUsers<T>(
-        IEnumerable<T> users,
+        IEnumerable<T> items,
         Func<T, long> organizationId,
+        Func<T, IEnrichableUser?> user,
         CancellationToken cancellationToken)
-        where T : IEnrichableUser
     {
-        var people = users
-            .Select(user => (User: user, Key: new OrganizationMember(organizationId(user), user.UserId)))
+        var people = items
+            .Select(item => (User: user(item), OrganizationId: organizationId(item)))
+            .Where(x => x.User is not null)
+            .Select(x => (User: x.User!, Key: new OrganizationMember(x.OrganizationId, x.User!.UserId)))
             .ToArray();
 
         if (people.Length == 0)
@@ -58,7 +60,13 @@ public class MemberProfileReader(DatabaseContext context) : IMemberProfileReader
         var profiles = await GetProfilesAsync(people.Select(x => x.Key).ToHashSet(), cancellationToken);
 
         foreach (var person in people)
-            person.User.Enrich(profiles.GetValueOrDefault(person.Key, MemberProfile.Unknown));
+        {
+            var profile = profiles.GetValueOrDefault(person.Key, MemberProfile.Unknown);
+
+            person.User.DisplayName = profile.DisplayName;
+            person.User.Initials = profile.Initials;
+            person.User.Color = profile.Color;
+        }
     }
 
     private async Task<Dictionary<OrganizationMember, MemberProfile>> GetProfilesAsync(

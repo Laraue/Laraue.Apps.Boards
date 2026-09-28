@@ -190,7 +190,7 @@ public class CoreIssuesService(
         if (!string.IsNullOrEmpty(content))
             items.Add(logItemFactory.ContentChanged(oldValue: null, newValue: content));
 
-        var assignee = new EnrichableUser(assigneeId);
+        var assignee = new EnrichableUser { UserId = assigneeId };
         await memberProfileReader.EnrichUsers(
             issueData.OrganizationId,
             [assignee],
@@ -278,8 +278,8 @@ public class CoreIssuesService(
             var assigneeId = request.AssigneeId.Value;
             var oldAssigneeId = issueData.AssigneeId;
 
-            var oldAssignee = new EnrichableUser(oldAssigneeId);
-            var newAssignee = new EnrichableUser(assigneeId);
+            var oldAssignee = new EnrichableUser { UserId = oldAssigneeId };
+            var newAssignee = new EnrichableUser { UserId = assigneeId };
             await memberProfileReader.EnrichUsers(
                 issueData.OrganizationId,
                 [oldAssignee, newAssignee],

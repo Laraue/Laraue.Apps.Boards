@@ -590,8 +590,9 @@ public sealed record AdminBillingTransaction : IEnrichableUser
     public string? OwnerDisplayName { get; set; }
 
     Guid IEnrichableUser.UserId => OwnerUserId;
-
-    public void Enrich(MemberProfile profile) => OwnerDisplayName = profile.DisplayName;
+    string IEnrichableUser.DisplayName { set => OwnerDisplayName = value; }
+    string IEnrichableUser.Initials { set { } }
+    string IEnrichableUser.Color { set { } }
 
     public required TokenTransactionStatus Status { get; init; }
     public required TokenTransactionReason Reason { get; init; }
