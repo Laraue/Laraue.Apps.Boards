@@ -541,7 +541,11 @@ Boards calls two sibling services over gRPC:
   `GoogleAuth:ClientId` and passes only the verified claims on to Identity
   (`CreateUserIfNotExistsByGoogle`) - Identity never sees the raw token. `GoogleIdTokenValidator`
   throws if `ClientId` is empty on purpose: with no audience configured, Google.Apis.Auth skips the
-  audience check and would accept a token issued for *any* Google OAuth client. A Google sign-in and a
+  audience check and would accept a token issued for *any* Google OAuth client. The frontend draws its
+  own Google button and uses Google's OAuth popup (JS code client), so it sends an authorization
+  `Code` instead of an `IdToken`: `GoogleIdTokenValidator.ExchangeCodeAsync` exchanges it with
+  `GoogleAuth:ClientSecret` (redirect URI `postmessage`) and validates the returned ID token the same
+  way. Both `/api/user/auth-via-google` and `/api/user/connected-accounts/google` accept either field. A Google sign-in and a
   Telegram sign-in are separate users unless one connected the other (above); a Google-only user has
   `TelegramId == null` and no personal Telegram chat.
 - `Laraue.Apps.Billing` — AI token reserve/commit/cancel and subscription/limit lookups, wrapped

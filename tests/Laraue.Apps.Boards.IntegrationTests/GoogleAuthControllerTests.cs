@@ -43,6 +43,34 @@ public class GoogleAuthControllerTests(WebApiTestHost host) : IClassFixture<WebA
     }
 
     [Fact]
+    public async Task Authenticate_ShouldRegisterGoogleUser_WhenAuthorizationCodeIsSent()
+    {
+        using var testScope = host.CreateTestScope();
+        host.GoogleIdTokenValidatorMock
+            .Setup(x => x.ExchangeCodeAsync("valid-code", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GoogleIdTokenPayload("google-12", "bob@example.com", "Bob Ray", "Bob", "Ray"));
+
+        var token = await _controller.Execute(x => x.Authenticate(
+            new GoogleAuthRequest { Code = "valid-code" },
+            default));
+
+        Assert.False(string.IsNullOrEmpty(token));
+        Assert.True(await testScope.Database.Users.AnyAsync(x => x.GoogleSubject == "google-12"));
+    }
+
+    [Fact]
+    public async Task Authenticate_ShouldReturnBadRequest_WhenNoCredentialIsSent()
+    {
+        using var testScope = host.CreateTestScope();
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _controller.Execute(x => x.Authenticate(
+            new GoogleAuthRequest(),
+            default)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
+    }
+
+    [Fact]
     public async Task Authenticate_ShouldReturnForbidden_WhenIdTokenIsInvalid()
     {
         using var testScope = host.CreateTestScope();
@@ -65,6 +93,15 @@ public class GoogleAuthControllerTests(WebApiTestHost host) : IClassFixture<WebA
             Options.Create(new GoogleAuthOptions { ClientId = "test-client-id.apps.googleusercontent.com" }));
 
         await Assert.ThrowsAsync<ForbiddenException>(() => validator.ValidateAsync("not-a-jwt", default));
+    }
+
+    [Fact]
+    public async Task ExchangeCodeAsync_ShouldRefuseToExchange_WhenClientSecretIsNotConfigured()
+    {
+        var validator = new GoogleIdTokenValidator(
+            Options.Create(new GoogleAuthOptions { ClientId = "test-client-id.apps.googleusercontent.com" }));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => validator.ExchangeCodeAsync("code", default));
     }
 
     [Fact]

@@ -6,9 +6,16 @@ namespace Laraue.Apps.Boards.WebApiServices;
 public sealed class ConnectGoogleAccountRequest
 {
     /// <summary>
-    /// The ID token (credential) the frontend got from Google's sign-in button.
+    /// The ID token (credential) the frontend got from Google's sign-in button. Pass either this
+    /// or <see cref="Code"/>.
     /// </summary>
-    public required string IdToken { get; init; }
+    public string? IdToken { get; init; }
+
+    /// <summary>
+    /// The authorization code the frontend got from Google's OAuth popup. Pass either this or
+    /// <see cref="IdToken"/>.
+    /// </summary>
+    public string? Code { get; init; }
 }
 
 /// <summary>
@@ -33,7 +40,7 @@ public interface IConnectedAccountsService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Verifies the Google ID token and connects that Google account to the user.
+    /// Verifies the Google ID token or authorization code and connects that Google account to the user.
     /// </summary>
     Task<ConnectAccountResponse> ConnectGoogle(
         Guid userId,
@@ -68,7 +75,7 @@ public class ConnectedAccountsService(
         ConnectGoogleAccountRequest request,
         CancellationToken cancellationToken)
     {
-        var payload = await googleIdTokenValidator.ValidateAsync(request.IdToken, cancellationToken);
+        var payload = await googleIdTokenValidator.ValidateAsync(request.IdToken, request.Code, cancellationToken);
         var profile = new GoogleUserProfile(
             payload.Subject,
             payload.Email,
