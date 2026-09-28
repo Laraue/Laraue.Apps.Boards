@@ -58,13 +58,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(issue.Id, historyChange.EntityId);
         Assert.Equal(LogEntityType.Issue, historyChange.EntityType);
         Assert.Equal(LogAction.Create, historyChange.Action);
-        Assert.Equal(5, historyChange.Items!.Count);
+        // Created in the backlog, so its technical status isn't recorded.
+        Assert.Equal(4, historyChange.Items!.Count);
 
         var spaceChange = historyChange.Items[0];
         var epicChange = historyChange.Items[1];
-        var statusChange = historyChange.Items[2];
-        var contentChange = historyChange.Items[3];
-        var assigneeChange = historyChange.Items[4];
+        var contentChange = historyChange.Items[2];
+        var assigneeChange = historyChange.Items[3];
         
         Assert.Null(spaceChange.OldDisplayValue);
         Assert.Equal(space.Name, spaceChange.NewDisplayValue);
@@ -75,11 +75,6 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(epic.Name, epicChange.NewDisplayValue);
         Assert.Equal(epic.Id.ToString(), epicChange.NewValueId);
         Assert.Equal(PropertyType.Epic, epicChange.PropertyType);
-        
-        Assert.Null(statusChange.OldDisplayValue);
-        Assert.Equal(status.Name, statusChange.NewDisplayValue);
-        Assert.Equal(status.Id.ToString(), statusChange.NewValueId);
-        Assert.Equal(PropertyType.Status, statusChange.PropertyType);
         
         Assert.Null(contentChange.OldDisplayValue);
         Assert.Equal("New Issue", contentChange.NewDisplayValue);
@@ -92,6 +87,38 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(PropertyType.Assignee, assigneeChange.PropertyType);
     }
     
+    [Fact]
+    public async Task Create_ShouldRecordStatus_WhenIssueIsCreatedOutsideBacklog()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .WithName("Sprint")
+                        .AddStatus(b => b.WithName("In Progress")))));
+
+        var status = organization.GetStatus(1, 1, 1);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "New Issue",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                }));
+
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        var statusChange = Assert.Single(historyChange.Items!, x => x.PropertyType == PropertyType.Status);
+        Assert.Null(statusChange.OldDisplayValue);
+        Assert.Equal("In Progress", statusChange.NewDisplayValue);
+        Assert.Equal(status.Id.ToString(), statusChange.NewValueId);
+    }
+
     [Fact]
     public async Task User_ShouldNotCreateIssue_WhenHasNoAccess()
     {
@@ -804,6 +831,68 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var notFound = ex.HasInnerException<NotFoundException>();
         Assert.Equal($"Epic: {epic.Id} is not found", notFound.Message);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_ShouldRecordOnlyEpicChange_WhenIssueIsMovedToBacklog()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                // A space other than the first gets the default Backlog epic (index 0) with its "New"
+                // status added by the builder; every epic also gets that default status at index 0.
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .WithName("Sprint")
+                        .AddStatus(b => b.WithName("In Progress"))
+                        .AddIssue(userId, 1))));
+
+        var issueData = organization.GetIssueData(1, 1, 1, 0);
+        var backlogStatus = organization.GetStatus(1, 0, 0);
+
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = backlogStatus.Id };
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateStatus(request));
+
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        var epicChange = Assert.Single(historyChange.Items!);
+        Assert.Equal(PropertyType.Epic, epicChange.PropertyType);
+        Assert.Equal("Sprint", epicChange.OldDisplayValue);
+        Assert.Equal("Backlog", epicChange.NewDisplayValue);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_ShouldRecordStatusChange_WhenIssueIsMovedOutOfBacklog()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s
+                    .AddEpic(userId, e => e
+                        .WithName("Sprint")
+                        .AddStatus(b => b.WithName("In Progress"))))
+                .AddIssueToDefaultStatus(userId));
+
+        // The first space's default epic is its Backlog.
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var sprintStatus = organization.GetStatus(1, 1, 1);
+
+        var request = new UpdateIssuesStatusRequest { IssueKeys = [issueData.Key], StatusId = sprintStatus.Id };
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateStatus(request));
+
+        var historyChange = await testScope.Database.OrganizationLogs.Include(x => x.Items).SingleAsyncEF();
+        Assert.Equal(
+            [PropertyType.Space, PropertyType.Epic, PropertyType.Status],
+            historyChange.Items!.Select(x => x.PropertyType));
+        Assert.Equal("New", historyChange.Items[2].OldDisplayValue);
+        Assert.Equal("In Progress", historyChange.Items[2].NewDisplayValue);
     }
 
     [Fact]
