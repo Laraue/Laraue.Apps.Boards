@@ -65,7 +65,7 @@ public interface ICoreUserService
     /// Telegram chat to their personal organization, as Telegram sign-up does. Safe to repeat. Must be
     /// called within a transaction.
     /// </summary>
-    Task LinkTelegramAccountInBoards(
+    Task<AccountLinkInBoardsResult> LinkTelegramAccountInBoards(
         Guid userId,
         TelegramUserProfile profile,
         CancellationToken cancellationToken);
@@ -82,7 +82,7 @@ public interface ICoreUserService
     /// <summary>
     /// Google counterpart of <see cref="LinkTelegramAccountInBoards"/>. Must be called within a transaction.
     /// </summary>
-    Task LinkGoogleAccountInBoards(
+    Task<AccountLinkInBoardsResult> LinkGoogleAccountInBoards(
         Guid userId,
         GoogleUserProfile profile,
         CancellationToken cancellationToken);
@@ -264,7 +264,7 @@ public class CoreUserService(
         return ToOutcome(await identityClient.LinkTelegramAccountAsync(request, cancellationToken: cancellationToken));
     }
 
-    public async Task LinkTelegramAccountInBoards(
+    public async Task<AccountLinkInBoardsResult> LinkTelegramAccountInBoards(
         Guid userId,
         TelegramUserProfile profile,
         CancellationToken cancellationToken)
@@ -279,9 +279,11 @@ public class CoreUserService(
             .Where(x => x.Id != userId && x.TelegramId == profile.TelegramId)
             .Select(x => new { x.Id, HasOtherAccount = x.GoogleSubject != null })
             .FirstOrDefaultAsyncEF(cancellationToken);
+        Guid? mergedUserId = null;
         if (previousOwner is { HasOtherAccount: false })
         {
             await SoftDeleteMergedUserAsync(previousOwner.Id, userId, cancellationToken);
+            mergedUserId = previousOwner.Id;
         }
 
         await context.LinkedTelegramChats
@@ -299,7 +301,7 @@ public class CoreUserService(
         var personalStatusId = await GetPersonalOrganizationDefaultStatusIdAsync(userId, cancellationToken);
         if (hasPersonalChat || personalStatusId is null)
         {
-            return;
+            return new AccountLinkInBoardsResult(mergedUserId);
         }
 
         context.LinkedTelegramChats.Add(new LinkedTelegramChat
@@ -312,6 +314,8 @@ public class CoreUserService(
             LinkedAt = dateTimeProvider.UtcNow,
         });
         await context.SaveChangesAsync(cancellationToken);
+
+        return new AccountLinkInBoardsResult(mergedUserId);
     }
 
     public async Task<AccountLinkOutcome> LinkGoogleAccountInIdentity(
@@ -357,7 +361,7 @@ public class CoreUserService(
         return ToOutcome(await identityClient.LinkGoogleAccountAsync(request, cancellationToken: cancellationToken));
     }
 
-    public async Task LinkGoogleAccountInBoards(
+    public async Task<AccountLinkInBoardsResult> LinkGoogleAccountInBoards(
         Guid userId,
         GoogleUserProfile profile,
         CancellationToken cancellationToken)
@@ -370,9 +374,11 @@ public class CoreUserService(
             .Where(x => x.Id != userId && x.GoogleSubject == profile.GoogleSubject)
             .Select(x => new { x.Id, HasOtherAccount = x.TelegramId != null })
             .FirstOrDefaultAsyncEF(cancellationToken);
+        Guid? mergedUserId = null;
         if (previousOwner is { HasOtherAccount: false })
         {
             await SoftDeleteMergedUserAsync(previousOwner.Id, userId, cancellationToken);
+            mergedUserId = previousOwner.Id;
         }
 
         await context.Users
@@ -381,6 +387,8 @@ public class CoreUserService(
         await context.Users
             .Where(x => x.Id == userId)
             .ExecuteUpdateAsync(x => x.SetProperty(u => u.GoogleSubject, profile.GoogleSubject), cancellationToken);
+
+        return new AccountLinkInBoardsResult(mergedUserId);
     }
 
     /// <summary>
@@ -443,6 +451,7 @@ public class CoreUserService(
     /// can use their account any more: soft-deletes the user, with <paramref name="userId"/> as the deleter.
     /// Their personal organization stays as is - nobody else is a member of it (see <see cref="HasDataAsync"/>),
     /// so it can't be reached any more. Laraue.Apps.Identity records which user they were absorbed into.
+    /// Bumps their <see cref="User.TokenVersion"/>, ending the sessions still signed in as them (BRD-222).
     /// </summary>
     private async Task SoftDeleteMergedUserAsync(Guid previousOwnerId, Guid userId, CancellationToken cancellationToken)
     {
@@ -450,7 +459,8 @@ public class CoreUserService(
             .Where(x => x.Id == previousOwnerId)
             .ExecuteUpdateAsync(x => x
                 .SetProperty(u => u.DeletedAt, dateTimeProvider.UtcNow)
-                .SetProperty(u => u.DeletedByUserId, userId),
+                .SetProperty(u => u.DeletedByUserId, userId)
+                .SetProperty(u => u.TokenVersion, u => u.TokenVersion + 1),
                 cancellationToken);
     }
 
@@ -566,6 +576,13 @@ public class CoreUserService(
 /// organization - resolved outside the database transaction the user is then created in.
 /// </summary>
 public sealed record NewUserIdentity(Guid GlobalUserId, MemberProfile Profile);
+
+/// <summary>
+/// Result of a <c>Link…AccountInBoards</c> step. <paramref name="MergedUserId"/> is the previous owner
+/// soft-deleted because the account was their last sign-in method, or null - their token version was
+/// bumped, so a caller caching it should drop the cached value once the transaction commits.
+/// </summary>
+public sealed record AccountLinkInBoardsResult(Guid? MergedUserId);
 
 /// <summary>
 /// A Telegram user's profile as the sign-in method (Mini App, login widget, or the bot itself)

@@ -191,12 +191,15 @@ public class GoogleAuthService(
     {
         var payload = await tokenValidator.ValidateAsync(request.IdToken, request.Code, cancellationToken);
 
-        var existingUserId = await context.Users
+        var existingUser = await context.Users
             .Where(x => x.GoogleSubject == payload.Subject)
-            .Select(x => (Guid?)x.Id)
+            .Select(x => new { x.Id, x.TokenVersion })
             .FirstOrDefaultAsync(cancellationToken);
 
-        var userId = existingUserId ?? await CreateUser(
+        if (existingUser is not null)
+            return authService.CreateUserToken(existingUser.Id, existingUser.TokenVersion);
+
+        var userId = await CreateUser(
             new GoogleUserProfile(
                 payload.Subject,
                 payload.Email,
@@ -206,7 +209,7 @@ public class GoogleAuthService(
                 request.LanguageCode),
             cancellationToken);
 
-        return authService.CreateUserToken(userId);
+        return authService.CreateUserToken(userId, tokenVersion: 0);
     }
 
     private async Task<Guid> CreateUser(GoogleUserProfile profile, CancellationToken cancellationToken)

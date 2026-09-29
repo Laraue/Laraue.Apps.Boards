@@ -63,6 +63,11 @@ public static class WebApplicationBuilderExtensions
             var symmetricSecurityKey = AuthService.GetSymmetricSecurityKey(stringKey);
 
             builder.Services
+                .AddMemoryCache()
+                .AddScoped<ITokenVersionService, TokenVersionService>()
+                .AddSingleton<ITokenVersionCache, MemoryTokenVersionCache>();
+
+            builder.Services
                 .AddAuthentication()
                 .AddJwtBearer(AuthSchemas.Organization, options =>
                 {
@@ -76,14 +81,18 @@ public static class WebApplicationBuilderExtensions
                         ValidateIssuerSigningKey = true,
                         ValidateLifetime = false,
                     };
-                    ReadTokenFromCookie(options, AuthCookies.Organization);
+                    ConfigureEvents(options, AuthCookies.Organization);
                 });
 
             return builder;
         }
     }
 
-    private static void ReadTokenFromCookie(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions options, string cookie)
+    /// <summary>
+    /// Reads the token from <paramref name="cookie"/> when there's no Authorization header, and rejects a
+    /// token whose version is stale (<see cref="TokenVersionValidation"/>).
+    /// </summary>
+    private static void ConfigureEvents(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions options, string cookie)
     {
         options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
         {
@@ -96,6 +105,7 @@ public static class WebApplicationBuilderExtensions
 
                 return Task.CompletedTask;
             },
+            OnTokenValidated = TokenVersionValidation.OnTokenValidated,
         };
     }
 }
