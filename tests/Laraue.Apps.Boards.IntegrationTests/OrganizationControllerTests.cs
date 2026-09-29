@@ -920,7 +920,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         using var userClient = host.CreateClient();
         userClient.DefaultRequestHeaders.Add(
             "Cookie",
-            $"{AuthCookies.User}={authService.CreateUserToken(userId)}");
+            $"{AuthCookies.User}={authService.CreateUserToken(userId, tokenVersion: 0)}");
 
         var loginResponse = await userClient.PostAsJsonAsync(
             "/api/organizations/login",

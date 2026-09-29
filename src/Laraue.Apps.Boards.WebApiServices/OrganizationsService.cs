@@ -192,7 +192,12 @@ public class OrganizationsService(
                     "Organization is not exists or user does not belong to organization",
                     cancellationToken));
 
-        return authService.CreateOrganizationToken(request.OrganizationId, request.UserId);
+        var tokenVersion = await context.Users
+            .Where(x => x.Id == request.UserId)
+            .Select(x => x.TokenVersion)
+            .FirstAsync(cancellationToken);
+
+        return authService.CreateOrganizationToken(request.OrganizationId, request.UserId, tokenVersion);
     }
 
     public async Task<VisibleUser[]> GetMembers(

@@ -397,8 +397,8 @@ against one of these seven entities states its own choice explicitly:
   became soft-deletable: a soft-deleted (merged) user has no sign-in id to be found by and no
   membership outside their own personal organization, so they can't show up there - use
   `ActiveUsers()` in new user queries where a deleted user could otherwise appear. `UserService.GetUser`
-  (`GET /api/user`) already does: a browser still signed in as a merged user gets 404 there until
-  their token expires (proper revocation of such tokens is BRD-222).
+  (`GET /api/user`) already does. A browser still signed in as a merged user doesn't get that far: the
+  merge revokes their tokens (see "Session tokens").
 - For audit/history features that must keep working after the row is soft-deleted (e.g.
   `OrganizationHistoryService`), query the raw `context.Issues`/etc. DbSet directly - the row is
   still there, so an ordinary join/read finds it exactly as before.
@@ -495,6 +495,26 @@ title vs. derive one.
   "same flow, one extra step" variant its own command-service class — that was tried and reverted
   in favor of this shared-method approach.
 
+## Session tokens
+
+`AuthService` mints the browser's user and organization JWTs. They have **no expiry**
+(`ValidateLifetime = false`, 365-day cookie), so the only way to end a session is revoking it (BRD-222):
+every token carries a `tv` claim (`AuthService.TokenVersionClaim`) with the user's `User.TokenVersion`
+when it was issued, and every JWT scheme of WebApiHost and Retro.WebApiHost checks it in
+`OnTokenValidated` (`TokenVersionValidation` -> `ITokenVersionService`) - a lower version, or a user
+that doesn't exist, is a 401. A token without the claim (issued before it existed) counts as version 0,
+so the deploy signed nobody out.
+
+- To revoke all of a user's sessions, increment `TokenVersion` - today only account linking does, when
+  it soft-deletes the previous owner (`CoreUserService.SoftDeleteMergedUserAsync`). Later uses: "sign
+  out everywhere", leaving an organization taking effect at once, account deletion.
+- Anything that mints a token passes the user's current version in (`IAuthService` stays a pure
+  singleton). A token minted with a stale version is rejected straight away.
+- The version is cached per host for 30 seconds (`TokenVersionService.CacheDuration`), so it isn't a
+  query per request. The host that bumps it calls `ITokenVersionService.Forget` after its transaction
+  commits (`ConnectedAccountsService`) and applies it at once; the other host within 30 seconds.
+- API keys (McpHost) are a separate scheme, validated live against the database - not affected.
+
 ## External services (Identity, Billing) and local mocking
 
 Boards calls two sibling services over gRPC:
@@ -546,7 +566,8 @@ Boards calls two sibling services over gRPC:
   It re-finds the previous owner and skips an existing personal chat, so repeating a connect after a
   failure between the two steps completes it (Identity's link is idempotent). When the moved account
   was the previous owner's only sign-in method, the Boards step also soft-deletes that user
-  (`User.DeletedAt`/`DeletedByUserId` = the user who took the account over); their personal
+  (`User.DeletedAt`/`DeletedByUserId` = the user who took the account over) and bumps their
+  `TokenVersion`, ending their sessions (see "Session tokens"); their personal
   organization is left as is - it has no other members, so nobody can reach it. Which user they were
   absorbed into is recorded only in Identity (`merged_into` on the global user) - Boards doesn't keep
   its own copy. An owner who keeps their other account stays a regular user. Telegram data is
