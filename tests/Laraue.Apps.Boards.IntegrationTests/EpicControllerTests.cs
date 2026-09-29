@@ -48,6 +48,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
         
         var status = Assert.Single(epic.Statuses!);
         Assert.Equal("New", status.Name);
+        Assert.Equal(StatusCategory.Created, status.Category);
     }
 
     [Fact]
@@ -69,9 +70,9 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
                     SpaceKey = spaceKey,
                     Statuses = new[]
                     {
-                        new CreateEpicStatusDto { Name = "To Do", Color = "#111111" },
-                        new CreateEpicStatusDto { Name = "In Progress", Color = "#222222" },
-                        new CreateEpicStatusDto { Name = "Done", Color = "#333333" },
+                        new CreateEpicStatusDto { Name = "To Do", Color = "#111111", Category = StatusCategory.Created },
+                        new CreateEpicStatusDto { Name = "In Progress", Color = "#222222", Category = StatusCategory.InProgress },
+                        new CreateEpicStatusDto { Name = "Done", Color = "#333333", Category = StatusCategory.Completed },
                     },
                 }));
 
@@ -84,10 +85,13 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
         Assert.Equal("To Do", statuses[0].Name);
         Assert.Equal("#111111", statuses[0].Color);
         Assert.Equal(0, statuses[0].SortOrder);
+        Assert.Equal(StatusCategory.Created, statuses[0].Category);
         Assert.Equal("In Progress", statuses[1].Name);
         Assert.Equal(1, statuses[1].SortOrder);
+        Assert.Equal(StatusCategory.InProgress, statuses[1].Category);
         Assert.Equal("Done", statuses[2].Name);
         Assert.Equal(2, statuses[2].SortOrder);
+        Assert.Equal(StatusCategory.Completed, statuses[2].Category);
     }
 
     [Fact]
@@ -116,6 +120,7 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
 
         var status = Assert.Single(epic.Statuses!);
         Assert.Equal("New", status.Name);
+        Assert.Equal(StatusCategory.Created, status.Category);
     }
 
     [Fact]
@@ -326,6 +331,37 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
         var sprintBoard = Assert.Single(result.Data, x => x.EpicName == "Sprint Board");
         Assert.Contains(sprintBoard.Statuses, s => s.Name == "To Do");
         Assert.Contains(sprintBoard.Statuses, s => s.Name == "Done");
+    }
+
+    [Fact]
+    public async Task User_ShouldGetStatusCategories_WhenListingEpicStatuses()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, "SPA", space => space
+                .AddEpic(userId, e => e
+                    .WithName("Sprint Board")
+                    .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed)))));
+
+        var controller = _epicsController.WithOrganizationAuthorization(organization.Id, userId);
+        var epic = await controller.Execute(x => x.Get(organization.GetEpic(1, 1).Id, CancellationToken.None));
+        var search = await controller.Execute(x => x.SearchEpicsWithStatuses(
+            new SearchEpicStatusesRequest
+            {
+                SpaceKey = "SPA",
+                Pagination = new PaginationData { Page = 0, PerPage = 10 },
+            },
+            CancellationToken.None));
+
+        Assert.NotNull(epic);
+        Assert.Equal(StatusCategory.Created, Assert.Single(epic.Statuses, s => s.Name == "New").Category);
+        Assert.Equal(StatusCategory.Completed, Assert.Single(epic.Statuses, s => s.Name == "Done").Category);
+
+        Assert.NotNull(search);
+        var searchedEpic = Assert.Single(search.Data, x => x.EpicName == "Sprint Board");
+        Assert.Equal(StatusCategory.Completed, Assert.Single(searchedEpic.Statuses, s => s.Name == "Done").Category);
     }
 
     [Fact]

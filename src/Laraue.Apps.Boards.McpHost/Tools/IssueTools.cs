@@ -17,21 +17,22 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space, epic id, status id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it, and url is its page in the web app.")]
+    [Description("Lists issues in the caller's organization, optionally filtered by space, epic id, status id, status category id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it, statusCategory/statusCategoryId tell what its status means (Created, InProgress or Completed), and url is its page in the web app.")]
     public Task<IssueListPage> ListIssues(
         [Description("Only issues in this space (e.g. 'BRD'), from list_spaces. Omit to search every space.")] string? spaceKey = null,
         [Description("Only issues in this epic id, from list_epics. Omit to include every epic.")] long? epicId = null,
         [Description("Only issues with this exact status id, from list_statuses. Omit to include every status.")] long? statusId = null,
+        [Description("Only issues whose status has this category id, from list_statuses' categoryId: 0 = Created (not started), 1 = InProgress, 2 = Completed (finished). Works across epics whatever their statuses are named. Omit to include every category.")] int? statusCategoryId = null,
         [Description("Only issues assigned to this user id, from list_members. Omit to include every assignee.")] Guid? assigneeId = null,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
         [Description("Max issues per page, 1-50. Omit for the default of 50.")] int? count = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.ListIssues(GetAuthData(), spaceKey, epicId, statusId, assigneeId, page, count, cancellationToken);
+        return issueMcpService.ListIssues(GetAuthData(), spaceKey, epicId, statusId, statusCategoryId, assigneeId, page, count, cancellationToken);
     }
 
     [McpServerTool]
-    [Description("Gets one issue's full content and attachments by its key (e.g. 'BRD-42'). Includes canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
+    [Description("Gets one issue's full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -134,7 +135,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists the statuses in a space, grouped by epic (with the epic's id, as list_epics returns it) - the ids create_issue/edit_issue_status accept.")]
+    [Description("Lists the statuses in a space, grouped by epic (with the epic's id, as list_epics returns it) - the ids create_issue/edit_issue_status accept. Each status has a category - Created (not started), InProgress or Completed (finished) - telling what it means whatever its name, and its categoryId, what list_issues' statusCategoryId filter takes.")]
     public Task<IReadOnlyList<EpicStatusSummary>> ListStatuses(
         [Description("The space to list statuses for, e.g. 'BRD', from list_spaces.")] string spaceKey,
         CancellationToken cancellationToken)

@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
@@ -28,6 +29,7 @@ public interface IIssueMcpService
         string? spaceKey,
         long? epicId,
         long? statusId,
+        int? statusCategoryId,
         Guid? assigneeId,
         int? page,
         int? count,
@@ -241,11 +243,15 @@ public interface IIssueMcpService
 /// <see cref="ForbiddenException"/>.
 /// </summary>
 /// <see cref="Url"/> is the issue's page in the web app, for handing the user a clickable link.
+/// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
+/// <see cref="StatusSummary"/>'s category.
 public sealed record IssueSummary(
     string Key,
     string Url,
     string Title,
     string Status,
+    int StatusCategoryId,
+    string StatusCategory,
     string Assignee,
     bool CanEdit,
     bool CanDelete);
@@ -306,12 +312,16 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 /// CanEdit</c> exposure - so a caller can tell whether <see cref="IIssueMcpService.EditIssue"/>/
 /// <see cref="IIssueMcpService.DeleteIssue"/> will actually succeed before calling them, rather
 /// than discovering it via a thrown <see cref="ForbiddenException"/>.
+/// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
+/// <see cref="StatusSummary"/>'s category.
 /// </summary>
 public sealed record IssueDetail(
     string Key,
     string Url,
     string? Content,
     string Status,
+    int StatusCategoryId,
+    string StatusCategory,
     string Assignee,
     bool CanEdit,
     bool CanDelete,
@@ -338,7 +348,11 @@ public sealed record EpicSummary(long Id, string Name, string SpaceKey, bool IsD
 
 public sealed record EpicListPage(IReadOnlyList<EpicSummary> Epics, long Page, bool HasNextPage);
 
-public sealed record StatusSummary(long Id, string Name);
+/// <summary>A status, as returned by <see cref="IIssueMcpService.ListStatuses"/>. <see cref="Category"/>
+/// is what the status means regardless of its name - Created, InProgress or Completed;
+/// <see cref="CategoryId"/> is its id, what <see cref="IIssueMcpService.ListIssues"/>'
+/// <c>statusCategoryId</c> filter takes.</summary>
+public sealed record StatusSummary(long Id, string Name, int CategoryId, string Category);
 
 public sealed record EpicStatusSummary(long EpicId, string EpicName, IReadOnlyList<StatusSummary> Statuses);
 
@@ -399,6 +413,7 @@ public class IssueMcpService(
         string? spaceKey,
         long? epicId,
         long? statusId,
+        int? statusCategoryId,
         Guid? assigneeId,
         int? page,
         int? count,
@@ -406,6 +421,11 @@ public class IssueMcpService(
     {
         var perPage = Math.Clamp(count ?? MaxResults, 1, MaxResults);
         var pagination = new PaginationData { Page = page ?? 0, PerPage = perPage };
+
+        if (statusCategoryId is not null && !Enum.IsDefined((StatusCategory)statusCategoryId))
+            throw new BadRequestException(
+                nameof(statusCategoryId),
+                string.Format(ErrorMessages.EntityNotFound, "Status category", statusCategoryId));
 
         return accessService.GetAvailableIssues<IssueListPage>(authData, async issues =>
         {
@@ -420,6 +440,9 @@ public class IssueMcpService(
             if (statusId is not null)
                 query = query.Where(i => i.StatusId == statusId);
 
+            if (statusCategoryId is not null)
+                query = query.Where(i => i.Status!.Category == (StatusCategory)statusCategoryId);
+
             if (assigneeId is not null)
                 query = query.Where(i => i.AssigneeId == assigneeId);
 
@@ -431,6 +454,7 @@ public class IssueMcpService(
                     i.IssueNumber.Number,
                     i.Content,
                     Status = i.Status!.Name,
+                    StatusCategory = i.Status.Category,
                     Assignee = new UserDetails { UserId = i.AssigneeId },
                 })
                 .ShortPaginateEFAsync(pagination, cancellationToken);
@@ -475,6 +499,8 @@ public class IssueMcpService(
                     issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, new IssueKey(x.SpaceKey, x.Number)),
                     ContentSnippet(x.Content),
                     x.Status,
+                    (int)x.StatusCategory,
+                    x.StatusCategory.ToString(),
                     x.Assignee.DisplayName,
                     spaceKeysWithUpdate.Contains(x.SpaceKey),
                     spaceKeysWithDelete.Contains(x.SpaceKey)))
@@ -503,6 +529,7 @@ public class IssueMcpService(
             {
                 i.Content,
                 StatusName = i.Status!.Name,
+                StatusCategory = i.Status.Category,
                 Assignee = new UserDetails { UserId = i.AssigneeId },
                 i.CreatedAt,
                 i.UpdatedAt,
@@ -528,6 +555,8 @@ public class IssueMcpService(
             issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
             issue.Content,
             issue.StatusName,
+            (int)issue.StatusCategory,
+            issue.StatusCategory.ToString(),
             issue.Assignee.DisplayName,
             accessLevels.CanUpdateIssue,
             accessLevels.CanDeleteIssue,
@@ -898,7 +927,7 @@ public class IssueMcpService(
                 e.Statuses!
                     .Where(s => s.DeletedAt == null)
                     .OrderBy(s => s.SortOrder)
-                    .Select(s => new StatusSummary(s.Id, s.Name))
+                    .Select(s => new StatusSummary(s.Id, s.Name, (int)s.Category, s.Category.ToString()))
                     .ToList()))
             .ToListAsyncEF(cancellationToken);
     }

@@ -91,9 +91,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
 
         var ownerIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, null, CancellationToken.None);
         var memberIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, null, CancellationToken.None);
 
         var issue = Assert.Single(ownerIssues.Issues);
         Assert.Equal(issueData.Key, issue.Key);
@@ -134,7 +134,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
 
         var page = await CreateIssueMcpService(testScope).ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, null, CancellationToken.None);
 
         var issue = Assert.Single(page.Issues);
         Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
@@ -194,11 +194,11 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var authData = AuthDataFor(organization.Id, ownerId);
 
         var bySpace = await issueMcpService.ListIssues(
-            authData, organization.GetSpace(1).Key, null, null, null, null, null, CancellationToken.None);
+            authData, organization.GetSpace(1).Key, null, null, null, null, null, null, CancellationToken.None);
         var byStatus = await issueMcpService.ListIssues(
-            authData, null, null, inProgressStatusId, null, null, null, CancellationToken.None);
+            authData, null, null, inProgressStatusId, null, null, null, null, CancellationToken.None);
         var byAssignee = await issueMcpService.ListIssues(
-            authData, null, null, null, otherAssignee, null, null, CancellationToken.None);
+            authData, null, null, null, null, otherAssignee, null, null, CancellationToken.None);
 
         Assert.Equal(
             new HashSet<string> { targetIssueData.Key, wrongStatusIssueKey },
@@ -229,9 +229,83 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             null,
             null,
             null,
+            null,
             CancellationToken.None);
 
         Assert.Equal(targetIssueKey, Assert.Single(result.Issues).Key);
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldFilterByStatusCategory_WhenStatusCategoryIdGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        // Statuses with different names in two epics share the category the filter looks for.
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed))
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Not started"))
+                    .AddIssue(ownerId, 1, issue => issue.WithContent("Done in epic 1")))
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("Shipped").WithCategory(StatusCategory.Completed))
+                    .AddIssue(ownerId, 1, issue => issue.WithContent("Shipped in epic 2")))));
+
+        var result = await CreateIssueMcpService(testScope).ListIssues(
+            AuthDataFor(organization.Id, ownerId),
+            null,
+            null,
+            null,
+            (int)StatusCategory.Completed,
+            null,
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(
+            new HashSet<string> { organization.GetIssueData(1, 1, 1, 0).Key, organization.GetIssueData(1, 2, 1, 0).Key },
+            result.Issues.Select(x => x.Key).ToHashSet());
+        Assert.All(result.Issues, x => Assert.Equal("Completed", x.StatusCategory));
+        Assert.All(result.Issues, x => Assert.Equal(2, x.StatusCategoryId));
+    }
+
+    [Fact]
+    public async Task ListIssues_ShouldThrowBadRequest_WhenStatusCategoryIdIsUnknown()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).ListIssues(
+            AuthDataFor(organization.Id, ownerId),
+            null,
+            null,
+            null,
+            3,
+            null,
+            null,
+            null,
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetIssue_ShouldReturnStatusCategory_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("Review").WithCategory(StatusCategory.InProgress))
+                    .AddIssue(ownerId, 1, issue => issue.WithContent("Under review")))));
+
+        var issue = await CreateIssueMcpService(testScope).GetIssue(
+            AuthDataFor(organization.Id, ownerId),
+            organization.GetIssueData(1, 1, 1, 0).Key,
+            CancellationToken.None);
+
+        Assert.Equal(1, issue.StatusCategoryId);
+        Assert.Equal("InProgress", issue.StatusCategory);
     }
 
     [Fact]
@@ -248,8 +322,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
         var authData = AuthDataFor(organization.Id, ownerId);
 
-        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, CancellationToken.None);
-        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, 1, null, CancellationToken.None);
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, null, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 1, null, CancellationToken.None);
 
         Assert.Equal(IssuesPerPage, firstPage.Issues.Count);
         Assert.True(firstPage.HasNextPage);
@@ -276,9 +350,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
         var authData = AuthDataFor(organization.Id, ownerId);
 
-        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 2, CancellationToken.None);
-        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, 1, 2, CancellationToken.None);
-        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 1000, CancellationToken.None);
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, 2, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 1, 2, CancellationToken.None);
+        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, 1000, CancellationToken.None);
 
         Assert.Equal(2, firstPage.Issues.Count);
         Assert.True(firstPage.HasNextPage);
@@ -937,6 +1011,29 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var epicB = Assert.Single(result, x => x.EpicName == "Epic B");
         var epicBStatus = Assert.Single(epicB.Statuses, x => x.Name == "Review");
         Assert.Equal(organization.GetStatus(1, 2, 1).Id, epicBStatus.Id);
+    }
+
+    [Fact]
+    public async Task ListStatuses_ShouldReturnCategory_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .WithName("Epic A")
+                    .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed)))));
+
+        var result = await CreateIssueMcpService(testScope)
+            .ListStatuses(AuthDataFor(organization.Id, ownerId), organization.GetSpace(1).Key, CancellationToken.None);
+
+        var epicA = Assert.Single(result, x => x.EpicName == "Epic A");
+        var created = Assert.Single(epicA.Statuses, x => x.Name == "New");
+        Assert.Equal(0, created.CategoryId);
+        Assert.Equal("Created", created.Category);
+        var completed = Assert.Single(epicA.Statuses, x => x.Name == "Done");
+        Assert.Equal(2, completed.CategoryId);
+        Assert.Equal("Completed", completed.Category);
     }
 
     [Fact]
@@ -1737,9 +1834,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
 
         var ownerIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, null, CancellationToken.None);
         var memberIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, null, CancellationToken.None);
 
         var ownerIssue = Assert.Single(ownerIssues.Issues);
         Assert.True(ownerIssue.CanEdit);

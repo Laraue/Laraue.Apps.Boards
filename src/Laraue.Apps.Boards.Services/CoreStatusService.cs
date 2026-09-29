@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
@@ -44,6 +45,7 @@ public class CoreStatusService(DatabaseContext context, IDateTimeProvider dateTi
             EpicId = request.CategoryId,
             SortOrder = ++previousMaxOrder,
             Color = request.Color ?? Palette.DefaultStatusColor,
+            Category = request.Category,
         };
         
         context.Statuses.Add(status);
@@ -64,6 +66,7 @@ public class CoreStatusService(DatabaseContext context, IDateTimeProvider dateTi
                 Id = x.Id,
                 Name = x.Name,
                 Color = x.Color,
+                Category = x.Category,
                 Count = x.Issues!.Count,
             })
             .ToArrayAsyncEF(cancellationToken);
@@ -126,6 +129,7 @@ public class CreateMessageCategoryStatusRequest
     public required string Name { get; set; }
     public required long CategoryId { get; set; }
     public string? Color { get; set; }
+    public required StatusCategory Category { get; set; }
 }
 
 public class MessageStatusDto
@@ -133,6 +137,7 @@ public class MessageStatusDto
     public required long Id { get; set; }
     public required string Name { get; set; }
     public required string? Color { get; set; }
+    public required StatusCategory Category { get; set; }
     public required int Count { get; set; }
 }
 

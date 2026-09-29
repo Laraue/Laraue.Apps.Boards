@@ -521,6 +521,9 @@ public class IssuesService(
                 if (request.EpicStatuses.Length > 0)
                     issues = issues.Where(x => ((IEnumerable<EpicStatus>)request.EpicStatuses).Contains(x.Status!.Epic!.Status));
 
+                if (request.StatusCategories.Length > 0)
+                    issues = issues.Where(x => ((IEnumerable<StatusCategory>)request.StatusCategories).Contains(x.Status!.Category));
+
                 if (request.SpaceKeys.Length > 0)
                 {
                     var spaceIds = await context.ActiveSpaces()
@@ -1718,6 +1721,11 @@ public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
     public OrganizationAuthData AuthData { get; set; } = new();
     public long[] EpicIds { get; set; } = [];
     public EpicStatus[] EpicStatuses { get; set; } = [];
+
+    /// <summary>
+    /// Only issues whose status has one of these categories. Empty means no filtering.
+    /// </summary>
+    public StatusCategory[] StatusCategories { get; set; } = [];
     public string[] SpaceKeys { get; set; } = [];
     public string? SearchString { get; set; }
     public required int Page { get; init; }

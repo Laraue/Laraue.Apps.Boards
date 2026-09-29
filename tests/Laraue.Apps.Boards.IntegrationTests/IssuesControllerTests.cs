@@ -778,6 +778,38 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task User_ShouldSearchIssuesByStatusCategory_WhenStatusCategoriesProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Not started issue"))
+                .AddSpace(userId, space => space
+                    .AddEpic(userId, e => e
+                        .AddStatus(s => s.WithName("Review").WithCategory(StatusCategory.InProgress))
+                        .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed))
+                        .AddIssue(userId, 1, issue => issue.WithContent("Review issue"))
+                        .AddIssue(userId, 2, issue => issue.WithContent("Done issue")))));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    StatusCategories = new[] { StatusCategory.InProgress, StatusCategory.Completed },
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        Assert.Equal(
+            new HashSet<string?> { "Review issue", "Done issue" },
+            issuesResult.Data.Select(x => x.Content).ToHashSet());
+    }
+
+    [Fact]
     public async Task User_ShouldGetBoard_WhenIsOrganizationOwner()
     {
         using var testScope = host.CreateTestScope();

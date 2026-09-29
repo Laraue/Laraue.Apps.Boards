@@ -98,6 +98,7 @@ public class OrganizationDefaults
             Name = "New",
             Color = Palette.RandomColor(),
             SortOrder = 0,
+            Category = StatusCategory.Created,
         };
     }
 

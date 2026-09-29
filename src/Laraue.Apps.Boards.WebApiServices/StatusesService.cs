@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
@@ -45,6 +46,7 @@ public class StatusesService(
                 CategoryId = request.EpicId,
                 Name = request.Name,
                 Color = request.Color,
+                Category = request.Category,
             },
             cancellationToken);
     }
@@ -82,7 +84,8 @@ public class StatusesService(
             request.Id,
             upd => upd
                 .SetProperty(x => x.Color, request.Color)
-                .SetProperty(x => x.Name, request.Name),
+                .SetProperty(x => x.Name, request.Name)
+                .SetProperty(x => x.Category, request.Category),
             cancellationToken);
     }
 
@@ -112,6 +115,11 @@ public record CreateStatusRequest
     public required string Color { get; set; }
     
     public required long EpicId { get; set; }
+
+    /// <summary>
+    /// What the status means.
+    /// </summary>
+    public required StatusCategory Category { get; set; }
 }
 
 public record DeleteStatusRequest
@@ -128,6 +136,11 @@ public record EditStatusRequest
     [MaxLength(7)]
     public required string Color { get; set; }
     public required string Name { get; set; }
+
+    /// <summary>
+    /// What the status means.
+    /// </summary>
+    public required StatusCategory Category { get; set; }
 }
 
 public record GetStatusesRequest

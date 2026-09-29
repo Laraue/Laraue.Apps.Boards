@@ -3,7 +3,7 @@
   "name": "com.laraue/boards",
   "description": "List, view, create, edit, delete, comment on, and see the history of Laraue Boards issues.",
   "title": "Laraue Boards",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "websiteUrl": "https://boards.laraue.com",
   "repository": {
     "url": "https://github.com/Laraue/Laraue.Apps.Boards",

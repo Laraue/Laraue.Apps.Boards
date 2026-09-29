@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
@@ -60,7 +61,8 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
             new Status
             {
                 Name = IssueDefaults.DefaultStatusName,
-                Color = Palette.DefaultStatusColor
+                Color = Palette.DefaultStatusColor,
+                Category = StatusCategory.Created,
             }];
 
         category.Statuses = statuses
@@ -69,6 +71,7 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
                 SortOrder = i,
                 Color = s.Color,
                 Name = s.Name,
+                Category = s.Category,
             })
             .ToList();
         
@@ -197,6 +200,7 @@ public class Status
 {
     public required string Name { get; set; }
     public required string Color { get; set; }
+    public required StatusCategory Category { get; set; }
 }
 
 public record DeleteRequest
