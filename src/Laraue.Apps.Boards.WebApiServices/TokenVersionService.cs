@@ -3,7 +3,6 @@ using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Laraue.Apps.Boards.WebApiServices;
@@ -19,22 +18,10 @@ public interface ITokenVersionService
     /// before the claim existed) is the user's current version. False for a user that doesn't exist.
     /// </summary>
     Task<bool> IsCurrent(ClaimsPrincipal principal, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Drops the cached version of the user, so a bump made by this host applies to its next request.
-    /// Other hosts pick it up once their cache entry expires (<see cref="TokenVersionService.CacheDuration"/>).
-    /// </summary>
-    void Forget(Guid userId);
 }
 
-public class TokenVersionService(DatabaseContext context, IMemoryCache cache) : ITokenVersionService
+public class TokenVersionService(DatabaseContext context, ITokenVersionCache cache) : ITokenVersionService
 {
-    /// <summary>
-    /// How long a user's version is cached per host - the longest a revoked token keeps working on a
-    /// host that didn't make the bump itself. Keeps the check from being a query per request.
-    /// </summary>
-    public static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
-
     public async Task<bool> IsCurrent(ClaimsPrincipal principal, CancellationToken cancellationToken)
     {
         var userId = principal.GetId();
@@ -44,26 +31,23 @@ public class TokenVersionService(DatabaseContext context, IMemoryCache cache) : 
         if (tokenVersionClaim is not null && !int.TryParse(tokenVersionClaim, out tokenVersion))
             return false;
 
-        var currentVersion = await cache.GetOrCreateAsync(
-            CacheKey(userId),
-            entry =>
-            {
-                entry.AbsoluteExpirationRelativeToNow = CacheDuration;
-                return context.Users
-                    .Where(x => x.Id == userId)
-                    .Select(x => (int?)x.TokenVersion)
-                    .FirstOrDefaultAsync(cancellationToken);
-            });
+        var currentVersion = await cache.Get(userId, cancellationToken);
+        if (currentVersion is null)
+        {
+            currentVersion = await context.Users
+                .Where(x => x.Id == userId)
+                .Select(x => (int?)x.TokenVersion)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            // A user that doesn't exist isn't cached - only a token signed with our key can get here.
+            if (currentVersion is null)
+                return false;
+
+            await cache.Set(userId, currentVersion.Value, cancellationToken);
+        }
 
         return currentVersion == tokenVersion;
     }
-
-    public void Forget(Guid userId)
-    {
-        cache.Remove(CacheKey(userId));
-    }
-
-    private static string CacheKey(Guid userId) => $"token-version:{userId}";
 }
 
 /// <summary>

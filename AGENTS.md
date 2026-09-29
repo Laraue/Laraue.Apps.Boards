@@ -510,9 +510,10 @@ so the deploy signed nobody out.
   out everywhere", leaving an organization taking effect at once, account deletion.
 - Anything that mints a token passes the user's current version in (`IAuthService` stays a pure
   singleton). A token minted with a stale version is rejected straight away.
-- The version is cached per host for 30 seconds (`TokenVersionService.CacheDuration`), so it isn't a
-  query per request. The host that bumps it calls `ITokenVersionService.Forget` after its transaction
-  commits (`ConnectedAccountsService`) and applies it at once; the other host within 30 seconds.
+- The version is cached behind `ITokenVersionCache`, so it isn't a query per request. Today that's
+  `MemoryTokenVersionCache`, per host for 30 seconds: the host that bumps the version removes the entry
+  after its transaction commits (`ConnectedAccountsService`) and applies it at once, the other host
+  within 30 seconds. A shared implementation (e.g. Redis) would make every bump apply everywhere at once.
 - API keys (McpHost) are a separate scheme, validated live against the database - not affected.
 
 ## External services (Identity, Billing) and local mocking

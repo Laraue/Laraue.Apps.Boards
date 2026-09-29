@@ -52,7 +52,7 @@ public class ConnectedAccountsService(
     DatabaseContext context,
     ICoreUserService coreUserService,
     IGoogleIdTokenValidator googleIdTokenValidator,
-    ITokenVersionService tokenVersionService)
+    ITokenVersionCache tokenVersionCache)
     : IConnectedAccountsService
 {
     public async Task<ConnectAccountResponse> ConnectTelegram(
@@ -66,7 +66,7 @@ public class ConnectedAccountsService(
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             var result = await coreUserService.LinkTelegramAccountInBoards(userId, verifiedProfile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            ForgetMergedUser(result);
+            await ForgetMergedUserAsync(result, cancellationToken);
         }
 
         return new ConnectAccountResponse { Outcome = outcome };
@@ -92,18 +92,19 @@ public class ConnectedAccountsService(
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             var result = await coreUserService.LinkGoogleAccountInBoards(userId, profile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            ForgetMergedUser(result);
+            await ForgetMergedUserAsync(result, cancellationToken);
         }
 
         return new ConnectAccountResponse { Outcome = outcome };
     }
 
     /// <summary>
-    /// The merged user's sessions end at once on this host, instead of when its cached token version expires.
+    /// Drops the merged user's cached token version, so their sessions end at once instead of when the
+    /// cached value expires.
     /// </summary>
-    private void ForgetMergedUser(AccountLinkInBoardsResult result)
+    private async Task ForgetMergedUserAsync(AccountLinkInBoardsResult result, CancellationToken cancellationToken)
     {
         if (result.MergedUserId is { } mergedUserId)
-            tokenVersionService.Forget(mergedUserId);
+            await tokenVersionCache.Remove(mergedUserId, cancellationToken);
     }
 }

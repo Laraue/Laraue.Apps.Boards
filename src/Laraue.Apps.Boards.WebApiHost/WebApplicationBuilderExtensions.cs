@@ -73,6 +73,7 @@ public static class WebApplicationBuilderExtensions
             
             builder.Services.AddSingleton<IAuthService, AuthService>();
             builder.Services.AddScoped<ITokenVersionService, TokenVersionService>();
+            builder.Services.AddSingleton<ITokenVersionCache, MemoryTokenVersionCache>();
             builder.Services
                 .AddAuthentication()
                 .AddJwtBearer(AuthSchemas.User, options =>

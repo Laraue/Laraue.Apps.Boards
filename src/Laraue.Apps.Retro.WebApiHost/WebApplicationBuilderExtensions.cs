@@ -64,7 +64,8 @@ public static class WebApplicationBuilderExtensions
 
             builder.Services
                 .AddMemoryCache()
-                .AddScoped<ITokenVersionService, TokenVersionService>();
+                .AddScoped<ITokenVersionService, TokenVersionService>()
+                .AddSingleton<ITokenVersionCache, MemoryTokenVersionCache>();
 
             builder.Services
                 .AddAuthentication()
