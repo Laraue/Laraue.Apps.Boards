@@ -303,19 +303,20 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
     }
 
     [Fact]
-    public async Task GetUser_ShouldReturnNotFound_WhenUserWasMergedIntoAnotherOne()
+    public async Task GetUser_ShouldReturnUnauthorized_WhenUserWasMergedIntoAnotherOne()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await SignUpWithGoogleAsync(testScope, "google-24");
         var userId = await SignUpWithTelegramAsync(testScope, 524);
         await ConnectGoogleAsync(userId, "google-24");
 
+        // The owner's token was issued before the merge bumped their token version.
         var exception = await Assert.ThrowsAsync<HttpRequestException>(() => host
             .Controller<UserController>()
             .WithUserAuthorization(ownerId)
             .Execute(x => x.GetAsync(default)));
 
-        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
     }
 
     [Fact]

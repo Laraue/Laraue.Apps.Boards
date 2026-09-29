@@ -51,7 +51,8 @@ public interface IConnectedAccountsService
 public class ConnectedAccountsService(
     DatabaseContext context,
     ICoreUserService coreUserService,
-    IGoogleIdTokenValidator googleIdTokenValidator)
+    IGoogleIdTokenValidator googleIdTokenValidator,
+    ITokenVersionService tokenVersionService)
     : IConnectedAccountsService
 {
     public async Task<ConnectAccountResponse> ConnectTelegram(
@@ -63,8 +64,9 @@ public class ConnectedAccountsService(
         if (outcome == AccountLinkOutcome.Linked)
         {
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-            await coreUserService.LinkTelegramAccountInBoards(userId, verifiedProfile, cancellationToken);
+            var result = await coreUserService.LinkTelegramAccountInBoards(userId, verifiedProfile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            ForgetMergedUser(result);
         }
 
         return new ConnectAccountResponse { Outcome = outcome };
@@ -88,10 +90,20 @@ public class ConnectedAccountsService(
         if (outcome == AccountLinkOutcome.Linked)
         {
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-            await coreUserService.LinkGoogleAccountInBoards(userId, profile, cancellationToken);
+            var result = await coreUserService.LinkGoogleAccountInBoards(userId, profile, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            ForgetMergedUser(result);
         }
 
         return new ConnectAccountResponse { Outcome = outcome };
+    }
+
+    /// <summary>
+    /// The merged user's sessions end at once on this host, instead of when its cached token version expires.
+    /// </summary>
+    private void ForgetMergedUser(AccountLinkInBoardsResult result)
+    {
+        if (result.MergedUserId is { } mergedUserId)
+            tokenVersionService.Forget(mergedUserId);
     }
 }

@@ -9,8 +9,12 @@ namespace Laraue.Apps.Boards.WebApiServices;
 
 public interface IAuthService
 {
-    string CreateOrganizationToken(long organizationId, Guid userId);
-    string CreateUserToken(Guid userId);
+    /// <param name="tokenVersion">The user's current <c>User.TokenVersion</c> - a token with an older
+    /// one is rejected, see <see cref="AuthService.TokenVersionClaim"/>.</param>
+    string CreateOrganizationToken(long organizationId, Guid userId, int tokenVersion);
+
+    /// <inheritdoc cref="CreateOrganizationToken"/>
+    string CreateUserToken(Guid userId, int tokenVersion);
 }
 
 public class AuthService(IOptions<AuthOptions> options) : IAuthService
@@ -19,12 +23,19 @@ public class AuthService(IOptions<AuthOptions> options) : IAuthService
     public const string OrganizationAudience = "NoteBoardTelegramMiniApp";
     public const string UserAudience = "NoteBoardUserTelegramMiniApp";
 
-    public string CreateOrganizationToken(long organizationId, Guid userId)
+    /// <summary>
+    /// The <c>User.TokenVersion</c> a token was issued with (BRD-222). Tokens issued before it was
+    /// added don't have it and count as version 0.
+    /// </summary>
+    public const string TokenVersionClaim = "tv";
+
+    public string CreateOrganizationToken(long organizationId, Guid userId, int tokenVersion)
     {
         var claims = new List<Claim>
         {
             new("orgId", organizationId.ToString()),
             new("id", userId.ToString()),
+            new(TokenVersionClaim, tokenVersion.ToString()),
         };
 
         var jwt = new JwtSecurityToken(
@@ -38,11 +49,12 @@ public class AuthService(IOptions<AuthOptions> options) : IAuthService
         return new JwtSecurityTokenHandler().WriteToken(jwt);
     }
 
-    public string CreateUserToken(Guid userId)
+    public string CreateUserToken(Guid userId, int tokenVersion)
     {
         var claims = new List<Claim>
         {
-            new("id", userId.ToString())
+            new("id", userId.ToString()),
+            new(TokenVersionClaim, tokenVersion.ToString()),
         };
 
         var jwt = new JwtSecurityToken(

@@ -83,15 +83,16 @@ public class TelegramAuthService(
             .Where(x => x.TelegramId == userData.Id)
             .Select(x => new
             {
-                x.Id
+                x.Id,
+                x.TokenVersion,
             })
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         if (data is not null)
-            return authService.CreateUserToken(data.Id);
+            return authService.CreateUserToken(data.Id, data.TokenVersion);
 
         var newUserId = await RegisterUser(userData, cancellationToken);
-        return authService.CreateUserToken(newUserId);
+        return authService.CreateUserToken(newUserId, tokenVersion: 0);
     }
 
     private MiniAppUser ValidateWidgetData(TelegramWidgetAuthRequest request)

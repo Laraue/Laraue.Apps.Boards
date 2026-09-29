@@ -38,6 +38,13 @@ public class User
     /// </summary>
     public Guid? DeletedByUserId { get; set; }
     public User? DeletedByUser { get; set; }
+
+    /// <summary>
+    /// Written into every user and organization token issued for this user; a token carrying an older
+    /// value is rejected. Incremented to end all of the user's sessions at once - e.g. when account
+    /// linking moves their last sign-in method to another user (BRD-222).
+    /// </summary>
+    public int TokenVersion { get; set; }
     public IList<Epic>? Epics { get; set; }
     public IList<Space>? Spaces { get; set; }
     public IList<Organization>? Organizations { get; set; }
