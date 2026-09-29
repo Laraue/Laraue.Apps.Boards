@@ -26,12 +26,15 @@ public class TelegramCommandsService(
     {
         var appUrl = options.Value.Url;
         
+        // The root of the site is the public landing page; the app itself starts at the login page.
+        var miniAppUrl = $"{appUrl}/login";
+        
         var markup = new InlineKeyboardMarkup()
             .AddButton(InlineKeyboardButton
                 .WithWebApp(
                     $"📋 {string.Format(Phrases.OpenMiniApp)}", new WebAppInfo
                     {
-                        Url = appUrl
+                        Url = miniAppUrl
                     }));
         
         return client.SendMessage(
