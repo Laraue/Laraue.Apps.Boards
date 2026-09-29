@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.DataAccess.Enums;
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
@@ -16,6 +17,11 @@ public class Status
     public Epic? Epic { get; set; }
 
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// What the status means - not started, in progress or finished.
+    /// </summary>
+    public StatusCategory Category { get; set; }
 
     /// <summary>
     /// UTC timestamp the status was soft-deleted at, or null if it is active.

@@ -116,6 +116,7 @@ public class EpicsService(
                             Color = s.Color,
                             Name = s.Name,
                             SortOrder = s.SortOrder,
+                            Category = s.Category,
                         })
                         .ToArray(),
                     x.IsDefault,
@@ -162,7 +163,7 @@ public class EpicsService(
 
         var statuses = request.Statuses is { Count: > 0 }
             ? request.Statuses
-                .Select(s => new Status { Name = s.Name, Color = s.Color })
+                .Select(s => new Status { Name = s.Name, Color = s.Color, Category = s.Category })
                 .ToArray()
             : null;
 
@@ -206,6 +207,7 @@ public class EpicsService(
                                 Name = s.Name,
                                 Color = s.Color,
                                 SortOrder = s.SortOrder,
+                                Category = s.Category,
                             })
                             .ToArray(),
                     })
@@ -293,6 +295,7 @@ public class StatusDto
     public required string Name { get; set; }
     public required string? Color { get; set; }
     public required int SortOrder { get; set; }
+    public required StatusCategory Category { get; set; }
 }
 
 public record CreateEpicRequest
@@ -321,6 +324,11 @@ public record CreateEpicStatusDto
 
     [MaxLength(7)]
     public required string Color { get; set; }
+
+    /// <summary>
+    /// What the status means.
+    /// </summary>
+    public required StatusCategory Category { get; set; }
 }
 
 public record SearchEpicStatusesRequest : IPaginatedRequest

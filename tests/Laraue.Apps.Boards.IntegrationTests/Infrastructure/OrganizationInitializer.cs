@@ -31,7 +31,7 @@ public class OrganizationInitializer(
             .WithName("Default Space")
             .SetAsDefault()
             .AddEpic(ownerId, e => e
-                .AddStatus(s => s.WithName("New"))
+                .AddStatus(s => s.WithName("New").WithCategory(StatusCategory.Created))
                 .SetAsDefault()
                 .WithName("Backlog"))
     ];
@@ -191,6 +191,7 @@ public class OrganizationInitializer(
                     {
                         Name = status.StatusName,
                         Color = status.StatusColor,
+                        Category = status.StatusCategory,
                     };
 
                     epicEntity.Statuses.Add(statusEntity);
@@ -649,6 +650,7 @@ public class OrganizationInitializer(
     {
         public string StatusName { get; private set; } = "AdditionalStatus";
         public string StatusColor { get; private set; } = "#ffffff";
+        public StatusCategory StatusCategory { get; private set; } = StatusCategory.InProgress;
         
         public StatusBuilder WithName(string name)
         {
@@ -660,6 +662,13 @@ public class OrganizationInitializer(
         public StatusBuilder WithColor(string color)
         {
             StatusColor = color;
+
+            return this;
+        }
+
+        public StatusBuilder WithCategory(StatusCategory category)
+        {
+            StatusCategory = category;
 
             return this;
         }
