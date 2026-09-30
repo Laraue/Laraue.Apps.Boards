@@ -196,7 +196,6 @@ public class SearchService(
             {
                 Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
                 Title = x.Title,
-                Content = x.Content, // nullable — a key-matched issue may have no content
                 OrganizationName = x.Status.Epic.Space.Organization!.Name,
                 OrganizationSlug = x.Status.Epic.Space.Organization!.Slug,
                 OrganizationSlugPostfix = x.Status.Epic.Space.Organization!.SlugPostfix,
@@ -242,124 +241,55 @@ public class SearchService(
         var result = new List<InlineQueryResult>();
         foreach (var issue in issues)
         {
-            try
+            // A result shows the issue's title only, never its content - the search still matches
+            // the content too, so an issue can be found by a word that only its body has.
+            var title = SearchTextFormatter.NormalizeWhitespace(issue.Title);
+
+            if (string.IsNullOrWhiteSpace(title))
             {
-                // Only strip decorative runs here, not the full CleanForPreview whitespace
-                // collapse - collapsing newlines would merge every paragraph into one line
-                // before it reaches TelegramMarkdownFormatter, which relies on line boundaries
-                // to keep an inline span's opening/closing marker from pairing up with an
-                // unrelated stray marker in a totally different paragraph (turning most of the
-                // message bold by accident). The structure needs to survive all the way to
-                // ToMarkdownV2() - see GetIssuePreview in TelegramSaveMessageService, which
-                // never flattens for the same reason.
-                var rawContent = SearchTextFormatter.RemoveDecorativeRuns(issue.Content ?? string.Empty);
-
-                // A caption-less photo or video has no content - its generated title stands in.
-                if (string.IsNullOrWhiteSpace(rawContent))
-                    rawContent = issue.Title;
-
-                if (string.IsNullOrWhiteSpace(rawContent))
+                if (!isKeyLookup)
                 {
-                    if (isKeyLookup)
-                    {
-                        // Found by exact key even though it has no content — still show it,
-                        // just with a placeholder instead of a blank preview.
-                        rawContent = "(no description)";
-                    }
-                    else
-                    {
-                        // Whitespace-only content (passes the DB's plain != "" check) or the
-                        // empty-content edge case in general. Don't send Telegram a message with
-                        // no text — it can't render that and shows a broken "open bot privately"
-                        // placeholder instead — so just skip this result.
-                        logger.LogWarning("Issue {IssueKey}: content is empty, skipping", issue.Key);
-                        continue;
-                    }
+                    // Don't send Telegram a message with no text - it can't render that and shows
+                    // a broken "open bot privately" placeholder instead - so skip this result.
+                    logger.LogWarning("Issue {IssueKey}: title is empty, skipping", issue.Key);
+                    continue;
                 }
 
-                var fragment = ContentFragment.Extract(rawContent, searchText, IssuePreviewFormatter.FragmentContextChars);
+                // Found by exact key - still show it, with a placeholder instead of a blank preview.
+                title = "(no description)";
+            }
 
-                if (!string.IsNullOrWhiteSpace(searchText)
-                    && fragment.Match.Length == 0
-                    && !issue.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+            var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
+            var footer = IssuePreviewFormatter.BuildSourceFooter(
+                issue.ChatTitle,
+                issue.Sender?.DisplayName,
+                issue.SentAt);
+
+            // The link lives on a button, not in the text - buttons render reliably regardless of
+            // MarkdownV2 escaping, whereas an in-text [text](url) link depends on every character
+            // around it being escaped exactly right or Telegram shows the raw syntax.
+            var messageText =
+                IssuePreviewFormatter.BuildHeader(issue.Key, issue.OrganizationName) + "\n" +
+                SearchTextFormatter.EscapeMarkdownV2(title) +
+                (footer is not null ? "\n" + footer : string.Empty);
+
+            result.Add(
+                new InlineQueryResultArticle(
+                    issue.Key.ToString(),
+                    $"{issue.Key} · {issue.OrganizationName}",
+                    new InputTextMessageContent(messageText)
+                    {
+                        ParseMode = ParseMode.MarkdownV2
+                    })
                 {
-                    // The DB matched this issue via ILIKE, but our own IndexOf couldn't find the
-                    // term in the same content — this is the mismatch we're chasing. Log enough
-                    // to diagnose (length + a short snippet) without dumping full, potentially
-                    // large or sensitive issue content into logs.
-                    var snippetLength = Math.Min(200, rawContent.Length);
-                    logger.LogWarning(
-                        "Issue {IssueKey}: ILIKE matched {SearchText:l} but IndexOf did not. " +
-                        "ContentLength={ContentLength}, Snippet={Snippet:l}",
-                        issue.Key, searchText, rawContent.Length, rawContent[..snippetLength]);
-                }
-
-                var issueUrl = issueUrlBuilder.Build(issue.OrganizationSlug, issue.OrganizationSlugPostfix, issue.Key);
-                var footer = IssuePreviewFormatter.BuildSourceFooter(
-                    issue.ChatTitle,
-                    issue.Sender?.DisplayName,
-                    issue.SentAt);
-
-                // The text actually posted to the chat once the user taps this result
-                // (InputTextMessageContent) always starts from the beginning of the issue, like
-                // /save and /info do - centering on the match (via `fragment`) only makes sense
-                // while still choosing between results in the dropdown. Once posted, there's no
-                // reader left for whom "here's where your search term was" means anything, and
-                // starting mid-issue is just confusing on its own.
-                var messagePreview = ContentFragment.Extract(rawContent, searchText: string.Empty, IssuePreviewFormatter.FragmentContextChars);
-
-                // The link lives on a button, not in the text — buttons render reliably
-                // regardless of MarkdownV2 escaping, whereas an in-text [text](url) link depends
-                // on every character around it being escaped exactly right or Telegram shows
-                // the raw syntax.
-                var messageText =
-                    IssuePreviewFormatter.BuildHeader(issue.Key, issue.OrganizationName) + "\n" +
-                    messagePreview.ToMarkdownV2() +
-                    (footer is not null ? "\n" + footer : string.Empty);
-
-                result.Add(
-                    new InlineQueryResultArticle(
-                        issue.Key.ToString(),
-                        $"{issue.Key} · {issue.OrganizationName}",
-                        new InputTextMessageContent(messageText)
-                        {
-                            ParseMode = ParseMode.MarkdownV2
-                        })
-                    {
-                        // Normalized only here, after extraction/truncation - the dropdown entry
-                        // is a single-line UI element regardless, so collapsing any leftover
-                        // newlines in this already-bounded snippet is safe (unlike normalizing
-                        // the whole content before ToMarkdownV2() above).
-                        Description = SearchTextFormatter.NormalizeWhitespace(fragment.ToPlainText()),
-                        // Without this, Telegram falls back to a grey placeholder tile with just
-                        // the first letter of the title — setting a real icon here is what makes
-                        // the mobile results list show an actual image instead.
-                        ThumbnailUrl = options.Value.Icons.Issue,
-                        ReplyMarkup = new InlineKeyboardMarkup(
-                            InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl))
-                    });
-            }
-            catch (Exception ex)
-            {
-                // A bug in formatting this one issue's content shouldn't fail the whole batch of
-                // results (or worse, the entire inline query) - log it and show a safe
-                // placeholder for this result instead.
-                logger.LogError(ex, "Issue {IssueKey}: failed to build search result content", issue.Key);
-
-                result.Add(
-                    new InlineQueryResultArticle(
-                        issue.Key.ToString(),
-                        $"{issue.Key} · {issue.OrganizationName}",
-                        new InputTextMessageContent(
-                            IssuePreviewFormatter.BuildContentGenerationErrorText(issue.Key, issue.OrganizationName))
-                        {
-                            ParseMode = ParseMode.MarkdownV2
-                        })
-                    {
-                        Description = "⚠️ Something went wrong while generating the content of this message.",
-                        ThumbnailUrl = options.Value.Icons.Issue,
-                    });
-            }
+                    Description = title,
+                    // Without this, Telegram falls back to a grey placeholder tile with just the
+                    // first letter of the title - setting a real icon here is what makes the
+                    // mobile results list show an actual image instead.
+                    ThumbnailUrl = options.Value.Icons.Issue,
+                    ReplyMarkup = new InlineKeyboardMarkup(
+                        InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl))
+                });
         }
 
         // isPersonal: true — see note above; the same reasoning applies to every branch
@@ -463,7 +393,6 @@ internal sealed class IssueSearchRow
 {
     public required IssueKey Key { get; init; }
     public required string Title { get; init; }
-    public required string? Content { get; init; }
     public required string OrganizationName { get; init; }
     public required string OrganizationSlug { get; init; }
     public required string OrganizationSlugPostfix { get; init; }

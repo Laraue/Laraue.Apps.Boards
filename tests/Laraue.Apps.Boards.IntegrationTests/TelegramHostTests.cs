@@ -2572,52 +2572,31 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task InlineSearch_ShouldKeepParagraphsSeparate_WhenContentHasUnpairedAsterisksInDifferentParagraphs()
+    public async Task InlineSearch_ShouldShowOnlyTitle_WhenSearchTextMatchesContent()
     {
-        // Regression test: a lone "*" in one paragraph and another lone "*" several paragraphs
-        // later used to get merged into one giant (wrong) bold span covering everything between
-        // them, because the content was flattened to a single line (CleanForPreview) before
-        // reaching TelegramMarkdownFormatter - which relies on line boundaries to keep an inline
-        // span's open/close markers from pairing up across unrelated paragraphs. With paragraph
-        // structure preserved, each lone "*" has no partner on its own line and is escaped as
-        // literal text instead.
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
-
         var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        const string content =
-            "Line one with a lone * mark.\n\n" +
-            "Line two is fine.\n\n" +
-            "Line three has another lone * mark.";
 
-        var organization = await testScope.InitializeOrganization(
+        await testScope.InitializeOrganization(
             userId,
-            o => o
-                .AddSpace(userId, "AAA", s => s
-                    .AddEpic(userId, e => e
-                        .AddIssue(userId, 0, i => i
-                            .WithContent(content)))));
-
-        var issueData = organization.GetIssueData(1, 1, 0, 0);
+            o => o.AddIssueToDefaultStatus(userId, i => i
+                .WithContent("Some *long* body with the word return inside")
+                .WithTitle("Login bug")));
 
         await host.SendUpdateAsync(new Update
         {
-            InlineQuery = new InlineQuery
-            {
-                From = DefaultUser,
-                Query = $"key:{issueData.Key}"
-            }
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "return" }
         });
 
         var request = host.Requests().Single<AnswerInlineQueryRequest>();
         var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
         var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
 
-        Assert.Contains(
-            "Line one with a lone \\* mark\\.\n\n" +
-            "Line two is fine\\.\n\n" +
-            "Line three has another lone \\* mark\\.",
-            messageText);
+        // Found by a word only the body has, but neither the dropdown entry nor the posted message shows the body.
+        Assert.Equal("Login bug", article.Description);
+        Assert.Contains("Login bug", messageText);
+        Assert.DoesNotContain("long", messageText);
     }
 
     [Fact]
@@ -2645,61 +2624,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var request = host.Requests().Single<AnswerInlineQueryRequest>();
         var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
         var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
-        Assert.Contains("Some body", messageText);
-    }
-
-    [Fact]
-    public async Task InlineSearch_ShouldProduceValidMessage_WhenFenceStraddlesAFreeTextMatch()
-    {
-        // Regression test (BRD-161, at production FragmentContextChars): searching "ret" matches
-        // "return" further down the content, well after a fenced code block. Historically the
-        // posted message was built from a match-centered window that started partway through that
-        // block (its real closing marker ending up inside the window), which made Telegram reject
-        // the message outright ("Character '}' is reserved and must be escaped") because Prefix
-        // and Suffix were formatted independently and disagreed about whether the fence was still
-        // open by the time Suffix started. The posted message is now always built from the start
-        // of the content instead (see the next test) - this still guards the underlying "fence
-        // markers must pair up" invariant in case a future change reintroduces windowing here.
-        using var host = GetTelegramTestHost();
-        var testScope = host.CreateTestScope();
-
-        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        const string content =
-            "1. Add status to epics. Just an enum\n\n" +
-            "```\n" +
-            "enum EpicStatus\n" +
-            "{\n" +
-            "  New,\n" +
-            "  InProgress,\n" +
-            "  Done,\n" +
-            "}\n" +
-            "```\n\n" +
-            "2. API that will change the status\n" +
-            "3. Show epic status while return epics list\n" +
-            "4. API that return epics should support filtering by status " +
-            "(array of statuses to return, null - no filtering, [1,2] - not completed, etc)\n" +
-            "5. Allow filter issues in all issues list by epic status";
-
-        var organization = await testScope.InitializeOrganization(
-            userId,
-            o => o
-                .AddSpace(userId, "AAA", s => s
-                    .AddEpic(userId, e => e
-                        .AddIssue(userId, 0, i => i
-                            .WithContent(content)))));
-
-        await host.SendUpdateAsync(new Update
-        {
-            InlineQuery = new InlineQuery { From = DefaultUser, Query = "ret" }
-        });
-
-        var request = host.Requests().Single<AnswerInlineQueryRequest>();
-        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
-        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
-
-        // Fence markers must always pair up - an odd count is exactly what made Telegram reject
-        // the message as an unterminated/invalid entity.
-        Assert.Equal(0, System.Text.RegularExpressions.Regex.Matches(messageText, "```").Count % 2);
+        Assert.Contains("Login bug", messageText);
     }
 
     [Fact]
@@ -2774,54 +2699,6 @@ public class TelegramHostTests : TelegramIntegrationTest
         var firstPageIds = firstPage.Results.Cast<InlineQueryResultArticle>().Select(x => x.Id).ToHashSet();
         var secondPageIds = secondPage.Results.Cast<InlineQueryResultArticle>().Select(x => x.Id).ToHashSet();
         Assert.Empty(firstPageIds.Intersect(secondPageIds));
-    }
-
-    [Fact]
-    public async Task InlineSearch_ShouldPostMessageFromStartOfContent_RegardlessOfWhereSearchTextMatched()
-    {
-        // The dropdown entry the user picks *between* centers on the match (useful context while
-        // still choosing) - but once selected, the posted message should read like /save's and
-        // /info's previews always do: from the top of the issue, not from wherever "ret" happened
-        // to match deep inside it.
-        using var host = GetTelegramTestHost();
-        var testScope = host.CreateTestScope();
-
-        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        const string content =
-            "1. Add status to epics. Just an enum\n\n" +
-            "```\n" +
-            "enum EpicStatus\n" +
-            "{\n" +
-            "  New,\n" +
-            "}\n" +
-            "```\n\n" +
-            "2. API that will change the status\n" +
-            "3. Show epic status while return epics list";
-
-        var organization = await testScope.InitializeOrganization(
-            userId,
-            o => o
-                .AddSpace(userId, "AAA", s => s
-                    .AddEpic(userId, e => e
-                        .AddIssue(userId, 0, i => i
-                            .WithContent(content)))));
-
-        await host.SendUpdateAsync(new Update
-        {
-            InlineQuery = new InlineQuery { From = DefaultUser, Query = "ret" }
-        });
-
-        var request = host.Requests().Single<AnswerInlineQueryRequest>();
-        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
-        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
-
-        Assert.Contains("1\\. Add status to epics\\. Just an enum", messageText);
-        Assert.DoesNotContain('…', messageText);
-
-        // The dropdown entry, by contrast, still centers on and highlights the match.
-        Assert.Contains(
-            SearchTextFormatter.ToUnicodeBold("ret"),
-            article.Description);
     }
 
     [Fact]
@@ -3819,7 +3696,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
         var organization = await testScope.InitializeOrganization(
             userId,
-            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content")));
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content").WithTitle("Existing card title")));
 
         var space = organization.Spaces[0];
         var orgKey = $"{organization.Slug}-{organization.SlugPostfix}";
@@ -3851,7 +3728,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
-        Assert.Contains("Existing card content", replyRequest.Text);
+        Assert.Contains("Existing card title", replyRequest.Text);
+        Assert.DoesNotContain("Existing card content", replyRequest.Text);
         var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
         var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
         Assert.Equal(expectedCanonicalUrl, button.Url);
@@ -3866,7 +3744,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
         var organization = await testScope.InitializeOrganization(
             userId,
-            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content")));
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content").WithTitle("Existing card title")));
 
         var space = organization.Spaces[0];
         var orgKey = $"{organization.Slug}-{organization.SlugPostfix}";
@@ -3896,7 +3774,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
-        Assert.Contains("Existing card content", replyRequest.Text);
+        Assert.Contains("Existing card title", replyRequest.Text);
+        Assert.DoesNotContain("Existing card content", replyRequest.Text);
         var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
         var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
         Assert.Equal(expectedCanonicalUrl, button.Url);
@@ -3953,7 +3832,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             ownerId,
             o => o
                 .AddUser(memberId)
-                .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Existing card content")));
+                .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Existing card content").WithTitle("Existing card title")));
 
         var space = organization.Spaces[0];
         var issueUrl = $"https://boards.example.com/organizations/{organization.Slug}-{organization.SlugPostfix}/issues/{space.Key}-1";
