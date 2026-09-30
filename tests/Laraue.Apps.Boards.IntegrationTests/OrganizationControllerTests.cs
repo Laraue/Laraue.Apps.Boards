@@ -1122,6 +1122,39 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
+    public async Task GetOrganizationHistory_ShouldExposeIssueTitle_WhenIssueHasTitle()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Body").WithTitle("My title")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(issueData.Key));
+
+        var historyData = await GetFirstHistoryPage(organization.Id, userId);
+
+        Assert.Equal("My title", Assert.Single(historyData.Data).IssueTitle);
+    }
+
+    private async Task<ShortPaginatedResult<OrganizationHistoryItem>> GetFirstHistoryPage(long organizationId, Guid userId)
+    {
+        var request = new GetOrganizationHistoryRequest
+        {
+            Pagination = new PaginationData { Page = 0, PerPage = 10 }
+        };
+
+        var historyData = await _organizationsController
+            .WithOrganizationAuthorization(organizationId, userId)
+            .Execute(x => x.GetOrganizationHistory(request));
+
+        return historyData!;
+    }
+
+    [Fact]
     public async Task GetOrganizationHistory_ShouldStillShowIssueHistory_WhenIssueSpaceWasDeleted()
     {
         using var testScope = host.CreateTestScope();

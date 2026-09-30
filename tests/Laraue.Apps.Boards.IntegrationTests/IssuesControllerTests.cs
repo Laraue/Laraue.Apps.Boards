@@ -1717,6 +1717,34 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task GetIssueHistory_ShouldShowTitleChangeAndIssueTitle_WhenTitleWasSetExplicitly()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("First line")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { Content = "First line", Title = "Custom title", AssigneeId = userId }));
+
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(
+                issueData.Key,
+                new GetIssueHistoryRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } }));
+
+        var historyItem = Assert.Single(historyData!.Data);
+        var titleChange = Assert.IsType<IssueHistoryTitleChange>(Assert.Single(historyItem.Changes));
+        Assert.Equal("First line", titleChange.OldTitle);
+        Assert.Equal("Custom title", titleChange.NewTitle);
+        Assert.Equal("Custom title", historyItem.IssueTitle);
+    }
+
+    [Fact]
     public async Task Summarize_ShouldAskForTitle_WhenGenerateTitleIsSet()
     {
         const string notes = "notes for the generate title flag";

@@ -13,6 +13,7 @@ public record OrganizationHistoryItem
     public required LogEntityType EntityType { get; set; }
     public required LogAction Action { get; set; }
     public required string? IssueKey { get; set; }
+    public required string? IssueTitle { get; set; }
 }
 
 [JsonDerivedType(typeof(IssueHistoryContentChange), "content")]

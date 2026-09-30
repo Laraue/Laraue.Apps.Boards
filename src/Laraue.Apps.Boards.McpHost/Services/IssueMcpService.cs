@@ -611,6 +611,7 @@ public class IssueMcpService(
             IssueHistoryContentChange c => c.OldContent is null
                 ? $"content: \"{HistorySnippet(c.NewContent)}\""
                 : $"content: \"{HistorySnippet(c.OldContent)}\" -> \"{HistorySnippet(c.NewContent)}\"",
+            IssueHistoryTitleChange c => $"title: \"{c.OldTitle}\" -> \"{c.NewTitle}\"",
             IssueHistoryAssigneeChange c => $"assignee: {c.OldAssigneeDisplayName ?? "none"} -> {c.NewAssigneeDisplayName ?? "none"}",
             IssueHistoryStatusChange c => $"status: {c.OldStatusName ?? "none"} -> {c.NewStatusName ?? "none"}",
             IssueHistoryPropertyChange c => $"attribute {c.PropertyName}: {c.OldValueName ?? "empty"} -> {c.NewValueName ?? "empty"}",

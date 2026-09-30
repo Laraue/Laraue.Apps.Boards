@@ -429,6 +429,31 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task GetIssueHistory_ShouldDescribeTitleChange_WhenTitleWasSet()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var authData = AuthDataFor(organization.Id, ownerId, apiKeyId: null);
+
+        await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
+        {
+            var update = new IssueUpdateRequest().SetTitle("Custom title");
+            await testScope.Services.GetRequiredService<ICoreIssuesService>()
+                .Update(issueData.Issue.Id, new Actor(ownerId, null), update, CancellationToken.None);
+            await transaction.CommitAsync();
+        }
+
+        var history = await CreateIssueMcpService(testScope)
+            .GetIssueHistory(authData, issueData.Key, null, null, CancellationToken.None);
+
+        var entry = Assert.Single(history.Entries);
+        Assert.Equal(["title: \"Fix the thing\" -> \"Custom title\""], entry.Changes);
+    }
+
+    [Fact]
     public async Task GetIssueHistory_ShouldPaginate_WhenCountIsGiven()
     {
         using var testScope = host.CreateTestScope();
