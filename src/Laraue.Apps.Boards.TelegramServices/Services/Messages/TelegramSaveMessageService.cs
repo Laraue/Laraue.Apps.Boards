@@ -120,8 +120,9 @@ public class TelegramSaveMessageService(
 
         var content = ComposeReplyContent(request.Note, cardMessage.Text);
 
+        string? suggestedTitle = null;
         if (request.Summarize && content is not null)
-            content = await SummarizeAndSpendTokens(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
+            (suggestedTitle, content) = await SummarizeAndSpendTokens(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
 
         if (cardMessage.IssueId is not null)
         {
@@ -134,7 +135,7 @@ public class TelegramSaveMessageService(
                     .Select(x => x.AttachmentId!.Value));
 
             if (content is not null)
-                update.SetContent(content);
+                update.SetContent(content).SetSuggestedTitle(suggestedTitle);
 
             await coreIssuesService.Update(
                 cardMessage.IssueId.Value,
@@ -160,6 +161,7 @@ public class TelegramSaveMessageService(
 
         var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow)
             .SetContent(content)
+            .SetSuggestedTitle(suggestedTitle)
             .SetTelegramMessageId(cardMessage.Id)
             .LinkExistingAttachments(groupMessages
                 .Where(x => x.AttachmentId is not null)
@@ -322,7 +324,7 @@ public class TelegramSaveMessageService(
     /// uncaught here - nothing to cancel yet, and <c>SaveCommandService</c> handles it the same
     /// way.
     /// </summary>
-    private async Task<string> SummarizeAndSpendTokens(
+    private async Task<(string? Title, string Content)> SummarizeAndSpendTokens(
         long organizationId,
         Guid userId,
         string content,
@@ -342,7 +344,7 @@ public class TelegramSaveMessageService(
             var result = await aiContentSummarizer.SummarizeAsync(content, generateTitle: true, cancellationToken);
             tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
-            return result.Content;
+            return (result.Title, result.Content);
         }
         catch (AiContentSummarizationException ex)
         {
@@ -709,6 +711,10 @@ public class TelegramSaveMessageService(
             .SetContent(request.Text)
             .SetTelegramMessageId(telegramMessageId);
 
+        // A photo or video without a caption has no first line to take a title from.
+        if (string.IsNullOrWhiteSpace(request.Text))
+            issueCreate.SetSuggestedTitle(BuildMediaTitle(request, linkedChat));
+
         if (attachmentId is not null)
             issueCreate.LinkExistingAttachment(attachmentId.Value);
 
@@ -721,6 +727,25 @@ public class TelegramSaveMessageService(
             Result = result,
             TelegramMessageId = telegramMessageId,
         };
+    }
+
+    /// <summary>
+    /// "image-20260930-101500-Chat name": what a caption-less media message is called.
+    /// </summary>
+    private static string BuildMediaTitle(SaveMessageTelegramRequest request, LinkedChatToSaveMessage linkedChat)
+    {
+        var kind = request switch
+        {
+            SaveImageMessageTelegramRequest => "image",
+            SaveVideoMessageTelegramRequest => "video",
+            _ => "message",
+        };
+
+        var chat = string.IsNullOrWhiteSpace(linkedChat.ChatTitle)
+            ? $"chat-{request.ExternalChatId}"
+            : linkedChat.ChatTitle;
+
+        return $"{kind}-{request.SentAt:yyyyMMdd-HHmmss}-{chat}";
     }
 
     /// <summary>
@@ -812,6 +837,7 @@ public class TelegramSaveMessageService(
                 EpicId = x.Status!.EpicId,
                 OrganizationId = x.Status.Epic!.Space!.OrganizationId,
                 SaveMode = x.SaveMode,
+                ChatTitle = x.Title,
             })
             .FirstOrDefaultAsyncEF(cancellationToken);
 
@@ -880,6 +906,7 @@ internal class LinkedChatToSaveMessage
     public required long EpicId { get; init; }
     public required long OrganizationId { get; init; }
     public required SaveMode SaveMode { get; init; }
+    public required string? ChatTitle { get; init; }
 }
 
 public class SaveByReplyRequest

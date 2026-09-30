@@ -30,6 +30,7 @@ public class IssuePreviewBuilder(
             .Select(x => new
             {
                 Key = new IssueKey(x.IssueNumber!.Space!.Key, x.IssueNumber.Number),
+                x.Title,
                 OrganizationName = x.IssueNumber.Space.Organization!.Name,
                 OrganizationSlug = x.IssueNumber.Space.Organization!.Slug,
                 OrganizationSlugPostfix = x.IssueNumber.Space.Organization!.SlugPostfix,
@@ -53,8 +54,9 @@ public class IssuePreviewBuilder(
         string text;
         try
         {
+            // A caption-less photo or video has no content - the card shows its generated title.
             var fragment = ContentFragment.Extract(
-                issueData.Content ?? string.Empty,
+                string.IsNullOrWhiteSpace(issueData.Content) ? issueData.Title : issueData.Content,
                 searchText: string.Empty,
                 IssuePreviewFormatter.FragmentContextChars);
 

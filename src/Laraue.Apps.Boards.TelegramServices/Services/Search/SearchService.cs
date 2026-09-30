@@ -160,16 +160,17 @@ public class SearchService(
         {
             // No extra empty-content guard needed here: ILIKE against a non-empty pattern
             // can never match empty content, so this branch already excludes it for free.
+            var searchPattern = searchText.AsSearchable();
             issuesQuery = issuesQuery
-                .Where(x => x.Content != null)
-                .Where(x => x.Content!.ILike(searchText.AsSearchable()));
+                .Where(x => x.Title.ILike(searchPattern) || (x.Content != null && x.Content.ILike(searchPattern)));
         }
         else if (!isKeyLookup)
         {
             // Plain equality, not wrapped in a function — stays index-friendly, unlike Trim().
             // Skipped for a key lookup: an exact key match should still show up even if that
             // issue happens to have no content — the key itself is a strong enough signal.
-            issuesQuery = issuesQuery.Where(x => x.Content != null && x.Content != string.Empty);
+            // A caption-less photo or video has a generated title but no content - still worth listing.
+            issuesQuery = issuesQuery.Where(x => x.Title != string.Empty);
         }
 
         // Telegram's inline query pagination: the client re-sends the same query with `Offset`
@@ -194,6 +195,7 @@ public class SearchService(
             .Select(x => new IssueSearchRow
             {
                 Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
+                Title = x.Title,
                 Content = x.Content, // nullable — a key-matched issue may have no content
                 OrganizationName = x.Status.Epic.Space.Organization!.Name,
                 OrganizationSlug = x.Status.Epic.Space.Organization!.Slug,
@@ -252,6 +254,10 @@ public class SearchService(
                 // never flattens for the same reason.
                 var rawContent = SearchTextFormatter.RemoveDecorativeRuns(issue.Content ?? string.Empty);
 
+                // A caption-less photo or video has no content - its generated title stands in.
+                if (string.IsNullOrWhiteSpace(rawContent))
+                    rawContent = issue.Title;
+
                 if (string.IsNullOrWhiteSpace(rawContent))
                 {
                     if (isKeyLookup)
@@ -273,7 +279,9 @@ public class SearchService(
 
                 var fragment = ContentFragment.Extract(rawContent, searchText, IssuePreviewFormatter.FragmentContextChars);
 
-                if (!string.IsNullOrWhiteSpace(searchText) && fragment.Match.Length == 0)
+                if (!string.IsNullOrWhiteSpace(searchText)
+                    && fragment.Match.Length == 0
+                    && !issue.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase))
                 {
                     // The DB matched this issue via ILIKE, but our own IndexOf couldn't find the
                     // term in the same content — this is the mismatch we're chasing. Log enough
@@ -454,6 +462,7 @@ public class SearchService(
 internal sealed class IssueSearchRow
 {
     public required IssueKey Key { get; init; }
+    public required string Title { get; init; }
     public required string? Content { get; init; }
     public required string OrganizationName { get; init; }
     public required string OrganizationSlug { get; init; }

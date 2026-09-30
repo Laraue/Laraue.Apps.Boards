@@ -1634,8 +1634,8 @@ public class TelegramHostTests : TelegramIntegrationTest
                 It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSummarizationResult(
-                null,
-                "Fix login bug\n---\n- Login fails on retry\n- Add logging",
+                "Fix login bug",
+                "- Login fails on retry\n- Add logging",
                 InputTokensCount: 10,
                 OutputTokensCount: 20));
 
@@ -1657,7 +1657,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("Fix login bug\n---\n- Login fails on retry\n- Add logging", issue.Content);
+        Assert.Equal("- Login fails on retry\n- Add logging", issue.Content);
+        Assert.Equal("Fix login bug", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
     }
 
     [Fact]
@@ -2227,6 +2229,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Null(issue.Content);
+        Assert.StartsWith("image-", issue.Title);
         
         var telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(2, telegramFiles.Length);
@@ -2268,6 +2271,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         
         issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal("Caption", issue.Content);
+        Assert.Equal("Caption", issue.Title);
         
         telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(4, telegramFiles.Length);
@@ -2614,6 +2618,34 @@ public class TelegramHostTests : TelegramIntegrationTest
             "Line two is fine\\.\n\n" +
             "Line three has another lone \\* mark\\.",
             messageText);
+    }
+
+    [Fact]
+    public async Task InlineSearch_ShouldFindIssue_WhenSearchTextMatchesOnlyTitle()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+
+        await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Some body").WithTitle("Login bug"))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Other body").WithTitle("Other")));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery
+            {
+                From = DefaultUser,
+                Query = "login",
+            }
+        });
+
+        var request = host.Requests().Single<AnswerInlineQueryRequest>();
+        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
+        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
+        Assert.Contains("Some body", messageText);
     }
 
     [Fact]
