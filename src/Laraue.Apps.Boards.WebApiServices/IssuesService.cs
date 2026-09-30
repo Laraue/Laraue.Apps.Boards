@@ -372,9 +372,8 @@ public class IssuesService(
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
-        var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow)
+        var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow, request.Title, isTitleSetExplicitly: true)
             .SetContent(request.Content)
-            .SetTitle(request.Title)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
             .LinkNewAttachments(uploadedFiles);
@@ -418,14 +417,11 @@ public class IssuesService(
         
         var issueUpdate = new IssueUpdateRequest()
             .SetContent(request.Content)
+            .SetTitle(request.Title)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
             .LinkNewAttachments(uploadedFiles)
             .UnlinkAttachments(request.RemoveAttachmentIds);
-
-        // No title in the request leaves the title as it is; an empty one resets it to a derived title.
-        if (request.Title is not null)
-            issueUpdate.SetTitle(request.Title);
 
         await issuesService.Update(
             issueId,
@@ -1642,10 +1638,10 @@ public record CreateIssueRequest
     public required string Content { get; set; }
 
     /// <summary>
-    /// Optional title. Without it the title is derived from the first line of the content.
+    /// Issue title. Required - only Telegram derives a title from the content.
     /// </summary>
-    [MaxLength(Constraints.MaxTitleLength)]
-    public string? Title { get; set; }
+    [Required, MaxLength(Constraints.MaxTitleLength)]
+    public required string Title { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
     public IFormFile[] Files { get; set; } = [];
@@ -1659,12 +1655,10 @@ public record UpdateIssueRequest
     public required string Content { get; set; }
 
     /// <summary>
-    /// Optional title. Omitted keeps the title as it is, empty resets it to the one derived from the content.
+    /// Issue title. Required - only Telegram derives a title from the content.
     /// </summary>
-    // Form binding turns an empty value into null by default, which would make "reset" indistinguishable from "omitted".
-    [DisplayFormat(ConvertEmptyStringToNull = false)]
-    [MaxLength(Constraints.MaxTitleLength)]
-    public string? Title { get; set; }
+    [Required, MaxLength(Constraints.MaxTitleLength)]
+    public required string Title { get; set; }
     public required Guid AssigneeId { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];

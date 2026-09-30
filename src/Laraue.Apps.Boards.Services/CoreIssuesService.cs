@@ -145,16 +145,11 @@ public class CoreIssuesService(
             throw new InvalidOperationException("Lexo rank should be set here");
 
         var content = request.Content.GetValueOrDefault();
-        var isTitleSetExplicitly = request.Title is { IsSet: true, Value: { Length: > 0 } };
-        var title = isTitleSetExplicitly
-            ? request.Title.Value!
-            : request.SuggestedTitle ?? IssueTitle.FromContent(content);
-
         var issue = new Issue
         {
             Content = content,
-            Title = title,
-            IsTitleSetExplicitly = isTitleSetExplicitly,
+            Title = request.Title,
+            IsTitleSetExplicitly = request.IsTitleSetExplicitly,
             OwnerId = actor.UserId,
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.CreatedAt,
@@ -257,31 +252,32 @@ public class CoreIssuesService(
     }
 
     /// <summary>
-    /// Picks the title after an update: a title typed by hand wins (and stays until it is cleared),
-    /// then a system-suggested one, otherwise the title follows the first line of a changed content.
-    /// <c>IsChosen</c> is true when the title came from the request rather than from the content.
+    /// Picks the title after an update. A title from the request wins; it only counts as set by hand
+    /// when it differs from the current one, so a client that always re-sends the title (the web app)
+    /// doesn't pin a title that Telegram derives. A hand-set title stays; otherwise a system-suggested
+    /// one (Telegram's first line or AI summary) applies, and without either the title is unchanged.
+    /// <c>IsChosen</c> is true when a client changed the title - only that is worth a history entry, a
+    /// suggested title just follows the content change the history already shows.
     /// </summary>
     private static (string Title, bool IsSetExplicitly, bool IsChosen) ResolveTitle(
-        IssueChange<IssueUpdateRequest> request,
+        IssueUpdateRequest request,
         string currentTitle,
-        bool isCurrentExplicit,
-        bool isContentChanged,
-        string? contentAfterUpdate)
+        bool isCurrentExplicit)
     {
-        if (request.Title is { IsSet: true, Value: { Length: > 0 } explicitTitle })
-            return (explicitTitle, true, true);
+        if (request.Title is { IsSet: true, Value: { Length: > 0 } requestedTitle })
+        {
+            var isChanged = requestedTitle != currentTitle;
 
-        // An empty title resets it, so it's derived again below.
-        var isReset = request.Title.IsSet;
-        if (isCurrentExplicit && !isReset)
+            return (requestedTitle, isCurrentExplicit || isChanged, isChanged);
+        }
+
+        if (isCurrentExplicit)
             return (currentTitle, true, false);
 
         if (request.SuggestedTitle is { } suggestedTitle)
-            return (suggestedTitle, false, true);
+            return (suggestedTitle, false, false);
 
-        return isContentChanged || isReset
-            ? (IssueTitle.FromContent(contentAfterUpdate), false, false)
-            : (currentTitle, false, false);
+        return (currentTitle, false, false);
     }
 
     public async Task Update(
@@ -317,9 +313,8 @@ public class CoreIssuesService(
             items.Add(logItemFactory.ContentChanged(issueData.Content, newContent));
         }
 
-        var contentAfterUpdate = request.Content.IsSet ? request.Content.Value : issueData.Content;
         var (newTitle, isTitleSetExplicitly, isTitleChosen) = ResolveTitle(
-            request, issueData.Title, issueData.IsTitleSetExplicitly, issueData.Content != contentAfterUpdate, contentAfterUpdate);
+            request, issueData.Title, issueData.IsTitleSetExplicitly);
 
         if (isTitleSetExplicitly != issueData.IsTitleSetExplicitly)
             settersBuilder += builder => builder.SetProperty(x => x.IsTitleSetExplicitly, isTitleSetExplicitly);
@@ -328,7 +323,6 @@ public class CoreIssuesService(
         {
             settersBuilder += builder => builder.SetProperty(x => x.Title, newTitle);
 
-            // A title derived from the content is already visible in the content change.
             if (isTitleChosen)
                 items.Add(logItemFactory.TitleChanged(issueData.Title, newTitle));
         }

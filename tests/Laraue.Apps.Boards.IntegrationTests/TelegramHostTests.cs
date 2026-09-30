@@ -3484,7 +3484,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
         await testScope.InitializeOrganization(
             userId,
-            o => o.AddIssueToDefaultStatus(userId, i => i.WithContent(string.Empty)));
+            o => o.AddIssueToDefaultStatus(userId, i => i.WithContent(string.Empty).WithTitle(string.Empty)));
 
         // Exact key lookup must still return the issue even though it has no content — shown
         // with a placeholder instead of being skipped.

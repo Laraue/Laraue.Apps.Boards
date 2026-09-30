@@ -41,7 +41,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -106,7 +106,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -135,7 +135,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -163,7 +163,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -193,7 +193,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = participatorId,
@@ -224,7 +224,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New Issue",
                     StatusId = statusWhereSpaceAccessMissing.Id,
                     AssigneeId = participatorId,
@@ -251,7 +251,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
@@ -282,7 +282,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
@@ -312,7 +312,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = participatorId,
@@ -366,7 +366,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                {
+                { Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = participatorId,
@@ -445,7 +445,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var secondIssueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(new CreateIssueRequest
-            {
+            { Title = "Title",
                 Content = "Second",
                 StatusId = status.Id,
                 AssigneeId = userId,
@@ -498,7 +498,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
-            {
+            { Title = "Title",
                 AssigneeId = userId,
                 Content = "Updated before delete",
             }));
@@ -1241,7 +1241,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var descriptionAttribute = organization.Attributes![3];
         
         var updateIssueRequest = new UpdateIssueRequest
-        {
+        { Title = "Title",
             AssigneeId = userId,
             Content = "New",
             AttributeValues =
@@ -1371,7 +1371,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         var updateIssueRequest = new UpdateIssueRequest
-        {
+        { Title = "Title",
             AssigneeId = userId,
             Content = "Old",
             AttributeValues = [],
@@ -1424,7 +1424,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var dueAttribute = organization.Attributes![1];
 
         var updateIssueRequest = new UpdateIssueRequest
-        {
+        { Title = "Title",
             AssigneeId = userId,
             Content = "Old",
             AttributeValues =
@@ -1722,14 +1722,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId, o => o
-            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("First line")));
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Body").WithTitle("First line")));
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { Content = "First line", Title = "Custom title", AssigneeId = userId }));
+                new UpdateIssueRequest { Content = "Body", Title = "Custom title", AssigneeId = userId }));
 
         var historyData = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -1799,68 +1799,43 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
-    public async Task Create_ShouldDeriveTitle_WhenTitleIsNotPassed()
+    public async Task Create_ShouldReturn400_WhenTitleIsBlank()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
 
-        var issueKey = await _issuesController
+        await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
-                    Content = "# First line\nbody",
+                    Title = "  ",
+                    Content = "Content",
                     StatusId = organization.GetStatus(0, 0, 0).Id,
                     AssigneeId = userId,
-                }));
-
-        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
-        Assert.NotNull(issue);
-        Assert.Equal("First line", issue.Title);
-        Assert.False(issue.IsTitleSetExplicitly);
+                })));
     }
 
     [Fact]
-    public async Task Update_ShouldKeepTitle_WhenTitleIsOmitted()
+    public async Task Update_ShouldSetExplicitTitle_WhenTitleChanges()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId, o => o
-            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Mine")));
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Old title")));
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { Content = "New", AssigneeId = userId }));
+                new UpdateIssueRequest { Content = "New", Title = "New title", AssigneeId = userId }));
 
         // The seeded issue is still tracked with its old values.
         var issue = await testScope.Database.Issues.AsNoTracking().SingleAsync(x => x.Id == issueData.Issue.Id);
-        Assert.Equal("Mine", issue.Title);
+        Assert.Equal("New title", issue.Title);
         Assert.True(issue.IsTitleSetExplicitly);
-    }
-
-    [Fact]
-    public async Task Update_ShouldResetTitle_WhenTitleIsEmpty()
-    {
-        using var testScope = host.CreateTestScope();
-        var userId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(userId, o => o
-            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Mine")));
-        var issueData = organization.GetIssueData(0, 0, 0, 0);
-
-        await _issuesController
-            .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.Update(
-                issueData.Key,
-                new UpdateIssueRequest { Content = "New first line", Title = "", AssigneeId = userId }));
-
-        // The seeded issue is still tracked with its old values.
-        var issue = await testScope.Database.Issues.AsNoTracking().SingleAsync(x => x.Id == issueData.Issue.Id);
-        Assert.Equal("New first line", issue.Title);
-        Assert.False(issue.IsTitleSetExplicitly);
     }
 
     [Fact]
@@ -2000,7 +1975,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "Line1\r\nLine2",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -2029,13 +2004,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { AssigneeId = userId, Content = "Line1\r\nLine2" }));
+                new UpdateIssueRequest { Title = "Title",  AssigneeId = userId, Content = "Line1\r\nLine2" }));
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { AssigneeId = userId, Content = "Line1\nLine2" }));
+                new UpdateIssueRequest { Title = "Title",  AssigneeId = userId, Content = "Line1\nLine2" }));
 
         var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Equal("Line1\nLine2", issue!.Content);
@@ -2078,7 +2053,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "One too many",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -2119,7 +2094,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                {
+                { Title = "Title",
                     Content = "Still within limit",
                     StatusId = status.Id,
                     AssigneeId = userId,

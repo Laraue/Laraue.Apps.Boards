@@ -10,73 +10,69 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 [Collection("IntegrationTest")]
 public class CoreIssuesServiceTitleTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
 {
-    [Fact]
-    public async Task Create_ShouldDeriveTitleFromFirstLine_WhenTitleIsNotSet()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Create_ShouldStoreGivenTitle_Always(bool isTitleSetExplicitly)
     {
         using var testScope = host.CreateTestScope();
         var (userId, organization) = await Init(testScope);
 
-        var issue = await CreateIssue(testScope, organization, userId, request => request
-            .SetContent("\n## Fix the *login*\nDetails"));
-
-        Assert.Equal("Fix the login", issue.Title);
-        Assert.False(issue.IsTitleSetExplicitly);
-    }
-
-    [Fact]
-    public async Task Create_ShouldUseSuggestedTitle_WhenAiProvidedOne()
-    {
-        using var testScope = host.CreateTestScope();
-        var (userId, organization) = await Init(testScope);
-
-        var issue = await CreateIssue(testScope, organization, userId, request => request
-            .SetContent("- Login fails on retry")
-            .SetSuggestedTitle("Fix login retry"));
-
-        Assert.Equal("Fix login retry", issue.Title);
-        Assert.False(issue.IsTitleSetExplicitly);
-    }
-
-    [Fact]
-    public async Task Create_ShouldUseExplicitTitle_WhenTitleIsSetAlongWithSuggestion()
-    {
-        using var testScope = host.CreateTestScope();
-        var (userId, organization) = await Init(testScope);
-
-        var issue = await CreateIssue(testScope, organization, userId, request => request
-            .SetContent("Some content")
-            .SetSuggestedTitle("Suggested")
-            .SetTitle("  My   title "));
+        var issue = await CreateIssue(testScope, organization, userId, "  My   title ", isTitleSetExplicitly, request => request
+            .SetContent("# First line\nbody"));
 
         Assert.Equal("My title", issue.Title);
-        Assert.True(issue.IsTitleSetExplicitly);
+        Assert.Equal(isTitleSetExplicitly, issue.IsTitleSetExplicitly);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Create_ShouldRequireTitle_WhenTitleIsBlank(string title)
+    {
+        Assert.Throws<ArgumentException>(() => new IssueCreateRequest(1, DateTime.UtcNow, title, isTitleSetExplicitly: true));
     }
 
     [Fact]
-    public async Task Update_ShouldFollowFirstLine_WhenTitleWasNeverSetExplicitly()
+    public async Task Update_ShouldNotChangeTitle_WhenContentChangesWithoutTitle()
     {
         using var testScope = host.CreateTestScope();
         var (userId, organization) = await Init(testScope);
-        var issue = await CreateIssue(testScope, organization, userId, request => request.SetContent("Old title"));
+        var issue = await CreateIssue(testScope, organization, userId, "Old title", false, request => request.SetContent("Old title"));
 
-        await Update(testScope, issue.Id, userId, request => request.SetContent("New title\nbody"));
+        await Update(testScope, issue.Id, userId, request => request.SetContent("New first line"));
 
         var updated = await Reload(testScope, issue.Id);
-        Assert.Equal("New title", updated.Title);
-        Assert.False(updated.IsTitleSetExplicitly);
+        Assert.Equal("Old title", updated.Title);
     }
 
     [Fact]
-    public async Task Update_ShouldKeepTitle_WhenTitleWasSetExplicitlyAndContentChanges()
+    public async Task Update_ShouldApplySuggestedTitle_WhenTitleWasNotSetExplicitly()
     {
         using var testScope = host.CreateTestScope();
         var (userId, organization) = await Init(testScope);
-        var issue = await CreateIssue(testScope, organization, userId, request => request
-            .SetContent("Old title")
-            .SetTitle("Mine"));
+        var issue = await CreateIssue(testScope, organization, userId, "Old title", false, request => request.SetContent("Old title"));
 
         await Update(testScope, issue.Id, userId, request => request
-            .SetContent("New title")
+            .SetContent("New first line")
+            .SetSuggestedTitle("New first line"));
+
+        var updated = await Reload(testScope, issue.Id);
+        Assert.Equal("New first line", updated.Title);
+        Assert.False(updated.IsTitleSetExplicitly);
+        Assert.False(await testScope.Database.OrganizationLogItems
+            .AnyAsync(x => x.PropertyType == PropertyType.Title));
+    }
+
+    [Fact]
+    public async Task Update_ShouldIgnoreSuggestedTitle_WhenTitleWasSetExplicitly()
+    {
+        using var testScope = host.CreateTestScope();
+        var (userId, organization) = await Init(testScope);
+        var issue = await CreateIssue(testScope, organization, userId, "Mine", true, request => request.SetContent("Old"));
+
+        await Update(testScope, issue.Id, userId, request => request
+            .SetContent("New")
             .SetSuggestedTitle("Suggested"));
 
         var updated = await Reload(testScope, issue.Id);
@@ -85,27 +81,11 @@ public class CoreIssuesServiceTitleTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
-    public async Task Update_ShouldDeriveTitleAgain_WhenExplicitTitleIsCleared()
-    {
-        using var testScope = host.CreateTestScope();
-        var (userId, organization) = await Init(testScope);
-        var issue = await CreateIssue(testScope, organization, userId, request => request
-            .SetContent("First line")
-            .SetTitle("Mine"));
-
-        await Update(testScope, issue.Id, userId, request => request.SetTitle(""));
-
-        var updated = await Reload(testScope, issue.Id);
-        Assert.Equal("First line", updated.Title);
-        Assert.False(updated.IsTitleSetExplicitly);
-    }
-
-    [Fact]
     public async Task Update_ShouldSetExplicitTitleAndLogIt_WhenTitleIsChanged()
     {
         using var testScope = host.CreateTestScope();
         var (userId, organization) = await Init(testScope);
-        var issue = await CreateIssue(testScope, organization, userId, request => request.SetContent("First line"));
+        var issue = await CreateIssue(testScope, organization, userId, "First line", false, request => request.SetContent("First line"));
 
         await Update(testScope, issue.Id, userId, request => request.SetTitle("Mine"));
 
@@ -121,14 +101,17 @@ public class CoreIssuesServiceTitleTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
-    public async Task Update_ShouldNotLogTitle_WhenTitleFollowsContent()
+    public async Task Update_ShouldNotPinTitleOrLogIt_WhenTheSameTitleIsResent()
     {
         using var testScope = host.CreateTestScope();
         var (userId, organization) = await Init(testScope);
-        var issue = await CreateIssue(testScope, organization, userId, request => request.SetContent("Old"));
+        var issue = await CreateIssue(testScope, organization, userId, "First line", false, request => request.SetContent("First line"));
 
-        await Update(testScope, issue.Id, userId, request => request.SetContent("New"));
+        await Update(testScope, issue.Id, userId, request => request.SetContent("Edited on the web").SetTitle("First line"));
 
+        var updated = await Reload(testScope, issue.Id);
+        Assert.Equal("First line", updated.Title);
+        Assert.False(updated.IsTitleSetExplicitly);
         Assert.False(await testScope.Database.OrganizationLogItems
             .AnyAsync(x => x.PropertyType == PropertyType.Title));
     }
@@ -145,9 +128,11 @@ public class CoreIssuesServiceTitleTests(WebApiTestHost host) : IClassFixture<We
         WebApiTestHostScope testScope,
         Organization organization,
         Guid userId,
+        string title,
+        bool isTitleSetExplicitly,
         Action<IssueCreateRequest> setup)
     {
-        var request = new IssueCreateRequest(organization.GetStatus(0, 0, 0).Id, DateTime.UtcNow);
+        var request = new IssueCreateRequest(organization.GetStatus(0, 0, 0).Id, DateTime.UtcNow, title, isTitleSetExplicitly);
         setup(request);
 
         await using var transaction = await testScope.Database.Database.BeginTransactionAsync();

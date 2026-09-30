@@ -120,9 +120,12 @@ public class TelegramSaveMessageService(
 
         var content = ComposeReplyContent(request.Note, cardMessage.Text);
 
-        string? suggestedTitle = null;
+        string? aiTitle = null;
         if (request.Summarize && content is not null)
-            (suggestedTitle, content) = await SummarizeAndSpendTokens(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
+            (aiTitle, content) = await SummarizeAndSpendTokens(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
+
+        // The AI's title, or - without one, or without summarizing - the first line of the content.
+        var title = aiTitle ?? BuildTitle(content, "message", dateTimeProvider.UtcNow, request.ExternalChatId, linkedChat.ChatTitle);
 
         if (cardMessage.IssueId is not null)
         {
@@ -135,7 +138,7 @@ public class TelegramSaveMessageService(
                     .Select(x => x.AttachmentId!.Value));
 
             if (content is not null)
-                update.SetContent(content).SetSuggestedTitle(suggestedTitle);
+                update.SetContent(content).SetSuggestedTitle(title);
 
             await coreIssuesService.Update(
                 cardMessage.IssueId.Value,
@@ -159,9 +162,8 @@ public class TelegramSaveMessageService(
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow)
+        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly: false)
             .SetContent(content)
-            .SetSuggestedTitle(suggestedTitle)
             .SetTelegramMessageId(cardMessage.Id)
             .LinkExistingAttachments(groupMessages
                 .Where(x => x.AttachmentId is not null)
@@ -557,7 +559,7 @@ public class TelegramSaveMessageService(
                 if (contentChanged)
                 {
                     // TODO - here we can detect and remove previous messages. But should we?
-                    update.SetContent(request.Text);
+                    update.SetContent(request.Text).SetSuggestedTitle(BuildTitle(request, linkedChat));
                 }
 
                 if (attachmentId is not null)
@@ -658,7 +660,9 @@ public class TelegramSaveMessageService(
             if (linkedChat.SaveMode != SaveMode.EachMessage)
                 return Recorded(savedMessage.Id);
 
-            var update = new IssueUpdateRequest().SetContent(request.Text);
+            var update = new IssueUpdateRequest()
+                .SetContent(request.Text)
+                .SetSuggestedTitle(BuildTitle(request, linkedChat));
 
             if (attachmentId is not null)
                 update.LinkExistingAttachment(attachmentId.Value);
@@ -707,13 +711,13 @@ public class TelegramSaveMessageService(
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, request.SentAt)
+        var issueCreate = new IssueCreateRequest(
+                linkedChat.StatusId,
+                request.SentAt,
+                BuildTitle(request, linkedChat),
+                isTitleSetExplicitly: false)
             .SetContent(request.Text)
             .SetTelegramMessageId(telegramMessageId);
-
-        // A photo or video without a caption has no first line to take a title from.
-        if (string.IsNullOrWhiteSpace(request.Text))
-            issueCreate.SetSuggestedTitle(BuildMediaTitle(request, linkedChat));
 
         if (attachmentId is not null)
             issueCreate.LinkExistingAttachment(attachmentId.Value);
@@ -729,10 +733,7 @@ public class TelegramSaveMessageService(
         };
     }
 
-    /// <summary>
-    /// "image-20260930-101500-Chat name": what a caption-less media message is called.
-    /// </summary>
-    private static string BuildMediaTitle(SaveMessageTelegramRequest request, LinkedChatToSaveMessage linkedChat)
+    private static string BuildTitle(SaveMessageTelegramRequest request, LinkedChatToSaveMessage linkedChat)
     {
         var kind = request switch
         {
@@ -741,11 +742,23 @@ public class TelegramSaveMessageService(
             _ => "message",
         };
 
-        var chat = string.IsNullOrWhiteSpace(linkedChat.ChatTitle)
-            ? $"chat-{request.ExternalChatId}"
-            : linkedChat.ChatTitle;
+        return BuildTitle(request.Text, kind, request.SentAt, request.ExternalChatId, linkedChat.ChatTitle);
+    }
 
-        return $"{kind}-{request.SentAt:yyyyMMdd-HHmmss}-{chat}";
+    /// <summary>
+    /// The first line of <paramref name="text"/> - Telegram is the only place a title is derived from the
+    /// content. A caption-less photo or video (or a text with nothing but markup) has no first line, so it
+    /// is called "image-20260930-101500-Chat name".
+    /// </summary>
+    private static string BuildTitle(string? text, string kind, DateTime sentAt, long externalChatId, string? chatTitle)
+    {
+        var title = IssueTitle.FromContent(text);
+        if (title.Length > 0)
+            return title;
+
+        var chat = string.IsNullOrWhiteSpace(chatTitle) ? $"chat-{externalChatId}" : chatTitle;
+
+        return IssueTitle.Normalize($"{kind}-{sentAt:yyyyMMdd-HHmmss}-{chat}");
     }
 
     /// <summary>
