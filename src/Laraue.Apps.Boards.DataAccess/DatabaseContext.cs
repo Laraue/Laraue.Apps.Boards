@@ -72,6 +72,11 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops");
 
+            entity
+                .HasIndex(x => x.Title)
+                .HasMethod("gin")
+                .HasOperators("gin_trgm_ops");
+
             entity.HasIndex(x => x.AssigneeId);
 
             entity.Property(x => x.LexoRank)
