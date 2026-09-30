@@ -15,7 +15,8 @@ public interface IAiContentSummarizer
     /// <summary>
     /// Estimated total input tokens a call to <see cref="SummarizeAsync"/> with
     /// <paramref name="content"/> will cost - <em>not</em> just an estimate of
-    /// <paramref name="content"/> itself, since this implementation also sends its own fixed
+    /// <paramref name="content"/> itself (and it depends on <paramref name="generateTitle"/>, which
+    /// picks the system prompt), since this implementation also sends its own fixed
     /// overhead on every call (a system prompt, chat-formatting overhead, etc.) that a caller has
     /// no visibility into. A caller reserving Billing tokens before calling
     /// <see cref="SummarizeAsync"/> should use this rather than estimating the content on its own,
@@ -23,14 +24,14 @@ public interface IAiContentSummarizer
     /// from a real run where a content-only estimate was 9 tokens but the provider's actual
     /// reported usage was 106 - the ~97-token gap was entirely the missing overhead.
     /// </summary>
-    int EstimateInputTokenCount(string content);
+    int EstimateInputTokenCount(string content, bool generateTitle);
 
     /// <summary>
-    /// Runs <paramref name="notes"/> through the AI provider and returns the generated title (when
-    /// the provider returned one) and the beautified content, alongside the actual
+    /// Runs <paramref name="notes"/> through the AI provider and returns the beautified content and,
+    /// when <paramref name="generateTitle"/> is set and the provider returned one, a generated title, alongside the actual
     /// input/output token counts the provider billed for.
     /// </summary>
-    Task<AiSummarizationResult> SummarizeAsync(string notes, CancellationToken cancellationToken);
+    Task<AiSummarizationResult> SummarizeAsync(string notes, bool generateTitle, CancellationToken cancellationToken);
 }
 
 /// <summary>

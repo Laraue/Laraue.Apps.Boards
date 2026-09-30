@@ -328,7 +328,7 @@ public class TelegramSaveMessageService(
         string content,
         CancellationToken cancellationToken)
     {
-        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content);
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content, generateTitle: true);
 
         var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
             organizationId,
@@ -339,7 +339,7 @@ public class TelegramSaveMessageService(
 
         try
         {
-            var result = await aiContentSummarizer.SummarizeAsync(content, cancellationToken);
+            var result = await aiContentSummarizer.SummarizeAsync(content, generateTitle: true, cancellationToken);
             tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
             return result.Content;

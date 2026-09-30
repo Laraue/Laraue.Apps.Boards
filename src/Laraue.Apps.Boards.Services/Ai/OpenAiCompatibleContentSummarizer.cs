@@ -15,7 +15,7 @@ public class OpenAiCompatibleContentSummarizer(
     ITokenEstimate tokenEstimate)
     : IAiContentSummarizer
 {
-    private const string SystemPrompt =
+    private const string BasePrompt =
         """
         Beautify these task notes: fix grammar, spelling, formatting, structure; remove
         duplicate statements. Wording only - never change meaning, never add anything not
@@ -24,32 +24,52 @@ public class OpenAiCompatibleContentSummarizer(
         filling them in. Keep the same length and level of detail as the input; don't turn a
         short note into sections, labels, or a list it didn't have (e.g. no invented
         "Issue:"/"Task:" headers or restating one point as several).
+        """;
+
+    private const string TitleFormatPrompt =
+        """
         Reply with a JSON object of two string fields: "title" - a short one-line title (keep
         an existing title as-is, else derive one from the notes only), and "content" - the
         beautified markdown content without the title. No code block, no extra commentary.
         Example: {"title": "Fix login retry", "content": "- Login fails on retry\n- Add logging"}
         """;
 
+    private const string ContentOnlyFormatPrompt =
+        """
+        Reply with a JSON object of one string field: "content" - the beautified markdown
+        content. No code block, no extra commentary.
+        Example: {"content": "- Login fails on retry\n- Add logging"}
+        """;
+
+    private const string SystemPromptWithTitle = BasePrompt + "\n" + TitleFormatPrompt;
+
+    private const string SystemPromptWithoutTitle = BasePrompt + "\n" + ContentOnlyFormatPrompt;
+
+    private static string GetSystemPrompt(bool generateTitle) =>
+        generateTitle ? SystemPromptWithTitle : SystemPromptWithoutTitle;
+
     private const int DefaultMaxTokens = 2048;
 
     public int MaxOutputTokensCount => DefaultMaxTokens;
 
-    // SystemPrompt is a compile-time constant sent unchanged on every call, so its estimate never
-    // changes either - cheap enough (a ~400-char string) that recomputing it per access isn't
-    // worth caching.
-    private int SystemPromptTokensCount => tokenEstimate.EstimateInputTokenCount(SystemPrompt);
+    // The system prompts are compile-time constants sent unchanged on every call, so their
+    // estimates never change either - cheap enough (a ~400-char string) that recomputing them per
+    // call isn't worth caching.
+    public int EstimateInputTokenCount(string content, bool generateTitle) =>
+        tokenEstimate.EstimateInputTokenCount(GetSystemPrompt(generateTitle))
+        + tokenEstimate.EstimateInputTokenCount(content);
 
-    public int EstimateInputTokenCount(string content) =>
-        SystemPromptTokensCount + tokenEstimate.EstimateInputTokenCount(content);
-
-    public async Task<AiSummarizationResult> SummarizeAsync(string notes, CancellationToken cancellationToken)
+    public async Task<AiSummarizationResult> SummarizeAsync(
+        string notes,
+        bool generateTitle,
+        CancellationToken cancellationToken)
     {
         var request = new ChatCompletionRequest
         {
             Model = options.Value.Model,
             Messages =
             [
-                new ChatMessage { Role = "system", Content = SystemPrompt },
+                new ChatMessage { Role = "system", Content = GetSystemPrompt(generateTitle) },
                 new ChatMessage { Role = "user", Content = notes },
             ],
             Thinking = new ChatCompletionThinking
@@ -88,17 +108,17 @@ public class OpenAiCompatibleContentSummarizer(
             throw new AiContentSummarizationException("AI summarization API returned no usage data.");
         }
 
-        var (title, body) = ParseSummary(content);
+        var (title, body) = ParseSummary(content, generateTitle);
 
         return new AiSummarizationResult(title, body, usage.PromptTokens, usage.CompletionTokens);
     }
 
     /// <summary>
-    /// Reads the requested {"title", "content"} JSON. The tokens are already spent, so a reply that
-    /// isn't that JSON (or lacks either field) is kept as plain content with no title - the issue
-    /// then derives its title from the first line.
+    /// Reads the requested {"title", "content"} (or content-only) JSON. The tokens are already spent,
+    /// so a reply that isn't that JSON or lacks the content is kept as plain content with no title,
+    /// and a missing title just leaves the issue to derive it from the first line.
     /// </summary>
-    private static (string? Title, string Content) ParseSummary(string completion)
+    private static (string? Title, string Content) ParseSummary(string completion, bool generateTitle)
     {
         SummaryPayload? payload;
         try
@@ -110,12 +130,13 @@ public class OpenAiCompatibleContentSummarizer(
             payload = null;
         }
 
-        var title = IssueTitle.FromContent(payload?.Title);
         var content = payload?.Content?.Trim();
+        if (string.IsNullOrEmpty(content))
+            return (null, completion.Trim());
 
-        return title.Length == 0 || string.IsNullOrEmpty(content)
-            ? (null, completion.Trim())
-            : (title, content);
+        var title = generateTitle ? IssueTitle.FromContent(payload?.Title) : string.Empty;
+
+        return (title.Length == 0 ? null : title, content);
     }
 
     private record SummaryPayload

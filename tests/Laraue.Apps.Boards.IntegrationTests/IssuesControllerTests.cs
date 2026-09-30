@@ -1694,13 +1694,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
 
-        const string beautified = "Fix login bug\n---\n- Login fails on retry\n- Add logging";
+        const string beautified = "- Login fails on retry\n- Add logging";
 
         host.AiContentSummarizerMock
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
+                It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiSummarizationResult(null, beautified, InputTokensCount: 10, OutputTokensCount: 20));
+            .ReturnsAsync(new AiSummarizationResult("Fix login bug", beautified, InputTokensCount: 10, OutputTokensCount: 20));
 
         var result = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -1710,7 +1711,148 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     Content = "fix login bug, fails on retry, need logs pls",
                 }));
 
-        Assert.Equal(beautified, result);
+        Assert.NotNull(result);
+        Assert.Equal("Fix login bug", result.Title);
+        Assert.Equal(beautified, result.Content);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldAskForTitle_WhenGenerateTitleIsSet()
+    {
+        const string notes = "notes for the generate title flag";
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(notes, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult(null, "Content", InputTokensCount: 1, OutputTokensCount: 1));
+
+        var withTitle = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(new SummarizeIssueContentRequest { Content = notes, GenerateTitle = true }));
+        var withoutTitle = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(new SummarizeIssueContentRequest { Content = notes }));
+
+        Assert.NotNull(withTitle);
+        Assert.NotNull(withoutTitle);
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(notes, true, It.IsAny<CancellationToken>()), Times.Once);
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(notes, false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Create_ShouldSaveExplicitTitle_WhenTitleIsPassed()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "First line\nbody",
+                    Title = "Custom title",
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                }));
+
+        var issueDto = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssue(issueKey!));
+
+        Assert.NotNull(issueDto);
+        Assert.Equal("Custom title", issueDto.Title);
+        Assert.True(issueDto.IsTitleSetExplicitly);
+    }
+
+    [Fact]
+    public async Task Create_ShouldDeriveTitle_WhenTitleIsNotPassed()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "# First line\nbody",
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
+        Assert.NotNull(issue);
+        Assert.Equal("First line", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
+    }
+
+    [Fact]
+    public async Task Update_ShouldKeepTitle_WhenTitleIsOmitted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Mine")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { Content = "New", AssigneeId = userId }));
+
+        // The seeded issue is still tracked with its old values.
+        var issue = await testScope.Database.Issues.AsNoTracking().SingleAsync(x => x.Id == issueData.Issue.Id);
+        Assert.Equal("Mine", issue.Title);
+        Assert.True(issue.IsTitleSetExplicitly);
+    }
+
+    [Fact]
+    public async Task Update_ShouldResetTitle_WhenTitleIsEmpty()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Mine")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { Content = "New first line", Title = "", AssigneeId = userId }));
+
+        // The seeded issue is still tracked with its old values.
+        var issue = await testScope.Database.Issues.AsNoTracking().SingleAsync(x => x.Id == issueData.Issue.Id);
+        Assert.Equal("New first line", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
+    }
+
+    [Fact]
+    public async Task User_ShouldFindIssueByTitle_WhenSearchStringMatchesOnlyTitle()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Body one").WithTitle("Login bug"))
+            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Body two").WithTitle("Other")));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest { SearchString = "login", Page = 0, PerPage = 10 }));
+
+        Assert.NotNull(issuesResult);
+        var issueDto = Assert.Single(issuesResult.Data);
+        Assert.Equal("Login bug", issueDto.Title);
+        Assert.Equal("Body one", issueDto.Content);
     }
 
     [Fact]
@@ -1721,7 +1863,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var organization = await testScope.InitializeOrganization(userId);
 
         host.AiContentSummarizerMock
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
@@ -1748,7 +1890,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .ReturnsAsync(tokenTransactionId);
 
         host.AiContentSummarizerMock
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSummarizationResult(null, "Title\n---\nContent", InputTokensCount: 10, OutputTokensCount: 42));
 
         await _issuesController
@@ -1785,7 +1927,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
         host.AiContentSummarizerMock.Verify(
-            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -1802,7 +1944,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .ReturnsAsync(tokenTransactionId);
 
         host.AiContentSummarizerMock
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
 
         await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController

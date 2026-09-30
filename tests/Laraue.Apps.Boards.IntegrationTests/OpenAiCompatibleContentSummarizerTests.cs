@@ -46,7 +46,7 @@ public class OpenAiCompatibleContentSummarizerTests
         // reported prompt_tokens includes the whole request, not just the caller's content).
         var summarizer = CreateSummarizer(new FakeHttpMessageHandler(_ => throw new InvalidOperationException("not used")));
 
-        var estimate = summarizer.EstimateInputTokenCount(string.Empty);
+        var estimate = summarizer.EstimateInputTokenCount(string.Empty, generateTitle: true);
 
         Assert.True(estimate > 20);
     }
@@ -65,7 +65,7 @@ public class OpenAiCompatibleContentSummarizerTests
 
         var summarizer = CreateSummarizer(handler);
 
-        var result = await summarizer.SummarizeAsync("fix login bug pls", CancellationToken.None);
+        var result = await summarizer.SummarizeAsync("fix login bug pls", generateTitle: true, CancellationToken.None);
 
         Assert.Equal("Fix login bug", result.Title);
         Assert.Equal("Beautified\n---\ncontent", result.Content);
@@ -86,10 +86,41 @@ public class OpenAiCompatibleContentSummarizerTests
 
         var summarizer = CreateSummarizer(handler);
 
-        var result = await summarizer.SummarizeAsync("notes", CancellationToken.None);
+        var result = await summarizer.SummarizeAsync("notes", generateTitle: true, CancellationToken.None);
 
         Assert.Null(result.Title);
         Assert.NotEmpty(result.Content);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_ShouldAskForContentOnlyAndReturnNoTitle_WhenTitleIsNotRequested()
+    {
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
+            HttpStatusCode.OK,
+            """
+            {
+                "choices":[{"message":{"role":"assistant","content":"{\"title\":\"Ignored\",\"content\":\"Body\"}"}}],
+                "usage":{"prompt_tokens":1,"completion_tokens":1}
+            }
+            """)));
+
+        var summarizer = CreateSummarizer(handler);
+
+        var result = await summarizer.SummarizeAsync("notes", generateTitle: false, CancellationToken.None);
+
+        Assert.Null(result.Title);
+        Assert.Equal("Body", result.Content);
+        Assert.DoesNotContain("\\\"title\\\"", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public void EstimateInputTokenCount_ShouldBeSmaller_WhenTitleIsNotRequested()
+    {
+        var summarizer = CreateSummarizer(new FakeHttpMessageHandler(_ => throw new InvalidOperationException()));
+
+        Assert.True(
+            summarizer.EstimateInputTokenCount("notes", generateTitle: false)
+            < summarizer.EstimateInputTokenCount("notes", generateTitle: true));
     }
 
     [Fact]
@@ -101,7 +132,7 @@ public class OpenAiCompatibleContentSummarizerTests
 
         var summarizer = CreateSummarizer(handler, thinking: false);
 
-        await summarizer.SummarizeAsync("notes", CancellationToken.None);
+        await summarizer.SummarizeAsync("notes", generateTitle: true, CancellationToken.None);
 
         Assert.Contains("\"thinking\":{\"type\":\"disabled\"}", handler.LastRequestBody);
     }
@@ -115,7 +146,7 @@ public class OpenAiCompatibleContentSummarizerTests
 
         var summarizer = CreateSummarizer(handler, thinking: true);
 
-        await summarizer.SummarizeAsync("notes", CancellationToken.None);
+        await summarizer.SummarizeAsync("notes", generateTitle: true, CancellationToken.None);
 
         Assert.Contains("\"thinking\":{\"type\":\"enabled\"}", handler.LastRequestBody);
     }
@@ -130,7 +161,7 @@ public class OpenAiCompatibleContentSummarizerTests
         var summarizer = CreateSummarizer(handler);
 
         var ex = await Assert.ThrowsAsync<AiContentSummarizationException>(
-            () => summarizer.SummarizeAsync("notes", CancellationToken.None));
+            () => summarizer.SummarizeAsync("notes", generateTitle: true, CancellationToken.None));
 
         Assert.IsType<HttpRequestException>(ex.InnerException);
     }
@@ -145,7 +176,7 @@ public class OpenAiCompatibleContentSummarizerTests
         var summarizer = CreateSummarizer(handler);
 
         await Assert.ThrowsAsync<AiContentSummarizationException>(
-            () => summarizer.SummarizeAsync("notes", CancellationToken.None));
+            () => summarizer.SummarizeAsync("notes", generateTitle: true, CancellationToken.None));
     }
 
     [Fact]
@@ -158,6 +189,6 @@ public class OpenAiCompatibleContentSummarizerTests
         var summarizer = CreateSummarizer(handler);
 
         await Assert.ThrowsAsync<AiContentSummarizationException>(
-            () => summarizer.SummarizeAsync("notes", CancellationToken.None));
+            () => summarizer.SummarizeAsync("notes", generateTitle: true, CancellationToken.None));
     }
 }

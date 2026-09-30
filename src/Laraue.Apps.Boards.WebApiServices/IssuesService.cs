@@ -87,7 +87,7 @@ public interface IIssuesService
         GetIssueCommentsRequest request,
         CancellationToken ct);
 
-    Task<string> SummarizeContent(
+    Task<SummarizedContentDto> SummarizeContent(
         SummarizeIssueContentRequest request,
         CancellationToken cancellationToken);
 }
@@ -132,9 +132,7 @@ public class IssuesService(
             
         if (!string.IsNullOrEmpty(request.SearchString))
         {
-            query = query
-                .Where(x => x.Content!
-                    .ILike(request.SearchString.AsSearchable()));
+            query = ApplySearch(query, request.SearchString);
         }
 
         var temporaryResult = ProjectToTemporaryDto(query);
@@ -208,8 +206,7 @@ public class IssuesService(
                 .Where(x => x.StatusId == statusId);
             
             if (!string.IsNullOrEmpty(request.SearchString))
-                query = query
-                    .Where(x => x.Content!.ILike(request.SearchString.AsSearchable()));
+                query = ApplySearch(query, request.SearchString);
             
             var statusResult = await ProjectToTemporaryDto(query)
                 .FullPaginateLinq2DbAsync(
@@ -377,6 +374,7 @@ public class IssuesService(
         
         var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow)
             .SetContent(request.Content)
+            .SetTitle(request.Title)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
             .LinkNewAttachments(uploadedFiles);
@@ -425,6 +423,10 @@ public class IssuesService(
             .LinkNewAttachments(uploadedFiles)
             .UnlinkAttachments(request.RemoveAttachmentIds);
 
+        // No title in the request leaves the title as it is; an empty one resets it to a derived title.
+        if (request.Title is not null)
+            issueUpdate.SetTitle(request.Title);
+
         await issuesService.Update(
             issueId,
             request.AuthData.UserId,
@@ -434,9 +436,9 @@ public class IssuesService(
         await transaction.CommitAsync(ct);
     }
 
-    public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
+    public async Task<SummarizedContentDto> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
     {
-        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(request.Content);
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(request.Content, request.GenerateTitle);
 
         Guid tokenTransactionId;
         try
@@ -455,10 +457,10 @@ public class IssuesService(
 
         try
         {
-            var result = await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            var result = await aiContentSummarizer.SummarizeAsync(request.Content, request.GenerateTitle, cancellationToken);
             tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
-            return result.Content;
+            return new SummarizedContentDto { Title = result.Title, Content = result.Content };
         }
         catch (AiContentSummarizationException ex)
         {
@@ -540,8 +542,7 @@ public class IssuesService(
                 issues = await ApplySorting(issues, request, ct);
         
                 if (!string.IsNullOrEmpty(request.SearchString))
-                    issues = issues
-                        .Where(x => x.Content!.ILike(request.SearchString.AsSearchable()));
+                    issues = ApplySearch(issues, request.SearchString);
 
                 return await ProjectToTemporaryDto(issues)
                     .ShortPaginateLinq2DbAsync(request, ct);
@@ -580,6 +581,8 @@ public class IssuesService(
                 Id = x.Id,
                 AssigneeId = x.AssigneeId,
                 OwnerId = x.OwnerId,
+                Title = x.Title,
+                IsTitleSetExplicitly = x.IsTitleSetExplicitly,
                 Content = x.Content,
                 Time = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
@@ -637,6 +640,8 @@ public class IssuesService(
                 UserId = result.AssigneeId,
                 IsCurrentUser = result.AssigneeId == request.AuthData.UserId,
             },
+            Title = result.Title,
+            IsTitleSetExplicitly = result.IsTitleSetExplicitly,
             Content = result.Content,
             Owner = new UserDetails { UserId = result.OwnerId },
             Time = result.Time,
@@ -993,6 +998,7 @@ public class IssuesService(
                 SpaceKey = element.SpaceKey,
                 Space = spaces[element.SpaceKey],
                 Id = element.Id,
+                Title = element.Title,
                 Content = element.Content,
                 Key = element.Key,
                 Assignee = element.Assignee,
@@ -1143,12 +1149,20 @@ public class IssuesService(
         }
     }
 
+    private static IQueryable<Issue> ApplySearch(IQueryable<Issue> query, string searchString)
+    {
+        var term = searchString.AsSearchable();
+
+        return query.Where(x => x.Title.ILike(term) || x.Content!.ILike(term));
+    }
+
     private static IQueryable<IssueListDtoData> ProjectToTemporaryDto(
         IQueryable<Issue> queryable)
     {
         return queryable.Select(x => new IssueListDtoData
         {
             Id = x.Id,
+            Title = x.Title,
             Content = x.Content,
             Time = x.CreatedAt,
             EpicId = x.Status!.EpicId,
@@ -1168,6 +1182,7 @@ public class IssuesService(
         {
             Id = source.Id,
             StatusId = source.StatusId,
+            Title = source.Title,
             Content = source.Content,
             EpicId = source.EpicId,
             Assignee = source.Assignee.DisplayName,
@@ -1495,6 +1510,7 @@ public class IssuesService(
             IssueProperty.CreatedAt => query.ApplySorting(x => x.CreatedAt, sorting.Direction),
             IssueProperty.UpdatedAt => query.ApplySorting(x => x.UpdatedAt, sorting.Direction),
             IssueProperty.Content => query.ApplySorting(x => x.Content, sorting.Direction),
+            IssueProperty.Title => query.ApplySorting(x => x.Title, sorting.Direction),
             _ => throw new InvalidOperationException($"Sorting by '{sorting.Property}' is not supported")
         };
     }
@@ -1539,6 +1555,20 @@ public record SummarizeIssueContentRequest
 
     [MaxLength(4096)]
     public required string Content { get; set; }
+
+    /// <summary>
+    /// Ask the AI for a title as well. Issue editors set it, a comment has no title.
+    /// </summary>
+    public bool GenerateTitle { get; set; }
+}
+
+public record SummarizedContentDto
+{
+    /// <summary>
+    /// A short title generated together with the content, or null when the AI gave none.
+    /// </summary>
+    public required string? Title { get; set; }
+    public required string Content { get; set; }
 }
 
 public record ColumnIssues
@@ -1553,6 +1583,7 @@ public class IssueListDtoData
     public required DateTime Time { get; set; }
     public required UserDetails Assignee { get; init; }
     public required long? AssigneeTelegramId { get; set; }
+    public required string Title { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
@@ -1569,6 +1600,7 @@ public record IssueListDto
     public required string Key { get; set; }
     public string? AssigneeInitial { get; set; }
     public required string AssigneeColor { get; set; }
+    public required string Title { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
@@ -1608,6 +1640,12 @@ public record CreateIssueRequest
     public required long StatusId { get; set; }
     public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
+
+    /// <summary>
+    /// Optional title. Without it the title is derived from the first line of the content.
+    /// </summary>
+    [MaxLength(Constraints.MaxTitleLength)]
+    public string? Title { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
     public IFormFile[] Files { get; set; } = [];
@@ -1619,6 +1657,14 @@ public record UpdateIssueRequest
     public OrganizationAuthData AuthData { get; set; } = new();
     public IssueKey? IssueKey { get; set; }
     public required string Content { get; set; }
+
+    /// <summary>
+    /// Optional title. Omitted keeps the title as it is, empty resets it to the one derived from the content.
+    /// </summary>
+    // Form binding turns an empty value into null by default, which would make "reset" indistinguishable from "omitted".
+    [DisplayFormat(ConvertEmptyStringToNull = false)]
+    [MaxLength(Constraints.MaxTitleLength)]
+    public string? Title { get; set; }
     public required Guid AssigneeId { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
@@ -1742,6 +1788,12 @@ public class IssueDetailDto
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required UserDetails Owner { get; set; }
+    public required string Title { get; set; }
+
+    /// <summary>
+    /// True when the title was typed by hand, false when it follows the content.
+    /// </summary>
+    public required bool IsTitleSetExplicitly { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
@@ -1798,6 +1850,8 @@ public class IssueDetailDtoData
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long? TelegramId { get; set; }
+    public required string Title { get; set; }
+    public required bool IsTitleSetExplicitly { get; set; }
     public required string? Content { get; set; }
     public required long CategoryId { get; set; }
     public required string? CategoryName { get; set; }

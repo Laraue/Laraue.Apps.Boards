@@ -1631,6 +1631,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         Mock.Get(summarizer)
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
+                It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSummarizationResult(
                 null,
@@ -1750,7 +1751,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var summarizer = host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>();
         Mock.Get(summarizer)
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("AI summarization API request failed."));
 
         await host.SendUpdateAsync(new Update
@@ -1876,7 +1877,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var summarizer = host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>();
         Mock.Get(summarizer)
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("AI summarization API request failed."));
 
         await host.SendUpdateAsync(new Update
