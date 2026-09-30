@@ -26,9 +26,9 @@ public interface IAiContentSummarizer
     int EstimateInputTokenCount(string content);
 
     /// <summary>
-    /// Runs <paramref name="notes"/> through the AI provider and returns the beautified content
-    /// (a markdown document: a title line, then a "---" separator line, then the structured task
-    /// content) alongside the actual input/output token counts the provider billed for.
+    /// Runs <paramref name="notes"/> through the AI provider and returns the generated title (when
+    /// the provider returned one) and the beautified content, alongside the actual
+    /// input/output token counts the provider billed for.
     /// </summary>
     Task<AiSummarizationResult> SummarizeAsync(string notes, CancellationToken cancellationToken);
 }
@@ -38,4 +38,4 @@ public interface IAiContentSummarizer
 /// reported usage for the call, not an estimate - needed to commit an accurate amount back to
 /// Billing after reserving a conservative estimate up front.
 /// </summary>
-public sealed record AiSummarizationResult(string Content, int InputTokensCount, int OutputTokensCount);
+public sealed record AiSummarizationResult(string? Title, string Content, int InputTokensCount, int OutputTokensCount);

@@ -1633,6 +1633,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 "fix login bug, fails on retry, need logs pls",
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSummarizationResult(
+                null,
                 "Fix login bug\n---\n- Login fails on retry\n- Add logging",
                 InputTokensCount: 10,
                 OutputTokensCount: 20));

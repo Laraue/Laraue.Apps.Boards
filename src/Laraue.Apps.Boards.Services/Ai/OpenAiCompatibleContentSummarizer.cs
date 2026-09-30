@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.Services.Billing;
 using Microsoft.Extensions.Options;
@@ -23,9 +24,10 @@ public class OpenAiCompatibleContentSummarizer(
         filling them in. Keep the same length and level of detail as the input; don't turn a
         short note into sections, labels, or a list it didn't have (e.g. no invented
         "Issue:"/"Task:" headers or restating one point as several).
-        Output markdown only: title line, then a line with only "---", then the beautified
-        content. Keep an existing title as-is; else derive a short one from the notes only.
-        No code block, no extra commentary.
+        Reply with a JSON object of two string fields: "title" - a short one-line title (keep
+        an existing title as-is, else derive one from the notes only), and "content" - the
+        beautified markdown content without the title. No code block, no extra commentary.
+        Example: {"title": "Fix login retry", "content": "- Login fails on retry\n- Add logging"}
         """;
 
     private const int DefaultMaxTokens = 2048;
@@ -54,6 +56,7 @@ public class OpenAiCompatibleContentSummarizer(
             {
                 Type = options.Value.Thinking ? "enabled" : "disabled",
             },
+            ResponseFormat = new ChatCompletionResponseFormat { Type = "json_object" },
             MaxTokens = DefaultMaxTokens,
             Stream = false,
         };
@@ -85,7 +88,43 @@ public class OpenAiCompatibleContentSummarizer(
             throw new AiContentSummarizationException("AI summarization API returned no usage data.");
         }
 
-        return new AiSummarizationResult(content.Trim(), usage.PromptTokens, usage.CompletionTokens);
+        var (title, body) = ParseSummary(content);
+
+        return new AiSummarizationResult(title, body, usage.PromptTokens, usage.CompletionTokens);
+    }
+
+    /// <summary>
+    /// Reads the requested {"title", "content"} JSON. The tokens are already spent, so a reply that
+    /// isn't that JSON (or lacks either field) is kept as plain content with no title - the issue
+    /// then derives its title from the first line.
+    /// </summary>
+    private static (string? Title, string Content) ParseSummary(string completion)
+    {
+        SummaryPayload? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<SummaryPayload>(completion);
+        }
+        catch (JsonException)
+        {
+            payload = null;
+        }
+
+        var title = IssueTitle.FromContent(payload?.Title);
+        var content = payload?.Content?.Trim();
+
+        return title.Length == 0 || string.IsNullOrEmpty(content)
+            ? (null, completion.Trim())
+            : (title, content);
+    }
+
+    private record SummaryPayload
+    {
+        [JsonPropertyName("title")]
+        public string? Title { get; init; }
+
+        [JsonPropertyName("content")]
+        public string? Content { get; init; }
     }
 
     private record ChatCompletionRequest
@@ -99,6 +138,9 @@ public class OpenAiCompatibleContentSummarizer(
         [JsonPropertyName("thinking")]
         public required ChatCompletionThinking Thinking { get; init; }
 
+        [JsonPropertyName("response_format")]
+        public required ChatCompletionResponseFormat ResponseFormat { get; init; }
+
         [JsonPropertyName("max_tokens")]
         public required int MaxTokens { get; init; }
 
@@ -107,6 +149,12 @@ public class OpenAiCompatibleContentSummarizer(
     }
 
     private record ChatCompletionThinking
+    {
+        [JsonPropertyName("type")]
+        public required string Type { get; init; }
+    }
+
+    private record ChatCompletionResponseFormat
     {
         [JsonPropertyName("type")]
         public required string Type { get; init; }

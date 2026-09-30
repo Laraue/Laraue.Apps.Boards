@@ -1700,7 +1700,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiSummarizationResult(beautified, InputTokensCount: 10, OutputTokensCount: 20));
+            .ReturnsAsync(new AiSummarizationResult(null, beautified, InputTokensCount: 10, OutputTokensCount: 20));
 
         var result = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -1749,7 +1749,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         host.AiContentSummarizerMock
             .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiSummarizationResult("Title\n---\nContent", InputTokensCount: 10, OutputTokensCount: 42));
+            .ReturnsAsync(new AiSummarizationResult(null, "Title\n---\nContent", InputTokensCount: 10, OutputTokensCount: 42));
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)

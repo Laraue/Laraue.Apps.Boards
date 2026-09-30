@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
@@ -52,13 +52,13 @@ public class OpenAiCompatibleContentSummarizerTests
     }
 
     [Fact]
-    public async Task SummarizeAsync_ShouldReturnTrimmedCompletionContentAndUsage_WhenApiRespondsSuccessfully()
+    public async Task SummarizeAsync_ShouldReturnTitleContentAndUsage_WhenApiRepliesWithJson()
     {
         var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
             HttpStatusCode.OK,
             """
             {
-                "choices":[{"message":{"role":"assistant","content":"  Fix login bug\n---\nBeautified content  "}}],
+                "choices":[{"message":{"role":"assistant","content":"{\"title\":\"# Fix login bug\",\"content\":\"  Beautified\\n---\\ncontent  \"}"}}],
                 "usage":{"prompt_tokens":42,"completion_tokens":17}
             }
             """)));
@@ -67,9 +67,29 @@ public class OpenAiCompatibleContentSummarizerTests
 
         var result = await summarizer.SummarizeAsync("fix login bug pls", CancellationToken.None);
 
-        Assert.Equal("Fix login bug\n---\nBeautified content", result.Content);
+        Assert.Equal("Fix login bug", result.Title);
+        Assert.Equal("Beautified\n---\ncontent", result.Content);
         Assert.Equal(42, result.InputTokensCount);
         Assert.Equal(17, result.OutputTokensCount);
+    }
+
+    [Theory]
+    [InlineData("Plain text reply")]
+    [InlineData("{\\\"title\\\":\\\"\\\",\\\"content\\\":\\\"Body\\\"}")]
+    [InlineData("{\\\"title\\\":\\\"Only title\\\"}")]
+    public async Task SummarizeAsync_ShouldReturnRawReplyWithoutTitle_WhenReplyIsNotUsableJson(string reply)
+    {
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
+            HttpStatusCode.OK,
+            "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"" + reply + "\"}}],"
+            + "\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}")));
+
+        var summarizer = CreateSummarizer(handler);
+
+        var result = await summarizer.SummarizeAsync("notes", CancellationToken.None);
+
+        Assert.Null(result.Title);
+        Assert.NotEmpty(result.Content);
     }
 
     [Fact]
