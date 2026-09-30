@@ -14,6 +14,18 @@ public abstract class IssueChange<TSelf> where TSelf : IssueChange<TSelf>
 {
     internal ChangedValue<string?> Content { get; private set; } = ChangedValue<string?>.Unset;
 
+    /// <summary>
+    /// A title the user typed - wins over any derived or suggested title. An empty value resets
+    /// the title back to a derived one.
+    /// </summary>
+    internal ChangedValue<string?> Title { get; private set; } = ChangedValue<string?>.Unset;
+
+    /// <summary>
+    /// A title produced by the system (AI summary, a generated media title). Used only while the
+    /// user hasn't set a title by hand, and doesn't mark the title as set explicitly.
+    /// </summary>
+    internal string? SuggestedTitle { get; private set; }
+
     internal ChangedValue<Guid> AssigneeId { get; private set; } = ChangedValue<Guid>.Unset;
 
     /// <summary>
@@ -37,6 +49,25 @@ public abstract class IssueChange<TSelf> where TSelf : IssueChange<TSelf>
     public TSelf SetContent(string? content)
     {
         Content = ChangedValue<string?>.Of(content?.ReplaceLineEndings(IssueContentFormat.LineSeparatorString));
+        return (TSelf)this;
+    }
+
+    /// <summary>
+    /// Sets the title by hand. A null/blank <paramref name="title"/> takes the explicit title away,
+    /// so the issue derives it from its content again.
+    /// </summary>
+    public TSelf SetTitle(string? title)
+    {
+        Title = ChangedValue<string?>.Of(IssueTitle.Normalize(title));
+        return (TSelf)this;
+    }
+
+    /// <summary>
+    /// Suggests a title (e.g. from an AI summary). Ignored when the user set a title by hand.
+    /// </summary>
+    public TSelf SetSuggestedTitle(string? title)
+    {
+        SuggestedTitle = IssueTitle.Normalize(title) is { Length: > 0 } normalized ? normalized : null;
         return (TSelf)this;
     }
 

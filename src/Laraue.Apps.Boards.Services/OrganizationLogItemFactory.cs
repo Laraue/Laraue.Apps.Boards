@@ -10,6 +10,8 @@ public interface IOrganizationLogItemFactory
 {
     OrganizationLogItem ContentChanged(string? oldValue, string? newValue);
 
+    OrganizationLogItem TitleChanged(string? oldValue, string? newValue);
+
     OrganizationLogItem AttachmentAdded(Guid? previewFileId, string? fileName);
 
     OrganizationLogItem AttachmentRemoved(Guid? previewFileId, string? fileName);
@@ -32,6 +34,16 @@ public class OrganizationLogItemFactory : IOrganizationLogItemFactory
             NewDisplayValue = newValue,
             OldDisplayValue = oldValue,
             PropertyType = PropertyType.Content,
+        };
+    }
+
+    public OrganizationLogItem TitleChanged(string? oldValue, string? newValue)
+    {
+        return new OrganizationLogItem
+        {
+            NewDisplayValue = newValue,
+            OldDisplayValue = oldValue,
+            PropertyType = PropertyType.Title,
         };
     }
 

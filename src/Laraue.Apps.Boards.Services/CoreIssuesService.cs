@@ -145,10 +145,16 @@ public class CoreIssuesService(
             throw new InvalidOperationException("Lexo rank should be set here");
 
         var content = request.Content.GetValueOrDefault();
+        var isTitleSetExplicitly = request.Title is { IsSet: true, Value: { Length: > 0 } };
+        var title = isTitleSetExplicitly
+            ? request.Title.Value!
+            : request.SuggestedTitle ?? IssueTitle.FromContent(content);
 
         var issue = new Issue
         {
             Content = content,
+            Title = title,
+            IsTitleSetExplicitly = isTitleSetExplicitly,
             OwnerId = actor.UserId,
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.CreatedAt,
@@ -250,6 +256,34 @@ public class CoreIssuesService(
         return issue.Id;
     }
 
+    /// <summary>
+    /// Picks the title after an update: a title typed by hand wins (and stays until it is cleared),
+    /// then a system-suggested one, otherwise the title follows the first line of a changed content.
+    /// <c>IsChosen</c> is true when the title came from the request rather than from the content.
+    /// </summary>
+    private static (string Title, bool IsSetExplicitly, bool IsChosen) ResolveTitle(
+        IssueChange<IssueUpdateRequest> request,
+        string currentTitle,
+        bool isCurrentExplicit,
+        bool isContentChanged,
+        string? contentAfterUpdate)
+    {
+        if (request.Title is { IsSet: true, Value: { Length: > 0 } explicitTitle })
+            return (explicitTitle, true, true);
+
+        // An empty title resets it, so it's derived again below.
+        var isReset = request.Title.IsSet;
+        if (isCurrentExplicit && !isReset)
+            return (currentTitle, true, false);
+
+        if (request.SuggestedTitle is { } suggestedTitle)
+            return (suggestedTitle, false, true);
+
+        return isContentChanged || isReset
+            ? (IssueTitle.FromContent(contentAfterUpdate), false, false)
+            : (currentTitle, false, false);
+    }
+
     public async Task Update(
         long issueId,
         Actor actor,
@@ -265,6 +299,8 @@ public class CoreIssuesService(
                 x.Status!.EpicId,
                 x.Status.Epic!.Space!.OrganizationId,
                 x.Content,
+                x.Title,
+                x.IsTitleSetExplicitly,
                 x.AssigneeId,
             })
             .FirstAsyncEF(cancellationToken);
@@ -279,6 +315,22 @@ public class CoreIssuesService(
             var newContent = request.Content.Value;
             settersBuilder += builder => builder.SetProperty(x => x.Content, newContent);
             items.Add(logItemFactory.ContentChanged(issueData.Content, newContent));
+        }
+
+        var contentAfterUpdate = request.Content.IsSet ? request.Content.Value : issueData.Content;
+        var (newTitle, isTitleSetExplicitly, isTitleChosen) = ResolveTitle(
+            request, issueData.Title, issueData.IsTitleSetExplicitly, issueData.Content != contentAfterUpdate, contentAfterUpdate);
+
+        if (isTitleSetExplicitly != issueData.IsTitleSetExplicitly)
+            settersBuilder += builder => builder.SetProperty(x => x.IsTitleSetExplicitly, isTitleSetExplicitly);
+
+        if (newTitle != issueData.Title)
+        {
+            settersBuilder += builder => builder.SetProperty(x => x.Title, newTitle);
+
+            // A title derived from the content is already visible in the content change.
+            if (isTitleChosen)
+                items.Add(logItemFactory.TitleChanged(issueData.Title, newTitle));
         }
 
         if (request.AssigneeId.IsSet && issueData.AssigneeId != request.AssigneeId.Value)

@@ -29,8 +29,17 @@ public static partial class IssueTitle
             return string.Empty;
 
         var line = firstLine.Trim().ToString();
-        var text = TryGetText(line);
-        text = Whitespace().Replace(text, " ").Trim();
+
+        return Normalize(TryGetText(line));
+    }
+
+    /// <summary>
+    /// Collapses whitespace, trims and cuts <paramref name="title"/> to
+    /// <see cref="Constraints.MaxTitleLength"/> on a word boundary with an ellipsis.
+    /// </summary>
+    public static string Normalize(string? title)
+    {
+        var text = Whitespace().Replace(title ?? string.Empty, " ").Trim();
 
         return text.Length <= Constraints.MaxTitleLength
             ? text

@@ -318,6 +318,11 @@ public class OrganizationHistoryReader(
                 NewContent = item.NewDisplayValue,
                 OldContent = item.OldDisplayValue,
             },
+            PropertyType.Title => new IssueHistoryTitleChange
+            {
+                NewTitle = item.NewDisplayValue,
+                OldTitle = item.OldDisplayValue,
+            },
             PropertyType.Assignee => new IssueHistoryAssigneeChange
             {
                 OldAssigneeDisplayName = item.OldDisplayValue,
