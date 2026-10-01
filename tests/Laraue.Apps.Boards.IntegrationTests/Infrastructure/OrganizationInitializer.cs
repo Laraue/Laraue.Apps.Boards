@@ -216,6 +216,7 @@ public class OrganizationInitializer(
                         var newIssue = new Issue
                         {
                             Content = issue.Content,
+                            Title = issue.Title,
                             OwnerId = issue.CreatorId,
                             AssigneeId = issue.CreatorId,
                             CreatedAt = issue.Timestamp,
@@ -679,6 +680,7 @@ public class OrganizationInitializer(
         public Guid CreatorId { get; } = creatorId;
         public DateTime Timestamp { get; private set; } = DateTime.UtcNow;
         public string Content { get; private set; } = "IssueContent";
+        public string Title { get; private set; } = "Title";
         public List<AttachmentData> Attachments { get; } = new ();
         public List<IssueCommentBuilder> Comments { get; } = new ();
         public LexoRank LexoRank { get; private set; } = LexoRank.Middle();
@@ -688,6 +690,13 @@ public class OrganizationInitializer(
         public IssueBuilder WithContent(string name)
         {
             Content = name;
+
+            return this;
+        }
+        
+        public IssueBuilder WithTitle(string title)
+        {
+            Title = title;
 
             return this;
         }

@@ -11,13 +11,16 @@ public interface ISaveCommandService
 {
     /// <summary>
     /// Handles /save: manually turns the replied-to message (or its whole album) into a card.
-    /// Only meaningful in BotMentionedMessages mode.
+    /// "/save Some title" sets the title directly; a bare "/save" takes it from the first line of the message
+    /// text (no AI), and asks for an explicit title when there is no text. Only meaningful in
+    /// BotMentionedMessages mode.
     /// </summary>
     Task HandleSaveCommand(Message message, Guid userId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Handles /aisave: same as /save, but the content is run through AI summarization
-    /// (see <see cref="IAiContentSummarizer"/>) before being saved.
+    /// Handles /aisave: same as /save, but the AI always rewrites the text (see
+    /// <see cref="IAiContentSummarizer"/>) into the description. "/aisave Some title" keeps the given title as it
+    /// is; a bare "/aisave" has the AI write the title too.
     /// </summary>
     Task HandleAiSaveCommand(Message message, Guid userId, CancellationToken cancellationToken);
 }
@@ -77,7 +80,7 @@ public class SaveCommandService(
                     ExternalChatId = message.Chat.Id,
                     RepliedExternalMessageId = repliedMessage.MessageId,
                     UserId = userId,
-                    Note = ExtractNote(message.Text),
+                    Title = ExtractTitle(message.Text),
                     Summarize = summarize,
                 },
                 cancellationToken);
@@ -94,7 +97,7 @@ public class SaveCommandService(
         }
         catch (AiContentSummarizationException ex)
         {
-            logger.LogWarning(ex, "AI summarization failed for chat {ExternalChatId}", message.Chat.Id);
+            logger.LogWarning(ex, "AI generation failed for chat {ExternalChatId}", message.Chat.Id);
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.AiSummarizationUnavailable, cancellationToken);
             return;
         }
@@ -137,14 +140,18 @@ public class SaveCommandService(
             case SaveByReplyOutcome.NothingToSave:
                 await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNothingToSave, cancellationToken);
                 break;
+
+            case SaveByReplyOutcome.TitleRequired:
+                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveTitleRequired, cancellationToken);
+                break;
         }
     }
 
     /// <summary>
-    /// Everything after the first space in "/save some note" -&gt; "some note" (also strips a
-    /// bot @mention, e.g. "/save@mybot some note"). Null when the command was sent bare.
+    /// Everything after the first space in "/save Some title" -&gt; "Some title" (also strips a
+    /// bot @mention, e.g. "/save@mybot Some title"). Null when the command was sent bare.
     /// </summary>
-    private static string? ExtractNote(string? commandText)
+    private static string? ExtractTitle(string? commandText)
     {
         if (string.IsNullOrEmpty(commandText))
             return null;
@@ -153,9 +160,9 @@ public class SaveCommandService(
         if (spaceIndex < 0)
             return null;
 
-        // Trim in span-space first so a bare "/save " (no real note) doesn't allocate at all,
-        // and a note with surrounding whitespace only allocates once, for the final string.
-        var note = commandText.AsSpan(spaceIndex + 1).Trim();
-        return note.IsEmpty ? null : note.ToString();
+        // Trim in span-space first so a bare "/save " (no real title) doesn't allocate at all,
+        // and a title with surrounding whitespace only allocates once, for the final string.
+        var title = commandText.AsSpan(spaceIndex + 1).Trim();
+        return title.IsEmpty ? null : title.ToString();
     }
 }

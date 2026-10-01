@@ -5,6 +5,17 @@ namespace Laraue.Apps.Boards.DataAccess.Models;
 public class Issue
 {
     public long Id { get; set; }
+
+    /// <summary>
+    /// Short issue title. Derived from the content's first line unless <see cref="IsTitleSetExplicitly"/>.
+    /// </summary>
+    [MaxLength(Constraints.MaxTitleLength)]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// True when the user set the title by hand, so content edits don't recompute it.
+    /// </summary>
+    public bool IsTitleSetExplicitly { get; set; }
     
     /// <summary>
     /// Message content.

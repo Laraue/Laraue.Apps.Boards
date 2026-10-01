@@ -13,9 +13,11 @@ public record OrganizationHistoryItem
     public required LogEntityType EntityType { get; set; }
     public required LogAction Action { get; set; }
     public required string? IssueKey { get; set; }
+    public required string? IssueTitle { get; set; }
 }
 
 [JsonDerivedType(typeof(IssueHistoryContentChange), "content")]
+[JsonDerivedType(typeof(IssueHistoryTitleChange), "title")]
 [JsonDerivedType(typeof(IssueHistoryAssigneeChange), "assignee")]
 [JsonDerivedType(typeof(IssueHistoryStatusChange), "status")]
 [JsonDerivedType(typeof(IssueHistoryPropertyChange), "property")]
@@ -30,6 +32,12 @@ public record IssueHistoryContentChange : HistoryItemChange
 {
     public required string? OldContent { get; set; }
     public required string? NewContent { get; set; }
+}
+
+public record IssueHistoryTitleChange : HistoryItemChange
+{
+    public required string? OldTitle { get; set; }
+    public required string? NewTitle { get; set; }
 }
 
 public record IssueHistoryAssigneeChange : HistoryItemChange

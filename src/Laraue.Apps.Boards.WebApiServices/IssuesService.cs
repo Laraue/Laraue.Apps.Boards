@@ -87,7 +87,7 @@ public interface IIssuesService
         GetIssueCommentsRequest request,
         CancellationToken ct);
 
-    Task<string> SummarizeContent(
+    Task<SummarizedContentDto> SummarizeContent(
         SummarizeIssueContentRequest request,
         CancellationToken cancellationToken);
 }
@@ -132,9 +132,7 @@ public class IssuesService(
             
         if (!string.IsNullOrEmpty(request.SearchString))
         {
-            query = query
-                .Where(x => x.Content!
-                    .ILike(request.SearchString.AsSearchable()));
+            query = ApplySearch(query, request.SearchString);
         }
 
         var temporaryResult = ProjectToTemporaryDto(query);
@@ -208,8 +206,7 @@ public class IssuesService(
                 .Where(x => x.StatusId == statusId);
             
             if (!string.IsNullOrEmpty(request.SearchString))
-                query = query
-                    .Where(x => x.Content!.ILike(request.SearchString.AsSearchable()));
+                query = ApplySearch(query, request.SearchString);
             
             var statusResult = await ProjectToTemporaryDto(query)
                 .FullPaginateLinq2DbAsync(
@@ -361,6 +358,11 @@ public class IssuesService(
             throw new PaymentRequiredException(ErrorMessages.IssueLimitExceeded);
         }
 
+        var hasTitle = !string.IsNullOrWhiteSpace(request.Title);
+        var title = hasTitle
+            ? request.Title!
+            : await GenerateTitle(request.AuthData, request.Content, ct);
+
         if (FilesHasError(request.Files, out var error))
             throw new BadRequestException(nameof(request.Files), error);
         
@@ -375,7 +377,7 @@ public class IssuesService(
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
-        var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow)
+        var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly: hasTitle)
             .SetContent(request.Content)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
@@ -406,6 +408,12 @@ public class IssuesService(
 
         if (FilesHasError(request.AddFiles, out var error))
             throw new BadRequestException(nameof(request.AddFiles), error);
+
+        // A missing title is generated from the content, like on create - an edit that cleared the title too.
+        // Done before anything is uploaded or saved, so a failed generation leaves nothing behind.
+        var title = string.IsNullOrWhiteSpace(request.Title)
+            ? await GenerateTitle(request.AuthData, request.Content, ct)
+            : request.Title;
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
@@ -420,6 +428,7 @@ public class IssuesService(
         
         var issueUpdate = new IssueUpdateRequest()
             .SetContent(request.Content)
+            .SetTitle(title)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
             .LinkNewAttachments(uploadedFiles)
@@ -434,37 +443,108 @@ public class IssuesService(
         await transaction.CommitAsync(ct);
     }
 
-    public async Task<string> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
+    public async Task<SummarizedContentDto> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
     {
-        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(request.Content);
-
-        Guid tokenTransactionId;
         try
         {
-            tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
-                request.AuthData.OrganizationId,
-                request.AuthData.UserId,
-                estimatedInputTokens,
-                aiContentSummarizer.MaxOutputTokensCount,
-                cancellationToken);
+            var result = await SummarizeAndBill(
+                request.AuthData, request.Content, request.GenerateTitle, cancellationToken);
+
+            return new SummarizedContentDto { Title = result.Title, Content = result.Content };
         }
         catch (InsufficientTokenBalanceException)
         {
             throw new PaymentRequiredException(ErrorMessages.InsufficientTokenBalance);
         }
+        catch (AiContentSummarizationException ex)
+        {
+            logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
+            throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
+        }
+    }
+
+    /// <summary>
+    /// Generates the title of an issue whose client didn't give one, asking the AI for the title only (the
+    /// content is not rewritten, so it is short and cheap). Fails with the reason the caller can act on:
+    /// no AI credits (402), or the title couldn't be generated (400, a problem of the title field).
+    /// </summary>
+    private async Task<string> GenerateTitle(
+        OrganizationAuthData authData,
+        string content,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            throw new BadRequestException(nameof(CreateIssueRequest.Title), ErrorMessages.TitleRequired);
 
         try
         {
-            var result = await aiContentSummarizer.SummarizeAsync(request.Content, cancellationToken);
+            var estimatedInputTokens = aiContentSummarizer.EstimateTitleInputTokenCount(content);
+
+            var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+                authData.OrganizationId,
+                authData.UserId,
+                estimatedInputTokens,
+                aiContentSummarizer.MaxTitleOutputTokensCount,
+                cancellationToken);
+
+            try
+            {
+                var result = await aiContentSummarizer.GenerateTitleAsync(content, cancellationToken);
+                tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
+                await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(result.Title))
+                    return result.Title;
+            }
+            catch (AiContentSummarizationException ex)
+            {
+                await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
+                throw;
+            }
+        }
+        catch (InsufficientTokenBalanceException)
+        {
+            throw new PaymentRequiredException(ErrorMessages.TitleGenerationNoCredits);
+        }
+        catch (AiContentSummarizationException ex)
+        {
+            logger.LogWarning(ex, "AI title generation failed for organization {OrganizationId}", authData.OrganizationId);
+        }
+
+        throw new BadRequestException(nameof(CreateIssueRequest.Title), ErrorMessages.TitleCannotBeGenerated);
+    }
+
+    /// <summary>
+    /// One AI summarization with the token bookkeeping around it: reserves the worst case first (throws
+    /// <see cref="InsufficientTokenBalanceException"/> when the balance can't cover it), commits what the
+    /// provider actually billed, and gives the reservation back when the provider fails.
+    /// </summary>
+    private async Task<AiSummarizationResult> SummarizeAndBill(
+        OrganizationAuthData authData,
+        string content,
+        bool generateTitle,
+        CancellationToken cancellationToken)
+    {
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content, generateTitle);
+
+        var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+            authData.OrganizationId,
+            authData.UserId,
+            estimatedInputTokens,
+            aiContentSummarizer.MaxOutputTokensCount,
+            cancellationToken);
+
+        try
+        {
+            var result = await aiContentSummarizer.SummarizeAsync(content, generateTitle, cancellationToken);
             tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
-            return result.Content;
+            return result;
         }
         catch (AiContentSummarizationException ex)
         {
             await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
-            logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
-            throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
+            throw;
         }
     }
 
@@ -540,8 +620,7 @@ public class IssuesService(
                 issues = await ApplySorting(issues, request, ct);
         
                 if (!string.IsNullOrEmpty(request.SearchString))
-                    issues = issues
-                        .Where(x => x.Content!.ILike(request.SearchString.AsSearchable()));
+                    issues = ApplySearch(issues, request.SearchString);
 
                 return await ProjectToTemporaryDto(issues)
                     .ShortPaginateLinq2DbAsync(request, ct);
@@ -580,6 +659,8 @@ public class IssuesService(
                 Id = x.Id,
                 AssigneeId = x.AssigneeId,
                 OwnerId = x.OwnerId,
+                Title = x.Title,
+                IsTitleSetExplicitly = x.IsTitleSetExplicitly,
                 Content = x.Content,
                 Time = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
@@ -637,6 +718,8 @@ public class IssuesService(
                 UserId = result.AssigneeId,
                 IsCurrentUser = result.AssigneeId == request.AuthData.UserId,
             },
+            Title = result.Title,
+            IsTitleSetExplicitly = result.IsTitleSetExplicitly,
             Content = result.Content,
             Owner = new UserDetails { UserId = result.OwnerId },
             Time = result.Time,
@@ -993,6 +1076,7 @@ public class IssuesService(
                 SpaceKey = element.SpaceKey,
                 Space = spaces[element.SpaceKey],
                 Id = element.Id,
+                Title = element.Title,
                 Content = element.Content,
                 Key = element.Key,
                 Assignee = element.Assignee,
@@ -1143,12 +1227,20 @@ public class IssuesService(
         }
     }
 
+    private static IQueryable<Issue> ApplySearch(IQueryable<Issue> query, string searchString)
+    {
+        var term = searchString.AsSearchable();
+
+        return query.Where(x => x.Title.ILike(term) || x.Content!.ILike(term));
+    }
+
     private static IQueryable<IssueListDtoData> ProjectToTemporaryDto(
         IQueryable<Issue> queryable)
     {
         return queryable.Select(x => new IssueListDtoData
         {
             Id = x.Id,
+            Title = x.Title,
             Content = x.Content,
             Time = x.CreatedAt,
             EpicId = x.Status!.EpicId,
@@ -1168,6 +1260,7 @@ public class IssuesService(
         {
             Id = source.Id,
             StatusId = source.StatusId,
+            Title = source.Title,
             Content = source.Content,
             EpicId = source.EpicId,
             Assignee = source.Assignee.DisplayName,
@@ -1495,6 +1588,7 @@ public class IssuesService(
             IssueProperty.CreatedAt => query.ApplySorting(x => x.CreatedAt, sorting.Direction),
             IssueProperty.UpdatedAt => query.ApplySorting(x => x.UpdatedAt, sorting.Direction),
             IssueProperty.Content => query.ApplySorting(x => x.Content, sorting.Direction),
+            IssueProperty.Title => query.ApplySorting(x => x.Title, sorting.Direction),
             _ => throw new InvalidOperationException($"Sorting by '{sorting.Property}' is not supported")
         };
     }
@@ -1539,6 +1633,20 @@ public record SummarizeIssueContentRequest
 
     [MaxLength(4096)]
     public required string Content { get; set; }
+
+    /// <summary>
+    /// Ask the AI for a title as well. Issue editors set it, a comment has no title.
+    /// </summary>
+    public bool GenerateTitle { get; set; }
+}
+
+public record SummarizedContentDto
+{
+    /// <summary>
+    /// A short title generated together with the content, or null when the AI gave none.
+    /// </summary>
+    public required string? Title { get; set; }
+    public required string Content { get; set; }
 }
 
 public record ColumnIssues
@@ -1553,6 +1661,7 @@ public class IssueListDtoData
     public required DateTime Time { get; set; }
     public required UserDetails Assignee { get; init; }
     public required long? AssigneeTelegramId { get; set; }
+    public required string Title { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
@@ -1569,6 +1678,7 @@ public record IssueListDto
     public required string Key { get; set; }
     public string? AssigneeInitial { get; set; }
     public required string AssigneeColor { get; set; }
+    public required string Title { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
@@ -1608,6 +1718,13 @@ public record CreateIssueRequest
     public required long StatusId { get; set; }
     public required Guid AssigneeId { get; set; }
     public required string Content { get; set; }
+
+    /// <summary>
+    /// Issue title. Without it the title is generated from the content by AI - or the request fails
+    /// when that isn't possible.
+    /// </summary>
+    [MaxLength(Constraints.MaxTitleLength)]
+    public string? Title { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
     public IFormFile[] Files { get; set; } = [];
@@ -1619,6 +1736,13 @@ public record UpdateIssueRequest
     public OrganizationAuthData AuthData { get; set; } = new();
     public IssueKey? IssueKey { get; set; }
     public required string Content { get; set; }
+
+    /// <summary>
+    /// Issue title. Without it the title is generated from the content by AI - or the request fails
+    /// when that isn't possible.
+    /// </summary>
+    [MaxLength(Constraints.MaxTitleLength)]
+    public string? Title { get; set; }
     public required Guid AssigneeId { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
@@ -1742,6 +1866,12 @@ public class IssueDetailDto
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required UserDetails Owner { get; set; }
+    public required string Title { get; set; }
+
+    /// <summary>
+    /// True when the title was typed by hand, false when it follows the content.
+    /// </summary>
+    public required bool IsTitleSetExplicitly { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
@@ -1798,6 +1928,8 @@ public class IssueDetailDtoData
     public required DateTime Time { get; set; }
     public required DateTime UpdatedAt { get; set; }
     public required long? TelegramId { get; set; }
+    public required string Title { get; set; }
+    public required bool IsTitleSetExplicitly { get; set; }
     public required string? Content { get; set; }
     public required long CategoryId { get; set; }
     public required string? CategoryName { get; set; }

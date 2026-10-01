@@ -229,7 +229,7 @@ public class IssuesController(
     }
     
     [HttpPost("summarize")]
-    public Task<string> Summarize(
+    public Task<SummarizedContentDto> Summarize(
         [FromBody] SummarizeIssueContentRequest request,
         CancellationToken cancellationToken = default)
     {

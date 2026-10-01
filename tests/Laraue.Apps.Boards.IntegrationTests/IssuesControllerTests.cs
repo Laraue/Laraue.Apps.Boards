@@ -42,6 +42,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -107,6 +108,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -136,6 +138,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -164,6 +167,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -194,6 +198,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = participatorId,
@@ -225,6 +230,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = statusWhereSpaceAccessMissing.Id,
                     AssigneeId = participatorId,
@@ -252,6 +258,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 issueData.Key,
                 new UpdateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
@@ -283,6 +290,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 issueData.Key,
                 new UpdateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
@@ -313,6 +321,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 issueData.Key,
                 new UpdateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = participatorId,
@@ -367,6 +376,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 issueData.Key,
                 new UpdateIssueRequest
                 {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = participatorId,
@@ -446,6 +456,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(new CreateIssueRequest
             {
+                Title = "Title",
                 Content = "Second",
                 StatusId = status.Id,
                 AssigneeId = userId,
@@ -499,6 +510,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
             {
+                Title = "Title",
                 AssigneeId = userId,
                 Content = "Updated before delete",
             }));
@@ -1242,6 +1254,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         var updateIssueRequest = new UpdateIssueRequest
         {
+            Title = "Title",
             AssigneeId = userId,
             Content = "New",
             AttributeValues =
@@ -1372,6 +1385,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var updateIssueRequest = new UpdateIssueRequest
         {
+            Title = "Title",
             AssigneeId = userId,
             Content = "Old",
             AttributeValues = [],
@@ -1425,6 +1439,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var updateIssueRequest = new UpdateIssueRequest
         {
+            Title = "Title",
             AssigneeId = userId,
             Content = "Old",
             AttributeValues =
@@ -1694,13 +1709,14 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
 
-        const string beautified = "Fix login bug\n---\n- Login fails on retry\n- Add logging";
+        const string beautified = "- Login fails on retry\n- Add logging";
 
         host.AiContentSummarizerMock
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
+                It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiSummarizationResult(beautified, InputTokensCount: 10, OutputTokensCount: 20));
+            .ReturnsAsync(new AiSummarizationResult("Fix login bug", beautified, InputTokensCount: 10, OutputTokensCount: 20));
 
         var result = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -1710,7 +1726,268 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                     Content = "fix login bug, fails on retry, need logs pls",
                 }));
 
-        Assert.Equal(beautified, result);
+        Assert.NotNull(result);
+        Assert.Equal("Fix login bug", result.Title);
+        Assert.Equal(beautified, result.Content);
+    }
+
+    [Fact]
+    public async Task GetIssueHistory_ShouldShowTitleChangeAndIssueTitle_WhenTitleWasSetExplicitly()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Body").WithTitle("First line")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { Content = "Body", Title = "Custom title", AssigneeId = userId }));
+
+        var historyData = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueHistory(
+                issueData.Key,
+                new GetIssueHistoryRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } }));
+
+        var historyItem = Assert.Single(historyData!.Data);
+        var titleChange = Assert.IsType<IssueHistoryTitleChange>(Assert.Single(historyItem.Changes));
+        Assert.Equal("First line", titleChange.OldTitle);
+        Assert.Equal("Custom title", titleChange.NewTitle);
+        Assert.Equal("Custom title", historyItem.IssueTitle);
+    }
+
+    [Fact]
+    public async Task Summarize_ShouldAskForTitle_WhenGenerateTitleIsSet()
+    {
+        const string notes = "notes for the generate title flag";
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.SummarizeAsync(notes, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult(null, "Content", InputTokensCount: 1, OutputTokensCount: 1));
+
+        var withTitle = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(new SummarizeIssueContentRequest { Content = notes, GenerateTitle = true }));
+        var withoutTitle = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Summarize(new SummarizeIssueContentRequest { Content = notes }));
+
+        Assert.NotNull(withTitle);
+        Assert.NotNull(withoutTitle);
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(notes, true, It.IsAny<CancellationToken>()), Times.Once);
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(notes, false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Create_ShouldSaveExplicitTitle_WhenTitleIsPassed()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "First line\nbody",
+                    Title = "Custom title",
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                }));
+
+        var issueDto = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssue(issueKey!));
+
+        Assert.NotNull(issueDto);
+        Assert.Equal("Custom title", issueDto.Title);
+        Assert.True(issueDto.IsTitleSetExplicitly);
+    }
+
+    [Fact]
+    public async Task Create_ShouldGenerateTitle_WhenTitleIsNotPassed()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        const string content = "login fails on retry, need logs (generate the title)";
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.GenerateTitleAsync(content, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiTitleResult("Fix login retry", InputTokensCount: 5, OutputTokensCount: 5));
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = content,
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
+        Assert.NotNull(issue);
+        Assert.Equal("Fix login retry", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
+        // The AI is only asked for the title - the issue keeps the text the user wrote.
+        Assert.Equal(content, issue.Content);
+    }
+
+    [Fact]
+    public async Task Create_ShouldReturn402_WhenThereAreNoCreditsToGenerateTitle()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InsufficientTokenBalanceException("insufficient balance"));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "content without credits to generate the title",
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+        Assert.False(await testScope.Database.Issues.AnyAsync());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Create_ShouldReturn400_WhenTitleCannotBeGenerated(bool aiFails)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var content = $"content the AI cannot title, it fails: {aiFails}";
+
+        var setup = host.AiContentSummarizerMock
+            .Setup(x => x.GenerateTitleAsync(content, It.IsAny<CancellationToken>()));
+        if (aiFails)
+            setup.ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
+        else
+            setup.ReturnsAsync(new AiTitleResult(null, InputTokensCount: 5, OutputTokensCount: 5));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Title = "  ",
+                    Content = content,
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, ex.StatusCode);
+        Assert.False(await testScope.Database.Issues.AnyAsync());
+    }
+
+    [Fact]
+    public async Task Create_ShouldReturn400_WhenTitleAndContentAreBlank()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = " ",
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ShouldGenerateTitle_WhenTitleIsNotPassed()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Old title")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        const string content = "new content, the title is generated by the AI";
+        host.AiContentSummarizerMock
+            .Setup(x => x.GenerateTitleAsync(content, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiTitleResult("Generated title", InputTokensCount: 5, OutputTokensCount: 5));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { Content = content, AssigneeId = userId }));
+
+        // The seeded issue is still tracked with its old values.
+        var issue = await testScope.Database.Issues.AsNoTracking().SingleAsync(x => x.Id == issueData.Issue.Id);
+        Assert.Equal("Generated title", issue.Title);
+        Assert.Equal(content, issue.Content);
+        // Only the title was asked for - the text was not rewritten.
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(content, It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Update_ShouldSetExplicitTitle_WhenTitleChanges()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Old title")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { Content = "New", Title = "New title", AssigneeId = userId }));
+
+        // The seeded issue is still tracked with its old values.
+        var issue = await testScope.Database.Issues.AsNoTracking().SingleAsync(x => x.Id == issueData.Issue.Id);
+        Assert.Equal("New title", issue.Title);
+        Assert.True(issue.IsTitleSetExplicitly);
+    }
+
+    [Fact]
+    public async Task User_ShouldFindIssueByTitle_WhenSearchStringMatchesOnlyTitle()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Body one").WithTitle("Login bug"))
+            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Body two").WithTitle("Other")));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest { SearchString = "login", Page = 0, PerPage = 10 }));
+
+        Assert.NotNull(issuesResult);
+        var issueDto = Assert.Single(issuesResult.Data);
+        Assert.Equal("Login bug", issueDto.Title);
+        Assert.Equal("Body one", issueDto.Content);
     }
 
     [Fact]
@@ -1721,7 +1998,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var organization = await testScope.InitializeOrganization(userId);
 
         host.AiContentSummarizerMock
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
@@ -1748,8 +2025,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .ReturnsAsync(tokenTransactionId);
 
         host.AiContentSummarizerMock
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiSummarizationResult("Title\n---\nContent", InputTokensCount: 10, OutputTokensCount: 42));
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult(null, "Title\n---\nContent", InputTokensCount: 10, OutputTokensCount: 42));
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -1785,7 +2062,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
         host.AiContentSummarizerMock.Verify(
-            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -1802,7 +2079,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .ReturnsAsync(tokenTransactionId);
 
         host.AiContentSummarizerMock
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
 
         await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
@@ -1831,6 +2108,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "Line1\r\nLine2",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -1859,13 +2137,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { AssigneeId = userId, Content = "Line1\r\nLine2" }));
+                new UpdateIssueRequest { Title = "Title", AssigneeId = userId, Content = "Line1\r\nLine2" }));
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { AssigneeId = userId, Content = "Line1\nLine2" }));
+                new UpdateIssueRequest { Title = "Title", AssigneeId = userId, Content = "Line1\nLine2" }));
 
         var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Equal("Line1\nLine2", issue!.Content);
@@ -1909,6 +2187,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "One too many",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -1950,6 +2229,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
+                    Title = "Title",
                     Content = "Still within limit",
                     StatusId = status.Id,
                     AssigneeId = userId,

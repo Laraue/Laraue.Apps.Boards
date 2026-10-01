@@ -89,11 +89,13 @@ public interface IIssueMcpService
     /// plain-text value (see <see cref="ListAttributes"/> for the ids/types/expected format per
     /// attribute) - omit or pass null/empty to leave every attribute unset. <paramref name="files"/>
     /// are attached in addition to any already on the issue (there are none yet, for a new issue).
+    /// <paramref name="title"/> is required (max 256 characters) - only Telegram derives a title from the content.
     /// Returns the new issue's key.
     /// </summary>
     Task<string> CreateIssue(
         OrganizationAuthData authData,
         string content,
+        string title,
         long statusId,
         Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
@@ -109,12 +111,14 @@ public interface IIssueMcpService
     /// has. <paramref name="files"/> are attached in addition to the issue's existing
     /// attachments. <paramref name="removeAttachmentIds"/> removes existing attachments by id
     /// (see <see cref="GetIssue"/>'s <c>Attachments</c>) - both can be given in the same call to
-    /// replace one attachment with another.
+    /// replace one attachment with another. <paramref name="title"/> is required, like the content (the
+    /// caller re-sends the current title to keep it).
     /// </summary>
     Task EditIssue(
         OrganizationAuthData authData,
         string issueKey,
         string content,
+        string title,
         Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
         IReadOnlyList<FileAttachment>? files,
@@ -318,6 +322,7 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 public sealed record IssueDetail(
     string Key,
     string Url,
+    string Title,
     string? Content,
     string Status,
     int StatusCategoryId,
@@ -406,7 +411,6 @@ public class IssueMcpService(
     : IIssueMcpService
 {
     private const int MaxResults = 50;
-    private const int TitleSnippetLength = 120;
 
     public Task<IssueListPage> ListIssues(
         OrganizationAuthData authData,
@@ -452,7 +456,7 @@ public class IssueMcpService(
                 {
                     SpaceKey = i.IssueNumber!.Space!.Key,
                     i.IssueNumber.Number,
-                    i.Content,
+                    i.Title,
                     Status = i.Status!.Name,
                     StatusCategory = i.Status.Category,
                     Assignee = new UserDetails { UserId = i.AssigneeId },
@@ -497,7 +501,7 @@ public class IssueMcpService(
                 .Select(x => new IssueSummary(
                     new IssueKey(x.SpaceKey, x.Number).ToString(),
                     issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, new IssueKey(x.SpaceKey, x.Number)),
-                    ContentSnippet(x.Content),
+                    x.Title,
                     x.Status,
                     (int)x.StatusCategory,
                     x.StatusCategory.ToString(),
@@ -527,6 +531,7 @@ public class IssueMcpService(
             .Where(i => i.Id == issueId)
             .Select(i => new
             {
+                i.Title,
                 i.Content,
                 StatusName = i.Status!.Name,
                 StatusCategory = i.Status.Category,
@@ -553,6 +558,7 @@ public class IssueMcpService(
         return new IssueDetail(
             key.ToString(),
             issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
+            issue.Title,
             issue.Content,
             issue.StatusName,
             (int)issue.StatusCategory,
@@ -611,6 +617,7 @@ public class IssueMcpService(
             IssueHistoryContentChange c => c.OldContent is null
                 ? $"content: \"{HistorySnippet(c.NewContent)}\""
                 : $"content: \"{HistorySnippet(c.OldContent)}\" -> \"{HistorySnippet(c.NewContent)}\"",
+            IssueHistoryTitleChange c => $"title: \"{c.OldTitle}\" -> \"{c.NewTitle}\"",
             IssueHistoryAssigneeChange c => $"assignee: {c.OldAssigneeDisplayName ?? "none"} -> {c.NewAssigneeDisplayName ?? "none"}",
             IssueHistoryStatusChange c => $"status: {c.OldStatusName ?? "none"} -> {c.NewStatusName ?? "none"}",
             IssueHistoryPropertyChange c => $"attribute {c.PropertyName}: {c.OldValueName ?? "empty"} -> {c.NewValueName ?? "empty"}",
@@ -713,12 +720,15 @@ public class IssueMcpService(
     public async Task<string> CreateIssue(
         OrganizationAuthData authData,
         string content,
+        string title,
         long statusId,
         Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
         IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken)
     {
+        EnsureTitleIsFilled(title);
+
         // Same shape as the REST API's own IssuesService.Create - permission is derived entirely
         // from statusId's own epic, no separate space parameter to cross-validate against.
         var validationData = await context.ActiveStatuses()
@@ -736,7 +746,7 @@ public class IssueMcpService(
         var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
         var uploadedFiles = await UploadFiles(files, cancellationToken);
 
-        var issueCreate = new IssueCreateRequest(statusId, dateTimeProvider.UtcNow)
+        var issueCreate = new IssueCreateRequest(statusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly: true)
             .SetContent(content)
             .LinkNewAttachments(uploadedFiles);
         if (assigneeId is not null)
@@ -760,12 +770,15 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string issueKey,
         string content,
+        string title,
         Guid? assigneeId,
         IReadOnlyDictionary<long, string>? attributes,
         IReadOnlyList<FileAttachment>? files,
         IReadOnlyList<Guid>? removeAttachmentIds,
         CancellationToken cancellationToken)
     {
+        EnsureTitleIsFilled(title);
+
         var key = new IssueKey(issueKey);
 
         var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
@@ -782,6 +795,7 @@ public class IssueMcpService(
 
         var issueUpdate = new IssueUpdateRequest()
             .SetContent(content)
+            .SetTitle(title)
             .LinkNewAttachments(uploadedFiles)
             .UnlinkAttachments(removeAttachmentIds ?? []);
         if (assigneeId is not null)
@@ -792,6 +806,12 @@ public class IssueMcpService(
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.Update(issueId, authData.ToActor(), issueUpdate, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static void EnsureTitleIsFilled(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            throw new BadRequestException(nameof(title), "Title is required.");
     }
 
     public async Task DeleteIssue(
@@ -1265,15 +1285,5 @@ public class IssueMcpService(
             .Where(x => x.Issue!.DeletedAt == null)
             .Select(x => x.IssueId)
             .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.IssueNotFoundInOrganization, issueKey), cancellationToken);
-    }
-
-    private static string ContentSnippet(string? content)
-    {
-        if (string.IsNullOrEmpty(content))
-            return string.Empty;
-
-        var firstLine = content.Split('\n', 2)[0];
-
-        return TextTruncation.Truncate(firstLine, TitleSnippetLength);
     }
 }

@@ -797,7 +797,7 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task HandleSave_ShouldComposeNotePlusOriginalText_WhenSaveCommandHasTrailingContent()
+    public async Task HandleSave_ShouldSetTitleDirectly_WhenSaveCommandHasTrailingText()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -829,14 +829,14 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        // The command must still route correctly with trailing free-text content attached.
+        // The text after /save is the title - no AI involved.
         await host.SendUpdateAsync(new Update
         {
             Message = new Message
             {
                 From = AdminUser,
                 Id = 6,
-                Text = "/save my note",
+                Text = "/save My own title",
                 Chat = chat,
                 ReplyToMessage = new Message { Id = 5, Chat = chat },
             }
@@ -845,7 +845,204 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("my note\n---\nOriginal text", issue.Content);
+        Assert.Equal("Original text", issue.Content);
+        Assert.Equal("My own title", issue.Title);
+        Assert.True(issue.IsTitleSetExplicitly);
+        var summarizer = Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>());
+        summarizer.Verify(
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        summarizer.Verify(x => x.GenerateTitleAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldTakeTheTitleFromTheFirstLine_WhenCommandIsBare()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 901, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "## Fix login retry. It fails on the second attempt\nNeed logs please",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/save", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        // No AI: the text is saved as written and the title is its first sentence.
+        Assert.Equal("## Fix login retry. It fails on the second attempt\nNeed logs please", issue.Content);
+        Assert.Equal("Fix login retry", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
+        var summarizer = Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>());
+        summarizer.Verify(
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        summarizer.Verify(x => x.GenerateTitleAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldAskForTitle_WhenTextHasNothingToTakeATitleFrom()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 902, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 1, Text = "***", Chat = chat }
+        });
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/save", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        Assert.Equal(
+            "There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug.",
+            host.Requests().Single<SendMessageRequest>().Text);
+        Assert.Empty(await host.CreateScope().GetDatabaseContext().Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldAskForTitle_WhenMessageHasOnlyAnAttachmentAndNoTitle()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 904, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 1, Chat = chat,
+                Photo =
+                [
+                    new PhotoSize { FileId = "preview1", FileUniqueId = "previewUnique1" },
+                    new PhotoSize { FileId = "file1", FileUniqueId = "fileUnique1" },
+                ],
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/save", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+        Assert.Equal(
+            "There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug.",
+            host.Requests().Single<SendMessageRequest>().Text);
+        Assert.Empty(await host.CreateScope().GetDatabaseContext().Issues.ToListAsyncLinqToDB());
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 3, Text = "/save Screenshot of the bug", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("Screenshot of the bug", issue.Title);
+        Assert.Null(issue.Content);
+        Assert.NotEmpty(await db.IssueAttachments.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleAiSave_ShouldKeepGivenTitleAndRewriteText_WhenCommandHasTrailingText()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 905, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 1, Text = "messy notes about login", Chat = chat }
+        });
+        Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>())
+            .Setup(x => x.SummarizeAsync("messy notes about login", false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult(null, "- Login notes, tidied", InputTokensCount: 5, OutputTokensCount: 5));
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/aisave My own title", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("- Login notes, tidied", issue.Content);
+        Assert.Equal("My own title", issue.Title);
+        Assert.True(issue.IsTitleSetExplicitly);
     }
 
     [Fact]
@@ -889,7 +1086,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             {
                 From = AdminUser,
                 Id = 6,
-                Text = "/save@ai_saved_mesages_bot my note",
+                Text = "/save@ai_saved_mesages_bot My title",
                 Chat = chat,
                 ReplyToMessage = new Message { Id = 5, Chat = chat },
             }
@@ -898,7 +1095,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("my note\n---\nOriginal text", issue.Content);
+        Assert.Equal("Original text", issue.Content);
+        Assert.Equal("My title", issue.Title);
     }
 
     [Fact]
@@ -1631,9 +1829,11 @@ public class TelegramHostTests : TelegramIntegrationTest
         Mock.Get(summarizer)
             .Setup(x => x.SummarizeAsync(
                 "fix login bug, fails on retry, need logs pls",
+                It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSummarizationResult(
-                "Fix login bug\n---\n- Login fails on retry\n- Add logging",
+                "Fix login bug",
+                "- Login fails on retry\n- Add logging",
                 InputTokensCount: 10,
                 OutputTokensCount: 20));
 
@@ -1655,7 +1855,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("Fix login bug\n---\n- Login fails on retry\n- Add logging", issue.Content);
+        Assert.Equal("- Login fails on retry\n- Add logging", issue.Content);
+        Assert.Equal("Fix login bug", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
     }
 
     [Fact]
@@ -1749,7 +1951,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var summarizer = host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>();
         Mock.Get(summarizer)
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("AI summarization API request failed."));
 
         await host.SendUpdateAsync(new Update
@@ -1766,7 +1968,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal(
-            "AI summarization is temporarily unavailable - try /save instead, or try /aisave again later.",
+            "AI summarization is temporarily unavailable - try /save with a title instead, e.g. /save Fix login bug, or try /aisave again later.",
             request.Text);
 
         var scope = host.CreateScope();
@@ -1826,7 +2028,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal(
-            "Not enough tokens left for AI summarization - try /save instead to save without it.",
+            "Not enough tokens left for AI summarization - try /save with a title instead to save without it, e.g. /save Fix login bug.",
             request.Text);
 
         var scope = host.CreateScope();
@@ -1875,7 +2077,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var summarizer = host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>();
         Mock.Get(summarizer)
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AiContentSummarizationException("AI summarization API request failed."));
 
         await host.SendUpdateAsync(new Update
@@ -2225,6 +2427,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Null(issue.Content);
+        Assert.StartsWith("image-", issue.Title);
         
         var telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(2, telegramFiles.Length);
@@ -2266,6 +2469,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         
         issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal("Caption", issue.Content);
+        Assert.Equal("Caption", issue.Title);
         
         telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(4, telegramFiles.Length);
@@ -2566,106 +2770,59 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task InlineSearch_ShouldKeepParagraphsSeparate_WhenContentHasUnpairedAsterisksInDifferentParagraphs()
+    public async Task InlineSearch_ShouldShowOnlyTitle_WhenSearchTextMatchesContent()
     {
-        // Regression test: a lone "*" in one paragraph and another lone "*" several paragraphs
-        // later used to get merged into one giant (wrong) bold span covering everything between
-        // them, because the content was flattened to a single line (CleanForPreview) before
-        // reaching TelegramMarkdownFormatter - which relies on line boundaries to keep an inline
-        // span's open/close markers from pairing up across unrelated paragraphs. With paragraph
-        // structure preserved, each lone "*" has no partner on its own line and is escaped as
-        // literal text instead.
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
-
         var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        const string content =
-            "Line one with a lone * mark.\n\n" +
-            "Line two is fine.\n\n" +
-            "Line three has another lone * mark.";
 
-        var organization = await testScope.InitializeOrganization(
+        await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId, i => i
+                .WithContent("Some *long* body with the word return inside")
+                .WithTitle("Login bug")));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = "return" }
+        });
+
+        var request = host.Requests().Single<AnswerInlineQueryRequest>();
+        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
+        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
+
+        // Found by a word only the body has, but neither the dropdown entry nor the posted message shows the body.
+        Assert.Equal("Login bug", article.Description);
+        Assert.Contains("Login bug", messageText);
+        Assert.DoesNotContain("long", messageText);
+    }
+
+    [Fact]
+    public async Task InlineSearch_ShouldFindIssue_WhenSearchTextMatchesOnlyTitle()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+
+        await testScope.InitializeOrganization(
             userId,
             o => o
-                .AddSpace(userId, "AAA", s => s
-                    .AddEpic(userId, e => e
-                        .AddIssue(userId, 0, i => i
-                            .WithContent(content)))));
-
-        var issueData = organization.GetIssueData(1, 1, 0, 0);
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Some body").WithTitle("Login bug"))
+                .AddIssueToDefaultStatus(userId, i => i.WithContent("Other body").WithTitle("Other")));
 
         await host.SendUpdateAsync(new Update
         {
             InlineQuery = new InlineQuery
             {
                 From = DefaultUser,
-                Query = $"key:{issueData.Key}"
+                Query = "login",
             }
         });
 
         var request = host.Requests().Single<AnswerInlineQueryRequest>();
         var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
         var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
-
-        Assert.Contains(
-            "Line one with a lone \\* mark\\.\n\n" +
-            "Line two is fine\\.\n\n" +
-            "Line three has another lone \\* mark\\.",
-            messageText);
-    }
-
-    [Fact]
-    public async Task InlineSearch_ShouldProduceValidMessage_WhenFenceStraddlesAFreeTextMatch()
-    {
-        // Regression test (BRD-161, at production FragmentContextChars): searching "ret" matches
-        // "return" further down the content, well after a fenced code block. Historically the
-        // posted message was built from a match-centered window that started partway through that
-        // block (its real closing marker ending up inside the window), which made Telegram reject
-        // the message outright ("Character '}' is reserved and must be escaped") because Prefix
-        // and Suffix were formatted independently and disagreed about whether the fence was still
-        // open by the time Suffix started. The posted message is now always built from the start
-        // of the content instead (see the next test) - this still guards the underlying "fence
-        // markers must pair up" invariant in case a future change reintroduces windowing here.
-        using var host = GetTelegramTestHost();
-        var testScope = host.CreateTestScope();
-
-        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        const string content =
-            "1. Add status to epics. Just an enum\n\n" +
-            "```\n" +
-            "enum EpicStatus\n" +
-            "{\n" +
-            "  New,\n" +
-            "  InProgress,\n" +
-            "  Done,\n" +
-            "}\n" +
-            "```\n\n" +
-            "2. API that will change the status\n" +
-            "3. Show epic status while return epics list\n" +
-            "4. API that return epics should support filtering by status " +
-            "(array of statuses to return, null - no filtering, [1,2] - not completed, etc)\n" +
-            "5. Allow filter issues in all issues list by epic status";
-
-        var organization = await testScope.InitializeOrganization(
-            userId,
-            o => o
-                .AddSpace(userId, "AAA", s => s
-                    .AddEpic(userId, e => e
-                        .AddIssue(userId, 0, i => i
-                            .WithContent(content)))));
-
-        await host.SendUpdateAsync(new Update
-        {
-            InlineQuery = new InlineQuery { From = DefaultUser, Query = "ret" }
-        });
-
-        var request = host.Requests().Single<AnswerInlineQueryRequest>();
-        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
-        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
-
-        // Fence markers must always pair up - an odd count is exactly what made Telegram reject
-        // the message as an unterminated/invalid entity.
-        Assert.Equal(0, System.Text.RegularExpressions.Regex.Matches(messageText, "```").Count % 2);
+        Assert.Contains("Login bug", messageText);
     }
 
     [Fact]
@@ -2740,54 +2897,6 @@ public class TelegramHostTests : TelegramIntegrationTest
         var firstPageIds = firstPage.Results.Cast<InlineQueryResultArticle>().Select(x => x.Id).ToHashSet();
         var secondPageIds = secondPage.Results.Cast<InlineQueryResultArticle>().Select(x => x.Id).ToHashSet();
         Assert.Empty(firstPageIds.Intersect(secondPageIds));
-    }
-
-    [Fact]
-    public async Task InlineSearch_ShouldPostMessageFromStartOfContent_RegardlessOfWhereSearchTextMatched()
-    {
-        // The dropdown entry the user picks *between* centers on the match (useful context while
-        // still choosing) - but once selected, the posted message should read like /save's and
-        // /info's previews always do: from the top of the issue, not from wherever "ret" happened
-        // to match deep inside it.
-        using var host = GetTelegramTestHost();
-        var testScope = host.CreateTestScope();
-
-        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
-        const string content =
-            "1. Add status to epics. Just an enum\n\n" +
-            "```\n" +
-            "enum EpicStatus\n" +
-            "{\n" +
-            "  New,\n" +
-            "}\n" +
-            "```\n\n" +
-            "2. API that will change the status\n" +
-            "3. Show epic status while return epics list";
-
-        var organization = await testScope.InitializeOrganization(
-            userId,
-            o => o
-                .AddSpace(userId, "AAA", s => s
-                    .AddEpic(userId, e => e
-                        .AddIssue(userId, 0, i => i
-                            .WithContent(content)))));
-
-        await host.SendUpdateAsync(new Update
-        {
-            InlineQuery = new InlineQuery { From = DefaultUser, Query = "ret" }
-        });
-
-        var request = host.Requests().Single<AnswerInlineQueryRequest>();
-        var article = Assert.IsType<InlineQueryResultArticle>(Assert.Single(request.Results));
-        var messageText = Assert.IsType<InputTextMessageContent>(article.InputMessageContent).MessageText;
-
-        Assert.Contains("1\\. Add status to epics\\. Just an enum", messageText);
-        Assert.DoesNotContain('…', messageText);
-
-        // The dropdown entry, by contrast, still centers on and highlights the match.
-        Assert.Contains(
-            SearchTextFormatter.ToUnicodeBold("ret"),
-            article.Description);
     }
 
     [Fact]
@@ -3450,7 +3559,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
         await testScope.InitializeOrganization(
             userId,
-            o => o.AddIssueToDefaultStatus(userId, i => i.WithContent(string.Empty)));
+            o => o.AddIssueToDefaultStatus(userId, i => i.WithContent(string.Empty).WithTitle(string.Empty)));
 
         // Exact key lookup must still return the issue even though it has no content — shown
         // with a placeholder instead of being skipped.
@@ -3785,7 +3894,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
         var organization = await testScope.InitializeOrganization(
             userId,
-            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content")));
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content").WithTitle("Existing card title")));
 
         var space = organization.Spaces[0];
         var orgKey = $"{organization.Slug}-{organization.SlugPostfix}";
@@ -3817,7 +3926,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
-        Assert.Contains("Existing card content", replyRequest.Text);
+        Assert.Contains("Existing card title", replyRequest.Text);
+        Assert.DoesNotContain("Existing card content", replyRequest.Text);
         var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
         var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
         Assert.Equal(expectedCanonicalUrl, button.Url);
@@ -3832,7 +3942,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
         var organization = await testScope.InitializeOrganization(
             userId,
-            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content")));
+            o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Existing card content").WithTitle("Existing card title")));
 
         var space = organization.Spaces[0];
         var orgKey = $"{organization.Slug}-{organization.SlugPostfix}";
@@ -3862,7 +3972,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var replyRequest = host.Requests().OfType<SendMessageRequest>().Single();
-        Assert.Contains("Existing card content", replyRequest.Text);
+        Assert.Contains("Existing card title", replyRequest.Text);
+        Assert.DoesNotContain("Existing card content", replyRequest.Text);
         var markup = Assert.IsType<InlineKeyboardMarkup>(replyRequest.ReplyMarkup);
         var button = Assert.Single(Assert.Single(markup.InlineKeyboard));
         Assert.Equal(expectedCanonicalUrl, button.Url);
@@ -3919,7 +4030,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             ownerId,
             o => o
                 .AddUser(memberId)
-                .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Existing card content")));
+                .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Existing card content").WithTitle("Existing card title")));
 
         var space = organization.Spaces[0];
         var issueUrl = $"https://boards.example.com/organizations/{organization.Slug}-{organization.SlugPostfix}/issues/{space.Key}-1";

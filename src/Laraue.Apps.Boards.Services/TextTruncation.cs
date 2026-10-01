@@ -1,13 +1,9 @@
 namespace Laraue.Apps.Boards.Services;
 
 /// <summary>
-/// Cheap, dependency-free text-truncation shared by anything that shortens user content for a
-/// preview - Telegram's search/preview formatting (<c>ContentFragment</c>,
-/// <c>Laraue.Apps.Boards.TelegramServices.Services.Search</c>) and MCP tool responses
-/// (<c>IssueTools</c>, <c>Laraue.Apps.Boards.McpHost</c>) both build on this rather than each
-/// hard-cutting text mid-word independently. Anything Telegram-specific (markdown-fence safety,
-/// match highlighting, Telegram's own inline-result length cap) stays local to
-/// <c>ContentFragment</c> - this only knows about plain text.
+/// Cheap, dependency-free text truncation shared by anything that shortens user text - issue titles
+/// (<see cref="IssueTitle"/>) and MCP tool responses (<c>IssueTools</c>, <c>Laraue.Apps.Boards.McpHost</c>) build
+/// on this rather than each hard-cutting text mid-word independently. It only knows about plain text.
 /// </summary>
 public static class TextTruncation
 {

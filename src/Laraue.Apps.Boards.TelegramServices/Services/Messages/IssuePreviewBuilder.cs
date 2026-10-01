@@ -3,14 +3,13 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using LinqToDB.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
 public interface IIssuePreviewBuilder
 {
     /// <summary>
-    /// Builds the same key/org/content-preview + link shown for an inline search result, so a
+    /// Builds the same key/org/title + link shown for an inline search result, so a
     /// /save or /info reply looks like the same "card" wherever it's shown from.
     /// </summary>
     Task<IssuePreview> Build(long issueId, CancellationToken cancellationToken);
@@ -19,8 +18,7 @@ public interface IIssuePreviewBuilder
 public class IssuePreviewBuilder(
     DatabaseContext context,
     IIssueUrlBuilder issueUrlBuilder,
-    IMemberProfileReader memberProfileReader,
-    ILogger<IssuePreviewBuilder> logger)
+    IMemberProfileReader memberProfileReader)
     : IIssuePreviewBuilder
 {
     public async Task<IssuePreview> Build(long issueId, CancellationToken cancellationToken)
@@ -30,10 +28,10 @@ public class IssuePreviewBuilder(
             .Select(x => new
             {
                 Key = new IssueKey(x.IssueNumber!.Space!.Key, x.IssueNumber.Number),
+                x.Title,
                 OrganizationName = x.IssueNumber.Space.Organization!.Name,
                 OrganizationSlug = x.IssueNumber.Space.Organization!.Slug,
                 OrganizationSlugPostfix = x.IssueNumber.Space.Organization!.SlugPostfix,
-                x.Content,
                 ChatTitle = x.TelegramMessage != null ? x.TelegramMessage.LinkedTelegramChat!.Title : null,
                 x.IssueNumber.Space.OrganizationId,
                 SenderId = x.TelegramMessage != null ? x.TelegramMessage.SenderId : null,
@@ -50,39 +48,25 @@ public class IssuePreviewBuilder(
                 [sender],
                 cancellationToken);
 
-        string text;
-        try
-        {
-            var fragment = ContentFragment.Extract(
-                issueData.Content ?? string.Empty,
-                searchText: string.Empty,
-                IssuePreviewFormatter.FragmentContextChars);
+        // The card shows the issue's title only, never its content.
+        var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, sender?.DisplayName, issueData.SentAt);
 
-            var footer = IssuePreviewFormatter.BuildSourceFooter(issueData.ChatTitle, sender?.DisplayName, issueData.SentAt);
-
-            text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" + fragment.ToMarkdownV2();
-            if (footer is not null)
-                text += "\n" + footer;
-        }
-        catch (Exception ex)
-        {
-            // A bug in formatting this one issue's content shouldn't fail the whole /save or
-            // /info reply - log it and hand back a safe placeholder instead.
-            logger.LogError(ex, "Issue {IssueKey}: failed to build preview content", issueData.Key);
-            text = IssuePreviewFormatter.BuildContentGenerationErrorText(issueData.Key, issueData.OrganizationName);
-        }
+        var text = IssuePreviewFormatter.BuildHeader(issueData.Key, issueData.OrganizationName) + "\n" +
+            SearchTextFormatter.EscapeMarkdownV2(SearchTextFormatter.NormalizeWhitespace(issueData.Title));
+        if (footer is not null)
+            text += "\n" + footer;
 
         return new IssuePreview { Text = text, Url = url };
     }
 }
 
 /// <summary>
-/// The same key/org/content-preview "card" text + link shown for an inline search result,
+/// The same key/org/title "card" text + link shown for an inline search result,
 /// /save, and /info replies alike.
 /// </summary>
 public class IssuePreview
 {
-    /// <summary>MarkdownV2 "📋 KEY · Org\n{content preview}" text.</summary>
+    /// <summary>MarkdownV2 "📋 KEY · Org\n{title}" text.</summary>
     public required string Text { get; init; }
 
     public required string Url { get; init; }

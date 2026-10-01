@@ -145,10 +145,11 @@ public class CoreIssuesService(
             throw new InvalidOperationException("Lexo rank should be set here");
 
         var content = request.Content.GetValueOrDefault();
-
         var issue = new Issue
         {
             Content = content,
+            Title = request.Title,
+            IsTitleSetExplicitly = request.IsTitleSetExplicitly,
             OwnerId = actor.UserId,
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.CreatedAt,
@@ -250,6 +251,35 @@ public class CoreIssuesService(
         return issue.Id;
     }
 
+    /// <summary>
+    /// Picks the title after an update. A title from the request wins; it only counts as set by hand
+    /// when it differs from the current one, so a client that always re-sends the title (the web app)
+    /// doesn't pin a title that Telegram derives. A hand-set title stays; otherwise a system-suggested
+    /// one (Telegram's first line or AI summary) applies, and without either the title is unchanged.
+    /// <c>IsChosen</c> is true when a client changed the title - only that is worth a history entry, a
+    /// suggested title just follows the content change the history already shows.
+    /// </summary>
+    private static (string Title, bool IsSetExplicitly, bool IsChosen) ResolveTitle(
+        IssueUpdateRequest request,
+        string currentTitle,
+        bool isCurrentExplicit)
+    {
+        if (request.Title is { IsSet: true, Value: { Length: > 0 } requestedTitle })
+        {
+            var isChanged = requestedTitle != currentTitle;
+
+            return (requestedTitle, isCurrentExplicit || isChanged, isChanged);
+        }
+
+        if (isCurrentExplicit)
+            return (currentTitle, true, false);
+
+        if (request.SuggestedTitle is { } suggestedTitle)
+            return (suggestedTitle, false, false);
+
+        return (currentTitle, false, false);
+    }
+
     public async Task Update(
         long issueId,
         Actor actor,
@@ -265,6 +295,8 @@ public class CoreIssuesService(
                 x.Status!.EpicId,
                 x.Status.Epic!.Space!.OrganizationId,
                 x.Content,
+                x.Title,
+                x.IsTitleSetExplicitly,
                 x.AssigneeId,
             })
             .FirstAsyncEF(cancellationToken);
@@ -279,6 +311,20 @@ public class CoreIssuesService(
             var newContent = request.Content.Value;
             settersBuilder += builder => builder.SetProperty(x => x.Content, newContent);
             items.Add(logItemFactory.ContentChanged(issueData.Content, newContent));
+        }
+
+        var (newTitle, isTitleSetExplicitly, isTitleChosen) = ResolveTitle(
+            request, issueData.Title, issueData.IsTitleSetExplicitly);
+
+        if (isTitleSetExplicitly != issueData.IsTitleSetExplicitly)
+            settersBuilder += builder => builder.SetProperty(x => x.IsTitleSetExplicitly, isTitleSetExplicitly);
+
+        if (newTitle != issueData.Title)
+        {
+            settersBuilder += builder => builder.SetProperty(x => x.Title, newTitle);
+
+            if (isTitleChosen)
+                items.Add(logItemFactory.TitleChanged(issueData.Title, newTitle));
         }
 
         if (request.AssigneeId.IsSet && issueData.AssigneeId != request.AssigneeId.Value)

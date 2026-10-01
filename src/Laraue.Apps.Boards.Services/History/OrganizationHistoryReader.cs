@@ -78,6 +78,11 @@ public class OrganizationHistoryReader(
                 x => x.Items),
             ct);
 
+        var issueTitle = await context.Issues
+            .Where(x => x.Id == issueId)
+            .Select(x => x.Title)
+            .FirstAsyncEF(ct);
+
         var result = updatesData.MapTo(x => new OrganizationHistoryItem
         {
             CreatedAt = x.CreatedAt,
@@ -87,6 +92,7 @@ public class OrganizationHistoryReader(
             EntityType = x.EntityType,
             Action = x.Action,
             IssueKey = issueKey,
+            IssueTitle = issueTitle,
         });
 
         await memberProfileReader.EnrichUsers(
@@ -145,7 +151,7 @@ public class OrganizationHistoryReader(
                 x => x.Items),
             ct);
 
-        var issueKeysByLogId = await MapIssueKeysByLogId(
+        var issueInfoByLogId = await MapIssueInfoByLogId(
             updatesData.Data.Select(x => (x.Id, x.EntityId, x.EntityType)).ToArray(),
             ct);
 
@@ -157,7 +163,8 @@ public class OrganizationHistoryReader(
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
-            IssueKey = issueKeysByLogId.GetValueOrDefault(x.Id),
+            IssueKey = issueInfoByLogId.GetValueOrDefault(x.Id)?.Key,
+            IssueTitle = issueInfoByLogId.GetValueOrDefault(x.Id)?.Title,
         });
 
         await memberProfileReader.EnrichUsers(
@@ -169,7 +176,9 @@ public class OrganizationHistoryReader(
         return result;
     }
 
-    private async Task<Dictionary<long, string?>> MapIssueKeysByLogId(
+    private sealed record IssueInfo(string Key, string Title);
+
+    private async Task<Dictionary<long, IssueInfo?>> MapIssueInfoByLogId(
         (long LogId, long? EntityId, LogEntityType EntityType)[] entries,
         CancellationToken ct)
     {
@@ -200,6 +209,11 @@ public class OrganizationHistoryReader(
             .Select(x => new { x.IssueId, x.Number, SpaceKey = x.Space!.Key })
             .ToDictionaryAsyncEF(x => x.IssueId, x => new IssueKey(x.SpaceKey, x.Number).ToString(), ct);
 
+        var issueTitlesByIssueId = await context.Issues
+            .Where(x => allIssueIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.Title })
+            .ToDictionaryAsyncEF(x => x.Id, x => x.Title, ct);
+
         return entries.ToDictionary(
             x => x.LogId,
             x =>
@@ -211,7 +225,9 @@ public class OrganizationHistoryReader(
                     ? x.EntityId.Value
                     : commentIssueIds.GetValueOrDefault(x.EntityId.Value);
 
-                return issueKeysByIssueId.GetValueOrDefault(issueId);
+                var key = issueKeysByIssueId.GetValueOrDefault(issueId);
+
+                return key is null ? null : new IssueInfo(key, issueTitlesByIssueId[issueId]);
             });
     }
 
@@ -317,6 +333,11 @@ public class OrganizationHistoryReader(
             {
                 NewContent = item.NewDisplayValue,
                 OldContent = item.OldDisplayValue,
+            },
+            PropertyType.Title => new IssueHistoryTitleChange
+            {
+                NewTitle = item.NewDisplayValue,
+                OldTitle = item.OldDisplayValue,
             },
             PropertyType.Assignee => new IssueHistoryAssigneeChange
             {

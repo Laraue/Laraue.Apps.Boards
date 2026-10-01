@@ -33,4 +33,11 @@ public class AiSummarizerOptions
     /// that support toggling it - defaults to disabled.
     /// </summary>
     public bool Thinking { get; set; }
+
+    /// <summary>
+    /// Constrain the reply to a JSON Schema (<c>response_format: json_schema</c>) instead of plain JSON mode,
+    /// so the model can't leave out a field or put one inside another. Ollama's OpenAI-compatible endpoint
+    /// supports it - small local models need it; DeepSeek only knows plain JSON mode. Defaults to disabled.
+    /// </summary>
+    public bool UseJsonSchema { get; set; }
 }

@@ -164,7 +164,10 @@
         <value>Это команда боту, а не сохранённое сообщение — ответьте на само сообщение.</value>
     </data>
     <data name="SaveNothingToSave" xml:space="preserve">
-        <value>Нечего сохранять — в сообщении нет текста, и вы не добавили заметку, например: /save заметка.</value>
+        <value>Нечего сохранять — в сообщении нет ни текста, ни вложений.</value>
+    </data>
+    <data name="SaveTitleRequired" xml:space="preserve">
+        <value>Нет текста, из которого можно сделать заголовок — задайте его сами: ответьте командой /save и заголовком, например: /save Исправить вход.</value>
     </data>
     <data name="OpenIssueButton" xml:space="preserve">
         <value>🔗 Открыть карточку</value>
@@ -205,9 +208,9 @@
         <value>🗑 Карточка удалена.</value>
     </data>
     <data name="AiSummarizationUnavailable" xml:space="preserve">
-        <value>ИИ-обработка временно недоступна — попробуйте /save, либо повторите /aisave позже.</value>
+        <value>ИИ-обработка временно недоступна — используйте /save с заголовком, например: /save Исправить вход, либо повторите /aisave позже.</value>
     </data>
     <data name="InsufficientTokenBalance" xml:space="preserve">
-        <value>Недостаточно токенов для ИИ-обработки — используйте /save, чтобы сохранить без неё.</value>
+        <value>Недостаточно токенов для ИИ-обработки — используйте /save с заголовком, чтобы сохранить без неё, например: /save Исправить вход.</value>
     </data>
 </root>

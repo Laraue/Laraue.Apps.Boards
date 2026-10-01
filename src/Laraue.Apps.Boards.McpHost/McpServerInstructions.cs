@@ -21,6 +21,8 @@ public static class McpServerInstructions
           list_members.
         - Before changing something, check the permission flags you already have: canCreateIssue
           (list_spaces), canEdit/canDelete (list_issues, get_issue), canManage (list_issue_comments).
+        - Every issue has a title, and create_issue/edit_issue both require one (a short one-line summary) -
+          pass the issue's current title to edit_issue to keep it.
         - edit_issue replaces the whole content - read the issue first to keep what should stay.
         - Attachments: create_issue/edit_issue add files, edit_issue removes them, get_attachment
           downloads one by its id from get_issue or list_issue_comments.

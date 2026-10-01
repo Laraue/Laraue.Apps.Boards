@@ -5,4 +5,5 @@ public enum IssueProperty
     Content,
     CreatedAt,
     UpdatedAt,
+    Title,
 }

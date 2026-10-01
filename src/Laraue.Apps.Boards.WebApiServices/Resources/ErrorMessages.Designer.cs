@@ -81,6 +81,24 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
+        internal static string TitleRequired {
+            get {
+                return ResourceManager.GetString("TitleRequired", resourceCulture);
+            }
+        }
+        
+        internal static string TitleCannotBeGenerated {
+            get {
+                return ResourceManager.GetString("TitleCannotBeGenerated", resourceCulture);
+            }
+        }
+        
+        internal static string TitleGenerationNoCredits {
+            get {
+                return ResourceManager.GetString("TitleGenerationNoCredits", resourceCulture);
+            }
+        }
+        
         internal static string InsufficientTokenBalance {
             get {
                 return ResourceManager.GetString("InsufficientTokenBalance", resourceCulture);

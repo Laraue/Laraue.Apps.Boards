@@ -72,6 +72,7 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
         {
             ["issueKey"] = issueKey,
             ["content"] = "Fix the thing",
+            ["title"] = "Fix the thing",
             ["attributes"] = new Dictionary<string, string?> { ["999999"] = "value" },
         });
 

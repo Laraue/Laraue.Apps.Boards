@@ -17,7 +17,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space, epic id, status id, status category id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue's canEdit/canDelete reflect the caller's actual permissions on it, statusCategory/statusCategoryId tell what its status means (Created, InProgress or Completed), and url is its page in the web app.")]
+    [Description("Lists issues in the caller's organization, optionally filtered by space, epic id, status id, status category id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue has a title, and its canEdit/canDelete reflect the caller's actual permissions on it, statusCategory/statusCategoryId tell what its status means (Created, InProgress or Completed), and url is its page in the web app.")]
     public Task<IssueListPage> ListIssues(
         [Description("Only issues in this space (e.g. 'BRD'), from list_spaces. Omit to search every space.")] string? spaceKey = null,
         [Description("Only issues in this epic id, from list_epics. Omit to include every epic.")] long? epicId = null,
@@ -32,7 +32,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
+    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -77,27 +77,29 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     [Description("Creates a new issue in the space the given status belongs to, and returns its key. Requires canCreateIssue on that space (see list_spaces).")]
     public Task<string> CreateIssue(
         [Description("The issue's text content.")] string content,
+        [Description("The issue's title: a short one-line summary, max 256 characters. Required.")] string title,
         [Description("The status to create the issue in, from list_statuses - this also determines the destination space.")] long statusId,
         [Description("User id to assign the issue to, from list_members. Must belong to the caller's organization. Omit to assign yourself.")] Guid? assigneeId = null,
         [Description("Attribute id -> plain-text value, e.g. {\"5\": \"7\"}. See list_attributes for ids/types/allowed values - for a List attribute, the value is one of its list value ids. Omit to leave every attribute unset.")] IReadOnlyDictionary<long, string>? attributes = null,
         [Description("Files to attach, base64-encoded - each becomes an attachment on the issue. Only image/jpeg, image/jpg and image/png; max 3MB each.")] IReadOnlyList<FileAttachment>? files = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.CreateIssue(GetAuthData(), content, statusId, assigneeId, attributes, files, cancellationToken);
+        return issueMcpService.CreateIssue(GetAuthData(), content, title, statusId, assigneeId, attributes, files, cancellationToken);
     }
 
     [McpServerTool]
-    [Description("Fully replaces an issue's text content - not an append or merge. Fetch the existing content via get_issue first if you need to preserve any of it. Does not change status. Requires canEdit (see get_issue/list_issues).")]
+    [Description("Fully replaces an issue's text content - not an append or merge. Fetch the existing content via get_issue first if you need to preserve any of it. Also requires the title - pass the current one (from get_issue) to keep it. Does not change status. Requires canEdit (see get_issue/list_issues).")]
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The issue's complete new text content, replacing what's there now.")] string content,
+        [Description("The issue's title: a short one-line summary, max 256 characters. Required - pass the current title to keep it.")] string title,
         [Description("User id to reassign the issue to, from list_members. Must belong to the caller's organization. Omit to leave the current assignee unchanged.")] Guid? assigneeId = null,
         [Description("Attribute id -> plain-text value, same format as create_issue. Omit to leave every attribute untouched; pass {} to clear all of them.")] IReadOnlyDictionary<long, string>? attributes = null,
         [Description("Files to attach, base64-encoded - each becomes a new attachment, in addition to the issue's existing ones. Same format as create_issue.")] IReadOnlyList<FileAttachment>? files = null,
         [Description("Ids of existing attachments to remove, from get_issue's Attachments list. Can be combined with files to replace one attachment with another.")] IReadOnlyList<Guid>? removeAttachmentIds = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.EditIssue(GetAuthData(), issueKey, content, assigneeId, attributes, files, removeAttachmentIds, cancellationToken);
+        return issueMcpService.EditIssue(GetAuthData(), issueKey, content, title, assigneeId, attributes, files, removeAttachmentIds, cancellationToken);
     }
 
     [McpServerTool]

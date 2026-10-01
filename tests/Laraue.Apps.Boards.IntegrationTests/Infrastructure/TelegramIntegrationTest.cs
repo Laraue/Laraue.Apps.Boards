@@ -37,13 +37,13 @@ public abstract class TelegramIntegrationTest
         builder.Services.AddScoped<IGroupChatAdminService, FakeGroupChatAdminService>();
 
         // Overrides the real HTTP-backed implementation, which would otherwise hit a real AI
-        // provider. Defaults to echoing the input back unchanged - /aisave tests should re-Setup
+        // provider. Defaults to echoing the input back as both title and content - tests that need other output should re-Setup
         // it (via Mock.Get on the resolved instance) for their own expectations.
         var aiContentSummarizerMock = new Mock<IAiContentSummarizer>();
         aiContentSummarizerMock.Setup(x => x.MaxOutputTokensCount).Returns(2048);
         aiContentSummarizerMock
-            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string notes, CancellationToken _) => new AiSummarizationResult(notes, InputTokensCount: 10, OutputTokensCount: 10));
+            .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string notes, bool _, CancellationToken __) => new AiSummarizationResult(notes, notes, InputTokensCount: 10, OutputTokensCount: 10));
         builder.Services.AddSingleton(aiContentSummarizerMock.Object);
 
         // Overrides the real gRPC-backed client, which would otherwise try to reach a live
