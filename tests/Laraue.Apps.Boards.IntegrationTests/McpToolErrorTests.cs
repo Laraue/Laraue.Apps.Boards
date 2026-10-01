@@ -82,6 +82,47 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
         Assert.Contains("- attributes: Attribute: 999999 is not found", text);
     }
 
+    [Fact]
+    public async Task CallTool_ShouldReturnMissingArgumentError_WhenRequiredArgumentIsNotPassed()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("create_issue", new Dictionary<string, object?>
+        {
+            ["content"] = "Fix the thing",
+            ["statusId"] = 1,
+        });
+
+        Assert.True(result.IsError);
+        var text = GetText(result);
+        Assert.StartsWith("BadRequest: ", text);
+        Assert.Contains("- title: ", text);
+    }
+
+    [Fact]
+    public async Task CallTool_ShouldReturnInvalidArgumentError_WhenArgumentHasWrongType()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("create_issue", new Dictionary<string, object?>
+        {
+            ["content"] = "Fix the thing",
+            ["title"] = "Fix the thing",
+            ["statusId"] = "not-a-number",
+        });
+
+        Assert.True(result.IsError);
+        var text = GetText(result);
+        Assert.StartsWith("BadRequest: ", text);
+        Assert.Contains("- statusId: ", text);
+    }
+
     private async Task<McpClient> ConnectAsync(WebApiTestHostScope testScope, long organizationId, Guid userId)
     {
         var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()

@@ -33,6 +33,17 @@ public sealed class McpToolCallFilter
 
             try
             {
+                // The SDK reports a missing or malformed argument as a bare "An error occurred invoking ...",
+                // so check them against the tool's schema first and fail like any other bad request.
+                if (context.MatchedPrimitive is McpServerTool tool)
+                {
+                    var errors = McpArgumentValidator.Validate(tool.ProtocolTool.InputSchema, context.Params?.Arguments);
+                    if (errors.Count > 0)
+                    {
+                        throw new BadRequestException(errors);
+                    }
+                }
+
                 var result = await next(context, cancellationToken);
                 status = McpToolMetrics.StatusOk;
 
