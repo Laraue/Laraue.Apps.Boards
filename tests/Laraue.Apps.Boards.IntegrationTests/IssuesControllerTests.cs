@@ -1799,22 +1799,139 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
-    public async Task Create_ShouldReturn400_WhenTitleIsBlank()
+    public async Task Create_ShouldGenerateTitle_WhenTitleIsNotPassed()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        const string content = "login fails on retry, need logs (generate the title)";
+
+        host.AiContentSummarizerMock
+            .Setup(x => x.GenerateTitleAsync(content, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiTitleResult("Fix login retry", InputTokensCount: 5, OutputTokensCount: 5));
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = content,
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
+        Assert.NotNull(issue);
+        Assert.Equal("Fix login retry", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
+        // The AI is only asked for the title - the issue keeps the text the user wrote.
+        Assert.Equal(content, issue.Content);
+    }
+
+    [Fact]
+    public async Task Create_ShouldReturn402_WhenThereAreNoCreditsToGenerateTitle()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+        host.BillingTokenClientMock
+            .Setup(x => x.ReserveTokensAsync(organization.Id, userId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InsufficientTokenBalanceException("insufficient balance"));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "content without credits to generate the title",
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+        Assert.False(await testScope.Database.Issues.AnyAsync());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Create_ShouldReturn400_WhenTitleCannotBeGenerated(bool aiFails)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var content = $"content the AI cannot title, it fails: {aiFails}";
+
+        var setup = host.AiContentSummarizerMock
+            .Setup(x => x.GenerateTitleAsync(content, It.IsAny<CancellationToken>()));
+        if (aiFails)
+            setup.ThrowsAsync(new AiContentSummarizationException("DeepSeek API request failed."));
+        else
+            setup.ReturnsAsync(new AiTitleResult(null, InputTokensCount: 5, OutputTokensCount: 5));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
                 {
                     Title = "  ",
-                    Content = "Content",
+                    Content = content,
                     StatusId = organization.GetStatus(0, 0, 0).Id,
                     AssigneeId = userId,
                 })));
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, ex.StatusCode);
+        Assert.False(await testScope.Database.Issues.AnyAsync());
+    }
+
+    [Fact]
+    public async Task Create_ShouldReturn400_WhenTitleAndContentAreBlank()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = " ",
+                    StatusId = organization.GetStatus(0, 0, 0).Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ShouldGenerateTitle_WhenTitleIsNotPassed()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Old").WithTitle("Old title")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        const string content = "new content, the title is generated by the AI";
+        host.AiContentSummarizerMock
+            .Setup(x => x.GenerateTitleAsync(content, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiTitleResult("Generated title", InputTokensCount: 5, OutputTokensCount: 5));
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest { Content = content, AssigneeId = userId }));
+
+        // The seeded issue is still tracked with its old values.
+        var issue = await testScope.Database.Issues.AsNoTracking().SingleAsync(x => x.Id == issueData.Issue.Id);
+        Assert.Equal("Generated title", issue.Title);
+        Assert.Equal(content, issue.Content);
+        // Only the title was asked for - the text was not rewritten.
+        host.AiContentSummarizerMock.Verify(
+            x => x.SummarizeAsync(content, It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

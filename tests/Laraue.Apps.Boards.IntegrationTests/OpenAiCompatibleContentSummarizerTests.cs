@@ -123,6 +123,39 @@ public class OpenAiCompatibleContentSummarizerTests
             < summarizer.EstimateInputTokenCount("notes", generateTitle: true));
     }
 
+    [Theory]
+    [InlineData("{\\\"title\\\":\\\"# Fix login retry\\\"}", "Fix login retry")]
+    [InlineData("Fix login retry. And more", "Fix login retry")]
+    [InlineData("{\\\"title\\\":\\\"\\\"}", null)]
+    public async Task GenerateTitleAsync_ShouldReturnOnlyTheTitleAndUsage_WhenApiReplies(string reply, string? expectedTitle)
+    {
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonResponse(
+            HttpStatusCode.OK,
+            "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"" + reply + "\"}}],"
+            + "\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":7}}")));
+
+        var summarizer = CreateSummarizer(handler);
+
+        var result = await summarizer.GenerateTitleAsync("fix login bug pls", CancellationToken.None);
+
+        Assert.Equal(expectedTitle, result.Title);
+        Assert.Equal(30, result.InputTokensCount);
+        Assert.Equal(7, result.OutputTokensCount);
+        // A title is a line: the call is capped far below a rewrite of the whole text.
+        Assert.Contains("\"max_tokens\":" + summarizer.MaxTitleOutputTokensCount, handler.LastRequestBody);
+        Assert.True(summarizer.MaxTitleOutputTokensCount < summarizer.MaxOutputTokensCount);
+    }
+
+    [Fact]
+    public void EstimateTitleInputTokenCount_ShouldBeSmallerThanARewrite_Always()
+    {
+        var summarizer = CreateSummarizer(new FakeHttpMessageHandler(_ => throw new InvalidOperationException()));
+
+        Assert.True(
+            summarizer.EstimateTitleInputTokenCount("notes")
+            < summarizer.EstimateInputTokenCount("notes", generateTitle: true));
+    }
+
     [Fact]
     public async Task SummarizeAsync_ShouldSendThinkingDisabled_WhenThinkingOptionIsFalse()
     {

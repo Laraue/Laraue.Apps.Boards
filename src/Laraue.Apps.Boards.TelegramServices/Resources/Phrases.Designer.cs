@@ -382,6 +382,27 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug..
+        /// </summary>
+        internal static string SaveTitleGenerationFailed {
+            get {
+                return ResourceManager.GetString("SaveTitleGenerationFailed", resourceCulture);
+            }
+        }
+
+        internal static string SaveTitleNoCredits {
+            get {
+                return ResourceManager.GetString("SaveTitleNoCredits", resourceCulture);
+            }
+        }
+
+        internal static string SaveTitleRequired {
+            get {
+                return ResourceManager.GetString("SaveTitleRequired", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to 🔗 Open issue.
         /// </summary>
         internal static string OpenIssueButton {

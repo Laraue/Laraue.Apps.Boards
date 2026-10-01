@@ -14,6 +14,11 @@ public class IssueTitleTests
     [InlineData("---\n***\nFix the login", "Fix the login")]
     [InlineData("- [Fix the login](https://example.com/x) now", "Fix the login now")]
     [InlineData("_Fix_ snake_case", "Fix snake_case")]
+    [InlineData("Fix the login. Then check the logs.", "Fix the login")]
+    [InlineData("Fix the login.", "Fix the login.")]
+    [InlineData("Release 1.2 of example.com is out", "Release 1.2 of example.com is out")]
+    [InlineData("**Fix the login.**   *Then* more\nsecond line. third", "Fix the login")]
+    [InlineData(". starts with a period", ". starts with a period")]
     [InlineData("", "")]
     [InlineData("   \n \n", "")]
     [InlineData(null, "")]
@@ -39,5 +44,11 @@ public class IssueTitleTests
         var content = new string('a', 256);
 
         Assert.Equal(content, IssueTitle.FromContent(content));
+    }
+
+    [Fact]
+    public void Normalize_ShouldNotShortenToFirstSentence_WhenTitleWasTypedByHand()
+    {
+        Assert.Equal("Fix the login. Then check the logs.", IssueTitle.Normalize("Fix the login.   Then check the logs."));
     }
 }

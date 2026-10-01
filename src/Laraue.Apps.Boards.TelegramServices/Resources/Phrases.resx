@@ -171,7 +171,16 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>That's a bot command, not a saved message - reply to the actual message instead.</value>
     </data>
     <data name="SaveNothingToSave" xml:space="preserve">
-        <value>There's nothing to save - the message has no text and you didn't add a note, e.g. /save some note.</value>
+        <value>There's nothing to save - the message has no text or attachments.</value>
+    </data>
+    <data name="SaveTitleGenerationFailed" xml:space="preserve">
+        <value>The title could not be generated - set it yourself: reply with /save and the title, e.g. /save Fix login bug.</value>
+    </data>
+    <data name="SaveTitleNoCredits" xml:space="preserve">
+        <value>There are not enough AI credits to generate the title - set it yourself: reply with /save and the title, e.g. /save Fix login bug.</value>
+    </data>
+    <data name="SaveTitleRequired" xml:space="preserve">
+        <value>There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug.</value>
     </data>
     <data name="OpenIssueButton" xml:space="preserve">
         <value>🔗 Open issue</value>
@@ -212,9 +221,9 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>🗑 Card deleted.</value>
     </data>
     <data name="AiSummarizationUnavailable" xml:space="preserve">
-        <value>AI summarization is temporarily unavailable - try /save instead, or try /aisave again later.</value>
+        <value>AI summarization is temporarily unavailable - try /save with a title instead, e.g. /save Fix login bug, or try /aisave again later.</value>
     </data>
     <data name="InsufficientTokenBalance" xml:space="preserve">
-        <value>Not enough tokens left for AI summarization - try /save instead to save without it.</value>
+        <value>Not enough tokens left for AI summarization - try /save with a title instead to save without it, e.g. /save Fix login bug.</value>
     </data>
 </root>

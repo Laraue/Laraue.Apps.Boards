@@ -32,7 +32,29 @@ public interface IAiContentSummarizer
     /// input/output token counts the provider billed for.
     /// </summary>
     Task<AiSummarizationResult> SummarizeAsync(string notes, bool generateTitle, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The ceiling on generated tokens of a <see cref="GenerateTitleAsync"/> call - a title is a line, so
+    /// far below <see cref="MaxOutputTokensCount"/>, which keeps the Billing reservation small.
+    /// </summary>
+    int MaxTitleOutputTokensCount { get; }
+
+    /// <summary>
+    /// Same as <see cref="EstimateInputTokenCount"/>, for a <see cref="GenerateTitleAsync"/> call.
+    /// </summary>
+    int EstimateTitleInputTokenCount(string content);
+
+    /// <summary>
+    /// Asks the AI provider for a title of <paramref name="notes"/> only - the text is not rewritten, so
+    /// the call is short and cheap. The title is null when the provider gave none.
+    /// </summary>
+    Task<AiTitleResult> GenerateTitleAsync(string notes, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// A generated title with the provider's own reported usage, like <see cref="AiSummarizationResult"/>.
+/// </summary>
+public sealed record AiTitleResult(string? Title, int InputTokensCount, int OutputTokensCount);
 
 /// <summary>
 /// <paramref name="InputTokensCount"/>/<paramref name="OutputTokensCount"/> are the provider's own

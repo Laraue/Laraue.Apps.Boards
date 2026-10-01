@@ -45,6 +45,18 @@ public class OpenAiCompatibleContentSummarizer(
 
     private const string SystemPromptWithoutTitle = BasePrompt + "\n" + ContentOnlyFormatPrompt;
 
+    private const string TitleOnlyPrompt =
+        """
+        Write a short one-line title (up to about ten words) for these task notes, using only what the
+        notes say. Keep an existing title as-is. Reply with a JSON object of one string field: "title".
+        No code block, no extra commentary.
+        Example: {"title": "Fix login retry"}
+        """;
+
+    private const int TitleMaxTokens = 128;
+
+    public int MaxTitleOutputTokensCount => TitleMaxTokens;
+
     private static string GetSystemPrompt(bool generateTitle) =>
         generateTitle ? SystemPromptWithTitle : SystemPromptWithoutTitle;
 
@@ -59,9 +71,35 @@ public class OpenAiCompatibleContentSummarizer(
         tokenEstimate.EstimateInputTokenCount(GetSystemPrompt(generateTitle))
         + tokenEstimate.EstimateInputTokenCount(content);
 
+    public int EstimateTitleInputTokenCount(string content) =>
+        tokenEstimate.EstimateInputTokenCount(TitleOnlyPrompt)
+        + tokenEstimate.EstimateInputTokenCount(content);
+
     public async Task<AiSummarizationResult> SummarizeAsync(
         string notes,
         bool generateTitle,
+        CancellationToken cancellationToken)
+    {
+        var (content, usage) = await CompleteAsync(GetSystemPrompt(generateTitle), notes, DefaultMaxTokens, cancellationToken);
+        var (title, body) = ParseSummary(content, generateTitle);
+
+        return new AiSummarizationResult(title, body, usage.PromptTokens, usage.CompletionTokens);
+    }
+
+    public async Task<AiTitleResult> GenerateTitleAsync(string notes, CancellationToken cancellationToken)
+    {
+        var (content, usage) = await CompleteAsync(TitleOnlyPrompt, notes, TitleMaxTokens, cancellationToken);
+
+        return new AiTitleResult(ParseTitle(content), usage.PromptTokens, usage.CompletionTokens);
+    }
+
+    /// <summary>
+    /// One non-streaming chat completion in JSON mode: the reply text and the provider's usage.
+    /// </summary>
+    private async Task<(string Content, ChatCompletionUsage Usage)> CompleteAsync(
+        string systemPrompt,
+        string notes,
+        int maxTokens,
         CancellationToken cancellationToken)
     {
         var request = new ChatCompletionRequest
@@ -69,7 +107,7 @@ public class OpenAiCompatibleContentSummarizer(
             Model = options.Value.Model,
             Messages =
             [
-                new ChatMessage { Role = "system", Content = GetSystemPrompt(generateTitle) },
+                new ChatMessage { Role = "system", Content = systemPrompt },
                 new ChatMessage { Role = "user", Content = notes },
             ],
             Thinking = new ChatCompletionThinking
@@ -77,7 +115,7 @@ public class OpenAiCompatibleContentSummarizer(
                 Type = options.Value.Thinking ? "enabled" : "disabled",
             },
             ResponseFormat = new ChatCompletionResponseFormat { Type = "json_object" },
-            MaxTokens = DefaultMaxTokens,
+            MaxTokens = maxTokens,
             Stream = false,
         };
 
@@ -108,9 +146,28 @@ public class OpenAiCompatibleContentSummarizer(
             throw new AiContentSummarizationException("AI summarization API returned no usage data.");
         }
 
-        var (title, body) = ParseSummary(content, generateTitle);
+        return (content, usage);
+    }
 
-        return new AiSummarizationResult(title, body, usage.PromptTokens, usage.CompletionTokens);
+    /// <summary>
+    /// Reads the requested {"title"} JSON. A reply that isn't that JSON is taken as the title itself,
+    /// first line only - the tokens are already spent, and an empty result means no title.
+    /// </summary>
+    private static string? ParseTitle(string completion)
+    {
+        string? title;
+        try
+        {
+            title = JsonSerializer.Deserialize<SummaryPayload>(completion)?.Title;
+        }
+        catch (JsonException)
+        {
+            title = completion;
+        }
+
+        var normalized = IssueTitle.FromContent(title);
+
+        return normalized.Length == 0 ? null : normalized;
     }
 
     /// <summary>

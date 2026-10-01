@@ -358,6 +358,11 @@ public class IssuesService(
             throw new PaymentRequiredException(ErrorMessages.IssueLimitExceeded);
         }
 
+        var hasTitle = !string.IsNullOrWhiteSpace(request.Title);
+        var title = hasTitle
+            ? request.Title!
+            : await GenerateTitle(request.AuthData, request.Content, ct);
+
         if (FilesHasError(request.Files, out var error))
             throw new BadRequestException(nameof(request.Files), error);
         
@@ -372,7 +377,7 @@ public class IssuesService(
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
-        var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow, request.Title, isTitleSetExplicitly: true)
+        var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly: hasTitle)
             .SetContent(request.Content)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
@@ -403,6 +408,12 @@ public class IssuesService(
 
         if (FilesHasError(request.AddFiles, out var error))
             throw new BadRequestException(nameof(request.AddFiles), error);
+
+        // A missing title is generated from the content, like on create - an edit that cleared the title too.
+        // Done before anything is uploaded or saved, so a failed generation leaves nothing behind.
+        var title = string.IsNullOrWhiteSpace(request.Title)
+            ? await GenerateTitle(request.AuthData, request.Content, ct)
+            : request.Title;
         
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
         
@@ -417,7 +428,7 @@ public class IssuesService(
         
         var issueUpdate = new IssueUpdateRequest()
             .SetContent(request.Content)
-            .SetTitle(request.Title)
+            .SetTitle(title)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
             .LinkNewAttachments(uploadedFiles)
@@ -434,35 +445,106 @@ public class IssuesService(
 
     public async Task<SummarizedContentDto> SummarizeContent(SummarizeIssueContentRequest request, CancellationToken cancellationToken)
     {
-        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(request.Content, request.GenerateTitle);
-
-        Guid tokenTransactionId;
         try
         {
-            tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
-                request.AuthData.OrganizationId,
-                request.AuthData.UserId,
-                estimatedInputTokens,
-                aiContentSummarizer.MaxOutputTokensCount,
-                cancellationToken);
+            var result = await SummarizeAndBill(
+                request.AuthData, request.Content, request.GenerateTitle, cancellationToken);
+
+            return new SummarizedContentDto { Title = result.Title, Content = result.Content };
         }
         catch (InsufficientTokenBalanceException)
         {
             throw new PaymentRequiredException(ErrorMessages.InsufficientTokenBalance);
         }
+        catch (AiContentSummarizationException ex)
+        {
+            logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
+            throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
+        }
+    }
+
+    /// <summary>
+    /// Generates the title of an issue whose client didn't give one, asking the AI for the title only (the
+    /// content is not rewritten, so it is short and cheap). Fails with the reason the caller can act on:
+    /// no AI credits (402), or the title couldn't be generated (400, a problem of the title field).
+    /// </summary>
+    private async Task<string> GenerateTitle(
+        OrganizationAuthData authData,
+        string content,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            throw new BadRequestException(nameof(CreateIssueRequest.Title), ErrorMessages.TitleRequired);
 
         try
         {
-            var result = await aiContentSummarizer.SummarizeAsync(request.Content, request.GenerateTitle, cancellationToken);
+            var estimatedInputTokens = aiContentSummarizer.EstimateTitleInputTokenCount(content);
+
+            var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+                authData.OrganizationId,
+                authData.UserId,
+                estimatedInputTokens,
+                aiContentSummarizer.MaxTitleOutputTokensCount,
+                cancellationToken);
+
+            try
+            {
+                var result = await aiContentSummarizer.GenerateTitleAsync(content, cancellationToken);
+                tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
+                await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(result.Title))
+                    return result.Title;
+            }
+            catch (AiContentSummarizationException ex)
+            {
+                await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
+                throw;
+            }
+        }
+        catch (InsufficientTokenBalanceException)
+        {
+            throw new PaymentRequiredException(ErrorMessages.TitleGenerationNoCredits);
+        }
+        catch (AiContentSummarizationException ex)
+        {
+            logger.LogWarning(ex, "AI title generation failed for organization {OrganizationId}", authData.OrganizationId);
+        }
+
+        throw new BadRequestException(nameof(CreateIssueRequest.Title), ErrorMessages.TitleCannotBeGenerated);
+    }
+
+    /// <summary>
+    /// One AI summarization with the token bookkeeping around it: reserves the worst case first (throws
+    /// <see cref="InsufficientTokenBalanceException"/> when the balance can't cover it), commits what the
+    /// provider actually billed, and gives the reservation back when the provider fails.
+    /// </summary>
+    private async Task<AiSummarizationResult> SummarizeAndBill(
+        OrganizationAuthData authData,
+        string content,
+        bool generateTitle,
+        CancellationToken cancellationToken)
+    {
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content, generateTitle);
+
+        var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+            authData.OrganizationId,
+            authData.UserId,
+            estimatedInputTokens,
+            aiContentSummarizer.MaxOutputTokensCount,
+            cancellationToken);
+
+        try
+        {
+            var result = await aiContentSummarizer.SummarizeAsync(content, generateTitle, cancellationToken);
             tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
-            return new SummarizedContentDto { Title = result.Title, Content = result.Content };
+            return result;
         }
         catch (AiContentSummarizationException ex)
         {
             await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
-            logger.LogWarning(ex, "AI summarization failed for organization {OrganizationId}", request.AuthData.OrganizationId);
-            throw new AiSummarizationUnavailableException(ErrorMessages.AiSummarizationUnavailable);
+            throw;
         }
     }
 
@@ -1638,10 +1720,11 @@ public record CreateIssueRequest
     public required string Content { get; set; }
 
     /// <summary>
-    /// Issue title. Required - only Telegram derives a title from the content.
+    /// Issue title. Without it the title is generated from the content by AI - or the request fails
+    /// when that isn't possible.
     /// </summary>
-    [Required, MaxLength(Constraints.MaxTitleLength)]
-    public required string Title { get; set; }
+    [MaxLength(Constraints.MaxTitleLength)]
+    public string? Title { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];
     public IFormFile[] Files { get; set; } = [];
@@ -1655,10 +1738,11 @@ public record UpdateIssueRequest
     public required string Content { get; set; }
 
     /// <summary>
-    /// Issue title. Required - only Telegram derives a title from the content.
+    /// Issue title. Without it the title is generated from the content by AI - or the request fails
+    /// when that isn't possible.
     /// </summary>
-    [Required, MaxLength(Constraints.MaxTitleLength)]
-    public required string Title { get; set; }
+    [MaxLength(Constraints.MaxTitleLength)]
+    public string? Title { get; set; }
     public required Guid AssigneeId { get; set; }
     [JsonModelBinder]
     public AttributeValue[] AttributeValues { get; set; } = [];

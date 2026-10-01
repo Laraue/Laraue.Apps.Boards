@@ -797,7 +797,7 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task HandleSave_ShouldComposeNotePlusOriginalText_WhenSaveCommandHasTrailingContent()
+    public async Task HandleSave_ShouldSetTitleDirectly_WhenSaveCommandHasTrailingText()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -829,14 +829,14 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        // The command must still route correctly with trailing free-text content attached.
+        // The text after /save is the title - no AI involved.
         await host.SendUpdateAsync(new Update
         {
             Message = new Message
             {
                 From = AdminUser,
                 Id = 6,
-                Text = "/save my note",
+                Text = "/save My own title",
                 Chat = chat,
                 ReplyToMessage = new Message { Id = 5, Chat = chat },
             }
@@ -845,7 +845,208 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("my note\n---\nOriginal text", issue.Content);
+        Assert.Equal("Original text", issue.Content);
+        Assert.Equal("My own title", issue.Title);
+        Assert.True(issue.IsTitleSetExplicitly);
+        Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>()).Verify(
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldGenerateOnlyTheTitleWithAi_WhenCommandIsBare()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 901, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 1, Text = "login fails on retry, need logs pls", Chat = chat }
+        });
+        Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>())
+            .Setup(x => x.GenerateTitleAsync("login fails on retry, need logs pls", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiTitleResult("Fix login retry", InputTokensCount: 5, OutputTokensCount: 5));
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/save", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        // Unlike /aisave, the AI only wrote the title - the text stays as the user wrote it.
+        Assert.Equal("login fails on retry, need logs pls", issue.Content);
+        Assert.Equal("Fix login retry", issue.Title);
+        Assert.False(issue.IsTitleSetExplicitly);
+    }
+
+    [Theory]
+    [InlineData(true, "The title could not be generated - set it yourself: reply with /save and the title, e.g. /save Fix login bug.")]
+    [InlineData(false, "There are not enough AI credits to generate the title - set it yourself: reply with /save and the title, e.g. /save Fix login bug.")]
+    public async Task HandleSave_ShouldAskForTitle_WhenItCannotBeGenerated(bool aiFails, string expectedNotice)
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = aiFails ? 902 : 903, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 1, Text = "Hello world", Chat = chat }
+        });
+        if (aiFails)
+        {
+            Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>())
+                .Setup(x => x.GenerateTitleAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new AiContentSummarizationException("AI request failed."));
+        }
+        else
+        {
+            Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IBillingTokenClient>())
+                .Setup(x => x.ReserveTokensAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InsufficientTokenBalanceException("insufficient balance"));
+        }
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/save", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        Assert.Equal(expectedNotice, host.Requests().Single<SendMessageRequest>().Text);
+        var db = host.CreateScope().GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldAskForTitle_WhenMessageHasOnlyAnAttachmentAndNoTitle()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 904, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 1, Chat = chat,
+                Photo =
+                [
+                    new PhotoSize { FileId = "preview1", FileUniqueId = "previewUnique1" },
+                    new PhotoSize { FileId = "file1", FileUniqueId = "fileUnique1" },
+                ],
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/save", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+        Assert.Equal(
+            "There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug.",
+            host.Requests().Single<SendMessageRequest>().Text);
+        Assert.Empty(await host.CreateScope().GetDatabaseContext().Issues.ToListAsyncLinqToDB());
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 3, Text = "/save Screenshot of the bug", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("Screenshot of the bug", issue.Title);
+        Assert.Null(issue.Content);
+        Assert.NotEmpty(await db.IssueAttachments.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleAiSave_ShouldKeepGivenTitleAndRewriteText_WhenCommandHasTrailingText()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 905, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 1, Text = "messy notes about login", Chat = chat }
+        });
+        Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>())
+            .Setup(x => x.SummarizeAsync("messy notes about login", false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult(null, "- Login notes, tidied", InputTokensCount: 5, OutputTokensCount: 5));
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser, Id = 2, Text = "/aisave My own title", Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal("- Login notes, tidied", issue.Content);
+        Assert.Equal("My own title", issue.Title);
+        Assert.True(issue.IsTitleSetExplicitly);
     }
 
     [Fact]
@@ -889,7 +1090,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             {
                 From = AdminUser,
                 Id = 6,
-                Text = "/save@ai_saved_mesages_bot my note",
+                Text = "/save@ai_saved_mesages_bot My title",
                 Chat = chat,
                 ReplyToMessage = new Message { Id = 5, Chat = chat },
             }
@@ -898,7 +1099,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("my note\n---\nOriginal text", issue.Content);
+        Assert.Equal("Original text", issue.Content);
+        Assert.Equal("My title", issue.Title);
     }
 
     [Fact]
@@ -1770,7 +1972,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal(
-            "AI summarization is temporarily unavailable - try /save instead, or try /aisave again later.",
+            "AI summarization is temporarily unavailable - try /save with a title instead, e.g. /save Fix login bug, or try /aisave again later.",
             request.Text);
 
         var scope = host.CreateScope();
@@ -1830,7 +2032,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal(
-            "Not enough tokens left for AI summarization - try /save instead to save without it.",
+            "Not enough tokens left for AI summarization - try /save with a title instead to save without it, e.g. /save Fix login bug.",
             request.Text);
 
         var scope = host.CreateScope();

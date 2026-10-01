@@ -19,8 +19,9 @@ public static partial class IssueTitle
     /// <summary>
     /// Parses the first non-empty, non-rule line of <paramref name="content"/> as markdown and joins its
     /// text nodes (emphasis, headers, quotes and list bullets are dropped, links keep their text),
-    /// collapses whitespace and cuts the result to <see cref="Constraints.MaxTitleLength"/> on a
-    /// word boundary with an ellipsis. Returns an empty string for empty content.
+    /// collapses whitespace, keeps only the first sentence (see <see cref="FirstSentence"/>) and cuts the
+    /// result to <see cref="Constraints.MaxTitleLength"/> on a word boundary with an ellipsis. Returns an
+    /// empty string for empty content. The <c>AddIssueTitle</c> migration backfills with the same rule in SQL.
     /// </summary>
     public static string FromContent(string? content)
     {
@@ -30,7 +31,21 @@ public static partial class IssueTitle
 
         var line = firstLine.Trim().ToString();
 
-        return Normalize(TryGetText(line));
+        var text = Whitespace().Replace(TryGetText(line), " ").Trim();
+
+        return Normalize(FirstSentence(text));
+    }
+
+    /// <summary>
+    /// A line with several sentences gives its first one, without the period. A sentence ends at a period
+    /// followed by whitespace and more text, so "1.2", "example.com" and a closing period are left alone.
+    /// Only for titles taken from content - a title someone typed is never shortened.
+    /// </summary>
+    private static string FirstSentence(string text)
+    {
+        var first = SentenceEnd().Match(text) is { Success: true } match ? match.Groups["first"].Value.Trim() : string.Empty;
+
+        return first.Length > 0 ? first : text;
     }
 
     /// <summary>
@@ -150,4 +165,7 @@ public static partial class IssueTitle
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
+
+    [GeneratedRegex(@"^(?<first>.+?)\.\s+\S")]
+    private static partial Regex SentenceEnd();
 }

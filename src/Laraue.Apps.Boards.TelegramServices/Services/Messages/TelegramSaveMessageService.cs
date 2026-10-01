@@ -118,27 +118,38 @@ public class TelegramSaveMessageService(
 
         await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
 
-        var content = ComposeReplyContent(request.Note, cardMessage.Text);
-
-        string? aiTitle = null;
-        if (request.Summarize && content is not null)
-            (aiTitle, content) = await SummarizeAndSpendTokens(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
-
-        // The AI's title, or - without one, or without summarizing - the first line of the content.
-        var title = aiTitle ?? BuildTitle(content, "message", dateTimeProvider.UtcNow, request.ExternalChatId, linkedChat.ChatTitle);
+        var content = string.IsNullOrWhiteSpace(cardMessage.Text) ? null : cardMessage.Text.Trim();
+        var attachmentIds = groupMessages
+            .Where(x => x.AttachmentId is not null)
+            .Select(x => x.AttachmentId!.Value)
+            .ToArray();
 
         if (cardMessage.IssueId is not null)
         {
             // Manual mode never syncs edits into an existing card on its own (see Save) - a
             // repeat /save is the explicit trigger that pulls in whatever has changed since,
             // both the text and any new attachments in the group.
-            var update = new IssueUpdateRequest()
-                .LinkExistingAttachments(groupMessages
-                    .Where(x => x.AttachmentId is not null)
-                    .Select(x => x.AttachmentId!.Value));
+            var update = new IssueUpdateRequest().LinkExistingAttachments(attachmentIds);
 
+            // A bare /save adds no AI call here: the card already has a title, so only the first line
+            // follows a changed text - unless the user gave a title, which wins. /aisave rewrites the text
+            // and brings its own title.
             if (content is not null)
-                update.SetContent(content).SetSuggestedTitle(title);
+            {
+                string? aiTitle = null;
+                if (request.Summarize)
+                {
+                    var generated = await GenerateWithAi(
+                        linkedChat.OrganizationId, request.UserId, content, needTitle: true, cancellationToken);
+                    (aiTitle, content) = (generated.Title, generated.Content);
+                }
+
+                update.SetContent(content).SetSuggestedTitle(
+                    aiTitle ?? BuildTitle(content, "message", dateTimeProvider.UtcNow, request.ExternalChatId, linkedChat.ChatTitle));
+            }
+
+            if (request.Title is not null)
+                update.SetTitle(request.Title);
 
             await coreIssuesService.Update(
                 cardMessage.IssueId.Value,
@@ -157,17 +168,36 @@ public class TelegramSaveMessageService(
             };
         }
 
-        if (content is null)
+        if (content is null && attachmentIds.Length == 0)
             return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NothingToSave };
+
+        // "/save Some title" sets the title directly. Without one the AI generates it from the text, which
+        // fails loudly (the caller tells the user to give a title), so a card never gets a made-up one.
+        // /aisave also lets the AI rewrite the text; the title stays the user's when they gave one.
+        var isTitleSetExplicitly = request.Title is not null;
+        var title = request.Title;
+        if (content is null && title is null)
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.TitleRequired };
+
+        if (content is not null && request.Summarize)
+        {
+            var generated = await GenerateWithAi(
+                linkedChat.OrganizationId, request.UserId, content, needTitle: title is null, cancellationToken);
+            title ??= generated.Title;
+            content = generated.Content;
+        }
+        else if (content is not null && title is null)
+        {
+            // A bare /save: the AI only writes the title, the text stays as it was written.
+            title = await GenerateTitleWithAi(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
+        }
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly: false)
+        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly)
             .SetContent(content)
             .SetTelegramMessageId(cardMessage.Id)
-            .LinkExistingAttachments(groupMessages
-                .Where(x => x.AttachmentId is not null)
-                .Select(x => x.AttachmentId!.Value));
+            .LinkExistingAttachments(attachmentIds);
 
         var issueId = await coreIssuesService.Create(request.UserId, issueCreate, cancellationToken);
 
@@ -318,21 +348,60 @@ public class TelegramSaveMessageService(
     }
 
     /// <summary>
-    /// Reserves Billing tokens, runs <paramref name="content"/> through the AI summarizer, and
-    /// commits the actual usage - or, if summarization fails, cancels the reservation before
-    /// rethrowing so <see cref="SaveByReply"/>'s caller (<c>SaveCommandService</c>) still sees the
-    /// same <see cref="AiContentSummarizationException"/> it already handles today. A thrown
-    /// <see cref="InsufficientTokenBalanceException"/> from the reservation itself is left
-    /// uncaught here - nothing to cancel yet, and <c>SaveCommandService</c> handles it the same
-    /// way.
+    /// Reserves Billing tokens and asks the AI for a title of <paramref name="content"/> only - short and cheap,
+    /// the text is not rewritten. Commits the actual usage, or cancels the reservation when the AI fails.
+    /// Throws <see cref="AiContentSummarizationException"/> when no title could be generated and lets
+    /// <see cref="InsufficientTokenBalanceException"/> from the reservation through; <c>SaveCommandService</c>
+    /// turns both into a "set the title yourself" notice.
     /// </summary>
-    private async Task<(string? Title, string Content)> SummarizeAndSpendTokens(
+    private async Task<string> GenerateTitleWithAi(
         long organizationId,
         Guid userId,
         string content,
         CancellationToken cancellationToken)
     {
-        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content, generateTitle: true);
+        var estimatedInputTokens = aiContentSummarizer.EstimateTitleInputTokenCount(content);
+
+        var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
+            organizationId,
+            userId,
+            estimatedInputTokens,
+            aiContentSummarizer.MaxTitleOutputTokensCount,
+            cancellationToken);
+
+        try
+        {
+            var result = await aiContentSummarizer.GenerateTitleAsync(content, cancellationToken);
+            tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
+            await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
+
+            return string.IsNullOrWhiteSpace(result.Title)
+                ? throw new AiContentSummarizationException("The AI returned no title.")
+                : result.Title;
+        }
+        catch (AiContentSummarizationException ex)
+        {
+            await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Reserves Billing tokens, runs <paramref name="content"/> through the AI summarizer, and commits
+    /// the actual usage - or, if the AI fails, cancels the reservation. Returns the rewritten text and
+    /// its title; when <paramref name="needTitle"/> a missing title counts as a failure. Throws
+    /// <see cref="AiContentSummarizationException"/> when the provider fails or gives no title, and lets
+    /// <see cref="InsufficientTokenBalanceException"/> from the reservation through - nothing to cancel
+    /// yet. <c>SaveCommandService</c> turns both into a notice. A bare /save only keeps the title.
+    /// </summary>
+    private async Task<(string Title, string Content)> GenerateWithAi(
+        long organizationId,
+        Guid userId,
+        string content,
+        bool needTitle,
+        CancellationToken cancellationToken)
+    {
+        var estimatedInputTokens = aiContentSummarizer.EstimateInputTokenCount(content, generateTitle: needTitle);
 
         var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
             organizationId,
@@ -343,10 +412,14 @@ public class TelegramSaveMessageService(
 
         try
         {
-            var result = await aiContentSummarizer.SummarizeAsync(content, generateTitle: true, cancellationToken);
+            var result = await aiContentSummarizer.SummarizeAsync(content, generateTitle: needTitle, cancellationToken);
             tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
             await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
-            return (result.Title, result.Content);
+
+            if (needTitle && string.IsNullOrWhiteSpace(result.Title))
+                throw new AiContentSummarizationException("The AI summarizer returned no title.");
+
+            return (result.Title ?? string.Empty, result.Content);
         }
         catch (AiContentSummarizationException ex)
         {
@@ -354,35 +427,6 @@ public class TelegramSaveMessageService(
             throw;
         }
     }
-
-    /// <summary>
-    /// Combines the user's optional /save note with the linked message's own stored text
-    /// (a "---" Markdown rule between the two, when both are present).
-    /// </summary>
-    private static string? ComposeReplyContent(string? note, string? originalText)
-    {
-        note = note?.Trim();
-        originalText = originalText?.Trim();
-
-        var hasNote = !string.IsNullOrEmpty(note);
-        var hasOriginalText = !string.IsNullOrEmpty(originalText);
-
-        if (!hasNote && !hasOriginalText)
-            return null;
-
-        if (!hasNote)
-            return originalText;
-
-        if (!hasOriginalText)
-            return note;
-
-        return new StringBuilder()
-            .Append(note)
-            .Append("\n---\n")
-            .Append(originalText)
-            .ToString();
-    }
-
 
     private async Task<GetOrCreateMessageResult> SaveVideoEntity(
         SaveVideoMessageTelegramRequest request,
@@ -929,14 +973,14 @@ public class SaveByReplyRequest
     public required Guid UserId { get; init; }
 
     /// <summary>
-    /// Extra text typed after /save, e.g. "/save this one" -&gt; "this one". Null when the
-    /// command was sent bare.
+    /// The title typed after /save, e.g. "/save Fix login bug" -&gt; "Fix login bug". Null when the
+    /// command was sent bare - the title is then generated from the message text.
     /// </summary>
-    public required string? Note { get; init; }
+    public required string? Title { get; init; }
 
     /// <summary>
-    /// Set by /aisave: runs the composed content through <see cref="IAiContentSummarizer"/>
-    /// before it's saved, instead of storing it verbatim.
+    /// Set by /aisave: the AI also rewrites the text (title and description both come from
+    /// <see cref="IAiContentSummarizer"/>) instead of it being stored as written.
     /// </summary>
     public bool Summarize { get; init; }
 }
@@ -975,8 +1019,14 @@ public enum SaveByReplyOutcome
     /// </summary>
     AlreadySaved,
 
-    /// <summary>Neither the replied-to message nor the /save note had any content.</summary>
+    /// <summary>The replied-to message has neither text nor attachments.</summary>
     NothingToSave,
+
+    /// <summary>
+    /// A bare /save on a message without text (only attachments): there is nothing to generate the title
+    /// from, so the user has to give one.
+    /// </summary>
+    TitleRequired,
 }
 
 public class InfoByReplyRequest

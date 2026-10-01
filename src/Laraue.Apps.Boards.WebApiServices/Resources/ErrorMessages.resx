@@ -33,6 +33,15 @@
     <data name="AiSummarizationUnavailable" xml:space="preserve">
         <value>AI summarization is temporarily unavailable, please try again later.</value>
     </data>
+    <data name="TitleRequired" xml:space="preserve">
+        <value>Enter a title, or add some content to generate it from.</value>
+    </data>
+    <data name="TitleCannotBeGenerated" xml:space="preserve">
+        <value>The title could not be generated. Enter it yourself.</value>
+    </data>
+    <data name="TitleGenerationNoCredits" xml:space="preserve">
+        <value>There are not enough AI credits to generate the title. Enter it yourself.</value>
+    </data>
     <data name="InsufficientTokenBalance" xml:space="preserve">
         <value>Not enough tokens left to complete this request.</value>
     </data>
