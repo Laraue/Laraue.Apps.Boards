@@ -44,9 +44,6 @@ public abstract class TelegramIntegrationTest
         aiContentSummarizerMock
             .Setup(x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string notes, bool _, CancellationToken __) => new AiSummarizationResult(notes, notes, InputTokensCount: 10, OutputTokensCount: 10));
-        aiContentSummarizerMock
-            .Setup(x => x.GenerateTitleAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string notes, CancellationToken _) => new AiTitleResult(notes, InputTokensCount: 10, OutputTokensCount: 10));
         builder.Services.AddSingleton(aiContentSummarizerMock.Object);
 
         // Overrides the real gRPC-backed client, which would otherwise try to reach a live

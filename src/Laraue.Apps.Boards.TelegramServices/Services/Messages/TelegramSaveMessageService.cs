@@ -171,13 +171,11 @@ public class TelegramSaveMessageService(
         if (content is null && attachmentIds.Length == 0)
             return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NothingToSave };
 
-        // "/save Some title" sets the title directly. Without one the AI generates it from the text, which
-        // fails loudly (the caller tells the user to give a title), so a card never gets a made-up one.
-        // /aisave also lets the AI rewrite the text; the title stays the user's when they gave one.
+        // /save is deterministic, no AI: "/save Some title" sets the title, a bare /save takes the first line of the
+        // text. /aisave always has the AI rewrite the text; a title given with it is kept as it is, without one the
+        // AI writes the title as well.
         var isTitleSetExplicitly = request.Title is not null;
         var title = request.Title;
-        if (content is null && title is null)
-            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.TitleRequired };
 
         if (content is not null && request.Summarize)
         {
@@ -186,11 +184,14 @@ public class TelegramSaveMessageService(
             title ??= generated.Title;
             content = generated.Content;
         }
-        else if (content is not null && title is null)
+        else if (title is null && content is not null)
         {
-            // A bare /save: the AI only writes the title, the text stays as it was written.
-            title = await GenerateTitleWithAi(linkedChat.OrganizationId, request.UserId, content, cancellationToken);
+            title = IssueTitle.FromContent(content) is { Length: > 0 } firstLine ? firstLine : null;
         }
+
+        // Nothing to take a title from (only attachments, or a text of nothing but markup): the user gives one.
+        if (title is null)
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.TitleRequired };
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -348,51 +349,12 @@ public class TelegramSaveMessageService(
     }
 
     /// <summary>
-    /// Reserves Billing tokens and asks the AI for a title of <paramref name="content"/> only - short and cheap,
-    /// the text is not rewritten. Commits the actual usage, or cancels the reservation when the AI fails.
-    /// Throws <see cref="AiContentSummarizationException"/> when no title could be generated and lets
-    /// <see cref="InsufficientTokenBalanceException"/> from the reservation through; <c>SaveCommandService</c>
-    /// turns both into a "set the title yourself" notice.
-    /// </summary>
-    private async Task<string> GenerateTitleWithAi(
-        long organizationId,
-        Guid userId,
-        string content,
-        CancellationToken cancellationToken)
-    {
-        var estimatedInputTokens = aiContentSummarizer.EstimateTitleInputTokenCount(content);
-
-        var tokenTransactionId = await billingTokenClient.ReserveTokensAsync(
-            organizationId,
-            userId,
-            estimatedInputTokens,
-            aiContentSummarizer.MaxTitleOutputTokensCount,
-            cancellationToken);
-
-        try
-        {
-            var result = await aiContentSummarizer.GenerateTitleAsync(content, cancellationToken);
-            tokenEstimate.LogIfEstimateDiverges(estimatedInputTokens, result.InputTokensCount);
-            await billingTokenClient.CommitTokensSpentAsync(tokenTransactionId, result.OutputTokensCount, cancellationToken);
-
-            return string.IsNullOrWhiteSpace(result.Title)
-                ? throw new AiContentSummarizationException("The AI returned no title.")
-                : result.Title;
-        }
-        catch (AiContentSummarizationException ex)
-        {
-            await billingTokenClient.CancelTokensReservationAsync(tokenTransactionId, ex.Message, cancellationToken);
-            throw;
-        }
-    }
-
-    /// <summary>
     /// Reserves Billing tokens, runs <paramref name="content"/> through the AI summarizer, and commits
     /// the actual usage - or, if the AI fails, cancels the reservation. Returns the rewritten text and
     /// its title; when <paramref name="needTitle"/> a missing title counts as a failure. Throws
     /// <see cref="AiContentSummarizationException"/> when the provider fails or gives no title, and lets
     /// <see cref="InsufficientTokenBalanceException"/> from the reservation through - nothing to cancel
-    /// yet. <c>SaveCommandService</c> turns both into a notice. A bare /save only keeps the title.
+    /// yet. <c>SaveCommandService</c> turns both into a notice.
     /// </summary>
     private async Task<(string Title, string Content)> GenerateWithAi(
         long organizationId,

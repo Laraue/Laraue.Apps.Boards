@@ -11,16 +11,16 @@ public interface ISaveCommandService
 {
     /// <summary>
     /// Handles /save: manually turns the replied-to message (or its whole album) into a card.
-    /// "/save Some title" sets the title directly; a bare "/save" asks the AI to generate the title from
-    /// the message text (the text itself stays as written), and asks for an explicit title when that
-    /// isn't possible. Only meaningful in BotMentionedMessages mode.
+    /// "/save Some title" sets the title directly; a bare "/save" takes it from the first line of the message
+    /// text (no AI), and asks for an explicit title when there is no text. Only meaningful in
+    /// BotMentionedMessages mode.
     /// </summary>
     Task HandleSaveCommand(Message message, Guid userId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Handles /aisave: same as /save, but the AI also rewrites the text (see
-    /// <see cref="IAiContentSummarizer"/>) - both the title and the description come from it.
-    /// "/aisave Some title" keeps the given title and only rewrites the text.
+    /// Handles /aisave: same as /save, but the AI always rewrites the text (see
+    /// <see cref="IAiContentSummarizer"/>) into the description. "/aisave Some title" keeps the given title as it
+    /// is; a bare "/aisave" has the AI write the title too.
     /// </summary>
     Task HandleAiSaveCommand(Message message, Guid userId, CancellationToken cancellationToken);
 }
@@ -98,18 +98,12 @@ public class SaveCommandService(
         catch (AiContentSummarizationException ex)
         {
             logger.LogWarning(ex, "AI generation failed for chat {ExternalChatId}", message.Chat.Id);
-            await ephemeralReplySender.SendEphemeralNotice(
-                message,
-                summarize ? Phrases.AiSummarizationUnavailable : Phrases.SaveTitleGenerationFailed,
-                cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.AiSummarizationUnavailable, cancellationToken);
             return;
         }
         catch (InsufficientTokenBalanceException)
         {
-            await ephemeralReplySender.SendEphemeralNotice(
-                message,
-                summarize ? Phrases.InsufficientTokenBalance : Phrases.SaveTitleNoCredits,
-                cancellationToken);
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InsufficientTokenBalance, cancellationToken);
             return;
         }
         catch (IssueLimitExceededException)

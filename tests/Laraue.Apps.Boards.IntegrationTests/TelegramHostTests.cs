@@ -848,13 +848,15 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal("Original text", issue.Content);
         Assert.Equal("My own title", issue.Title);
         Assert.True(issue.IsTitleSetExplicitly);
-        Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>()).Verify(
+        var summarizer = Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>());
+        summarizer.Verify(
             x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
+        summarizer.Verify(x => x.GenerateTitleAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task HandleSave_ShouldGenerateOnlyTheTitleWithAi_WhenCommandIsBare()
+    public async Task HandleSave_ShouldTakeTheTitleFromTheFirstLine_WhenCommandIsBare()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -873,11 +875,14 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         await host.SendUpdateAsync(new Update
         {
-            Message = new Message { From = AdminUser, Id = 1, Text = "login fails on retry, need logs pls", Chat = chat }
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "## Fix login retry. It fails on the second attempt\nNeed logs please",
+                Chat = chat,
+            }
         });
-        Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>())
-            .Setup(x => x.GenerateTitleAsync("login fails on retry, need logs pls", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiTitleResult("Fix login retry", InputTokensCount: 5, OutputTokensCount: 5));
 
         await host.SendUpdateAsync(new Update
         {
@@ -890,22 +895,25 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var db = host.CreateScope().GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        // Unlike /aisave, the AI only wrote the title - the text stays as the user wrote it.
-        Assert.Equal("login fails on retry, need logs pls", issue.Content);
+        // No AI: the text is saved as written and the title is its first sentence.
+        Assert.Equal("## Fix login retry. It fails on the second attempt\nNeed logs please", issue.Content);
         Assert.Equal("Fix login retry", issue.Title);
         Assert.False(issue.IsTitleSetExplicitly);
+        var summarizer = Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>());
+        summarizer.Verify(
+            x => x.SummarizeAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        summarizer.Verify(x => x.GenerateTitleAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    [Theory]
-    [InlineData(true, "The title could not be generated - set it yourself: reply with /save and the title, e.g. /save Fix login bug.")]
-    [InlineData(false, "There are not enough AI credits to generate the title - set it yourself: reply with /save and the title, e.g. /save Fix login bug.")]
-    public async Task HandleSave_ShouldAskForTitle_WhenItCannotBeGenerated(bool aiFails, string expectedNotice)
+    [Fact]
+    public async Task HandleSave_ShouldAskForTitle_WhenTextHasNothingToTakeATitleFrom()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
         var organization = await testScope.InitializeOrganization(userId);
-        var chat = new Chat { Id = aiFails ? 902 : 903, Type = ChatType.Group };
+        var chat = new Chat { Id = 902, Type = ChatType.Group };
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
@@ -918,21 +926,8 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         await host.SendUpdateAsync(new Update
         {
-            Message = new Message { From = AdminUser, Id = 1, Text = "Hello world", Chat = chat }
+            Message = new Message { From = AdminUser, Id = 1, Text = "***", Chat = chat }
         });
-        if (aiFails)
-        {
-            Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>())
-                .Setup(x => x.GenerateTitleAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .ThrowsAsync(new AiContentSummarizationException("AI request failed."));
-        }
-        else
-        {
-            Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IBillingTokenClient>())
-                .Setup(x => x.ReserveTokensAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-                .ThrowsAsync(new InsufficientTokenBalanceException("insufficient balance"));
-        }
-
         await host.SendUpdateAsync(new Update
         {
             Message = new Message
@@ -942,9 +937,10 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        Assert.Equal(expectedNotice, host.Requests().Single<SendMessageRequest>().Text);
-        var db = host.CreateScope().GetDatabaseContext();
-        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+        Assert.Equal(
+            "There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug.",
+            host.Requests().Single<SendMessageRequest>().Text);
+        Assert.Empty(await host.CreateScope().GetDatabaseContext().Issues.ToListAsyncLinqToDB());
     }
 
     [Fact]

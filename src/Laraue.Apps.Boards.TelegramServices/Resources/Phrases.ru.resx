@@ -166,12 +166,6 @@
     <data name="SaveNothingToSave" xml:space="preserve">
         <value>Нечего сохранять — в сообщении нет ни текста, ни вложений.</value>
     </data>
-    <data name="SaveTitleGenerationFailed" xml:space="preserve">
-        <value>Не удалось создать заголовок — задайте его сами: ответьте командой /save и заголовком, например: /save Исправить вход.</value>
-    </data>
-    <data name="SaveTitleNoCredits" xml:space="preserve">
-        <value>Недостаточно ИИ-кредитов для создания заголовка — задайте его сами: ответьте командой /save и заголовком, например: /save Исправить вход.</value>
-    </data>
     <data name="SaveTitleRequired" xml:space="preserve">
         <value>Нет текста, из которого можно сделать заголовок — задайте его сами: ответьте командой /save и заголовком, например: /save Исправить вход.</value>
     </data>
