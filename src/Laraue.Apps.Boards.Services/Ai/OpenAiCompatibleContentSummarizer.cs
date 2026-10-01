@@ -55,6 +55,21 @@ public class OpenAiCompatibleContentSummarizer(
 
     private const int TitleMaxTokens = 128;
 
+    // The shape of each reply, sent as a JSON Schema when AiSummarizerOptions.UseJsonSchema is on.
+    private static readonly object TitleAndContentSchema = ObjectSchema("title", "content");
+
+    private static readonly object ContentSchema = ObjectSchema("content");
+
+    private static readonly object TitleSchema = ObjectSchema("title");
+
+    private static object ObjectSchema(params string[] stringFields) => new
+    {
+        type = "object",
+        properties = stringFields.ToDictionary(x => x, _ => (object)new { type = "string" }),
+        required = stringFields,
+        additionalProperties = false,
+    };
+
     public int MaxTitleOutputTokensCount => TitleMaxTokens;
 
     private static string GetSystemPrompt(bool generateTitle) =>
@@ -80,15 +95,20 @@ public class OpenAiCompatibleContentSummarizer(
         bool generateTitle,
         CancellationToken cancellationToken)
     {
-        var (content, usage) = await CompleteAsync(GetSystemPrompt(generateTitle), notes, DefaultMaxTokens, cancellationToken);
-        var (title, body) = ParseSummary(content, generateTitle);
+        var (content, usage) = await CompleteAsync(
+            GetSystemPrompt(generateTitle),
+            notes,
+            DefaultMaxTokens,
+            generateTitle ? TitleAndContentSchema : ContentSchema,
+            cancellationToken);
+        var (title, body) = ParseSummary(content, generateTitle, notes);
 
         return new AiSummarizationResult(title, body, usage.PromptTokens, usage.CompletionTokens);
     }
 
     public async Task<AiTitleResult> GenerateTitleAsync(string notes, CancellationToken cancellationToken)
     {
-        var (content, usage) = await CompleteAsync(TitleOnlyPrompt, notes, TitleMaxTokens, cancellationToken);
+        var (content, usage) = await CompleteAsync(TitleOnlyPrompt, notes, TitleMaxTokens, TitleSchema, cancellationToken);
 
         return new AiTitleResult(ParseTitle(content), usage.PromptTokens, usage.CompletionTokens);
     }
@@ -100,6 +120,7 @@ public class OpenAiCompatibleContentSummarizer(
         string systemPrompt,
         string notes,
         int maxTokens,
+        object schema,
         CancellationToken cancellationToken)
     {
         var request = new ChatCompletionRequest
@@ -114,7 +135,13 @@ public class OpenAiCompatibleContentSummarizer(
             {
                 Type = options.Value.Thinking ? "enabled" : "disabled",
             },
-            ResponseFormat = new ChatCompletionResponseFormat { Type = "json_object" },
+            ResponseFormat = options.Value.UseJsonSchema
+                ? new ChatCompletionResponseFormat
+                {
+                    Type = "json_schema",
+                    JsonSchema = new ChatCompletionJsonSchema { Name = "reply", Schema = schema },
+                }
+                : new ChatCompletionResponseFormat { Type = "json_object" },
             MaxTokens = maxTokens,
             Stream = false,
         };
@@ -171,11 +198,12 @@ public class OpenAiCompatibleContentSummarizer(
     }
 
     /// <summary>
-    /// Reads the requested {"title", "content"} (or content-only) JSON. The tokens are already spent,
-    /// so a reply that isn't that JSON or lacks the content is kept as plain content with no title,
-    /// and a missing title just leaves the issue to derive it from the first line.
+    /// Reads the requested {"title", "content"} (or content-only) JSON. A small model may answer with less than
+    /// asked, and the user's text must never be replaced by something broken:
+    /// a reply with a title but no content keeps <paramref name="notes"/> and uses the title; a reply that is
+    /// neither usable JSON nor plain text, or has neither field, fails; plain text is taken as the content.
     /// </summary>
-    private static (string? Title, string Content) ParseSummary(string completion, bool generateTitle)
+    private static (string? Title, string Content) ParseSummary(string completion, bool generateTitle, string notes)
     {
         SummaryPayload? payload;
         try
@@ -187,11 +215,25 @@ public class OpenAiCompatibleContentSummarizer(
             payload = null;
         }
 
-        var content = payload?.Content?.Trim();
-        if (string.IsNullOrEmpty(content))
-            return (null, completion.Trim());
+        if (payload is null)
+        {
+            var text = completion.Trim();
 
-        var title = generateTitle ? IssueTitle.FromContent(payload?.Title) : string.Empty;
+            // A JSON reply that didn't parse (cut off, say) is not a rewrite of the text.
+            return text.StartsWith('{')
+                ? throw new AiContentSummarizationException("The AI reply was not valid JSON.")
+                : (null, text);
+        }
+
+        var title = generateTitle ? IssueTitle.FromContent(payload.Title) : string.Empty;
+        var content = payload.Content?.Trim();
+
+        if (string.IsNullOrEmpty(content))
+        {
+            return title.Length == 0
+                ? throw new AiContentSummarizationException("The AI reply had neither content nor a title.")
+                : (title, notes.Trim());
+        }
 
         return (title.Length == 0 ? null : title, content);
     }
@@ -236,6 +278,22 @@ public class OpenAiCompatibleContentSummarizer(
     {
         [JsonPropertyName("type")]
         public required string Type { get; init; }
+
+        [JsonPropertyName("json_schema")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public ChatCompletionJsonSchema? JsonSchema { get; init; }
+    }
+
+    private record ChatCompletionJsonSchema
+    {
+        [JsonPropertyName("name")]
+        public required string Name { get; init; }
+
+        [JsonPropertyName("strict")]
+        public bool Strict { get; init; } = true;
+
+        [JsonPropertyName("schema")]
+        public required object Schema { get; init; }
     }
 
     private record ChatMessage

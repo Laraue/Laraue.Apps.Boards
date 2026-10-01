@@ -50,7 +50,11 @@ in config:
 ```
 ollama pull gemma3:12b
 ```
-Ollama serves on `http://localhost:11434` by default once installed. On prod, override
+Ollama serves on `http://localhost:11434` by default once installed. Small local models sometimes
+leave out a field of the JSON reply, so `appsettings.Development.json` turns on
+`AiSummarizer:UseJsonSchema`: the reply is then constrained to a JSON Schema (`response_format:
+json_schema`, which Ollama supports). Leave it off for providers that only know plain JSON mode,
+like DeepSeek. On prod, override
 `AiSummarizer:BaseUrl`/`AiSummarizer:Model`/`AiSummarizer:ApiKey` to point at a real provider
 (e.g. DeepSeek) instead.
 
