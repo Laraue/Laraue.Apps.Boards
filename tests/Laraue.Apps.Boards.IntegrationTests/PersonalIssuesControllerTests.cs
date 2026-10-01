@@ -35,7 +35,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var typeAttribute = organization.GetAttribute(1);
         
         var request = new CreateIssueRequest
-        { Title = "Title",
+        {
+            Title = "Title",
             Content = "New Issue",
             StatusId = defaultStatus.Id,
             AttributeValues =
@@ -109,7 +110,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = defaultStatus.Id,
                     AssigneeId = userId,
@@ -122,7 +124,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = defaultStatus.Id,
                     AssigneeId = userId,
@@ -154,7 +157,8 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         var typeAttribute = organization.GetAttribute(1);
         
         var request = new UpdateIssueRequest
-        { Title = "Title",
+        {
+            Title = "Title",
             Content = "New",
             AttributeValues =
             [

@@ -1009,7 +1009,8 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(defaultSpaceIssue.Key, new UpdateIssueRequest
-            { Title = "Title",
+            {
+                Title = "Title",
                 AssigneeId = userId,
                 Content = "Default space issue updated",
             }));
@@ -1017,7 +1018,8 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(secondSpaceIssue.Key, new UpdateIssueRequest
-            { Title = "Title",
+            {
+                Title = "Title",
                 AssigneeId = userId,
                 Content = "Second space issue updated",
             }));
@@ -1173,7 +1175,8 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
-            { Title = "Title",
+            {
+                Title = "Title",
                 AssigneeId = userId,
                 Content = "Updated before space deletion",
             }));
@@ -1217,7 +1220,8 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
-            { Title = "Title",
+            {
+                Title = "Title",
                 AssigneeId = userId,
                 Content = "Updated 1",
             }));
@@ -1225,7 +1229,8 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
-            { Title = "Title",
+            {
+                Title = "Title",
                 AssigneeId = userId,
                 Content = "Updated 2",
             }));

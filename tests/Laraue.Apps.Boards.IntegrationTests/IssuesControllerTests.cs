@@ -41,7 +41,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -106,7 +107,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -135,7 +137,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -163,7 +166,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -193,7 +197,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = status.Id,
                     AssigneeId = participatorId,
@@ -224,7 +229,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, participatorId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New Issue",
                     StatusId = statusWhereSpaceAccessMissing.Id,
                     AssigneeId = participatorId,
@@ -251,7 +257,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
@@ -282,7 +289,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = userId,
@@ -312,7 +320,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = participatorId,
@@ -366,7 +375,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Update(
                 issueData.Key,
                 new UpdateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "New",
                     AttributeValues = Array.Empty<AttributeValue>(),
                     AssigneeId = participatorId,
@@ -445,7 +455,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var secondIssueKey = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(new CreateIssueRequest
-            { Title = "Title",
+            {
+                Title = "Title",
                 Content = "Second",
                 StatusId = status.Id,
                 AssigneeId = userId,
@@ -498,7 +509,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(issueData.Key, new UpdateIssueRequest
-            { Title = "Title",
+            {
+                Title = "Title",
                 AssigneeId = userId,
                 Content = "Updated before delete",
             }));
@@ -1241,7 +1253,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var descriptionAttribute = organization.Attributes![3];
         
         var updateIssueRequest = new UpdateIssueRequest
-        { Title = "Title",
+        {
+            Title = "Title",
             AssigneeId = userId,
             Content = "New",
             AttributeValues =
@@ -1371,7 +1384,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         var updateIssueRequest = new UpdateIssueRequest
-        { Title = "Title",
+        {
+            Title = "Title",
             AssigneeId = userId,
             Content = "Old",
             AttributeValues = [],
@@ -1424,7 +1438,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var dueAttribute = organization.Attributes![1];
 
         var updateIssueRequest = new UpdateIssueRequest
-        { Title = "Title",
+        {
+            Title = "Title",
             AssigneeId = userId,
             Content = "Old",
             AttributeValues =
@@ -2092,7 +2107,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "Line1\r\nLine2",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -2121,13 +2137,13 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { Title = "Title",  AssigneeId = userId, Content = "Line1\r\nLine2" }));
+                new UpdateIssueRequest { Title = "Title", AssigneeId = userId, Content = "Line1\r\nLine2" }));
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Update(
                 issueData.Key,
-                new UpdateIssueRequest { Title = "Title",  AssigneeId = userId, Content = "Line1\nLine2" }));
+                new UpdateIssueRequest { Title = "Title", AssigneeId = userId, Content = "Line1\nLine2" }));
 
         var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
         Assert.Equal("Line1\nLine2", issue!.Content);
@@ -2170,7 +2186,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "One too many",
                     StatusId = status.Id,
                     AssigneeId = userId,
@@ -2211,7 +2228,8 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(
                 new CreateIssueRequest
-                { Title = "Title",
+                {
+                    Title = "Title",
                     Content = "Still within limit",
                     StatusId = status.Id,
                     AssigneeId = userId,
