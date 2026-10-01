@@ -162,7 +162,7 @@ public class SearchService(
             // can never match empty content, so this branch already excludes it for free.
             var searchPattern = searchText.AsSearchable();
             issuesQuery = issuesQuery
-                .Where(x => x.Title.ILike(searchPattern) || (x.Content != null && x.Content.ILike(searchPattern)));
+                .Where(x => x.Title.ILike(searchPattern) || x.Content!.ILike(searchPattern));
         }
         else if (!isKeyLookup)
         {
