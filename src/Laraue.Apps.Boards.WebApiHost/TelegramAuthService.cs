@@ -95,12 +95,26 @@ public class TelegramAuthService(
         return authService.CreateUserToken(newUserId, tokenVersion: 0);
     }
 
+    /// <summary>
+    /// How long Telegram auth data (Mini App init data or login widget data) is accepted after
+    /// Telegram has created it.
+    /// </summary>
+    private static readonly TimeSpan MaxAuthAge = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Rejects stale auth data — replay attack protection.
+    /// </summary>
+    /// <param name="authDate">The Unix time in seconds from the <c>auth_date</c> field.</param>
+    private static void EnsureAuthIsFresh(long authDate)
+    {
+        var authAge = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(authDate);
+        if (authAge > MaxAuthAge)
+            throw new ForbiddenException("Auth is expired");
+    }
+
     private MiniAppUser ValidateWidgetData(TelegramWidgetAuthRequest request)
     {
-        // Reject stale auth — replay attack protection
-        var authAge = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(request.AuthDate);
-        if (authAge > TimeSpan.FromHours(24))
-            throw new ForbiddenException("Auth is expired");
+        EnsureAuthIsFresh(request.AuthDate);
 
         // Build data-check-string: only fields that are actually present,
         // sorted alphabetically, joined with \n, hash excluded
@@ -154,6 +168,12 @@ public class TelegramAuthService(
         var result = generatedHash.Equals(receivedHash, StringComparison.OrdinalIgnoreCase);
         if (!result)
             throw new ForbiddenException("Hash mismatch");
+
+        // The hash covers auth_date, so it can be trusted here. Telegram recommends rejecting outdated data.
+        if (!long.TryParse(parsedData["auth_date"], out var authDate))
+            throw new ForbiddenException("Auth date is missing");
+
+        EnsureAuthIsFresh(authDate);
         
         var user = parsedData["user"];
         return JsonSerializer.Deserialize<MiniAppUser>(user!, JsonBotAPI.Options)!;
