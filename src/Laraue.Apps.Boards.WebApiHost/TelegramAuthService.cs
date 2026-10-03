@@ -116,9 +116,9 @@ public class TelegramAuthService(
     {
         EnsureAuthIsFresh(request.AuthDate);
 
-        // Build data-check-string: only fields that are actually present,
-        // sorted alphabetically, joined with \n, hash excluded
-        var fields = new SortedDictionary<string, string>
+        // Build data-check-string: all the fields Telegram sent, sorted alphabetically (ordinal, like
+        // Telegram does), joined with \n, hash excluded
+        var fields = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
             ["auth_date"] = request.AuthDate.ToString(),
             ["first_name"] = request.FirstName,
@@ -131,6 +131,10 @@ public class TelegramAuthService(
             fields["username"]  = request.Username;
         if (request.PhotoUrl is not null)  
             fields["photo_url"] = request.PhotoUrl;
+
+        // The fields this version does not know are signed too: Telegram may add new ones
+        foreach (var (name, value) in request.AdditionalFields ?? [])
+            fields[name] = value.ValueKind == JsonValueKind.String ? value.GetString()! : value.GetRawText();
 
         var dataCheckString = string.Join("\n",
             fields.Select(kv => $"{kv.Key}={kv.Value}"));
