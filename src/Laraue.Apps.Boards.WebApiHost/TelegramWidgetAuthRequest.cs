@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Laraue.Apps.Boards.WebApiHost;
 
@@ -46,4 +47,12 @@ public sealed class TelegramWidgetAuthRequest
     /// </summary>
     [JsonPropertyName("hash")]
     public string Hash { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The fields Telegram sent that this class does not know yet. Telegram signs all the fields it
+    /// sends, so they must be part of the data-check-string, or the hash of a request with a new
+    /// field would not match.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
 }
