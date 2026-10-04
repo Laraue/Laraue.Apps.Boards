@@ -671,6 +671,7 @@ public class IssuesService(
                 TelegramId = x.Owner!.TelegramId,
                 CategoryColor = x.Status.Epic.Color,
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
+                StatusCategory = x.Status!.Category,
                 OrganizationId = x.Status.Epic.Space!.OrganizationId,
                 Number = x.IssueNumber!.Number,
                 SpaceId = x.Status.Epic.Space.Id,
@@ -730,6 +731,7 @@ public class IssuesService(
             StatusName = result.StatusName,
             EpicColor = result.CategoryColor,
             StatusColor = result.StatusColor,
+            StatusCategory = result.StatusCategory,
             CanEdit = issueAccessLevels.CanUpdateIssue,
             AttributeValues = attributeValues,
             Key = new IssueKey(result.SpaceKey, result.Number).ToString(),
@@ -1048,10 +1050,11 @@ public class IssuesService(
             .Where(x => !x.Epic!.IsDefault)
             .ToDictionaryAsyncEF(
                 x => x.Id,
-                x => new NameAndColor
+                x => new SearchIssueStatusDto
                 {
                     Name = x.Name,
                     Color = x.Color,
+                    Category = x.Category,
                 }, ct);
 
         var spacesWithAllowedUpdate = (await accessService.GetSpacesWithAllowedIssuesUpdate(
@@ -1080,6 +1083,7 @@ public class IssuesService(
                 Content = element.Content,
                 Key = element.Key,
                 Assignee = element.Assignee,
+                AssigneeId = element.AssigneeId,
                 AssigneeColor = element.AssigneeColor,
                 Time = element.Time,
                 AssigneeInitial = element.AssigneeInitial,
@@ -1264,6 +1268,7 @@ public class IssuesService(
             Content = source.Content,
             EpicId = source.EpicId,
             Assignee = source.Assignee.DisplayName,
+            AssigneeId = source.Assignee.UserId,
             AssigneeInitial = source.Assignee.Initials,
             Time = source.Time,
             AssigneeColor = source.Assignee.Color,
@@ -1675,6 +1680,7 @@ public record IssueListDto
     public required long Id { get; set; }
     public required DateTime Time { get; set; }
     public required string Assignee { get; set; }
+    public required Guid AssigneeId { get; set; }
     public required string Key { get; set; }
     public string? AssigneeInitial { get; set; }
     public required string AssigneeColor { get; set; }
@@ -1695,9 +1701,14 @@ public record IssueListAttributeDto
 public record SearchIssueDto : IssueListDto
 {
     public required NameAndColor Epic { get; set; }
-    public required NameAndColor? Status { get; set; }
+    public required SearchIssueStatusDto? Status { get; set; }
     public required NameAndColor Space { get; set; }
     public required bool CanEdit { get; set; }
+}
+
+public record SearchIssueStatusDto : NameAndColor
+{
+    public required StatusCategory Category { get; set; }
 }
 
 public record NameAndColor
@@ -1879,6 +1890,7 @@ public class IssueDetailDto
     public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
+    public required StatusCategory StatusCategory { get; set; }
     public required string SpaceKey { get; set; }
     public required string SpaceName { get; set; }
     public required string SpaceColor { get; set; }
@@ -1937,6 +1949,7 @@ public class IssueDetailDtoData
     public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
+    public required StatusCategory StatusCategory { get; set; }
     public required long OrganizationId { get; set; }
     public required int Number { get; set; }
     public required long SpaceId { get; set; }
