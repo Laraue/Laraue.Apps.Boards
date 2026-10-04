@@ -114,6 +114,15 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Must be at most {0} characters.
+        /// </summary>
+        internal static string MaxLengthExceeded {
+            get {
+                return ResourceManager.GetString("MaxLengthExceeded", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to File '{0}': content is not valid base64.
         /// </summary>
         internal static string FileInvalidBase64 {

@@ -36,6 +36,9 @@
     <data name="FileUnsupportedMimeType" xml:space="preserve">
         <value>File '{0}': unsupported content type '{1}' - supported types are: {2}</value>
     </data>
+    <data name="MaxLengthExceeded" xml:space="preserve">
+        <value>Must be at most {0} characters.</value>
+    </data>
     <data name="FileInvalidBase64" xml:space="preserve">
         <value>File '{0}': content is not valid base64</value>
     </data>

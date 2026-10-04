@@ -700,6 +700,8 @@ public class IssueMcpService(
         string? comment,
         CancellationToken cancellationToken)
     {
+        EnsureMaxLength(nameof(comment), comment, Constraints.MaxCommentLength);
+
         var key = new IssueKey(issueKey);
 
         var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
@@ -728,6 +730,8 @@ public class IssueMcpService(
         CancellationToken cancellationToken)
     {
         EnsureTitleIsFilled(title);
+        EnsureMaxLength(nameof(title), title, Constraints.MaxTitleLength);
+        EnsureMaxLength(nameof(content), content, Constraints.MaxContentLength);
 
         // Same shape as the REST API's own IssuesService.Create - permission is derived entirely
         // from statusId's own epic, no separate space parameter to cross-validate against.
@@ -778,6 +782,8 @@ public class IssueMcpService(
         CancellationToken cancellationToken)
     {
         EnsureTitleIsFilled(title);
+        EnsureMaxLength(nameof(title), title, Constraints.MaxTitleLength);
+        EnsureMaxLength(nameof(content), content, Constraints.MaxContentLength);
 
         var key = new IssueKey(issueKey);
 
@@ -806,6 +812,17 @@ public class IssueMcpService(
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.Update(issueId, authData.ToActor(), issueUpdate, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Rejects a too-long value with a readable error before it reaches the database, which would fail it
+    /// with an exception <see cref="McpToolCallFilter"/> can't turn into a message. The limits are also
+    /// advertised in the tools' input schema, but a client may not honour them.
+    /// </summary>
+    private static void EnsureMaxLength(string argumentName, string? value, int maxLength)
+    {
+        if (value is not null && value.Length > maxLength)
+            throw new BadRequestException(argumentName, string.Format(ErrorMessages.MaxLengthExceeded, maxLength));
     }
 
     private static void EnsureTitleIsFilled(string? title)
@@ -1203,6 +1220,8 @@ public class IssueMcpService(
         string text,
         CancellationToken cancellationToken)
     {
+        EnsureMaxLength(nameof(text), text, Constraints.MaxCommentLength);
+
         var key = new IssueKey(issueKey);
 
         var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
@@ -1224,6 +1243,8 @@ public class IssueMcpService(
         string text,
         CancellationToken cancellationToken)
     {
+        EnsureMaxLength(nameof(text), text, Constraints.MaxCommentLength);
+
         // Two distinct failure modes: the comment/its issue doesn't exist or isn't readable
         // (404), vs. it's readable but this caller isn't its author (403) - same rule the REST
         // API's UpdateIssueComment enforces for the second case (owner-only, not CanUpdateIssue).
