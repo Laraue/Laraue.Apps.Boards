@@ -1703,6 +1703,40 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task Search_ShouldReturnAssigneeId_WhenIssueHasAssignee()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddIssueToDefaultStatus(userId));
+
+        var result = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(new SearchRequest { Page = 0, PerPage = 10 }));
+
+        Assert.Equal(userId, Assert.Single(result!.Data).AssigneeId);
+    }
+
+    [Fact]
+    public async Task Search_ShouldReturnStatusCategory_WhenIssueHasBoardStatus()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o.AddSpace(userId, s => s.AddEpic(userId, e => e
+                .AddStatus(st => st.WithCategory(StatusCategory.Completed))
+                .AddIssue(userId, 1))));
+
+        var result = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(new SearchRequest { Page = 0, PerPage = 10 }));
+
+        Assert.Equal(StatusCategory.Completed, Assert.Single(result!.Data).Status!.Category);
+    }
+
+    [Fact]
     public async Task Summarize_ShouldReturnBeautifiedContent_WhenAiSummarizerSucceeds()
     {
         using var testScope = host.CreateTestScope();
