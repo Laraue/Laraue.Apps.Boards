@@ -1,10 +1,11 @@
 using System.Text.Json;
+using Laraue.Apps.Boards.McpHost.Resources;
 
 namespace Laraue.Apps.Boards.McpHost;
 
 /// <summary>
-/// Checks a tool call's arguments against the tool's own input schema (required properties and their
-/// JSON types) before the tool runs. The SDK's argument binding fails with a bare "An error occurred
+/// Checks a tool call's arguments against the tool's own input schema (required properties, their
+/// JSON types and string <c>maxLength</c>) before the tool runs. The SDK's argument binding fails with a bare "An error occurred
 /// invoking '...'" - dropping which argument was missing or malformed - so <see cref="McpToolCallFilter"/>
 /// runs this first and reports the problem per argument, like a field error of a REST request.
 /// Only the top-level properties are checked - nested values are left to the binder.
@@ -48,7 +49,7 @@ public static class McpArgumentValidator
                 continue;
             }
 
-            var error = ValidateType(property, value);
+            var error = ValidateType(property, value) ?? ValidateMaxLength(property, value);
             if (error is not null)
             {
                 errors[name] = [error];
@@ -77,6 +78,16 @@ public static class McpArgumentValidator
         var allowed = string.Join(" or ", allowedTypes.Where(x => x != "null"));
 
         return $"Must be of type {(allowed.Length > 0 ? allowed : "null")}, got {Describe(value.ValueKind)}.";
+    }
+
+    private static string? ValidateMaxLength(JsonElement property, JsonElement value)
+    {
+        return value.ValueKind == JsonValueKind.String
+               && property.TryGetProperty("maxLength", out var maxLength)
+               && maxLength.TryGetInt32(out var limit)
+               && value.GetString()!.Length > limit
+            ? string.Format(ErrorMessages.MaxLengthExceeded, limit)
+            : null;
     }
 
     private static bool Matches(string schemaType, JsonElement value)

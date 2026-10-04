@@ -732,6 +732,8 @@ editing/deleting a comment). Design guardrails worth preserving:
   added: x.png`; content shortened to 200 chars) instead of REST's UI-oriented objects with
   colors/preview ids. Existing issues only - like every MCP tool, a deleted issue's key isn't found.
 
+**Text length limits**: free-text arguments (issue title/content, comment text, `edit_issue_status`'s comment) carry `[MaxLength(Constraints.*)]` on the tool parameter and say the limit in their description. The SDK writes it into the tool's input schema as `maxLength`, and `McpArgumentValidator` (run by `McpToolCallFilter`) rejects a longer value as a readable `BadRequest` naming the argument, instead of a database error. The attribute is the single source of the limit - don't re-check it in `IssueMcpService`. Add it to any new text argument.
+
 **Tool errors** go through `McpToolCallFilter` (a call-tool filter registered in `Program.cs`), the
 MCP counterpart of WebApiHost's `ExceptionHandleMiddleware`. Without it the SDK turns *any* tool
 exception into a bare `An error occurred invoking '<tool>'.` and logs it as an unhandled error -

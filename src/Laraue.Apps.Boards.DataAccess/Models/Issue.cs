@@ -20,7 +20,7 @@ public class Issue
     /// <summary>
     /// Message content.
     /// </summary>
-    [MaxLength(4096)]
+    [MaxLength(Constraints.MaxContentLength)]
     public string? Content { get; set; }
     
     /// <summary>

@@ -1,3 +1,4 @@
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost;
 using Laraue.Apps.Boards.Services;
@@ -121,6 +122,138 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
         var text = GetText(result);
         Assert.StartsWith("BadRequest: ", text);
         Assert.Contains("- statusId: ", text);
+    }
+
+    [Fact]
+    public async Task CreateComment_ShouldReturnBadRequest_WhenTextIsTooLong()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("create_comment", new Dictionary<string, object?>
+        {
+            ["issueKey"] = issueKey,
+            ["text"] = new string('a', Constraints.MaxCommentLength + 1),
+        });
+
+        Assert.True(result.IsError);
+        var text = GetText(result);
+        Assert.StartsWith("BadRequest: ", text);
+        Assert.Contains("- text: Must be at most 4096 characters.", text);
+    }
+
+    [Fact]
+    public async Task CreateComment_ShouldSucceed_WhenTextHasMaxLength()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("create_comment", new Dictionary<string, object?>
+        {
+            ["issueKey"] = issueKey,
+            ["text"] = new string('a', Constraints.MaxCommentLength),
+        });
+
+        Assert.NotEqual(true, result.IsError);
+    }
+
+    [Fact]
+    public async Task EditComment_ShouldReturnBadRequest_WhenTextIsTooLong()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "Original comment")));
+        var commentId = organization.GetIssueData(0, 0, 0, 0).Issue.IssueComments!.Single().Id;
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("edit_comment", new Dictionary<string, object?>
+        {
+            ["commentId"] = commentId,
+            ["text"] = new string('a', Constraints.MaxCommentLength + 1),
+        });
+
+        Assert.True(result.IsError);
+        var text = GetText(result);
+        Assert.StartsWith("BadRequest: ", text);
+        Assert.Contains("- text: Must be at most 4096 characters.", text);
+    }
+
+    [Fact]
+    public async Task EditComment_ShouldSucceed_WhenTextHasMaxLength()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue
+                .WithContent("Fix the thing")
+                .AddComment(ownerId, "Original comment")));
+        var commentId = organization.GetIssueData(0, 0, 0, 0).Issue.IssueComments!.Single().Id;
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("edit_comment", new Dictionary<string, object?>
+        {
+            ["commentId"] = commentId,
+            ["text"] = new string('a', Constraints.MaxCommentLength),
+        });
+
+        Assert.NotEqual(true, result.IsError);
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldReturnBadRequest_WhenTitleIsTooLong()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var statusId = organization.GetIssueData(0, 0, 0, 0).Issue.StatusId;
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("create_issue", new Dictionary<string, object?>
+        {
+            ["content"] = "Fix the thing",
+            ["title"] = new string('a', Constraints.MaxTitleLength + 1),
+            ["statusId"] = statusId,
+        });
+
+        Assert.True(result.IsError);
+        var text = GetText(result);
+        Assert.StartsWith("BadRequest: ", text);
+        Assert.Contains("- title: Must be at most 256 characters.", text);
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldReturnBadRequest_WhenContentIsTooLong()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("edit_issue", new Dictionary<string, object?>
+        {
+            ["issueKey"] = issueKey,
+            ["content"] = new string('a', Constraints.MaxContentLength + 1),
+            ["title"] = "Fix the thing",
+        });
+
+        Assert.True(result.IsError);
+        var text = GetText(result);
+        Assert.StartsWith("BadRequest: ", text);
+        Assert.Contains("- content: Must be at most 4096 characters.", text);
     }
 
     private async Task<McpClient> ConnectAsync(WebApiTestHostScope testScope, long organizationId, Guid userId)
