@@ -74,6 +74,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
             .Execute(x => x.GetSummary());
 
         Assert.Equal("personal_free", summary!.SubscriptionCode);
+        Assert.True(summary.CanPay);
 
         Assert.NotNull(summary.IssuesPerMonth);
         Assert.Equal(100, summary.IssuesPerMonth!.Limit);

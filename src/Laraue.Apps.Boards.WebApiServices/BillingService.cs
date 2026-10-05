@@ -47,6 +47,11 @@ public abstract record BillingSummary
     public required string SubscriptionCode { get; init; }
 
     /// <summary>
+    /// Whether the caller can pay for the plan - only the organization's owner can.
+    /// </summary>
+    public required bool CanPay { get; init; }
+
+    /// <summary>
     /// Null means unlimited - nothing to show.
     /// </summary>
     public LimitUsage? IssuesPerMonth { get; init; }
@@ -210,6 +215,8 @@ public class BillingService(
         var balance = await tokenClient.GetBalanceAsync(
             authData.OrganizationId, authData.UserId, cancellationToken);
 
+        var canPay = await accessService.IsOrganizationOwner(authData, cancellationToken);
+
         LimitUsage? issuesPerMonth = null;
         if (subscription.LimitIssuesPerMonth is { } issuesLimit)
         {
@@ -240,6 +247,7 @@ public class BillingService(
             return new TeamBillingSummary
             {
                 SubscriptionCode = subscription.Code,
+                CanPay = canPay,
                 IssuesPerMonth = issuesPerMonth,
                 Tokens = tokens,
             };
@@ -262,6 +270,7 @@ public class BillingService(
         return new PersonalBillingSummary
         {
             SubscriptionCode = subscription.Code,
+            CanPay = canPay,
             IssuesPerMonth = issuesPerMonth,
             Tokens = tokens,
             FreeTeamOrganizations = freeTeamOrganizations,
