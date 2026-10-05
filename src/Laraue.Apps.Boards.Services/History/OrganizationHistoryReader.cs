@@ -1,4 +1,5 @@
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
@@ -275,9 +276,9 @@ public class OrganizationHistoryReader(
             .Where(x => long.TryParse(x, out _))
             .Select(long.Parse!);
 
-        var statusColors = await context.Statuses
+        var statuses = await context.Statuses
             .Where(s => possibleStatusIds.Contains(s.Id))
-            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => s.Color, cancellationToken);
+            .ToDictionaryAsyncEF(s => s.Id.ToString(), s => new StatusData(s.Color, s.Category), cancellationToken);
 
         var assignees = possibleAssigneeIds.Select(x => new UserDetails { UserId = x }).ToArray();
         await memberProfileReader.EnrichUsers(
@@ -306,7 +307,7 @@ public class OrganizationHistoryReader(
                 x.Key,
                 Changes = x.Value.Select(y => MapChange(
                     y,
-                    statusColors,
+                    statuses,
                     userColors,
                     attributes,
                     epicColors,
@@ -318,10 +319,11 @@ public class OrganizationHistoryReader(
     }
 
     private record AttributeData(string Color, AttributeType Type);
+    private record StatusData(string Color, StatusCategory Category);
     
     private static HistoryItemChange MapChange(
         OrganizationLogItem item,
-        Dictionary<string, string> statusColors,
+        Dictionary<string, StatusData> statuses,
         Dictionary<string, string> userColors,
         Dictionary<string, AttributeData> attributes,
         Dictionary<string, string> epicColors,
@@ -349,9 +351,11 @@ public class OrganizationHistoryReader(
             PropertyType.Status => new IssueHistoryStatusChange
             {
                 NewStatusName = item.NewDisplayValue,
-                NewStatusColor = item.NewValueId is not null ? statusColors[item.NewValueId] : null,
+                NewStatusColor = item.NewValueId is not null ? statuses[item.NewValueId].Color : null,
+                NewStatusCategory = item.NewValueId is not null ? statuses[item.NewValueId].Category : null,
                 OldStatusName = item.OldDisplayValue,
-                OldStatusColor = item.OldValueId is not null ? statusColors[item.OldValueId] : null,
+                OldStatusColor = item.OldValueId is not null ? statuses[item.OldValueId].Color : null,
+                OldStatusCategory = item.OldValueId is not null ? statuses[item.OldValueId].Category : null,
             },
             PropertyType.Attribute => new IssueHistoryPropertyChange
             {

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.Members;
 
@@ -52,8 +53,10 @@ public record IssueHistoryStatusChange : HistoryItemChange
 {
     public required string? OldStatusName { get; set; }
     public required string? OldStatusColor { get; set; }
+    public required StatusCategory? OldStatusCategory { get; set; }
     public required string? NewStatusName { get; set; }
     public required string? NewStatusColor { get; set; }
+    public required StatusCategory? NewStatusCategory { get; set; }
 }
 
 public record IssueHistoryPropertyChange : HistoryItemChange

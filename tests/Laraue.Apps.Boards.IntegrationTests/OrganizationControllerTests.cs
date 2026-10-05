@@ -1142,6 +1142,56 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.Equal("My title", Assert.Single(historyData.Data).IssueTitle);
     }
 
+    [Fact]
+    public async Task GetOrganizationHistory_ShouldExposeStatusCategories_WhenStatusWasSoftDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId, o => o.AddIssueToDefaultStatus(userId, issue => issue.WithContent("Status history")));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+        var oldStatus = await testScope.Database.Statuses.SingleAsync(x => x.Id == issueData.Issue.StatusId);
+        oldStatus.Category = StatusCategory.Created;
+        var newStatus = new Status
+        {
+            EpicId = oldStatus.EpicId,
+            Name = "Finished",
+            Color = "#00aa00",
+            Category = StatusCategory.Completed,
+            DeletedAt = DateTime.UtcNow,
+        };
+        testScope.Database.Statuses.Add(newStatus);
+        await testScope.Database.SaveChangesAsync();
+        testScope.Database.OrganizationLogs.Add(new OrganizationLog
+        {
+            OrganizationId = organization.Id,
+            OwnerId = userId,
+            EntityType = LogEntityType.Issue,
+            EntityId = issueData.Issue.Id,
+            Action = LogAction.Update,
+            CreatedAt = DateTime.UtcNow,
+            Items =
+            [
+                new OrganizationLogItem
+                {
+                    PropertyType = PropertyType.Status,
+                    OldValueId = oldStatus.Id.ToString(),
+                    OldDisplayValue = oldStatus.Name,
+                    NewValueId = newStatus.Id.ToString(),
+                    NewDisplayValue = newStatus.Name,
+                },
+            ],
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        var historyData = await GetFirstHistoryPage(organization.Id, userId);
+        var change = Assert.IsType<IssueHistoryStatusChange>(Assert.Single(Assert.Single(historyData.Data).Changes));
+        Assert.Equal(StatusCategory.Created, change.OldStatusCategory);
+        Assert.Equal(StatusCategory.Completed, change.NewStatusCategory);
+        Assert.Equal(oldStatus.Color, change.OldStatusColor);
+        Assert.Equal(newStatus.Color, change.NewStatusColor);
+    }
+
     private async Task<ShortPaginatedResult<OrganizationHistoryItem>> GetFirstHistoryPage(long organizationId, Guid userId)
     {
         var request = new GetOrganizationHistoryRequest
