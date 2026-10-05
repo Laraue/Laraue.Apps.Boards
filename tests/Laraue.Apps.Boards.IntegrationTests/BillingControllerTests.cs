@@ -1,3 +1,4 @@
+using System.Net;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Billing;
@@ -173,5 +174,70 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
         Assert.Equal(TokenTransactionReason.Spend, item.Reason);
         Assert.Equal(-42, item.Delta);
         Assert.False(page.HasNextPage);
+    }
+
+    [Fact]
+    public async Task CreateCheckout_ShouldReturnBillingUrl_WhenCallerIsOrganizationOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var itemId = Guid.NewGuid();
+        var paymentId = Guid.NewGuid();
+
+        host.BillingPaymentClientMock
+            .Setup(x => x.CreateCheckoutAsync(
+                organization.Id,
+                userId,
+                BillingItemKind.Subscription,
+                itemId,
+                "RUB",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingCheckout(paymentId, "https://pay.example/checkout"));
+
+        var checkout = await _billingController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.CreateCheckout(new CreateCheckoutRequest
+            {
+                Kind = BillingItemKind.Subscription,
+                ItemId = itemId,
+                CurrencyCode = "rub",
+            }));
+
+        Assert.Equal(paymentId, checkout!.PaymentId);
+        Assert.Equal("https://pay.example/checkout", checkout.Url);
+    }
+
+    [Fact]
+    public async Task CreateCheckout_ShouldBeForbidden_WhenCallerIsNotOrganizationOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder
+                .SetGlobalAccessLevel(x => x.CanRead = true)));
+
+        host.BillingPaymentClientMock.Invocations.Clear();
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => _billingController
+            .WithOrganizationAuthorization(organization.Id, memberId)
+            .Execute(x => x.CreateCheckout(new CreateCheckoutRequest
+            {
+                Kind = BillingItemKind.Subscription,
+                ItemId = Guid.NewGuid(),
+                CurrencyCode = "RUB",
+            })));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        host.BillingPaymentClientMock.Verify(
+            x => x.CreateCheckoutAsync(
+                It.IsAny<long>(),
+                It.IsAny<Guid>(),
+                It.IsAny<BillingItemKind>(),
+                It.IsAny<Guid>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

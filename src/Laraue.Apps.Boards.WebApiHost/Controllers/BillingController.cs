@@ -23,6 +23,20 @@ public class BillingController(IBillingService billingService) : ControllerBase
         return billingService.GetSummary(HttpContext.User.GetOrganizationAuthData(), cancellationToken);
     }
 
+    /// <summary>
+    /// Starts a payment and returns the address to send the customer to. Owner only.
+    /// </summary>
+    [HttpPost("checkout")]
+    public Task<CheckoutDto> CreateCheckout(
+        [FromBody] CreateCheckoutRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return billingService.CreateCheckout(
+            HttpContext.User.GetOrganizationAuthData(),
+            request,
+            cancellationToken);
+    }
+
     [HttpPost("transactions")]
     public Task<ShortPaginatedResult<BillingTransaction>> GetTransactions(
         [FromBody] GetBillingTransactionsRequest request,

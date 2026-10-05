@@ -32,6 +32,14 @@ public interface IAccessService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Returns whether the user is the owner of the organization. Ownership is not an entity
+    /// permission - it is a single user per organization, transferable - so it is checked on its own.
+    /// </summary>
+    Task<bool> IsOrganizationOwner(
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns whether the user can create spaces in the requested organization.
     /// </summary>
     Task<bool> CanCreateSpaces(
@@ -209,6 +217,14 @@ public class AccessService(DatabaseContext context) : IAccessService
                 .Where(ou => ou.OrganizationId == authData.OrganizationId)
                 .AnyAsyncEF(ou => ou.AdminAccessLevel.HasFlag(accessLevel), cancellationToken);
         });
+    }
+
+    public Task<bool> IsOrganizationOwner(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        return context.ActiveOrganizations()
+            .AnyAsyncEF(
+                o => o.Id == authData.OrganizationId && o.OwnerId == authData.UserId,
+                cancellationToken);
     }
 
     public Task<bool> CanCreateSpaces(

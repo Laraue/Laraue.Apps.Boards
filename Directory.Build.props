@@ -21,7 +21,7 @@
     <GrpcNetClientFactoryVersion>2.66.0</GrpcNetClientFactoryVersion>
     <LaraueGrpcVersion>0.0.3</LaraueGrpcVersion>
     <LaraueInterpreterMarkdownVersion>0.2.1</LaraueInterpreterMarkdownVersion>
-    <LaraueBillingInternalContractsVersion>0.0.6</LaraueBillingInternalContractsVersion>
+    <LaraueBillingInternalContractsVersion>0.0.7-alpha.9</LaraueBillingInternalContractsVersion>
     <LaraueCoreDataAccessVersion>10.8.0</LaraueCoreDataAccessVersion>
     <LaraueCoreExceptionsVersion>10.5.0</LaraueCoreExceptionsVersion>
     <LaraueCoreDateTimeVersion>10.0.0</LaraueCoreDateTimeVersion>

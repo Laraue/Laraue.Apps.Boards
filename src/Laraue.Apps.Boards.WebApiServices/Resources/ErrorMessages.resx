@@ -30,6 +30,9 @@
     <data name="EntityActionForbidden" xml:space="preserve">
         <value>{0}: {1} {2} is forbidden</value>
     </data>
+    <data name="OnlyOrganizationOwnerCanPay" xml:space="preserve">
+        <value>Only the organization owner can pay for the organization.</value>
+    </data>
     <data name="AiSummarizationUnavailable" xml:space="preserve">
         <value>AI summarization is temporarily unavailable, please try again later.</value>
     </data>

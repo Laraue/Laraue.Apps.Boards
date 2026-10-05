@@ -1,10 +1,14 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.Extensions;
+using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DateTime.Services.Abstractions;
+using Laraue.Core.Exceptions.Web;
+using Microsoft.Extensions.Logging;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -71,6 +75,36 @@ public sealed record BillingTransaction
     public string? Error { get; init; }
 }
 
+public sealed record CreateCheckoutRequest
+{
+    /// <summary>
+    /// What is being bought: a tariff or a token pack.
+    /// </summary>
+    public required BillingItemKind Kind { get; init; }
+
+    /// <summary>
+    /// The tariff id or the token pack id, as Billing's tariffs endpoint returns it.
+    /// </summary>
+    public required Guid ItemId { get; init; }
+
+    /// <summary>
+    /// ISO 4217 code the customer pays in, e.g. <c>RUB</c>.
+    /// </summary>
+    [Required]
+    [StringLength(3, MinimumLength = 3)]
+    public required string CurrencyCode { get; init; }
+}
+
+public sealed record CheckoutDto
+{
+    public required Guid PaymentId { get; init; }
+
+    /// <summary>
+    /// The address to send the customer to in order to pay.
+    /// </summary>
+    public required string Url { get; init; }
+}
+
 public sealed record TariffName
 {
     public required string Name { get; init; }
@@ -100,6 +134,15 @@ public interface IBillingService
     Task<ShortPaginatedResult<BillingTransaction>> GetTransactions(
         GetBillingTransactionsRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts a payment for the caller's organization and returns where to send the customer. Only
+    /// the organization's owner pays for it.
+    /// </summary>
+    Task<CheckoutDto> CreateCheckout(
+        OrganizationAuthData authData,
+        CreateCheckoutRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class BillingService(
@@ -107,8 +150,50 @@ public class BillingService(
     IBillingTokenClient tokenClient,
     IIssueMonthlyCountService issueMonthlyCountService,
     IUsageLimitService usageLimitService,
+    IBillingPaymentClient paymentClient,
+    IAccessService accessService,
+    ILogger<BillingService> logger,
     IDateTimeProvider dateTimeProvider) : IBillingService
 {
+    public async Task<CheckoutDto> CreateCheckout(
+        OrganizationAuthData authData,
+        CreateCheckoutRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!await accessService.IsOrganizationOwner(authData, cancellationToken))
+        {
+            logger.LogWarning(
+                "User {UserId} tried to pay for organization {OrganizationId} but is not its owner",
+                authData.UserId,
+                authData.OrganizationId);
+
+            throw new ForbiddenException(ErrorMessages.OnlyOrganizationOwnerCanPay);
+        }
+
+        logger.LogInformation(
+            "Starting a payment: {Kind} {ItemId} in {CurrencyCode} for organization {OrganizationId} by owner {UserId}",
+            request.Kind,
+            request.ItemId,
+            request.CurrencyCode,
+            authData.OrganizationId,
+            authData.UserId);
+
+        var checkout = await paymentClient.CreateCheckoutAsync(
+            authData.OrganizationId,
+            authData.UserId,
+            request.Kind,
+            request.ItemId,
+            request.CurrencyCode.ToUpperInvariant(),
+            cancellationToken);
+
+        logger.LogInformation(
+            "Payment {PaymentId} started for organization {OrganizationId}",
+            checkout.PaymentId,
+            authData.OrganizationId);
+
+        return new CheckoutDto { PaymentId = checkout.PaymentId, Url = checkout.Url };
+    }
+
     public async Task<TariffName> GetTariffName(OrganizationAuthData authData, CancellationToken cancellationToken)
     {
         var name = await subscriptionClient.GetTariffNameAsync(

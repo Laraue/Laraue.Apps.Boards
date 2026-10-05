@@ -118,6 +118,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
                 .AddScoped<IBillingTokenClient, BillingTokenClient>()
                 .AddScoped<IBillingSubscriptionClient, BillingSubscriptionClient>()
+                .AddScoped<IBillingPaymentClient, BillingPaymentClient>()
                 .AddScoped<IUsageLimitService, UsageLimitService>()
                 .AddSingleton<ITokenEstimate, TokenEstimate>()
                 .AddSingleton<IFileStorage, FileStorage>();
@@ -166,7 +167,15 @@ public static class WebApplicationBuilderExtensions
                     o.Address = new Uri(billingOptions.GrpcUrl);
                 });
 
-            // Local-run escape hatch: overrides the three registrations above with in-process
+            // payment.proto identifies the calling service via the header interceptor, like token.proto.
+            builder.Services
+                .AddLaraueGrpcClient<PaymentService.PaymentServiceClient>(o =>
+                {
+                    o.Address = new Uri(billingOptions.GrpcUrl);
+                })
+                .AddInterceptor(() => new BillingServiceIdInterceptor(BillingServiceId.LaraueBoards));
+
+            // Local-run escape hatch: overrides the registrations above with in-process
             // fakes (last-registered-wins, same pattern the integration tests already use to
             // override the real Telegram/AI/Billing clients) so a dev machine doesn't need
             // Laraue.Apps.Identity or Laraue.Apps.Billing actually running. The real registrations
@@ -177,7 +186,8 @@ public static class WebApplicationBuilderExtensions
                 builder.Services
                     .AddSingleton<UserIdentityService.UserIdentityServiceClient, FakeUserIdentityServiceClient>()
                     .AddScoped<IBillingTokenClient, FakeBillingTokenClient>()
-                    .AddScoped<IBillingSubscriptionClient, FakeBillingSubscriptionClient>();
+                    .AddScoped<IBillingSubscriptionClient, FakeBillingSubscriptionClient>()
+                    .AddScoped<IBillingPaymentClient, FakeBillingPaymentClient>();
             }
 
             return builder;
