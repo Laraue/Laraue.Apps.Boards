@@ -1736,6 +1736,83 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(StatusCategory.Completed, Assert.Single(result!.Data).Status!.Category);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task Create_ShouldSaveIssueWithoutContent_WhenTitleIsFilledAndContentIsEmpty(string? content)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Title = "Title only",
+                    Content = content,
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
+        Assert.NotNull(issue);
+        Assert.Equal("Title only", issue.Title);
+        Assert.Null(issue.Content);
+    }
+
+    [Fact]
+    public async Task Create_ShouldFail_WhenTitleAndContentAreEmpty()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                })));
+
+        ex.HasInnerException<BadRequestException>();
+    }
+
+    [Fact]
+    public async Task Update_ShouldClearContent_WhenTitleIsFilledAndContentIsEmpty()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest
+                {
+                    Title = "Title",
+                    Content = "",
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.NotNull(issue);
+        Assert.Equal("Title", issue.Title);
+        Assert.Null(issue.Content);
+    }
+
     [Fact]
     public async Task Summarize_ShouldReturnBeautifiedContent_WhenAiSummarizerSucceeds()
     {

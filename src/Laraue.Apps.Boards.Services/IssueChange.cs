@@ -33,10 +33,14 @@ public abstract class IssueChange<TSelf> where TSelf : IssueChange<TSelf>
     /// vs. Telegram's message text), which otherwise makes
     /// <see cref="ICoreIssuesService.Update"/>'s content-equality check see a "change" and log a
     /// history entry whose old/new values render identically.
+    /// An empty string means no content and is stored as <c>null</c>.
     /// </summary>
     public TSelf SetContent(string? content)
     {
-        Content = ChangedValue<string?>.Of(content?.ReplaceLineEndings(IssueContentFormat.LineSeparatorString));
+        Content = ChangedValue<string?>.Of(
+            string.IsNullOrEmpty(content)
+                ? null
+                : content.ReplaceLineEndings(IssueContentFormat.LineSeparatorString));
         return (TSelf)this;
     }
 
