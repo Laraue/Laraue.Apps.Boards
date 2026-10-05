@@ -1152,7 +1152,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var oldStatus = await testScope.Database.Statuses.SingleAsync(x => x.Id == issueData.Issue.StatusId);
         oldStatus.Category = StatusCategory.Created;
-        var newStatus = new Status
+        var newStatus = new Laraue.Apps.Boards.DataAccess.Models.Status
         {
             EpicId = oldStatus.EpicId,
             Name = "Finished",
