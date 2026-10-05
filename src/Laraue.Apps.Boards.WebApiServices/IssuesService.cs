@@ -378,7 +378,7 @@ public class IssuesService(
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         var issueCreate = new IssueCreateRequest(request.StatusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly: hasTitle)
-            .SetContent(string.IsNullOrEmpty(request.Content) ? null : request.Content)
+            .SetContent(request.Content)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
             .LinkNewAttachments(uploadedFiles);
@@ -427,7 +427,7 @@ public class IssuesService(
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
         var issueUpdate = new IssueUpdateRequest()
-            .SetContent(string.IsNullOrEmpty(request.Content) ? null : request.Content)
+            .SetContent(request.Content)
             .SetTitle(title)
             .SetAssignee(request.AssigneeId)
             .SetAttributes(attributeUpdateRequests)
