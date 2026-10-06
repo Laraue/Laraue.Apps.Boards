@@ -470,7 +470,7 @@ public class IssuesService(
     /// </summary>
     private async Task<string> GenerateTitle(
         OrganizationAuthData authData,
-        string content,
+        string? content,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -1024,7 +1024,7 @@ public class IssuesService(
         CancellationToken ct)
     {
         var spaceKeys = elements.Select(y => y.SpaceKey).Distinct().ToArray();
-        var spaces = await context.Spaces
+        var spaces = await context.ActiveSpaces()
             .Where(x => x.OrganizationId == authData.OrganizationId)
             .Where(x => spaceKeys.Contains(x.Key))
             .ToDictionaryAsyncEF(
@@ -1728,7 +1728,11 @@ public record CreateIssueRequest
     public OrganizationAuthData AuthData { get; set; } = new();
     public required long StatusId { get; set; }
     public required Guid AssigneeId { get; set; }
-    public required string Content { get; set; }
+
+    /// <summary>
+    /// Issue content. Optional when the title is filled; an empty string means no content.
+    /// </summary>
+    public string? Content { get; set; }
 
     /// <summary>
     /// Issue title. Without it the title is generated from the content by AI - or the request fails
@@ -1746,7 +1750,11 @@ public record UpdateIssueRequest
 {
     public OrganizationAuthData AuthData { get; set; } = new();
     public IssueKey? IssueKey { get; set; }
-    public required string Content { get; set; }
+
+    /// <summary>
+    /// Issue content. Optional when the title is filled; an empty string clears it.
+    /// </summary>
+    public string? Content { get; set; }
 
     /// <summary>
     /// Issue title. Without it the title is generated from the content by AI - or the request fails

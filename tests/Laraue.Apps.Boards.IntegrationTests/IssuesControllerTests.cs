@@ -729,6 +729,41 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
     
     [Fact]
+    public async Task User_ShouldSearchIssues_WhenSoftDeletedSpaceSharesKeyWithLiveSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "TEX", space => space
+                    .AddEpic(userId, epic => epic
+                        .AddIssue(userId, 0, issue => issue.WithContent("John"))))
+                .AddSpace(userId, "OLD"));
+
+        // The unique index on the key is filtered by deleted_at, so a deleted space may share a live one's key.
+        var deletedSpaceId = organization.GetSpace(2).Id;
+        await testScope.Database.Spaces
+            .Where(x => x.Id == deletedSpaceId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.Key, "TEX")
+                .SetProperty(p => p.DeletedAt, DateTime.UtcNow));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    SearchString = "jo",
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        var issueDto = Assert.Single(issuesResult!.Data);
+        Assert.Equal("John", issueDto.Content);
+    }
+
+    [Fact]
     public async Task User_ShouldSearchOnlyPermittedSpaceIssues_WhenHasIssuesAccessOnSpaceLevel()
     {
         using var testScope = host.CreateTestScope();
@@ -1734,6 +1769,83 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
             .Execute(x => x.Search(new SearchRequest { Page = 0, PerPage = 10 }));
 
         Assert.Equal(StatusCategory.Completed, Assert.Single(result!.Data).Status!.Category);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task Create_ShouldSaveIssueWithoutContent_WhenTitleIsFilledAndContentIsEmpty(string? content)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var issueKey = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Title = "Title only",
+                    Content = content,
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueKey!);
+        Assert.NotNull(issue);
+        Assert.Equal("Title only", issue.Title);
+        Assert.Null(issue.Content);
+    }
+
+    [Fact]
+    public async Task Create_ShouldFail_WhenTitleAndContentAreEmpty()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Content = "",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                })));
+
+        ex.HasInnerException<BadRequestException>();
+    }
+
+    [Fact]
+    public async Task Update_ShouldClearContent_WhenTitleIsFilledAndContentIsEmpty()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest
+                {
+                    Title = "Title",
+                    Content = "",
+                    AssigneeId = userId,
+                }));
+
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.NotNull(issue);
+        Assert.Equal("Title", issue.Title);
+        Assert.Null(issue.Content);
     }
 
     [Fact]

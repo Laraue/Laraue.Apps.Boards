@@ -91,6 +91,62 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
         Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
     }
 
+    [Theory]
+    [InlineData("SPA")]
+    [InlineData("spa")]
+    public async Task User_ShouldNotCreateSpace_WhenKeyIsUsedByActiveSpace(string key)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var controller = _spacesController.WithOrganizationAuthorization(organization.Id, userId);
+        await controller.Execute(x => x.Create(
+            new CreateSpaceRequest { Name = "Space 1", Color = "#ffffff", Key = "SPA" }));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => controller
+            .Execute(x => x.Create(
+                new CreateSpaceRequest { Name = "Space 2", Color = "#ffffff", Key = key })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task User_ShouldCreateSpace_WhenKeyIsUsedBySoftDeletedSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var controller = _spacesController.WithOrganizationAuthorization(organization.Id, userId);
+        await controller.Execute(x => x.Create(
+            new CreateSpaceRequest { Name = "Space 1", Color = "#ffffff", Key = "SPA" }));
+        await controller.Execute(x => x.Delete("SPA"));
+
+        var key = await controller.Execute(x => x.Create(
+            new CreateSpaceRequest { Name = "Space 2", Color = "#ffffff", Key = "SPA" }));
+
+        Assert.Equal("SPA", key);
+    }
+
+    [Fact]
+    public async Task User_ShouldNotRenameSpace_WhenNewKeyIsUsedByActiveSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var controller = _spacesController.WithOrganizationAuthorization(organization.Id, userId);
+        await controller.Execute(x => x.Create(
+            new CreateSpaceRequest { Name = "Space 1", Color = "#ffffff", Key = "SPA" }));
+        await controller.Execute(x => x.Create(
+            new CreateSpaceRequest { Name = "Space 2", Color = "#ffffff", Key = "SPB" }));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => controller
+            .Execute(x => x.Update(
+                "SPB",
+                new UpdateSpaceRequest { Name = "Space 2", Color = "#ffffff", NewKey = "spa" })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+    }
+
     [Fact]
     public async Task User_ShouldSoftDeleteSpaceAndAllDescendants_WhenSpaceIsDeleted()
     {

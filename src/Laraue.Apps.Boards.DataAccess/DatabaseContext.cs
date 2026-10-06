@@ -152,6 +152,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => new { x.OrganizationId, x.Key })
                 .IsUnique()
+                .HasDatabaseName(Constraints.SpaceKeyIndexName)
                 .HasFilter("deleted_at IS NULL");
 
             entity
