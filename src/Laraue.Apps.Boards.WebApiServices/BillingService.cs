@@ -9,6 +9,7 @@ using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -52,6 +53,12 @@ public abstract record BillingSummary
     public required bool CanPay { get; init; }
 
     /// <summary>
+    /// ISO 4217 code every payment is charged in (<see cref="BillingOptions.PaymentCurrencyCode"/>), so
+    /// the client can show prices in it.
+    /// </summary>
+    public required string PaymentCurrencyCode { get; init; }
+
+    /// <summary>
     /// Null means unlimited - nothing to show.
     /// </summary>
     public LimitUsage? IssuesPerMonth { get; init; }
@@ -91,13 +98,17 @@ public sealed record CreateCheckoutRequest
     /// The tariff id or the token pack id, as Billing's tariffs endpoint returns it.
     /// </summary>
     public required Guid ItemId { get; init; }
+}
 
+public class BillingOptions
+{
     /// <summary>
-    /// ISO 4217 code the customer pays in, e.g. <c>RUB</c>.
+    /// The one currency payments are charged in. It has to be supported by Billing's payment
+    /// provider; change it together with the provider (e.g. to <c>USD</c>).
     /// </summary>
     [Required]
     [StringLength(3, MinimumLength = 3)]
-    public required string CurrencyCode { get; init; }
+    public string PaymentCurrencyCode { get; set; } = "RUB";
 }
 
 public sealed record CheckoutDto
@@ -157,6 +168,7 @@ public class BillingService(
     IUsageLimitService usageLimitService,
     IBillingPaymentClient paymentClient,
     IAccessService accessService,
+    IOptions<BillingOptions> options,
     ILogger<BillingService> logger,
     IDateTimeProvider dateTimeProvider) : IBillingService
 {
@@ -175,11 +187,13 @@ public class BillingService(
             throw new ForbiddenException(ErrorMessages.OnlyOrganizationOwnerCanPay);
         }
 
+        var currencyCode = options.Value.PaymentCurrencyCode.ToUpperInvariant();
+
         logger.LogInformation(
             "Starting a payment: {Kind} {ItemId} in {CurrencyCode} for organization {OrganizationId} by owner {UserId}",
             request.Kind,
             request.ItemId,
-            request.CurrencyCode,
+            currencyCode,
             authData.OrganizationId,
             authData.UserId);
 
@@ -188,7 +202,7 @@ public class BillingService(
             authData.UserId,
             request.Kind,
             request.ItemId,
-            request.CurrencyCode.ToUpperInvariant(),
+            currencyCode,
             cancellationToken);
 
         logger.LogInformation(
@@ -216,6 +230,7 @@ public class BillingService(
             authData.OrganizationId, authData.UserId, cancellationToken);
 
         var canPay = await accessService.IsOrganizationOwner(authData, cancellationToken);
+        var paymentCurrencyCode = options.Value.PaymentCurrencyCode.ToUpperInvariant();
 
         LimitUsage? issuesPerMonth = null;
         if (subscription.LimitIssuesPerMonth is { } issuesLimit)
@@ -248,6 +263,7 @@ public class BillingService(
             {
                 SubscriptionCode = subscription.Code,
                 CanPay = canPay,
+                PaymentCurrencyCode = paymentCurrencyCode,
                 IssuesPerMonth = issuesPerMonth,
                 Tokens = tokens,
             };
@@ -271,6 +287,7 @@ public class BillingService(
         {
             SubscriptionCode = subscription.Code,
             CanPay = canPay,
+            PaymentCurrencyCode = paymentCurrencyCode,
             IssuesPerMonth = issuesPerMonth,
             Tokens = tokens,
             FreeTeamOrganizations = freeTeamOrganizations,

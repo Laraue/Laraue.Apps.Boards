@@ -75,6 +75,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
 
         Assert.Equal("personal_free", summary!.SubscriptionCode);
         Assert.True(summary.CanPay);
+        Assert.Equal("RUB", summary.PaymentCurrencyCode);
 
         Assert.NotNull(summary.IssuesPerMonth);
         Assert.Equal(100, summary.IssuesPerMonth!.Limit);
@@ -202,7 +203,6 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
             {
                 Kind = BillingItemKind.Subscription,
                 ItemId = itemId,
-                CurrencyCode = "rub",
             }));
 
         Assert.Equal(paymentId, checkout!.PaymentId);
@@ -227,7 +227,6 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
             {
                 Kind = BillingItemKind.Subscription,
                 ItemId = Guid.NewGuid(),
-                CurrencyCode = "RUB",
             })));
 
         Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);

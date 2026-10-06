@@ -22,6 +22,7 @@ public static class WebApplicationBuilderExtensions
                 .AddCoreServices()
                 .AddAiContentSummarizer();
             builder.Services.AddHttpClient();
+            builder.AddValidatedOptions<BillingOptions>("Billing");
 
             builder.Services
                 .AddScoped<ITelegramAuthService, TelegramAuthService>()
