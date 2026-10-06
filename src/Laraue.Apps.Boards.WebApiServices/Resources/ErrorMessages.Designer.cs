@@ -183,12 +183,6 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
-        internal static string SpaceKeyAlreadyExists {
-            get {
-                return ResourceManager.GetString("SpaceKeyAlreadyExists", resourceCulture);
-            }
-        }
-        
         internal static string SourceDestinationSpaceSame {
             get {
                 return ResourceManager.GetString("SourceDestinationSpaceSame", resourceCulture);

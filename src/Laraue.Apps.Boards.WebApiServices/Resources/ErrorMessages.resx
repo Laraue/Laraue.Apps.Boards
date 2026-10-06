@@ -84,9 +84,6 @@
     <data name="EpicNotExistsForMove" xml:space="preserve">
         <value>Epic is not exists: {0} in organization</value>
     </data>
-    <data name="SpaceKeyAlreadyExists" xml:space="preserve">
-        <value>A space with this key already exists</value>
-    </data>
     <data name="SourceDestinationSpaceSame" xml:space="preserve">
         <value>Source and destination space cannot be the same</value>
     </data>
