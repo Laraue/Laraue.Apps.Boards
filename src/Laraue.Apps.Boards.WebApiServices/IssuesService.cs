@@ -1024,7 +1024,7 @@ public class IssuesService(
         CancellationToken ct)
     {
         var spaceKeys = elements.Select(y => y.SpaceKey).Distinct().ToArray();
-        var spaces = await context.Spaces
+        var spaces = await context.ActiveSpaces()
             .Where(x => x.OrganizationId == authData.OrganizationId)
             .Where(x => spaceKeys.Contains(x.Key))
             .ToDictionaryAsyncEF(

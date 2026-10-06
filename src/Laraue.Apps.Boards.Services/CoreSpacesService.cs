@@ -2,8 +2,10 @@
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
+using Laraue.Core.Exceptions.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
+using Npgsql;
 
 namespace Laraue.Apps.Boards.Services;
 
@@ -64,25 +66,40 @@ public class CoreSpacesService(
         };
         
         context.Spaces.Add(entity);
-        await context.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IsSpaceKeyViolation(ex))
+        {
+            throw new BadRequestException(nameof(key), SpaceKeyAlreadyExistsMessage);
+        }
         
         return entity.Key;
     }
 
-    public Task Update(long id, Action<UpdateSettersBuilder<Space>> setters, CancellationToken cancellationToken)
+    public async Task Update(long id, Action<UpdateSettersBuilder<Space>> setters, CancellationToken cancellationToken)
     {
         var date = dateTimeProvider.UtcNow;
-        
-        return context.ActiveSpaces()
-            .Where(x => x.Id == id)
-            .ExecuteUpdateAsync(
-                update =>
-                {
-                    setters(update);
-                    update
-                        .SetProperty(p => p.UpdatedAt, date);
-                },
-                cancellationToken);
+
+        try
+        {
+            await context.ActiveSpaces()
+                .Where(x => x.Id == id)
+                .ExecuteUpdateAsync(
+                    update =>
+                    {
+                        setters(update);
+                        update
+                            .SetProperty(p => p.UpdatedAt, date);
+                    },
+                    cancellationToken);
+        }
+        catch (PostgresException ex) when (IsSpaceKeyViolation(ex))
+        {
+            throw new BadRequestException("key", SpaceKeyAlreadyExistsMessage);
+        }
     }
 
     public async Task Delete(long id, Guid deleterId, CancellationToken cancellationToken)
@@ -128,6 +145,20 @@ public class CoreSpacesService(
                 cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    private const string SpaceKeyAlreadyExistsMessage = "A space with this key already exists";
+
+    // The unique index is the only race-free check, so a duplicate key is detected by the violation itself.
+    private static bool IsSpaceKeyViolation(Exception ex)
+    {
+        var pgException = ex as PostgresException ?? ex.InnerException as PostgresException;
+
+        return pgException is
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: Constraints.SpaceKeyIndexName,
+        };
     }
 
     public Task<long> GetSpaceIdBySpaceKey(long organizationId, string spaceKey, CancellationToken cancellationToken)

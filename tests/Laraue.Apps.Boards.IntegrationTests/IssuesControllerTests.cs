@@ -729,6 +729,41 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
     
     [Fact]
+    public async Task User_ShouldSearchIssues_WhenSoftDeletedSpaceSharesKeyWithLiveSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "TEX", space => space
+                    .AddEpic(userId, epic => epic
+                        .AddIssue(userId, 0, issue => issue.WithContent("John"))))
+                .AddSpace(userId, "OLD"));
+
+        // The unique index on the key is filtered by deleted_at, so a deleted space may share a live one's key.
+        var deletedSpaceId = organization.GetSpace(2).Id;
+        await testScope.Database.Spaces
+            .Where(x => x.Id == deletedSpaceId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.Key, "TEX")
+                .SetProperty(p => p.DeletedAt, DateTime.UtcNow));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    SearchString = "jo",
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        var issueDto = Assert.Single(issuesResult!.Data);
+        Assert.Equal("John", issueDto.Content);
+    }
+
+    [Fact]
     public async Task User_ShouldSearchOnlyPermittedSpaceIssues_WhenHasIssuesAccessOnSpaceLevel()
     {
         using var testScope = host.CreateTestScope();
