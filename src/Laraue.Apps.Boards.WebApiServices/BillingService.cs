@@ -232,7 +232,11 @@ public class BillingService(
             };
         }
 
-        var tokensUsed = Math.Max(0, subscription.IncludedTokensCount - balance.SubscriptionTokensCount);
+        // What is left of the plan's own allowance: a paid plan's tokens are in the subscription bucket,
+        // a Free plan's monthly allowance in the free one (its subscription bucket stays empty), so both
+        // count. Purchased packs are not part of the plan, they only add to the remaining total.
+        var planTokensLeft = balance.SubscriptionTokensCount + balance.FreeTokensCount;
+        var tokensUsed = Math.Max(0, subscription.IncludedTokensCount - planTokensLeft);
         var tokensRemaining = balance.SubscriptionTokensCount + balance.FreeTokensCount + balance.PurchasedTokensCount;
 
         var tokens = new LimitUsage

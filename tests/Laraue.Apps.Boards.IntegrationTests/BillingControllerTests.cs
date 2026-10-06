@@ -82,7 +82,9 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
         Assert.Equal(96, summary.IssuesPerMonth.Remaining);
 
         Assert.Equal(2_500_000, summary.Tokens.Limit);
-        Assert.Equal(200_000, summary.Tokens.Used);
+        // 2,500,000 included - (2,300,000 subscription + 1,000 free) left of the plan.
+        Assert.Equal(199_000, summary.Tokens.Used);
+        // The plan's tokens left plus the 50,000 purchased.
         Assert.Equal(2_351_000, summary.Tokens.Remaining);
 
         var personalSummary = Assert.IsType<PersonalBillingSummary>(summary);
@@ -93,6 +95,41 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
         Assert.Equal(3, personalSummary.FreeTeamOrganizations!.Limit);
         Assert.Equal(1, personalSummary.FreeTeamOrganizations.Used);
         Assert.Equal(2, personalSummary.FreeTeamOrganizations.Remaining);
+    }
+
+    [Fact]
+    public async Task GetSummary_ShouldShowNothingUsed_WhenFreePlanAllowanceIsUntouched()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo
+            {
+                Code = "personal_free",
+                IsPersonal = true,
+                IncludedTokensCount = 25_000,
+            });
+
+        // A Free plan's allowance lives in the free bucket, the subscription one stays empty.
+        host.BillingTokenClientMock
+            .Setup(x => x.GetBalanceAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenBalance
+            {
+                FreeTokensCount = 25_000,
+                SubscriptionTokensCount = 0,
+                PurchasedTokensCount = 0,
+            });
+
+        var summary = await _billingController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetSummary());
+
+        Assert.Equal(25_000, summary!.Tokens.Limit);
+        Assert.Equal(0, summary.Tokens.Used);
+        Assert.Equal(25_000, summary.Tokens.Remaining);
     }
 
     [Fact]
