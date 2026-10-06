@@ -3,7 +3,10 @@ using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.Exceptions.Web;
+using Laraue.Apps.Boards.DataAccess;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -36,7 +39,8 @@ public interface ISpacesService
 
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
-    IAccessService accessService)
+    IAccessService accessService,
+    DatabaseContext context)
     : ISpacesService
 {
     public async Task<SpaceListDto[]> GetSpaces(
@@ -88,13 +92,24 @@ public class SpacesService(
         if (!canCreateSpaces)
             throw new NotFoundException(string.Format(ErrorMessages.EntityActionForbidden, "Organization", request.AuthData.OrganizationId, "space creation"));
 
-        return await coreSpacesService.Create(
-            request.AuthData.OrganizationId,
-            request.AuthData.UserId,
-            request.Key,
-            request.Name,
-            request.Color,
-            cancellationToken);
+        var key = request.Key.ToUpper();
+        await EnsureKeyIsFree(request.AuthData.OrganizationId, key, null, nameof(request.Key), cancellationToken);
+
+        try
+        {
+            return await coreSpacesService.Create(
+                request.AuthData.OrganizationId,
+                request.AuthData.UserId,
+                key,
+                request.Name,
+                request.Color,
+                cancellationToken);
+        }
+        catch (Exception ex) when (IsSpaceKeyViolation(ex))
+        {
+            // Another request took the key between the check above and the insert.
+            throw new BadRequestException(nameof(request.Key), ErrorMessages.SpaceKeyAlreadyExists);
+        }
     }
 
     public async Task Update(UpdateSpaceRequest request, CancellationToken cancellationToken)
@@ -108,13 +123,23 @@ public class SpacesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.OldKey))
             .EnsureOrThrowForbidden(a => a.CanUpdateSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.OldKey));
 
-        await coreSpacesService.Update(
-            spaceId,
-            setters => setters
-                .SetProperty(x => x.Color, request.Color)
-                .SetProperty(x => x.Name, request.Name)
-                .SetProperty(x => x.Key, request.NewKey.ToUpper()),
-            cancellationToken);
+        var newKey = request.NewKey.ToUpper();
+        await EnsureKeyIsFree(request.AuthData.OrganizationId, newKey, spaceId, nameof(request.NewKey), cancellationToken);
+
+        try
+        {
+            await coreSpacesService.Update(
+                spaceId,
+                setters => setters
+                    .SetProperty(x => x.Color, request.Color)
+                    .SetProperty(x => x.Name, request.Name)
+                    .SetProperty(x => x.Key, newKey),
+                cancellationToken);
+        }
+        catch (Exception ex) when (IsSpaceKeyViolation(ex))
+        {
+            throw new BadRequestException(nameof(request.NewKey), ErrorMessages.SpaceKeyAlreadyExists);
+        }
     }
 
     public async Task Delete(DeleteSpaceRequest request, CancellationToken cancellationToken)
@@ -129,6 +154,34 @@ public class SpacesService(
             .EnsureOrThrowForbidden(a => a.CanDeleteSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.Key));
 
         await coreSpacesService.Delete(spaceId, request.AuthData.UserId, cancellationToken);
+    }
+
+    private async Task EnsureKeyIsFree(
+        long organizationId,
+        string key,
+        long? excludeSpaceId,
+        string fieldName,
+        CancellationToken cancellationToken)
+    {
+        var isTaken = await context.ActiveSpaces()
+            .Where(x => x.OrganizationId == organizationId)
+            .Where(x => x.Key == key)
+            .Where(x => x.Id != excludeSpaceId)
+            .AnyAsync(cancellationToken);
+
+        if (isTaken)
+            throw new BadRequestException(fieldName, ErrorMessages.SpaceKeyAlreadyExists);
+    }
+
+    private static bool IsSpaceKeyViolation(Exception ex)
+    {
+        var pgException = ex as PostgresException ?? ex.InnerException as PostgresException;
+
+        return pgException is
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "ix_spaces_organization_id_key",
+        };
     }
 
     public async Task<SpaceMember[]> GetMembers(GetSpaceMembersRequest request, CancellationToken cancellationToken)
