@@ -85,6 +85,13 @@ public abstract record BillingSummary
     /// when the plan ends then (a paid one).
     /// </summary>
     public bool PeriodResets { get; init; }
+
+    /// <summary>
+    /// When the count of <see cref="IssuesPerMonth"/> starts over: the end of the rolling month of a Free
+    /// plan, the start of the next calendar month for a paid one (whose limits are counted per calendar
+    /// month, unlike its own period). Null when there is no issue limit.
+    /// </summary>
+    public DateTime? IssuesResetAt { get; init; }
 }
 
 public sealed record PersonalBillingSummary : BillingSummary
@@ -266,6 +273,13 @@ public class BillingService(
         var planTokensLeft = balance.SubscriptionTokensCount + balance.FreeTokensCount;
         var tokensUsed = Math.Max(0, subscription.IncludedTokensCount - planTokensLeft);
 
+        // A Free plan counts issues in its rolling month, a paid one in the calendar month.
+        DateTime? issuesResetAt = subscription.LimitIssuesPerMonth is null
+            ? null
+            : subscription.PeriodResets
+                ? subscription.PeriodEndsAt
+                : subscription.LimitPeriodStartedAt.AddMonths(1);
+
         var tokens = new LimitUsage
         {
             Limit = subscription.IncludedTokensCount,
@@ -286,6 +300,7 @@ public class BillingService(
                 PurchasedTokensExpiringCount = balance.PurchasedTokensExpiringCount,
                 PeriodEndsAt = subscription.PeriodEndsAt,
                 PeriodResets = subscription.PeriodResets,
+                IssuesResetAt = issuesResetAt,
             };
         }
 
@@ -314,6 +329,7 @@ public class BillingService(
             PurchasedTokensExpiringCount = balance.PurchasedTokensExpiringCount,
             PeriodEndsAt = subscription.PeriodEndsAt,
             PeriodResets = subscription.PeriodResets,
+            IssuesResetAt = issuesResetAt,
             FreeTeamOrganizations = freeTeamOrganizations,
         };
     }

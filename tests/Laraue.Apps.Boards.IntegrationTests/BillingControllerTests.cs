@@ -217,6 +217,95 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task GetSummary_ShouldResetIssuesAtTheEndOfTheRollingMonth_WhenPlanIsFree()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var periodEndsAt = new DateTime(2026, 11, 6, 12, 0, 0, DateTimeKind.Utc);
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo
+            {
+                Code = "personal_free",
+                IsPersonal = true,
+                LimitIssuesPerMonth = 500,
+                IncludedTokensCount = 25_000,
+                LimitPeriodStartedAt = new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc),
+                PeriodEndsAt = periodEndsAt,
+                PeriodResets = true,
+            });
+        host.BillingTokenClientMock
+            .Setup(x => x.GetBalanceAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenBalance { FreeTokensCount = 25_000, SubscriptionTokensCount = 0, PurchasedTokensCount = 0 });
+
+        var summary = await _billingController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetSummary());
+
+        Assert.Equal(periodEndsAt, summary!.IssuesResetAt);
+    }
+
+    [Fact]
+    public async Task GetSummary_ShouldResetIssuesAtTheNextCalendarMonth_WhenPlanIsPaid()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo
+            {
+                Code = "Plus",
+                IsPersonal = true,
+                LimitIssuesPerMonth = 50_000,
+                IncludedTokensCount = 300_000,
+                LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+                // The paid period ends mid-month, which is not when the issue count starts over.
+                PeriodEndsAt = new DateTime(2026, 10, 25, 9, 0, 0, DateTimeKind.Utc),
+                PeriodResets = false,
+            });
+        host.BillingTokenClientMock
+            .Setup(x => x.GetBalanceAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenBalance { FreeTokensCount = 0, SubscriptionTokensCount = 300_000, PurchasedTokensCount = 0 });
+
+        var summary = await _billingController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetSummary());
+
+        Assert.Equal(new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc), summary!.IssuesResetAt);
+    }
+
+    [Fact]
+    public async Task GetSummary_ShouldNotReturnAnIssuesReset_WhenThereIsNoIssueLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo
+            {
+                Code = "unlimited",
+                IsPersonal = true,
+                IncludedTokensCount = 25_000,
+                LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            });
+        host.BillingTokenClientMock
+            .Setup(x => x.GetBalanceAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TokenBalance { FreeTokensCount = 25_000, SubscriptionTokensCount = 0, PurchasedTokensCount = 0 });
+
+        var summary = await _billingController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetSummary());
+
+        Assert.Null(summary!.IssuesResetAt);
+    }
+
+    [Fact]
     public async Task GetSummary_ShouldReturnTeamSummaryWithNoFreeTeamOrganizationsField_WhenOrganizationIsTeam()
     {
         using var testScope = host.CreateTestScope();
