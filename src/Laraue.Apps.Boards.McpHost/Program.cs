@@ -6,6 +6,7 @@ using Laraue.Apps.Boards.Services.Auth;
 using Laraue.Apps.Boards.Services.History;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Laraue.Apps.Boards.Services.Metrics;
 using OpenTelemetry.Metrics;
 using Telegram.Bot;
 
@@ -64,7 +65,7 @@ public sealed class Program
         builder.Services
             .AddOpenTelemetry()
             .WithMetrics(metrics => metrics
-                .AddMeter(McpToolMetrics.SdkMeterName, McpToolMetrics.MeterName)
+                .AddMeter(McpToolMetrics.SdkMeterName, McpToolMetrics.MeterName, BoardsMetrics.MeterName)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()

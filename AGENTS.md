@@ -327,6 +327,29 @@ yourself — ask the user to stop it, then retry the build once they confirm.
   `WebApplication.CreateBuilder()`, i.e. Production, so validation does apply there.
   `OptionsValidationTests` covers both environments.
 
+## Metrics
+
+Prometheus metrics on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Laraue.Apps.Boards`; `McpHost` also
+has its own `McpToolMetrics`). Same conventions as Billing's and Identity's "Metrics" sections.
+
+- **Naming**: dotted `boards.<noun>.<verb or state>`; the exporter makes counters `boards_<noun>_<verb>_total`. A new
+  counter goes into `BoardsMetrics` (`Services/Metrics`) with a typed `Record...` method. `Retro.Services` does not
+  reference `Boards.Services`, so its one counter lives in `RetroMetrics` on the same meter name (keep them equal).
+- **Counters are events**, recorded after the row is saved, by the host that handles the event (each adds the meter with
+  `AddMeter`): `boards_issues_created_total{source}` (`telegram` when the request carries a Telegram message, `mcp` when
+  the actor has an API key, else `web`), `boards_issues_completed_total` (issues moved into a `Completed` status),
+  `boards_organizations_created_total{type}` (`organization`, or `personal` made at sign-up),
+  `boards_retros_started_total`.
+- **Gauges are state**, read from the database so they survive a restart (`BoardsStateMetrics` in `WebApiServices`,
+  refreshed every 60 s, registered by `WebApiHost` only): `boards_issues{state}` (active = not completed, completed; the
+  total is their sum), `boards_epics{status}`, `boards_organizations{type}`, `boards_retros{state}` (running, finished),
+  `boards_active_users{window}` (1d, 7d, 30d: distinct users with an `OrganizationLog` row - they created, changed or
+  deleted an issue or comment; reading and moving through the board without edits does not count). Soft-deleted rows
+  are not counted, see "Soft delete". Query gauges with `max()`.
+- **Labels are low-cardinality**: source, type, state, status, window. Never a user, organization or issue id.
+- **Tests** scrape `/_metrics` (`BoardsMetricsTests`) and assert a series exists, not its count; the test hosts turn the
+  exporter's scrape cache off.
+
 ## Logging
 
 - Always use `ILogger<T>` (the generic, type-scoped interface), never the bare non-generic

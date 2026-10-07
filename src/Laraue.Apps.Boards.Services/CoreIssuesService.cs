@@ -1,7 +1,9 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services.Billing;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Metrics;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -101,7 +103,8 @@ public class CoreIssuesService(
     IIssueHistoryService historyService,
     IOrganizationLogItemFactory logItemFactory,
     ICoreIssueAttributesService issueAttributesService,
-    IMemberProfileReader memberProfileReader)
+    IMemberProfileReader memberProfileReader,
+    BoardsMetrics metrics)
     : ICoreIssuesService
 {
     public async Task<long> Create(
@@ -253,6 +256,8 @@ public class CoreIssuesService(
             cancellationToken);
 
         await TouchEpics([issueData.EpicId], request.CreatedAt, cancellationToken);
+
+        metrics.RecordIssueCreated(request.TelegramMessageId, actor.ApiKeyId);
 
         return issue.Id;
     }
@@ -719,6 +724,7 @@ public class CoreIssuesService(
                 i.Status!.Epic!.Space!.OrganizationId,
                 StatusName = i.Status.Name,
                 i.StatusId,
+                WasCompleted = i.Status.Category == StatusCategory.Completed,
                 i.Status.Color,
                 i.Status.EpicId,
                 EpicName = i.Status.Epic.Name,
@@ -735,6 +741,7 @@ public class CoreIssuesService(
                 i.Epic!.SpaceId,
                 i.Epic!.Space!.OrganizationId,
                 StatusName = i.Name,
+                IsCompleted = i.Category == StatusCategory.Completed,
                 i.Color,
                 i.EpicId,
                 EpicName = i.Epic.Name,
@@ -803,6 +810,11 @@ public class CoreIssuesService(
         }
         
         await context.SaveChangesAsync(ct);
+
+        if (newStatusData.IsCompleted)
+        {
+            metrics.RecordIssuesCompleted(issuesToUpdate.Count(x => !x.WasCompleted));
+        }
 
         if (!string.IsNullOrWhiteSpace(comment))
         {

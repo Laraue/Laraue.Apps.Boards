@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Core.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Laraue.Apps.Boards.Services.Metrics;
 using OpenTelemetry.Metrics;
 using Scalar.AspNetCore;
 
@@ -28,6 +29,7 @@ public sealed class Program
         builder.Services
             .AddOpenTelemetry()
             .WithMetrics(metrics => metrics
+                .AddMeter(BoardsMetrics.MeterName)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()

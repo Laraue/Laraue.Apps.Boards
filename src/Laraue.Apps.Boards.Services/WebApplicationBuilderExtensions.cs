@@ -6,6 +6,7 @@ using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.Services.Identity;
 using Laraue.Apps.Boards.Services.Members;
+using Laraue.Apps.Boards.Services.Metrics;
 using BillingServiceId = Laraue.Apps.Billing.Internal.Contracts.ServiceId;
 using BillingServiceIdInterceptor = Laraue.Apps.Billing.Internal.Contracts.ServiceIdInterceptor;
 using IdentityServiceId = Laraue.Apps.Identity.Internal.Contracts.ServiceId;
@@ -97,6 +98,8 @@ public static class WebApplicationBuilderExtensions
 
             builder.Services
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()
+                .AddMetrics()
+                .AddSingleton<BoardsMetrics>()
                 .AddScoped<IAccessService, AccessService>()
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()
                 .AddScoped<ICoreIssueAttributesService, CoreIssueAttributesService>()
