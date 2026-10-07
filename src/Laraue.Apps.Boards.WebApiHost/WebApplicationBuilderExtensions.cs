@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Apps.Boards.WebApiServices.Metrics;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DateTime.Services.Impl;
 using Laraue.Core.Exceptions;
@@ -30,6 +31,9 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>()
                 .AddSingleton<ITelegramBotClient, TelegramBotClient>(
                     sp => new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.GetRequiredToken()));
+
+            // The database-backed gauges (issues, epics, organizations, retros, active users) come from this host only.
+            builder.Services.AddBoardsStateMetrics();
 
             builder.Services
                 .AddScoped<IIssuesService, IssuesService>()

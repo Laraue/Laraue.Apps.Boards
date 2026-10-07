@@ -2,6 +2,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Retro.WebApiServices;
 using Laraue.Core.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Laraue.Apps.Retro.Services;
 using OpenTelemetry.Metrics;
 using Scalar.AspNetCore;
 
@@ -33,6 +34,7 @@ public sealed class Program
         builder.Services
             .AddOpenTelemetry()
             .WithMetrics(metrics => metrics
+                .AddMeter(RetroMetrics.MeterName)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()

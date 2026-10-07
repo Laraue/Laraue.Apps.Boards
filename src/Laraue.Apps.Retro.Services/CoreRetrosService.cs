@@ -73,7 +73,7 @@ public interface ICoreRetrosService
     Task<RetroVoteResult> SetVote(Guid cardId, Guid userId, bool voted, CancellationToken cancellationToken);
 }
 
-public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTimeProvider)
+public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTimeProvider, RetroMetrics metrics)
     : ICoreRetrosService
 {
     private static readonly RetroPhase[] PhaseOrder =
@@ -170,6 +170,8 @@ public class CoreRetrosService(DatabaseContext context, IDateTimeProvider dateTi
 
         context.Retros.Add(retro);
         await context.SaveChangesAsync(cancellationToken);
+
+        metrics.RecordRetroStarted();
 
         return retro.Id;
     }

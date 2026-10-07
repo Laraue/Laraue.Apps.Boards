@@ -1,6 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Metrics;
 using Laraue.Apps.Boards.Services.Identity;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Identity.Internal.Contracts;
@@ -117,7 +118,8 @@ public interface ICoreOrganizationsService
 public class CoreOrganizationsService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
-    UserIdentityService.UserIdentityServiceClient identityClient)
+    UserIdentityService.UserIdentityServiceClient identityClient,
+    BoardsMetrics metrics)
     : ICoreOrganizationsService
 {
     public async Task<CreateOrganizationResponse> Create(
@@ -141,6 +143,8 @@ public class CoreOrganizationsService(
 
         context.Organizations.Add(entity);
         await context.SaveChangesAsync(cancellationToken);
+
+        metrics.RecordOrganizationCreated(OrganizationType.Organization);
 
         return new CreateOrganizationResponse
         {

@@ -13,6 +13,8 @@ public static class WebApplicationBuilderExtensions
         {
             builder.Services
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()
+                .AddMetrics()
+                .AddSingleton<RetroMetrics>()
                 .AddScoped<ICoreRetrosService, CoreRetrosService>();
 
             return builder;

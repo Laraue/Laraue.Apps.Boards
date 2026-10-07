@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Metrics;
 using Laraue.Apps.Boards.Services.Identity;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Identity.Internal.Contracts;
@@ -91,7 +92,8 @@ public interface ICoreUserService
 public class CoreUserService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
-    UserIdentityService.UserIdentityServiceClient identityClient) : ICoreUserService
+    UserIdentityService.UserIdentityServiceClient identityClient,
+    BoardsMetrics metrics) : ICoreUserService
 {
     public async Task<NewUserIdentity> ResolveTelegramIdentity(
         TelegramUserProfile profile,
@@ -159,6 +161,8 @@ public class CoreUserService(
 
         await context.SaveChangesAsync(cancellationToken);
 
+        metrics.RecordOrganizationCreated(OrganizationType.Personal);
+
         return user.Id;
     }
 
@@ -217,6 +221,8 @@ public class CoreUserService(
             identity.Profile);
 
         await context.SaveChangesAsync(cancellationToken);
+
+        metrics.RecordOrganizationCreated(OrganizationType.Personal);
 
         return user.Id;
     }
