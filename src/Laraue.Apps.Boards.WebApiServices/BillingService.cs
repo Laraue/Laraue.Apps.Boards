@@ -6,7 +6,6 @@ using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.Extensions;
 using Laraue.Apps.Boards.WebApiServices.Resources;
-using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using Microsoft.Extensions.Logging;
 
@@ -56,7 +55,36 @@ public abstract record BillingSummary
     /// </summary>
     public LimitUsage? IssuesPerMonth { get; init; }
 
+    /// <summary>
+    /// The tokens left in the plan (<see cref="LimitUsage.Remaining"/> is the plan's own tokens only).
+    /// </summary>
     public required LimitUsage Tokens { get; init; }
+
+    /// <summary>
+    /// Tokens bought in packs, on top of the plan: spent after the plan's own.
+    /// </summary>
+    public long PurchasedTokensCount { get; init; }
+
+    /// <summary>
+    /// When the purchased tokens that expire first run out. Null when there are none.
+    /// </summary>
+    public DateTime? PurchasedTokensExpireAt { get; init; }
+
+    /// <summary>
+    /// How many of the purchased tokens expire at <see cref="PurchasedTokensExpireAt"/>.
+    /// </summary>
+    public long PurchasedTokensExpiringCount { get; init; }
+
+    /// <summary>
+    /// When the current period of the plan ends. Null when it has no end.
+    /// </summary>
+    public DateTime? PeriodEndsAt { get; init; }
+
+    /// <summary>
+    /// True when the plan's allowance starts over at <see cref="PeriodEndsAt"/> (a Free plan), false
+    /// when the plan ends then (a paid one).
+    /// </summary>
+    public bool PeriodResets { get; init; }
 }
 
 public sealed record PersonalBillingSummary : BillingSummary
@@ -153,12 +181,11 @@ public interface IBillingService
 public class BillingService(
     IBillingSubscriptionClient subscriptionClient,
     IBillingTokenClient tokenClient,
-    IIssueMonthlyCountService issueMonthlyCountService,
+    IIssuePeriodCountService issuePeriodCountService,
     IUsageLimitService usageLimitService,
     IBillingPaymentClient paymentClient,
     IAccessService accessService,
-    ILogger<BillingService> logger,
-    IDateTimeProvider dateTimeProvider) : IBillingService
+    ILogger<BillingService> logger) : IBillingService
 {
     public async Task<CheckoutDto> CreateCheckout(
         OrganizationAuthData authData,
@@ -220,9 +247,9 @@ public class BillingService(
         LimitUsage? issuesPerMonth = null;
         if (subscription.LimitIssuesPerMonth is { } issuesLimit)
         {
-            var now = dateTimeProvider.UtcNow;
-            var issuesUsed = await issueMonthlyCountService.GetCount(
-                authData.OrganizationId, now.Year, now.Month, cancellationToken);
+            // Counted in the period Billing reports for the plan, the same one the limit is checked in.
+            var issuesUsed = await issuePeriodCountService.GetCount(
+                authData.OrganizationId, subscription.LimitPeriodStartedAt, cancellationToken);
 
             issuesPerMonth = new LimitUsage
             {
@@ -234,16 +261,16 @@ public class BillingService(
 
         // What is left of the plan's own allowance: a paid plan's tokens are in the subscription bucket,
         // a Free plan's monthly allowance in the free one (its subscription bucket stays empty), so both
-        // count. Purchased packs are not part of the plan, they only add to the remaining total.
+        // count. Purchased packs are not part of the plan: they are reported on their own, so the
+        // remaining tokens always agree with the used ones.
         var planTokensLeft = balance.SubscriptionTokensCount + balance.FreeTokensCount;
         var tokensUsed = Math.Max(0, subscription.IncludedTokensCount - planTokensLeft);
-        var tokensRemaining = balance.SubscriptionTokensCount + balance.FreeTokensCount + balance.PurchasedTokensCount;
 
         var tokens = new LimitUsage
         {
             Limit = subscription.IncludedTokensCount,
             Used = tokensUsed,
-            Remaining = tokensRemaining,
+            Remaining = planTokensLeft,
         };
 
         if (!subscription.IsPersonal)
@@ -254,6 +281,11 @@ public class BillingService(
                 CanPay = canPay,
                 IssuesPerMonth = issuesPerMonth,
                 Tokens = tokens,
+                PurchasedTokensCount = balance.PurchasedTokensCount,
+                PurchasedTokensExpireAt = balance.PurchasedTokensExpireAt,
+                PurchasedTokensExpiringCount = balance.PurchasedTokensExpiringCount,
+                PeriodEndsAt = subscription.PeriodEndsAt,
+                PeriodResets = subscription.PeriodResets,
             };
         }
 
@@ -277,6 +309,11 @@ public class BillingService(
             CanPay = canPay,
             IssuesPerMonth = issuesPerMonth,
             Tokens = tokens,
+            PurchasedTokensCount = balance.PurchasedTokensCount,
+            PurchasedTokensExpireAt = balance.PurchasedTokensExpireAt,
+            PurchasedTokensExpiringCount = balance.PurchasedTokensExpiringCount,
+            PeriodEndsAt = subscription.PeriodEndsAt,
+            PeriodResets = subscription.PeriodResets,
             FreeTeamOrganizations = freeTeamOrganizations,
         };
     }

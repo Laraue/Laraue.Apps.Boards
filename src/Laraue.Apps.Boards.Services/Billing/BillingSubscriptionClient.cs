@@ -66,6 +66,24 @@ public sealed record ActiveSubscriptionInfo
     /// <c>SubscriptionTokensCount</c> to compute how much of the plan's allowance has been spent.
     /// </summary>
     public required long IncludedTokensCount { get; init; }
+
+    /// <summary>
+    /// The start of the period the plan's limits are counted in: the rolling month of a Free plan, the
+    /// calendar month of a paid one. Billing decides it, issues are counted per this period.
+    /// </summary>
+    public required DateTime LimitPeriodStartedAt { get; init; }
+
+    /// <summary>
+    /// When the current period of the plan ends, <see cref="PeriodResets"/> says what happens then.
+    /// Null when it has no end.
+    /// </summary>
+    public DateTime? PeriodEndsAt { get; init; }
+
+    /// <summary>
+    /// True when the allowance starts over at <see cref="PeriodEndsAt"/> (a Free plan), false when the
+    /// plan ends then (a paid one).
+    /// </summary>
+    public bool PeriodResets { get; init; }
 }
 
 public class BillingSubscriptionClient(
@@ -164,6 +182,9 @@ public class BillingSubscriptionClient(
                 ? response.LaraueBoardsPersonal.LimitFreeTeamOrganizationsCount
                 : null,
             IncludedTokensCount = response.LaraueBoardsPersonal.IncludedTokensCount,
+            LimitPeriodStartedAt = response.LimitPeriodStartedAt.ToDateTime(),
+            PeriodEndsAt = response.PeriodEndsAt?.ToDateTime(),
+            PeriodResets = response.PeriodResets,
         },
         ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsTeam => new ActiveSubscriptionInfo
         {
@@ -173,6 +194,9 @@ public class BillingSubscriptionClient(
                 ? response.LaraueBoardsTeam.LimitIssuesPerMonth
                 : null,
             IncludedTokensCount = response.LaraueBoardsTeam.IncludedTokensCount,
+            LimitPeriodStartedAt = response.LimitPeriodStartedAt.ToDateTime(),
+            PeriodEndsAt = response.PeriodEndsAt?.ToDateTime(),
+            PeriodResets = response.PeriodResets,
         },
         _ => throw new InvalidOperationException(
             $"Unexpected subscription payload '{response.PayloadCase}' for LaraueBoards."),

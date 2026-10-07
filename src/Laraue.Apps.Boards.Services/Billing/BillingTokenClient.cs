@@ -80,6 +80,17 @@ public sealed record TokenBalance
     public required long FreeTokensCount { get; init; }
     public required long SubscriptionTokensCount { get; init; }
     public required long PurchasedTokensCount { get; init; }
+
+    /// <summary>
+    /// When the purchased tokens that expire first run out, among the packs that still have tokens.
+    /// Null when there are none.
+    /// </summary>
+    public DateTime? PurchasedTokensExpireAt { get; init; }
+
+    /// <summary>
+    /// How many purchased tokens expire at <see cref="PurchasedTokensExpireAt"/>, not all the purchased ones.
+    /// </summary>
+    public long PurchasedTokensExpiringCount { get; init; }
 }
 
 public sealed record TokenTransactionItem
@@ -167,6 +178,8 @@ public class BillingTokenClient(DatabaseContext context, TokenService.TokenServi
             FreeTokensCount = response.FreeTokensCount,
             SubscriptionTokensCount = response.SubscriptionTokensCount,
             PurchasedTokensCount = response.PurchasedTokensCount,
+            PurchasedTokensExpireAt = response.PurchasedTokensExpireAt?.ToDateTime(),
+            PurchasedTokensExpiringCount = response.PurchasedTokensExpiringCount,
         };
     }
 

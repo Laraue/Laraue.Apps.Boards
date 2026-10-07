@@ -30,7 +30,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<Space> Spaces { get; init; }
     public DbSet<File> Files { get; init; }
     public DbSet<SpaceCounter> SpaceCounters { get; init; }
-    public DbSet<IssueMonthlyCount> IssueMonthlyCounts { get; init; }
+    public DbSet<IssuePeriodCount> IssuePeriodCounts { get; init; }
     public DbSet<DirectSpacePermission> DirectSpacePermissions { get; init; }
     public DbSet<Organization> Organizations { get; init; }
     public DbSet<OrganizationUser> OrganizationUsers { get; init; }
@@ -185,9 +185,9 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity.HasKey(x => x.SpaceId);
         });
 
-        modelBuilder.Entity<IssueMonthlyCount>(entity =>
+        modelBuilder.Entity<IssuePeriodCount>(entity =>
         {
-            entity.HasKey(x => new { x.OrganizationId, x.Year, x.Month });
+            entity.HasKey(x => new { x.OrganizationId, x.PeriodStartedAt });
         });
         
         modelBuilder.Entity<TelegramMediaGroup>(entity =>

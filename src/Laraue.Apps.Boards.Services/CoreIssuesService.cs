@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Core.DataAccess.EFCore.Extensions;
@@ -93,7 +94,8 @@ public class CoreIssuesService(
     DatabaseContext context,
     IDateTimeProvider dateTimeProvider,
     ISpaceCounterService spaceCounterService,
-    IIssueMonthlyCountService issueMonthlyCountService,
+    IIssuePeriodCountService issuePeriodCountService,
+    IBillingSubscriptionClient subscriptionClient,
     IOrganizationConcurrencyControlService organizationConcurrencyControlService,
     IIssueNumbersService issueNumbersService,
     IIssueHistoryService historyService,
@@ -172,9 +174,13 @@ public class CoreIssuesService(
         await context.SaveChangesAsync(cancellationToken);
 
         // Kept in sync with the issue insert above rather than derived by counting Issues on
-        // every read - UsageLimitService checks this on every issue creation.
-        await issueMonthlyCountService.IncrementAndGetCount(
-            issueData.OrganizationId, issue.CreatedAt.Year, issue.CreatedAt.Month, cancellationToken);
+        // every read - UsageLimitService checks this on every issue creation. Counted in the period
+        // Billing says the plan is in now (the rolling month of a Free plan), the same one the limit
+        // is checked against.
+        var subscription = await subscriptionClient.GetActiveSubscriptionAsync(
+            issueData.OrganizationId, actor.UserId, cancellationToken);
+        await issuePeriodCountService.IncrementAndGetCount(
+            issueData.OrganizationId, subscription.LimitPeriodStartedAt, cancellationToken);
 
         var items = new List<OrganizationLogItem>
         {

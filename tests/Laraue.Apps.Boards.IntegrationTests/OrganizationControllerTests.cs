@@ -97,7 +97,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 1, IncludedTokensCount = 2_500_000 });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 1, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
             .WithUserAuthorization(userId)
@@ -124,7 +124,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActivePersonalSubscriptionAsync(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 2, IncludedTokensCount = 2_500_000 });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitFreeTeamOrganizationsCount = 2, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
 
         await _organizationsController
             .WithUserAuthorization(userId)

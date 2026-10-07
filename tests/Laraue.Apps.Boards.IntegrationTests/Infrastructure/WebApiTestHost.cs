@@ -61,7 +61,7 @@ public class WebApiTestHost
     private static Mock<IBillingSubscriptionClient> CreateDefaultSubscriptionClientMock()
     {
         var mock = new Mock<IBillingSubscriptionClient>();
-        var unlimited = new ActiveSubscriptionInfo { Code = "test", IsPersonal = true, IncludedTokensCount = 2_500_000 };
+        var unlimited = new ActiveSubscriptionInfo { Code = "test", IsPersonal = true, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) };
 
         mock.Setup(x => x.GetActiveSubscriptionAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(unlimited);
