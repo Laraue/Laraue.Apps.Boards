@@ -13,6 +13,12 @@ public sealed class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+        builder.Logging.ClearProviders();
+        if (builder.Environment.IsDevelopment())
+            builder.Logging.AddSimpleConsole();
+        else
+            builder.Logging.AddJsonConsole();
+
         const string dbConnectionStringName = "Postgre";
 
         builder.Services.AddAuthorization();
