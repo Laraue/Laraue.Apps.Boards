@@ -179,7 +179,7 @@ public class CoreIssuesService(
         // is checked against.
         var subscription = await subscriptionClient.GetActiveSubscriptionAsync(
             issueData.OrganizationId, actor.UserId, cancellationToken);
-        await issuePeriodCountService.IncrementAndGetCount(
+        await issuePeriodCountService.Increment(
             issueData.OrganizationId, subscription.LimitPeriodStartedAt, cancellationToken);
 
         var items = new List<OrganizationLogItem>

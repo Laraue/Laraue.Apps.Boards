@@ -1,19 +1,19 @@
-using System.Runtime.CompilerServices;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Models;
+using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.Services;
 
 public interface IIssuePeriodCountService
 {
     /// <summary>
-    /// Atomically increments (creating the row if it doesn't exist yet) the issue count for
-    /// <paramref name="organizationId"/>'s period that started at <paramref name="periodStartedAt"/>
-    /// and returns the new total - same upsert shape as <see cref="ISpaceCounterService"/>, so this
-    /// needs no separate "start of period" reset step: a new period is just a new row.
+    /// Atomically adds one to the issue count of <paramref name="organizationId"/>'s period that started at
+    /// <paramref name="periodStartedAt"/>, creating the row if it doesn't exist yet - same upsert shape as
+    /// <see cref="ISpaceCounterService"/>, so this needs no separate "start of period" reset step: a new
+    /// period is just a new row. Needs a transaction started by the caller.
     /// </summary>
-    Task<int> IncrementAndGetCount(long organizationId, DateTime periodStartedAt, CancellationToken cancellationToken);
+    Task Increment(long organizationId, DateTime periodStartedAt, CancellationToken cancellationToken);
 
     /// <summary>
     /// The current count for that period, or 0 if no issue has been created in it yet.
@@ -23,23 +23,27 @@ public interface IIssuePeriodCountService
 
 public class IssuePeriodCountService(DatabaseContext context) : IIssuePeriodCountService
 {
-    private const string IncrementSqlQuery = @"
-        INSERT INTO issue_period_counts (organization_id, period_started_at, count)
-        VALUES ({0}, {1}, 1)
-        ON CONFLICT (organization_id, period_started_at) DO UPDATE
-        SET count = issue_period_counts.count + 1
-        RETURNING count";
-
-    public async Task<int> IncrementAndGetCount(long organizationId, DateTime periodStartedAt, CancellationToken cancellationToken)
+    public async Task Increment(long organizationId, DateTime periodStartedAt, CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
 
-        var query = FormattableStringFactory.Create(IncrementSqlQuery, organizationId, periodStartedAt);
-        var result = await context.Database
-            .SqlQuery<int>(query)
-            .ToListAsyncEF(cancellationToken);
-
-        return result.First();
+        // One INSERT ... ON CONFLICT DO UPDATE statement, so two issues created at once cannot lose a count.
+        await context.IssuePeriodCounts
+            .ToLinqToDBTable()
+            .InsertOrUpdateAsync(
+                () => new IssuePeriodCount
+                {
+                    OrganizationId = organizationId,
+                    PeriodStartedAt = periodStartedAt,
+                    Count = 1,
+                },
+                existing => new IssuePeriodCount { Count = existing.Count + 1 },
+                () => new IssuePeriodCount
+                {
+                    OrganizationId = organizationId,
+                    PeriodStartedAt = periodStartedAt,
+                },
+                cancellationToken);
     }
 
     public Task<int> GetCount(long organizationId, DateTime periodStartedAt, CancellationToken cancellationToken)
