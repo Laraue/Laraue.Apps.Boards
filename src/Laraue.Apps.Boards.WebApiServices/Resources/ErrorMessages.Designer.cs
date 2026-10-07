@@ -69,6 +69,12 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
+        internal static string OnlyOrganizationOwnerCanPay {
+            get {
+                return ResourceManager.GetString("OnlyOrganizationOwnerCanPay", resourceCulture);
+            }
+        }
+        
         internal static string ProfileServiceUnavailable {
             get {
                 return ResourceManager.GetString("ProfileServiceUnavailable", resourceCulture);

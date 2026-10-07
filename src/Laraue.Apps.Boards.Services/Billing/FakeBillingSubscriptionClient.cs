@@ -46,6 +46,8 @@ public class FakeBillingSubscriptionClient(DatabaseContext context) : IBillingSu
 
     private static ActiveSubscriptionInfo CreateUnlimitedSubscription(bool isPersonal) => new()
     {
+        // A calendar month, there is no real period to follow locally.
+        LimitPeriodStartedAt = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc),
         Code = FakeTariffCode,
         IsPersonal = isPersonal,
         LimitIssuesPerMonth = null,

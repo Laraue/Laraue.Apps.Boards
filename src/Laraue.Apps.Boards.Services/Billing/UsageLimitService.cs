@@ -1,6 +1,5 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
-using Laraue.Core.DateTime.Services.Abstractions;
 using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.Services.Billing;
@@ -17,7 +16,7 @@ public interface IUsageLimitService
     /// <summary>
     /// Throws <see cref="IssueLimitExceededException"/> if <paramref name="organizationId"/> has
     /// already created <see cref="ActiveSubscriptionInfo.LimitIssuesPerMonth"/> issues in the
-    /// current UTC calendar month. A null limit means unlimited - nothing to check.
+    /// current period of its plan (<see cref="ActiveSubscriptionInfo.LimitPeriodStartedAt"/>). A null limit means unlimited - nothing to check.
     /// </summary>
     Task EnsureCanCreateIssueAsync(long organizationId, Guid userId, CancellationToken cancellationToken);
 
@@ -40,8 +39,7 @@ public interface IUsageLimitService
 public class UsageLimitService(
     DatabaseContext context,
     IBillingSubscriptionClient subscriptionClient,
-    IIssueMonthlyCountService issueMonthlyCountService,
-    IDateTimeProvider dateTimeProvider) : IUsageLimitService
+    IIssuePeriodCountService issuePeriodCountService) : IUsageLimitService
 {
     public async Task EnsureCanCreateIssueAsync(long organizationId, Guid userId, CancellationToken cancellationToken)
     {
@@ -50,11 +48,11 @@ public class UsageLimitService(
         if (subscription.LimitIssuesPerMonth is not { } limit)
             return;
 
-        var now = dateTimeProvider.UtcNow;
-
-        // A materialized counter (see IssueMonthlyCount) rather than counting Issues on every
-        // check - this runs on every issue creation.
-        var issuesThisMonth = await issueMonthlyCountService.GetCount(organizationId, now.Year, now.Month, cancellationToken);
+        // A materialized counter (see IssuePeriodCount) rather than counting Issues on every
+        // check - this runs on every issue creation. Counted in the period Billing reports for the
+        // plan, not in a calendar month.
+        var issuesThisMonth = await issuePeriodCountService.GetCount(
+            organizationId, subscription.LimitPeriodStartedAt, cancellationToken);
 
         if (issuesThisMonth >= limit)
             throw new IssueLimitExceededException(limit);

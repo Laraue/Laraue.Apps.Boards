@@ -2312,21 +2312,19 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var status = organization.GetStatus(0, 0, 0);
 
         // AddIssueToDefaultStatus seeds the Issue row directly, bypassing CoreIssuesService.Create
-        // (and so IssueMonthlyCount, which only that code path increments) - seed the counter
-        // to match, same as it would be after a real creation.
-        var now = DateTime.UtcNow;
-        testScope.Database.IssueMonthlyCounts.Add(new IssueMonthlyCount
+        // (and so IssuePeriodCount, which only that code path increments) - seed the counter
+        // to match, same as it would be after a real creation, in the period Billing reports.
+        testScope.Database.IssuePeriodCounts.Add(new IssuePeriodCount
         {
             OrganizationId = organization.Id,
-            Year = now.Year,
-            Month = now.Month,
+            PeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             Count = 1,
         });
         await testScope.Database.SaveChangesAsync();
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 1, IncludedTokensCount = 2_500_000 });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 1, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -2346,6 +2344,51 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task Create_ShouldReturn402AndCountInThePeriod_WhenPersonalOrganizationReachedItsLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Existing")));
+
+        var status = organization.GetStatus(0, 0, 0);
+
+        testScope.Database.IssuePeriodCounts.Add(new IssuePeriodCount
+        {
+            OrganizationId = organization.Id,
+            PeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            Count = 1,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // The personal plan of the user limits the personal organization exactly like a team plan limits a team.
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo
+            {
+                Code = "personal_free",
+                IsPersonal = true,
+                LimitIssuesPerMonth = 1,
+                IncludedTokensCount = 25_000,
+                LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Title = "Title",
+                    Content = "One too many",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+    }
+
+    [Fact]
     public async Task Create_ShouldCreateIssue_WhenBelowMonthlyIssueLimit()
     {
         using var testScope = host.CreateTestScope();
@@ -2356,19 +2399,17 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         var status = organization.GetStatus(0, 0, 0);
 
-        var now = DateTime.UtcNow;
-        testScope.Database.IssueMonthlyCounts.Add(new IssueMonthlyCount
+        testScope.Database.IssuePeriodCounts.Add(new IssuePeriodCount
         {
             OrganizationId = organization.Id,
-            Year = now.Year,
-            Month = now.Month,
+            PeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             Count = 1,
         });
         await testScope.Database.SaveChangesAsync();
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 2, IncludedTokensCount = 2_500_000 });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 2, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -2384,9 +2425,63 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var issueCount = await testScope.Database.Issues.CountAsyncEF();
         Assert.Equal(2, issueCount);
 
-        var monthlyCount = await testScope.Database.IssueMonthlyCounts
-            .SingleAsyncEF(x => x.OrganizationId == organization.Id && x.Year == now.Year && x.Month == now.Month);
-        Assert.Equal(2, monthlyCount.Count);
+        var periodCount = await testScope.Database.IssuePeriodCounts
+            .SingleAsyncEF(x => x.OrganizationId == organization.Id && x.PeriodStartedAt == new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+        Assert.Equal(2, periodCount.Count);
+    }
+
+    [Fact]
+    public async Task Create_ShouldCreateIssueAndStartTheCounterOfTheNewPeriod_WhenThePreviousPeriodWasFull()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Existing")));
+
+        var status = organization.GetStatus(0, 0, 0);
+        var oldPeriod = new DateTime(2026, 9, 5, 12, 0, 0, DateTimeKind.Utc);
+        var newPeriod = new DateTime(2026, 10, 5, 12, 0, 0, DateTimeKind.Utc);
+
+        // The limit of 1 was reached in the old period; Billing now reports a new one.
+        testScope.Database.IssuePeriodCounts.Add(new IssuePeriodCount
+        {
+            OrganizationId = organization.Id,
+            PeriodStartedAt = oldPeriod,
+            Count = 1,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo
+            {
+                Code = "personal_free",
+                IsPersonal = true,
+                LimitIssuesPerMonth = 1,
+                IncludedTokensCount = 2_500_000,
+                LimitPeriodStartedAt = newPeriod,
+            });
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Title = "Title",
+                    Content = "First of the new period",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                }));
+
+        var counts = await testScope.Database.IssuePeriodCounts
+            .Where(x => x.OrganizationId == organization.Id)
+            .OrderBy(x => x.PeriodStartedAt)
+            .Select(x => new { x.PeriodStartedAt, x.Count })
+            .ToListAsyncEF();
+        Assert.Equal(
+            [(oldPeriod, 1), (newPeriod, 1)],
+            counts.Select(x => (x.PeriodStartedAt, x.Count)));
     }
 
     [Fact]

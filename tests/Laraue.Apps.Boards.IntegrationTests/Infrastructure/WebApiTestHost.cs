@@ -45,6 +45,12 @@ public class WebApiTestHost
     public Mock<IBillingSubscriptionClient> BillingSubscriptionClientMock { get; } = CreateDefaultSubscriptionClientMock();
 
     /// <summary>
+    /// Same rationale as <see cref="BillingTokenClientMock"/> - overrides the real gRPC-backed
+    /// implementation. No default setup: checkout tests <c>Setup</c> the address they expect.
+    /// </summary>
+    public Mock<IBillingPaymentClient> BillingPaymentClientMock { get; } = new();
+
+    /// <summary>
     /// Overrides the real validator, which would check the token's signature against Google's
     /// public keys - tests can't mint a Google-signed token. No default setup: Google sign-in tests
     /// <c>Setup</c> it with the payload they need. <see cref="GoogleIdTokenValidator"/> itself is
@@ -55,7 +61,7 @@ public class WebApiTestHost
     private static Mock<IBillingSubscriptionClient> CreateDefaultSubscriptionClientMock()
     {
         var mock = new Mock<IBillingSubscriptionClient>();
-        var unlimited = new ActiveSubscriptionInfo { Code = "test", IsPersonal = true, IncludedTokensCount = 2_500_000 };
+        var unlimited = new ActiveSubscriptionInfo { Code = "test", IsPersonal = true, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) };
 
         mock.Setup(x => x.GetActiveSubscriptionAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(unlimited);
@@ -135,6 +141,7 @@ public class WebApiTestHost
 
             services.AddSingleton(BillingTokenClientMock.Object);
             services.AddSingleton(BillingSubscriptionClientMock.Object);
+            services.AddSingleton(BillingPaymentClientMock.Object);
             services.AddSingleton(GoogleIdTokenValidatorMock.Object);
 
             // Overrides the default (unnamed) IHttpClientFactory client's primary handler, so

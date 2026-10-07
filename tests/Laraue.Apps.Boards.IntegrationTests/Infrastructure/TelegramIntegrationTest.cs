@@ -81,7 +81,7 @@ public abstract class TelegramIntegrationTest
         // (both limits null) so existing tests aren't tripped up by IUsageLimitService's checks -
         // tests asserting on plan/limit details should re-Setup it themselves.
         var billingSubscriptionClientMock = new Mock<IBillingSubscriptionClient>();
-        var unlimitedSubscription = new ActiveSubscriptionInfo { Code = "test", IsPersonal = true, IncludedTokensCount = 2_500_000 };
+        var unlimitedSubscription = new ActiveSubscriptionInfo { Code = "test", IsPersonal = true, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) };
         billingSubscriptionClientMock
             .Setup(x => x.GetActiveSubscriptionAsync(It.IsAny<long>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(unlimitedSubscription);
