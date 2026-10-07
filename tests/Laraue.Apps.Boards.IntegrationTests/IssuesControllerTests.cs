@@ -2344,6 +2344,51 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task Create_ShouldReturn402AndCountInThePeriod_WhenPersonalOrganizationReachedItsLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            initializer => initializer.AddIssueToDefaultStatus(userId, builder => builder.WithContent("Existing")));
+
+        var status = organization.GetStatus(0, 0, 0);
+
+        testScope.Database.IssuePeriodCounts.Add(new IssuePeriodCount
+        {
+            OrganizationId = organization.Id,
+            PeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            Count = 1,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        // The personal plan of the user limits the personal organization exactly like a team plan limits a team.
+        host.BillingSubscriptionClientMock
+            .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSubscriptionInfo
+            {
+                Code = "personal_free",
+                IsPersonal = true,
+                LimitIssuesPerMonth = 1,
+                IncludedTokensCount = 25_000,
+                LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Title = "Title",
+                    Content = "One too many",
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(System.Net.HttpStatusCode.PaymentRequired, ex.StatusCode);
+    }
+
+    [Fact]
     public async Task Create_ShouldCreateIssue_WhenBelowMonthlyIssueLimit()
     {
         using var testScope = host.CreateTestScope();
