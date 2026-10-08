@@ -50,7 +50,12 @@ public sealed class BoardsStateMetrics : BackgroundService
         meter.CreateObservableGauge(
             "boards.issues",
             () => Measurements(_snapshot.Issues, "state"),
-            description: "Issues now, by state: active (not completed) or completed. Deleted issues are not counted; the total is the sum.");
+            description: "Issues now, by state: active (not completed) or completed. Deleted issues are not counted, see boards_issues_soft_deleted; the total is the sum.");
+
+        meter.CreateObservableGauge(
+            "boards.issues.soft_deleted",
+            () => _snapshot.DeletedIssues,
+            description: "Soft-deleted issues now, including those deleted with their space, epic or organization. boards_issues plus this is every issue ever created.");
 
         meter.CreateObservableGauge(
             "boards.epics",
@@ -106,6 +111,10 @@ public sealed class BoardsStateMetrics : BackgroundService
             .Select(x => new { IsCompleted = x.Key, Count = x.LongCount() })
             .ToListAsync(cancellationToken);
 
+        var deletedIssues = await context.Issues
+            .Where(x => x.DeletedAt != null)
+            .LongCountAsync(cancellationToken);
+
         var epics = await context.ActiveEpics()
             .GroupBy(x => x.Status)
             .Select(x => new { Status = x.Key, Count = x.LongCount() })
@@ -134,6 +143,7 @@ public sealed class BoardsStateMetrics : BackgroundService
         }
 
         _snapshot = new Snapshot(
+            deletedIssues,
             new Dictionary<string, long>
             {
                 ["active"] = issues.SingleOrDefault(x => !x.IsCompleted)?.Count ?? 0,
@@ -154,6 +164,7 @@ public sealed class BoardsStateMetrics : BackgroundService
     }
 
     private sealed record Snapshot(
+        long DeletedIssues,
         IReadOnlyDictionary<string, long> Issues,
         IReadOnlyDictionary<string, long> Epics,
         IReadOnlyDictionary<string, long> Organizations,
@@ -161,6 +172,7 @@ public sealed class BoardsStateMetrics : BackgroundService
         IReadOnlyDictionary<string, long> ActiveUsers)
     {
         public static readonly Snapshot Empty = new(
+            0,
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),

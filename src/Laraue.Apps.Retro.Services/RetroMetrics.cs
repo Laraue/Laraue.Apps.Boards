@@ -18,6 +18,9 @@ public sealed class RetroMetrics
         _retrosStarted = meterFactory.Create(MeterName).CreateCounter<long>(
             "boards.retros.started",
             description: "Retros started.");
+
+        // Exists from the first scrape, so the first retro is visible to increase(), see BoardsMetrics.
+        _retrosStarted.Add(0);
     }
 
     public void RecordRetroStarted() => _retrosStarted.Add(1);
