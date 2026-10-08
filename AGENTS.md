@@ -346,6 +346,10 @@ has its own `McpToolMetrics`). Same conventions as Billing's and Identity's "Met
   `boards_active_users{window}` (1d, 7d, 30d: distinct users with an `OrganizationLog` row - they created, changed or
   deleted an issue or comment; reading and moving through the board without edits does not count). Soft-deleted rows
   are not counted, see "Soft delete". Query gauges with `max()`.
+- **Telegram updates**: `TelegramHost` also exports the `Laraue.Telegram.NET` meter (`LaraueTelegramTelemetry.SourceName`):
+  `telegram_requests_started_total{telegram_update_type}`, `telegram_requests_failed_total{telegram_status}` and the
+  `telegram_request_duration_milliseconds` histogram. They appear after the first update is handled, and are the same
+  for every bot host (LearnLanguage exports them too), so one "Telegram bot hosts" dashboard covers all services.
 - **Labels are low-cardinality**: source, type, state, status, window. Never a user, organization or issue id.
 - **Tests** scrape `/_metrics` (`BoardsMetricsTests`) and assert a series exists, not its count; the test hosts turn the
   exporter's scrape cache off.

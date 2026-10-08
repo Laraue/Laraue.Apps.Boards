@@ -2,6 +2,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
 using Laraue.Telegram.NET.Core.Extensions;
+using Laraue.Telegram.NET.Core.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Laraue.Apps.Boards.Services.Metrics;
 using OpenTelemetry.Metrics;
@@ -26,7 +27,7 @@ public sealed class Program
         builder.Services
             .AddOpenTelemetry()
             .WithMetrics(metrics => metrics
-                .AddMeter(BoardsMetrics.MeterName)
+                .AddMeter(BoardsMetrics.MeterName, LaraueTelegramTelemetry.SourceName)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
