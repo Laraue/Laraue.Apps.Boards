@@ -476,6 +476,8 @@ public class CoreIssuesService(
                 .SetProperty(p => p.DeletedAt, deletedAt)
                 .SetProperty(p => p.DeletedByUserId, actor.UserId),
                 cancellationToken);
+
+        metrics.RecordIssueDeleted();
     }
 
     public async Task<long> AddComment(

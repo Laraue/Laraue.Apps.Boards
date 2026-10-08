@@ -38,6 +38,38 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
     }
 
     [Fact]
+    public async Task Metrics_ShouldExposeEverySeriesFromStart_WhenNoEventHappenedYet()
+    {
+        // No test creates a Telegram issue or deletes one in a way that matters here - the series exist only
+        // because the counters record a zero for every known label value on start.
+        var metrics = await ScrapeAsync(host.CreateClient());
+
+        Assert.Contains(SeriesLines(metrics, "boards_issues_created_total"), line => line.Contains("source=\"telegram\""));
+        Assert.Contains(SeriesLines(metrics, "boards_organizations_created_total"), line => line.Contains("type=\"personal\""));
+        Assert.NotEmpty(SeriesLines(metrics, "boards_issues_completed_total"));
+        Assert.NotEmpty(SeriesLines(metrics, "boards_issues_deleted_total"));
+    }
+
+    [Fact]
+    public async Task Metrics_ShouldExposeDeletedIssues_WhenIssueIsDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var issueId = await CreateIssueAsync(testScope, organization, new Actor(userId));
+        await CreateIssueAsync(testScope, organization, new Actor(userId));
+
+        await testScope.Services.GetRequiredService<ICoreIssuesService>()
+            .Delete(issueId, new Actor(userId), CancellationToken.None);
+
+        await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
+        var metrics = await ScrapeAsync(host.CreateClient());
+
+        Assert.Contains(SeriesLines(metrics, "boards_issues_deleted_total"), line => !line.EndsWith(" 0"));
+        Assert.Equal("1", GaugeValue(metrics, "boards_issues_soft_deleted"));
+    }
+
+    [Fact]
     public async Task Metrics_ShouldExposeCompletedIssues_WhenIssueIsMovedToCompletedStatus()
     {
         using var testScope = host.CreateTestScope();
@@ -150,9 +182,9 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
     private static IEnumerable<string> SeriesLines(string metrics, string series)
         => metrics.Split('\n').Where(line => line.StartsWith(series + "{"));
 
-    private static string GaugeValue(string metrics, string series, string label)
+    private static string GaugeValue(string metrics, string series, string? label = null)
     {
-        var line = SeriesLines(metrics, series).Single(x => x.Contains(label));
+        var line = SeriesLines(metrics, series).Single(x => label is null || x.Contains(label));
 
         return line[(line.LastIndexOf(' ') + 1)..];
     }

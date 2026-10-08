@@ -339,10 +339,14 @@ has its own `McpToolMetrics`). Same conventions as Billing's and Identity's "Met
   `AddMeter`): `boards_issues_created_total{source}` (`telegram` when the request carries a Telegram message, `mcp` when
   the actor has an API key, else `web`), `boards_issues_completed_total` (issues moved into a `Completed` status),
   `boards_organizations_created_total{type}` (`organization`, or `personal` made at sign-up),
-  `boards_retros_started_total`.
+  `boards_retros_started_total`, `boards_issues_deleted_total` (issues deleted one by one; issues deleted with their
+  space, epic or organization are only in the gauge below). Every counter records a zero for each known label value at
+  start (`BoardsMetrics`, `RetroMetrics`), so its series exists from the first scrape and `increase()` sees the first
+  event; a new counter or label value needs the same.
 - **Gauges are state**, read from the database so they survive a restart (`BoardsStateMetrics` in `WebApiServices`,
   refreshed every 60 s, registered by `WebApiHost` only): `boards_issues{state}` (active = not completed, completed; the
-  total is their sum), `boards_epics{status}`, `boards_organizations{type}`, `boards_retros{state}` (running, finished),
+  total is their sum), `boards_issues_soft_deleted` (soft-deleted issues now, any cause; with `boards_issues` it is every
+  issue ever created), `boards_epics{status}`, `boards_organizations{type}`, `boards_retros{state}` (running, finished),
   `boards_active_users{window}` (1d, 7d, 30d: distinct users with an `OrganizationLog` row - they created, changed or
   deleted an issue or comment; reading and moving through the board without edits does not count). Soft-deleted rows
   are not counted, see "Soft delete". Query gauges with `max()`.
