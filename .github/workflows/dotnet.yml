@@ -105,7 +105,7 @@ jobs:
             remote_dir: /home/laraue/boards-web-api-host
             image: boards-web-api-host
             environment: webapi-production
-          - name: Boards Retro Web API Host
+          - name: Retro Web API Host
             artifact: retro-webapi-host
             archive: retro-webapi-host.tar.gz
             remote_dir: /home/laraue/retro-web-api-host
