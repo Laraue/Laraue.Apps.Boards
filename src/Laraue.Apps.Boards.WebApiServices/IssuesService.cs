@@ -285,6 +285,7 @@ public class IssuesService(
                 x.Color,
                 x.Name,
                 x.SortOrder,
+                x.Category,
                 MessageCategoryId = x.EpicId,
             })
             .ToArrayAsyncEF(cancellationToken))
@@ -318,6 +319,7 @@ public class IssuesService(
                         Id = s.Id,
                         Color = s.Color,
                         Name = s.Name,
+                        Category = s.Category,
                         Count = counts.GetValueOrDefault(s.Id, 0),
                     })
                     .ToArray()
@@ -1989,6 +1991,7 @@ public class ColumnSummary
     public required long Id { get; set; }
     public required string Name { get; set; }
     public required string? Color { get; set; }
+    public required StatusCategory Category { get; set; }
     public required int Count { get; set; }
 }
 
