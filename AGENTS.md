@@ -549,7 +549,7 @@ so the deploy signed nobody out.
 
 ## External services (Identity, Billing) and local mocking
 
-Boards calls two sibling services over gRPC:
+Boards calls three sibling services over gRPC:
 
 - `Laraue.Apps.Identity` — resolves/creates the global Laraue identity for a Telegram account on
   first login (`CoreUserService`, via `UserIdentityService.UserIdentityServiceClient` injected
@@ -624,6 +624,13 @@ Boards calls two sibling services over gRPC:
   directly, since callers need Boards' own personal-vs-team `Organization` resolution layered on
   top (see the XML doc on `IBillingTokenClient` for why that resolution lives here and not as a
   caller-supplied flag).
+- `Laraue.Apps.Feedback` (BRD-224) - stores the feedback users send from the web app and notifies the team
+  in Telegram. WebApiHost only: `AddFeedbackClient()` (`Boards.Services`, like `AddAiContentSummarizer()`)
+  registers `FeedbackService.FeedbackServiceClient` and `FeedbackOptions`, with `FakeFeedbackServiceClient`
+  under `MockExternalServices`. `POST /api/feedback` (`UserFeedbackService`) accepts both the user and the
+  organization token; it sends the user's global id and puts the current organization's id (if any) in the
+  `organization` context key, replacing whatever the frontend sent there. Message/context limits are
+  checked by Feedback (INVALID_ARGUMENT -> 400 via Laraue.Grpc.Client); any other gRPC failure is a 503.
 
 **Local run without either service actually running**: `AddCoreServices()` always registers the
 real gRPC-backed clients — that's harmless even when unused, since `AddGrpcClient`/
