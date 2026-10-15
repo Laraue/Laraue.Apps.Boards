@@ -21,7 +21,8 @@ public static class WebApplicationBuilderExtensions
         {
             builder
                 .AddCoreServices()
-                .AddAiContentSummarizer();
+                .AddAiContentSummarizer()
+                .AddFeedbackClient();
             builder.Services.AddHttpClient();
 
             builder.Services
@@ -48,7 +49,8 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IAdminOrganizationsService, AdminOrganizationsService>()
                 .AddScoped<IBillingService, BillingService>()
                 .AddScoped<IMovementService, MovementService>()
-                .AddScoped<IApiKeysService, ApiKeysService>();
+                .AddScoped<IApiKeysService, ApiKeysService>()
+                .AddScoped<IUserFeedbackService, UserFeedbackService>();
 
             builder.Services
                 .AddSingleton<IDateTimeProvider, DateTimeProvider>()

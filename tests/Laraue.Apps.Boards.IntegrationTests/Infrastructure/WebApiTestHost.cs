@@ -6,6 +6,7 @@ using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Apps.Feedback.Internal.Contracts;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -58,6 +59,27 @@ public class WebApiTestHost
     /// covered separately, constructed directly.
     /// </summary>
     public Mock<IGoogleIdTokenValidator> GoogleIdTokenValidatorMock { get; } = new();
+
+    /// <summary>
+    /// Overrides the real gRPC-backed client, which would otherwise try to reach a live
+    /// Laraue.Apps.Feedback instance. Defaults to accepting every submission with id 1 - tests that
+    /// check what was sent or how a failure is reported re-<c>Setup</c> it themselves.
+    /// </summary>
+    public Mock<FeedbackService.FeedbackServiceClient> FeedbackClientMock { get; } = CreateDefaultFeedbackClientMock();
+
+    private static Mock<FeedbackService.FeedbackServiceClient> CreateDefaultFeedbackClientMock()
+    {
+        var mock = new Mock<FeedbackService.FeedbackServiceClient>();
+        mock
+            .Setup(x => x.SubmitFeedbackAsync(
+                It.IsAny<SubmitFeedbackRequest>(),
+                It.IsAny<Metadata>(),
+                It.IsAny<DateTime?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(GrpcTestHelpers.AsyncUnaryCallOf(new SubmitFeedbackResponse { FeedbackId = 1 }));
+
+        return mock;
+    }
 
     private static Mock<IBillingSubscriptionClient> CreateDefaultSubscriptionClientMock()
     {
@@ -143,6 +165,7 @@ public class WebApiTestHost
             services.AddSingleton(BillingTokenClientMock.Object);
             services.AddSingleton(BillingSubscriptionClientMock.Object);
             services.AddSingleton(BillingPaymentClientMock.Object);
+            services.AddSingleton(FeedbackClientMock.Object);
             services.AddSingleton(GoogleIdTokenValidatorMock.Object);
 
             // Overrides the default (unnamed) IHttpClientFactory client's primary handler, so

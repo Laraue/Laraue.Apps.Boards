@@ -10,6 +10,7 @@
     <PackageReference Include="Laraue.Apps.Identity.Internal.Contracts" Version="$(LaraueIdentityInternalContractsVersion)" />
     <PackageReference Include="Grpc.Net.ClientFactory" Version="$(GrpcNetClientFactoryVersion)" />
     <PackageReference Include="Laraue.Apps.Billing.Internal.Contracts" Version="$(LaraueBillingInternalContractsVersion)" />
+    <PackageReference Include="Laraue.Apps.Feedback.Internal.Contracts" Version="$(LaraueFeedbackInternalContractsVersion)" />
     <PackageReference Include="Laraue.Grpc.Client" Version="$(LaraueGrpcVersion)" />
     <PackageReference Include="Laraue.Interpreter.Markdown" Version="$(LaraueInterpreterMarkdownVersion)" />
   </ItemGroup>

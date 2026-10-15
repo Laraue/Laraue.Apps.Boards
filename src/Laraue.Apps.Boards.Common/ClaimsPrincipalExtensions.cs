@@ -13,6 +13,17 @@ public static class ClaimsPrincipalExtensions
         return Guid.Parse(idClaim.Value);
     }
 
+    /// <summary>
+    /// The organization of the request's organization token, or null when it carries none - for an
+    /// endpoint that works with or without a current organization.
+    /// </summary>
+    public static long? FindOrganizationId(this ClaimsPrincipal principal)
+    {
+        var idClaim = principal.Claims.FirstOrDefault(x => x.Type == "orgId");
+
+        return idClaim is null ? null : long.Parse(idClaim.Value);
+    }
+
     public static OrganizationAuthData GetOrganizationAuthData(this ClaimsPrincipal principal)
     {
         var idClaim = principal.Claims.FirstOrDefault(x => x.Type == "orgId")
