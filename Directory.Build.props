@@ -22,7 +22,7 @@
     <LaraueGrpcVersion>0.0.3</LaraueGrpcVersion>
     <LaraueInterpreterMarkdownVersion>0.2.1</LaraueInterpreterMarkdownVersion>
     <LaraueBillingInternalContractsVersion>0.0.8</LaraueBillingInternalContractsVersion>
-    <LaraueFeedbackInternalContractsVersion>0.0.1</LaraueFeedbackInternalContractsVersion>
+    <LaraueFeedbackInternalContractsVersion>0.0.2</LaraueFeedbackInternalContractsVersion>
     <LaraueCoreDataAccessVersion>10.8.0</LaraueCoreDataAccessVersion>
     <LaraueCoreExceptionsVersion>10.5.0</LaraueCoreExceptionsVersion>
     <LaraueCoreDateTimeVersion>10.0.0</LaraueCoreDateTimeVersion>

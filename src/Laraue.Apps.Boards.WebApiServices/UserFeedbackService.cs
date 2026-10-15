@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using Grpc.Core;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.WebApiServices.Resources;
@@ -50,6 +50,11 @@ public class UserFeedbackService(
             Type = ToContractType(request.Type!.Value),
             Message = request.Message,
         };
+
+        if (!string.IsNullOrWhiteSpace(request.Contact))
+        {
+            grpcRequest.Contact = request.Contact.Trim();
+        }
 
         if (request.Context is not null)
         {
@@ -108,6 +113,13 @@ public record SendFeedbackRequest
     /// </summary>
     [Required]
     public required string Message { get; init; }
+
+    /// <summary>
+    /// How the user would like to be reached (an email, a Telegram username), when not through the
+    /// account they signed in with - at most 256 characters once trimmed (checked by
+    /// Laraue.Apps.Feedback). Null or blank means answering through the account is fine.
+    /// </summary>
+    public string? Contact { get; init; }
 
     /// <summary>
     /// Details from the frontend: page URL (<c>page</c>, shown in the team's Telegram notification),
