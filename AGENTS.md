@@ -629,7 +629,8 @@ Boards calls three sibling services over gRPC:
   registers `FeedbackService.FeedbackServiceClient` and `FeedbackOptions`, with `FakeFeedbackServiceClient`
   under `MockExternalServices`. `POST /api/feedback` (`UserFeedbackService`) accepts both the user and the
   organization token; it sends the user's global id and puts the current organization's id (if any) in the
-  `organization` context key, replacing whatever the frontend sent there. Message/context limits are
+  `organization` context key, replacing whatever the frontend sent there. The user's optional preferred contact
+  goes in the request's own `contact` field (Feedback's typed `contact`, trimmed, blank = unset), not in the context. Message/context limits are
   checked by Feedback (INVALID_ARGUMENT -> 400 via Laraue.Grpc.Client); any other gRPC failure is a 503.
 
 **Local run without either service actually running**: `AddCoreServices()` always registers the

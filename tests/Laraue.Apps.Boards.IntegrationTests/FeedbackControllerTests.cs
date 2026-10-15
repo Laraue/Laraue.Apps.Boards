@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Grpc.Core;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
@@ -87,6 +87,40 @@ public class FeedbackControllerTests(WebApiTestHost host) : IClassFixture<WebApi
 
         var request = Assert.Single(submitted);
         Assert.False(request.Context.ContainsKey(UserFeedbackService.OrganizationContextKey));
+    }
+
+    [Fact]
+    public async Task Send_ShouldSubmitTrimmedContact_WhenUserGaveOne()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var submitted = SetupSubmit(1);
+
+        await _feedbackController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Send(
+                new SendFeedbackRequest { Type = FeedbackType.Question, Message = "Call me", Contact = " ada@example.com " },
+                default));
+
+        var request = Assert.Single(submitted);
+        Assert.Equal("ada@example.com", request.Contact);
+    }
+
+    [Fact]
+    public async Task Send_ShouldLeaveContactUnset_WhenContactIsBlank()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var submitted = SetupSubmit(1);
+
+        await _feedbackController
+            .WithUserAuthorization(userId)
+            .Execute(x => x.Send(
+                new SendFeedbackRequest { Type = FeedbackType.Idea, Message = "No contact", Contact = "  " },
+                default));
+
+        var request = Assert.Single(submitted);
+        Assert.False(request.HasContact);
     }
 
     [Fact]
