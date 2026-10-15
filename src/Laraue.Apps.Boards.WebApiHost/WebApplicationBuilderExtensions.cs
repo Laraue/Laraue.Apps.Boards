@@ -21,7 +21,8 @@ public static class WebApplicationBuilderExtensions
         {
             builder
                 .AddCoreServices()
-                .AddAiContentSummarizer();
+                .AddAiContentSummarizer()
+                .AddFeedbackClient();
             builder.Services.AddHttpClient();
 
             builder.Services

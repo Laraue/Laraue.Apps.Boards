@@ -4,11 +4,15 @@ using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Apps.Boards.Services.Billing;
+using Laraue.Apps.Boards.Services.Feedback;
 using Laraue.Apps.Boards.Services.Identity;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.Metrics;
 using BillingServiceId = Laraue.Apps.Billing.Internal.Contracts.ServiceId;
 using BillingServiceIdInterceptor = Laraue.Apps.Billing.Internal.Contracts.ServiceIdInterceptor;
+using FeedbackService = Laraue.Apps.Feedback.Internal.Contracts.FeedbackService;
+using FeedbackServiceId = Laraue.Apps.Feedback.Internal.Contracts.ServiceId;
+using FeedbackServiceIdInterceptor = Laraue.Apps.Feedback.Internal.Contracts.ServiceIdInterceptor;
 using IdentityServiceId = Laraue.Apps.Identity.Internal.Contracts.ServiceId;
 using IdentityServiceIdInterceptor = Laraue.Apps.Identity.Internal.Contracts.ServiceIdInterceptor;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
@@ -215,6 +219,36 @@ public static class WebApplicationBuilderExtensions
                         "Bearer",
                         aiOptions.ApiKey);
                 });
+
+            return builder;
+        }
+
+        /// <summary>
+        /// Registers <see cref="FeedbackService.FeedbackServiceClient"/> (Laraue.Apps.Feedback, where users'
+        /// feedback is sent) and its validated <see cref="FeedbackOptions"/>. Separate from
+        /// <see cref="AddCoreServices"/> because only WebApiHost takes feedback - other hosts aren't
+        /// required to configure it. With "MockExternalServices" it's replaced by
+        /// <see cref="FakeFeedbackServiceClient"/>, like the Identity/Billing clients.
+        /// </summary>
+        public WebApplicationBuilder AddFeedbackClient()
+        {
+            builder.AddValidatedOptions<FeedbackOptions>(nameof(FeedbackOptions));
+
+            // Read off configuration directly for the same reason as BillingOptions in AddCoreServices.
+            var feedbackOptions = builder.Configuration.GetSection(nameof(FeedbackOptions)).Get<FeedbackOptions>()
+                ?? throw new InvalidOperationException($"Missing '{nameof(FeedbackOptions)}' configuration section.");
+
+            builder.Services
+                .AddLaraueGrpcClient<FeedbackService.FeedbackServiceClient>(o =>
+                {
+                    o.Address = new Uri(feedbackOptions.GrpcUrl);
+                })
+                .AddInterceptor(() => new FeedbackServiceIdInterceptor(FeedbackServiceId.LaraueBoards));
+
+            if (builder.Configuration.GetValue<bool>("MockExternalServices"))
+            {
+                builder.Services.AddSingleton<FeedbackService.FeedbackServiceClient, FakeFeedbackServiceClient>();
+            }
 
             return builder;
         }
