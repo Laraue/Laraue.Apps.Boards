@@ -857,6 +857,40 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task User_ShouldSearchIssuesInReview_WhenReviewStatusCategoryProvided()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Not started issue"))
+                .AddSpace(userId, space => space
+                    .AddEpic(userId, e => e
+                        .AddStatus(s => s.WithName("In Progress").WithCategory(StatusCategory.InProgress))
+                        .AddStatus(s => s.WithName("Review").WithCategory(StatusCategory.Review))
+                        .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed))
+                        .AddIssue(userId, 1, issue => issue.WithContent("In progress issue"))
+                        .AddIssue(userId, 2, issue => issue.WithContent("Review issue"))
+                        .AddIssue(userId, 3, issue => issue.WithContent("Done issue")))));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    StatusCategories = new[] { StatusCategory.Review },
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        var issue = Assert.Single(issuesResult.Data);
+        Assert.Equal("Review issue", issue.Content);
+        Assert.Equal(StatusCategory.Review, issue.Status!.Category);
+    }
+
+    [Fact]
     public async Task User_ShouldGetBoard_WhenIsOrganizationOwner()
     {
         using var testScope = host.CreateTestScope();

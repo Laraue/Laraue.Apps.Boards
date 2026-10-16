@@ -19,7 +19,7 @@ public class Status
     public int SortOrder { get; set; }
 
     /// <summary>
-    /// What the status means - not started, in progress or finished.
+    /// What the status means - not started, in progress, in review or finished.
     /// </summary>
     public StatusCategory Category { get; set; }
 
