@@ -270,6 +270,38 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task ListIssues_ShouldReturnOnlyReviewIssues_WhenReviewStatusCategoryIdGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("In Progress").WithCategory(StatusCategory.InProgress))
+                    .AddStatus(s => s.WithName("Review").WithCategory(StatusCategory.Review))
+                    .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed))
+                    .AddIssue(ownerId, 1, issue => issue.WithContent("Being worked on"))
+                    .AddIssue(ownerId, 2, issue => issue.WithContent("Waiting for review"))
+                    .AddIssue(ownerId, 3, issue => issue.WithContent("Done")))));
+
+        var result = await CreateIssueMcpService(testScope).ListIssues(
+            AuthDataFor(organization.Id, ownerId),
+            null,
+            null,
+            null,
+            (int)StatusCategory.Review,
+            null,
+            null,
+            null,
+            CancellationToken.None);
+
+        var issue = Assert.Single(result.Issues);
+        Assert.Equal(organization.GetIssueData(1, 1, 2, 0).Key, issue.Key);
+        Assert.Equal(3, issue.StatusCategoryId);
+        Assert.Equal("Review", issue.StatusCategory);
+    }
+
+    [Fact]
     public async Task ListIssues_ShouldThrowBadRequest_WhenStatusCategoryIdIsUnknown()
     {
         using var testScope = host.CreateTestScope();
@@ -281,7 +313,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             null,
             null,
             null,
-            3,
+            4,
             null,
             null,
             null,

@@ -354,7 +354,7 @@ public sealed record EpicSummary(long Id, string Name, string SpaceKey, bool IsD
 public sealed record EpicListPage(IReadOnlyList<EpicSummary> Epics, long Page, bool HasNextPage);
 
 /// <summary>A status, as returned by <see cref="IIssueMcpService.ListStatuses"/>. <see cref="Category"/>
-/// is what the status means regardless of its name - Created, InProgress or Completed;
+/// is what the status means regardless of its name - Created, InProgress, Review or Completed;
 /// <see cref="CategoryId"/> is its id, what <see cref="IIssueMcpService.ListIssues"/>'
 /// <c>statusCategoryId</c> filter takes.</summary>
 public sealed record StatusSummary(long Id, string Name, int CategoryId, string Category);

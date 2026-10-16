@@ -16,6 +16,9 @@ public static class McpServerInstructions
           Its comments come from list_issue_comments, its change history from get_issue_history.
         - Find issues with list_issues (by space, epic, status or assignee). get_me returns your own user id,
           e.g. to list issues assigned to you.
+        - Statuses are per epic and named freely; each has a category saying what it means: Created,
+          InProgress, Review (done, waiting to be checked) or Completed. list_issues' statusCategoryId
+          filter works across epics whatever their statuses are named.
         - Tools take ids, not names: space keys from list_spaces, epic ids from list_epics, status ids
           from list_statuses, attribute ids and allowed values from list_attributes, user ids from
           list_members.
