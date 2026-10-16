@@ -29,6 +29,11 @@ public static class McpServerInstructions
         - edit_issue replaces the whole content - read the issue first to keep what should stay.
         - Attachments: create_issue/edit_issue add files, edit_issue removes them, get_attachment
           downloads one by its id from get_issue or list_issue_comments.
+        - Agent runs hand issues to a coding agent: create_agent_run hands one off (state Ready). A runner
+          polls list_agent_runs(state 'Ready'), takes a run with claim_agent_run (false = someone else has
+          it, skip), moves the issue to an InProgress status, works, and ends with finish_agent_run (Done or
+          Failed). cancel_agent_run stops an open run; a runner whose finish_agent_run returns false was
+          cancelled and should stop. get_issue's latestAgentRun shows the current one.
         - When you mention an issue to the user, link it with its url from list_issues/get_issue.
         - A failed call says why ('NotFound: ...', 'Forbidden: ...', or 'BadRequest: ...' with a line
           per invalid field) - fix the request instead of retrying it unchanged.

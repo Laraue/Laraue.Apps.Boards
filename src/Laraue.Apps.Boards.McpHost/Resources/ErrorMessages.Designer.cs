@@ -143,6 +143,12 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         /// <summary>
         ///   Looks up a localized string similar to Attachment: {0} exceeds the 3MB download limit.
         /// </summary>
+        internal static string AgentRunFinishStateInvalid {
+            get {
+                return ResourceManager.GetString("AgentRunFinishStateInvalid", resourceCulture);
+            }
+        }
+
         internal static string AttachmentTooLargeToDownload {
             get {
                 return ResourceManager.GetString("AttachmentTooLargeToDownload", resourceCulture);

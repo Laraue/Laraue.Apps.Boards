@@ -79,4 +79,5 @@ public class Issue
     public List<IssueAttributeDateTimeValue>? DateTimeAttributes { get; set; }
     public List<IssueAttachment>? IssueAttachments { get; set; }
     public List<IssueComment>? IssueComments { get; set; }
+    public List<IssueAgentRun>? AgentRuns { get; set; }
 }

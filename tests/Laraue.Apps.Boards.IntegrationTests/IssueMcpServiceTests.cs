@@ -38,7 +38,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
     private const string WebAppUrl = "https://boards.example.com";
 
-    private static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
+    internal static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
     {
         return new IssueMcpService(
             testScope.Database,
@@ -50,7 +50,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<IDateTimeProvider>(),
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
             new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
-            new MemberProfileReader(testScope.Database));
+            new MemberProfileReader(testScope.Database),
+            AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services));
     }
 
     private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
