@@ -26,7 +26,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("Only issues with this exact status id, from list_statuses. Omit to include every status.")] long? statusId = null,
         [Description("Only issues whose status has this category id, from list_statuses' categoryId: 0 = Created (not started), 1 = InProgress, 2 = Completed (finished), 3 = Review (done, waiting to be checked). Works across epics whatever their statuses are named. Omit to include every category.")] int? statusCategoryId = null,
         [Description("Only issues assigned to this user id, from list_members. Omit to include every assignee.")] Guid? assigneeId = null,
-        [Description("Pass false to leave out blocked issues, e.g. to find work ready to start. An issue is blocked while an issue blocking it (see get_issue's links) isn't Completed. Omit to include them.")] bool includeBlocked = true,
+        [Description("Pass false to leave out blocked issues, e.g. to find work ready to start. An issue is blocked while an issue that blocks it (see get_issue's links) is in Created, InProgress or Review - only Completed releases it. Blockers you can't read don't count. Omit to include blocked issues.")] bool includeBlocked = true,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
         [Description("Max issues per page, 1-50. Omit for the default of 50.")] int? count = null,
         CancellationToken cancellationToken = default)
@@ -35,7 +35,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), links - the issues it's linked to, each with its relation from this issue's side (Blocks, BlockedBy, RelatesTo, Duplicates, DuplicatedBy), key, title and status category - and url - the issue's page in the web app, to give the user as a link.")]
+    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), links - the issues it's linked to (only ones you can read), each with its relation read from this issue's side (Blocks, BlockedBy, RelatesTo, Duplicates, DuplicatedBy; e.g. relation BlockedBy with key BRD-3 means this issue waits for BRD-3), key, title and status category - and url - the issue's page in the web app, to give the user as a link.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -44,10 +44,10 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Links two issues of the organization: issueKey [relation] otherIssueKey, e.g. 'BRD-7 BlockedBy BRD-3' means BRD-7 waits for BRD-3. Two issues can have only one link - delete_issue_link first to change its type. Blocks links can't form a cycle. Requires canEdit on issueKey (see get_issue/list_issues) and read access to otherIssueKey.")]
+    [Description("Links two issues of the organization: issueKey [relation] otherIssueKey, e.g. 'BRD-7 BlockedBy BRD-3' means BRD-7 waits for BRD-3. Requires canEdit on issueKey (see get_issue/list_issues) and read access to otherIssueKey - if you can edit only the other issue, swap the keys and use the opposite relation (Blocks <-> BlockedBy, Duplicates <-> DuplicatedBy; RelatesTo is the same both ways): the link is the same. Two issues can have only one link - delete_issue_link first to change its type. Blocks links can't form a cycle.")]
     public Task CreateIssueLink(
         [Description("The issue to link from, e.g. 'BRD-7'.")] string issueKey,
-        [Description("What the link means from issueKey's side: Blocks (issueKey must be done first), BlockedBy (otherIssueKey must be done first), RelatesTo, Duplicates (issueKey is a duplicate of otherIssueKey, the original) or DuplicatedBy.")] string relation,
+        [Description("What the link means from issueKey's side, one of (case-insensitive): Blocks (issueKey must be done before otherIssueKey), BlockedBy (otherIssueKey must be done before issueKey), RelatesTo (related, no order), Duplicates (issueKey is a duplicate of otherIssueKey, the original), DuplicatedBy (otherIssueKey is a duplicate of issueKey, the original).")] string relation,
         [Description("The issue on the other end, e.g. 'BRD-3'.")] string otherIssueKey,
         CancellationToken cancellationToken = default)
     {
@@ -55,7 +55,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Removes the link between two issues, whatever its type (see get_issue's links). Requires canEdit on issueKey (see get_issue/list_issues) and read access to otherIssueKey.")]
+    [Description("Removes the link between two issues, whatever its type or direction (see get_issue's links). Either issue can be issueKey - the same link is removed; you need canEdit on the one you pass as issueKey (see get_issue/list_issues) and read access to the other.")]
     public Task DeleteIssueLink(
         [Description("The issue to unlink from, e.g. 'BRD-7'.")] string issueKey,
         [Description("The issue on the other end of the link, e.g. 'BRD-3'.")] string otherIssueKey,

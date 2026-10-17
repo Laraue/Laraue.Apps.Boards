@@ -71,9 +71,11 @@ public class CoreIssueLinksServiceTests(WebApiTestHost host) : IClassFixture<Web
         var (userId, issues) = await Init(testScope, issueCount: 2);
         await AddLink(testScope, issues[0], IssueLinkRelation.Blocks, issues[1], userId);
 
-        await Assert.ThrowsAsync<BadRequestException>(
+        var exception = await Assert.ThrowsAsync<BadRequestException>(
             () => AddLink(testScope, issues[1], IssueLinkRelation.RelatesTo, issues[0], userId));
 
+        // The existing link, from the side of the issue the new one was added from.
+        Assert.Contains($"({issues[1].Key} BlockedBy {issues[0].Key})", exception.Errors["otherIssueId"]![0]);
         Assert.Equal(1, await testScope.Database.IssueLinks.CountAsync(x => x.SourceIssueId == issues[0].Id));
     }
 

@@ -76,10 +76,15 @@ public class CoreIssueLinksService(
 
         var existingLink = await FindLink(issueId, otherIssueId, cancellationToken);
         if (existingLink is not null)
+        {
+            // The relation's name, as callers pass it ("BlockedBy"), not wording: clients translate it themselves.
+            var existingRelation = existingLink.Type.ToRelation(existingLink.SourceIssueId == issueId);
             throw new BadRequestException(
                 nameof(otherIssueId),
-                $"{issues.Issue.Name} and {issues.OtherIssue.Name} are linked already. " +
-                "Two issues can have only one link: remove it first to link them in another way.");
+                $"{issues.Issue.Name} and {issues.OtherIssue.Name} are linked already ({issues.Issue.Name} " +
+                $"{existingRelation} {issues.OtherIssue.Name}). Two issues can have only one link: remove it " +
+                "first to link them in another way.");
+        }
 
         var stored = relation.ToStored(issueId, otherIssueId);
 
