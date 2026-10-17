@@ -2537,12 +2537,15 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var counts = await testScope.Database.IssuePeriodCounts
             .Where(x => x.OrganizationId == organization.Id)
             .OrderBy(x => x.PeriodStartedAt)
-            .Select(x => new { x.PeriodStartedAt, x.Count })
+            .Select(x => new PeriodCount(x.PeriodStartedAt, x.Count))
             .ToListAsyncEF();
         Assert.Equal(
-            [(oldPeriod, 1), (newPeriod, 1)],
-            counts.Select(x => (x.PeriodStartedAt, x.Count)));
+            [new PeriodCount(oldPeriod, 1), new PeriodCount(newPeriod, 1)],
+            counts);
     }
+
+    /// <summary>How many issues an organization created in the period starting at <see cref="PeriodStartedAt"/>.</summary>
+    private sealed record PeriodCount(DateTime PeriodStartedAt, int Count);
 
     [Fact]
     public async Task GetIssue_ShouldShowOrganizationProfile_OnlyInThatOrganization()
