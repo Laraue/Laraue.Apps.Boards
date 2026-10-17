@@ -39,14 +39,13 @@ public interface ICoreIssueLinksService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Removes the links between <paramref name="movedIssueIds"/>, just moved out of
-    /// <paramref name="organizationId"/> together with their space or epic, and the issues that stayed there -
-    /// a link never crosses organizations. Links among the moved issues themselves stay. Each removal is
-    /// written to the history of both issues, like <see cref="RemoveLink"/>.
+    /// Call after a space or epic moved out of <paramref name="organizationId"/>: removes the links that now
+    /// cross organizations - between the moved issues and the ones that stayed - since a link never does.
+    /// Links among the moved issues themselves stay. Each removal is written to the history of both issues,
+    /// like <see cref="RemoveLink"/>.
     /// </summary>
     Task RemoveLinksLeavingOrganization(
         long organizationId,
-        IReadOnlyCollection<long> movedIssueIds,
         Actor actor,
         CancellationToken cancellationToken);
 }
@@ -152,7 +151,6 @@ public class CoreIssueLinksService(
 
     public async Task RemoveLinksLeavingOrganization(
         long organizationId,
-        IReadOnlyCollection<long> movedIssueIds,
         Actor actor,
         CancellationToken cancellationToken)
     {
@@ -160,13 +158,20 @@ public class CoreIssueLinksService(
 
         await LockOrganizationLinks(organizationId, cancellationToken);
 
-        // The moved issues are in their new organization already, so a link that crosses organizations now is
-        // one to an issue left behind. Raw issues: a soft-deleted issue's links are only hidden, they must not
-        // cross organizations either.
+        // The moved issues are in their new organization already, so the links to remove are the ones with one
+        // issue still in organizationId and the other one elsewhere. Raw issues: a soft-deleted issue's links
+        // are only hidden, they must not cross organizations either.
         var links = await context.IssueLinks
-            .Where(x => movedIssueIds.Contains(x.SourceIssueId) || movedIssueIds.Contains(x.TargetIssueId))
-            .Where(x => x.SourceIssue!.Status!.Epic!.Space!.OrganizationId
-                != x.TargetIssue!.Status!.Epic!.Space!.OrganizationId)
+            .Select(x => new
+            {
+                Link = x,
+                SourceOrganizationId = x.SourceIssue!.Status!.Epic!.Space!.OrganizationId,
+                TargetOrganizationId = x.TargetIssue!.Status!.Epic!.Space!.OrganizationId,
+            })
+            .Where(x =>
+                (x.SourceOrganizationId == organizationId && x.TargetOrganizationId != organizationId)
+                || (x.SourceOrganizationId != organizationId && x.TargetOrganizationId == organizationId))
+            .Select(x => x.Link)
             .Select(x => new
             {
                 x.Id,
