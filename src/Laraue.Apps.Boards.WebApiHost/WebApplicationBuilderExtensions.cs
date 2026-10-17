@@ -38,6 +38,7 @@ public static class WebApplicationBuilderExtensions
 
             builder.Services
                 .AddScoped<IIssuesService, IssuesService>()
+                .AddScoped<IIssueLinksService, IssueLinksService>()
                 .AddScoped<IOrganizationHistoryService, OrganizationHistoryService>()
                 .AddScoped<IOrganizationHistoryReader, OrganizationHistoryReader>()
                 .AddScoped<IEpicsService, EpicsService>()

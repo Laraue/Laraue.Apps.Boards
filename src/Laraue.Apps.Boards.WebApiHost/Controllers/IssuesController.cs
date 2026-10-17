@@ -14,6 +14,7 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/issues")]
 public class IssuesController(
     IIssuesService issuesService,
+    IIssueLinksService issueLinksService,
     IOrganizationHistoryService organizationHistoryService) : ControllerBase
 {
     [HttpGet("by-status/{statusId:long}")]
@@ -252,6 +253,37 @@ public class IssuesController(
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),
                 IssueKey = key,
+            },
+            cancellationToken);
+    }
+
+    [HttpPost("{key}/links")]
+    public Task AddLink(
+        string key,
+        [FromBody] AddIssueLinkRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issueLinksService.AddLink(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                IssueKey = key,
+            },
+            cancellationToken);
+    }
+
+    [HttpDelete("{key}/links/{otherKey}")]
+    public Task RemoveLink(
+        string key,
+        string otherKey,
+        CancellationToken cancellationToken = default)
+    {
+        return issueLinksService.RemoveLink(
+            new RemoveIssueLinkRequest
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+                IssueKey = key,
+                OtherIssueKey = otherKey,
             },
             cancellationToken);
     }

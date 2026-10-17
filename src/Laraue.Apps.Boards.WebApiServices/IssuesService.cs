@@ -105,6 +105,7 @@ public class IssuesService(
     ITokenEstimate tokenEstimate,
     IUsageLimitService usageLimitService,
     IMemberProfileReader memberProfileReader,
+    IIssueLinksService issueLinksService,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -148,6 +149,7 @@ public class IssuesService(
             .ToArray();
         
         await EnrichAttributes(projected, cancellationToken);
+        await EnrichBlocked(request.AuthData, projected, cancellationToken);
 
         return new BatchResult<IssueListDto>
         {
@@ -246,6 +248,7 @@ public class IssuesService(
             .ToList();
         
         await EnrichAttributes(allData, cancellationToken);
+        await EnrichBlocked(request.AuthData, allData, cancellationToken);
 
         return result.ToArray();
     }
@@ -636,6 +639,7 @@ public class IssuesService(
 
         var mapped = temporaryResult.MapTo(Map);
         await EnrichAttributes(mapped.Data, ct);
+        await EnrichBlocked(request.AuthData, mapped.Data, ct);
         
         var result = await MapToSearchDtos(request.AuthData, mapped.Data, ct);
         return new ShortPaginatedResult<SearchIssueDto>(
@@ -741,6 +745,7 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
+            Links = await issueLinksService.GetLinks(request.AuthData, issueId, cancellationToken),
         };
 
         await memberProfileReader.EnrichUsers(
@@ -1091,6 +1096,7 @@ public class IssuesService(
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
                 CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceKey),
+                IsBlocked = element.IsBlocked,
             });
         }
         
@@ -1172,6 +1178,22 @@ public class IssuesService(
         var result = await GetIssuesAttributeValues([issueId], cancellationToken);
 
         return result.GetValueOrDefault(issueId, new Dictionary<long, string>());
+    }
+
+    private async Task EnrichBlocked(
+        OrganizationAuthData authData,
+        IList<IssueListDto> elements,
+        CancellationToken ct)
+    {
+        var blockedIssueIds = await issueLinksService.GetBlockedIssueIds(
+            authData,
+            elements
+                .Select(x => x.Id)
+                .ToArray(),
+            ct);
+
+        foreach (var element in elements)
+            element.IsBlocked = blockedIssueIds.Contains(element.Id);
     }
 
     private async Task EnrichAttributes(IList<IssueListDto> elements, CancellationToken ct)
@@ -1692,6 +1714,11 @@ public record IssueListDto
     public required long StatusId { get; set; }
     public required string SpaceKey { get; set; }
     public List<IssueListAttributeDto> Attributes { get; set; } = [];
+
+    /// <summary>
+    /// Some issue the caller can read blocks this one and isn't in a Completed status yet.
+    /// </summary>
+    public bool IsBlocked { get; set; }
 }
 
 public record IssueListAttributeDto
@@ -1908,6 +1935,11 @@ public class IssueDetailDto
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
+
+    /// <summary>
+    /// Links to the issues the caller can read, each with its meaning from this issue's side.
+    /// </summary>
+    public required IssueLinkDto[] Links { get; set; }
 }
 
 public record CommentDto
