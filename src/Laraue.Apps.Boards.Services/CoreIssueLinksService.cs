@@ -37,6 +37,18 @@ public interface ICoreIssueLinksService
         long otherIssueId,
         Actor actor,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes the links between <paramref name="movedIssueIds"/>, just moved out of
+    /// <paramref name="organizationId"/> together with their space or epic, and the issues that stayed there -
+    /// a link never crosses organizations. Links among the moved issues themselves stay. Each removal is
+    /// written to the history of both issues, like <see cref="RemoveLink"/>.
+    /// </summary>
+    Task RemoveLinksLeavingOrganization(
+        long organizationId,
+        IReadOnlyCollection<long> movedIssueIds,
+        Actor actor,
+        CancellationToken cancellationToken);
 }
 
 public class CoreIssueLinksService(
@@ -58,11 +70,9 @@ public class CoreIssueLinksService(
         if (issueId == otherIssueId)
             throw new BadRequestException(nameof(otherIssueId), "An issue can't be linked to itself.");
 
-        var issues = await GetLinkedIssues(issueId, otherIssueId, cancellationToken);
-
         // Every link change of the organization runs one at a time, so two concurrent requests can't both
         // pass the checks below - neither the "one link per pair" one nor the Blocks cycle one.
-        await LockOrganizationLinks(issues.OrganizationId, cancellationToken);
+        var issues = await LockAndGetLinkedIssues(issueId, otherIssueId, cancellationToken);
 
         var existingLink = await FindLink(issueId, otherIssueId, cancellationToken);
         if (existingLink is not null)
@@ -100,8 +110,9 @@ public class CoreIssueLinksService(
         await context.SaveChangesAsync(cancellationToken);
 
         await RecordOnBothIssues(
-            issues,
+            new LinkSide(issues.OrganizationId, issues.Issue),
             relation,
+            new LinkSide(issues.OrganizationId, issues.OtherIssue),
             actor,
             now,
             logItemFactory.IssueLinkAdded,
@@ -118,9 +129,7 @@ public class CoreIssueLinksService(
     {
         context.Database.EnsureTransactionStarted();
 
-        var issues = await GetLinkedIssues(issueId, otherIssueId, cancellationToken);
-
-        await LockOrganizationLinks(issues.OrganizationId, cancellationToken);
+        var issues = await LockAndGetLinkedIssues(issueId, otherIssueId, cancellationToken);
 
         var link = await FindLink(issueId, otherIssueId, cancellationToken)
             ?? throw new NotFoundException($"{issues.Issue.Name} and {issues.OtherIssue.Name} aren't linked.");
@@ -132,12 +141,74 @@ public class CoreIssueLinksService(
             .ExecuteDeleteAsync(cancellationToken);
 
         await RecordOnBothIssues(
-            issues,
+            new LinkSide(issues.OrganizationId, issues.Issue),
             relation,
+            new LinkSide(issues.OrganizationId, issues.OtherIssue),
             actor,
             dateTimeProvider.UtcNow,
             logItemFactory.IssueLinkRemoved,
             cancellationToken);
+    }
+
+    public async Task RemoveLinksLeavingOrganization(
+        long organizationId,
+        IReadOnlyCollection<long> movedIssueIds,
+        Actor actor,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        await LockOrganizationLinks(organizationId, cancellationToken);
+
+        // Raw issues: a soft-deleted issue's links are only hidden, they must not cross organizations either.
+        var links = await context.IssueLinks
+            .Where(x => movedIssueIds.Contains(x.SourceIssueId) != movedIssueIds.Contains(x.TargetIssueId))
+            .Select(x => new
+            {
+                x.Id,
+                x.Type,
+                Source = new
+                {
+                    x.SourceIssueId,
+                    x.SourceIssue!.Status!.Epic!.Space!.OrganizationId,
+                    SpaceKey = x.SourceIssue.IssueNumber!.Space!.Key,
+                    x.SourceIssue.IssueNumber.Number,
+                },
+                Target = new
+                {
+                    x.TargetIssueId,
+                    x.TargetIssue!.Status!.Epic!.Space!.OrganizationId,
+                    SpaceKey = x.TargetIssue.IssueNumber!.Space!.Key,
+                    x.TargetIssue.IssueNumber.Number,
+                },
+            })
+            .ToListAsyncEF(cancellationToken);
+
+        if (links.Count == 0)
+            return;
+
+        var linkIds = links.Select(x => x.Id).ToArray();
+        await context.IssueLinks
+            .Where(x => linkIds.Contains(x.Id))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var now = dateTimeProvider.UtcNow;
+
+        foreach (var link in links)
+        {
+            await RecordOnBothIssues(
+                new LinkSide(
+                    link.Source.OrganizationId,
+                    new IdName<long>(link.Source.SourceIssueId, new IssueKey(link.Source.SpaceKey, link.Source.Number).ToString())),
+                link.Type.ToRelation(isSource: true),
+                new LinkSide(
+                    link.Target.OrganizationId,
+                    new IdName<long>(link.Target.TargetIssueId, new IssueKey(link.Target.SpaceKey, link.Target.Number).ToString())),
+                actor,
+                now,
+                logItemFactory.IssueLinkRemoved,
+                cancellationToken);
+        }
     }
 
     /// <param name="Issue">The issue the change is made from: its id and key.</param>
@@ -175,6 +246,22 @@ public class CoreIssueLinksService(
                 $"{issueKey.Name} and {otherIssueKey.Name} belong to different organizations and can't be linked.");
 
         return new LinkedIssues(issue.OrganizationId, issueKey, otherIssueKey);
+    }
+
+    /// <summary>
+    /// Locks the link changes of the issues' organization and reads the issues again after that: a space
+    /// move that held the lock may have moved one of them to another organization meanwhile.
+    /// </summary>
+    private async Task<LinkedIssues> LockAndGetLinkedIssues(
+        long issueId,
+        long otherIssueId,
+        CancellationToken cancellationToken)
+    {
+        var issues = await GetLinkedIssues(issueId, otherIssueId, cancellationToken);
+
+        await LockOrganizationLinks(issues.OrganizationId, cancellationToken);
+
+        return await GetLinkedIssues(issueId, otherIssueId, cancellationToken);
     }
 
     private Task LockOrganizationLinks(long organizationId, CancellationToken cancellationToken)
@@ -218,36 +305,44 @@ public class CoreIssueLinksService(
             .SingleAsync(cancellationToken);
     }
 
+    /// <summary>One end of a link: the issue's id and key, and the organization its history is written to.</summary>
+    private sealed record LinkSide(long OrganizationId, IdName<long> Issue);
+
+    /// <summary>
+    /// Writes "<paramref name="issue"/> [<paramref name="relation"/>] <paramref name="otherIssue"/>" to the
+    /// history of both issues, each from its own side.
+    /// </summary>
     private async Task RecordOnBothIssues(
-        LinkedIssues issues,
+        LinkSide issue,
         IssueLinkRelation relation,
+        LinkSide otherIssue,
         Actor actor,
         DateTime createdAt,
         Func<IssueLinkRelation, IdName<long>, OrganizationLogItem> createItem,
         CancellationToken cancellationToken)
     {
         // The link seen from the other issue: "A is blocked by B" is "B blocks A" there.
-        var stored = relation.ToStored(issues.Issue.Id, issues.OtherIssue.Id);
-        var otherRelation = stored.Type.ToRelation(stored.SourceIssueId == issues.OtherIssue.Id);
+        var stored = relation.ToStored(issue.Issue.Id, otherIssue.Issue.Id);
+        var otherRelation = stored.Type.ToRelation(stored.SourceIssueId == otherIssue.Issue.Id);
 
         await historyService.Record(
-            issues.Issue.Id,
+            issue.Issue.Id,
             LogEntityType.Issue,
             LogAction.Update,
-            issues.OrganizationId,
+            issue.OrganizationId,
             actor,
             createdAt,
-            [createItem(relation, issues.OtherIssue)],
+            [createItem(relation, otherIssue.Issue)],
             cancellationToken);
 
         await historyService.Record(
-            issues.OtherIssue.Id,
+            otherIssue.Issue.Id,
             LogEntityType.Issue,
             LogAction.Update,
-            issues.OrganizationId,
+            otherIssue.OrganizationId,
             actor,
             createdAt,
-            [createItem(otherRelation, issues.Issue)],
+            [createItem(otherRelation, issue.Issue)],
             cancellationToken);
     }
 }
