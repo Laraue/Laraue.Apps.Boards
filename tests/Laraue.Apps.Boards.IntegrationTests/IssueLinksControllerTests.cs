@@ -18,19 +18,19 @@ public class IssueLinksControllerTests(WebApiTestHost host) : IClassFixture<WebA
     public async Task AddLink_ShouldShowTheLinkOnBothIssues_FromEachIssueSide()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, _, organization) = await Init(testScope);
-        var blocked = organization.GetIssueData(1, 1, 0, 0);
-        var blocker = organization.GetIssueData(1, 1, 0, 1);
+        var setup = await Init(testScope);
+        var blocked = setup.Organization.GetIssueData(1, 1, 0, 0);
+        var blocker = setup.Organization.GetIssueData(1, 1, 0, 1);
 
-        await AddLink(organization, userId, blocked.Key, IssueLinkRelation.BlockedBy, blocker.Key);
+        await AddLink(setup.Organization, setup.UserId, blocked.Key, IssueLinkRelation.BlockedBy, blocker.Key);
 
-        var blockedLink = Assert.Single((await GetIssue(organization, userId, blocked.Key)).Links);
+        var blockedLink = Assert.Single((await GetIssue(setup.Organization, setup.UserId, blocked.Key)).Links);
         Assert.Equal(IssueLinkRelation.BlockedBy, blockedLink.Relation);
         Assert.Equal(blocker.Key, blockedLink.Key);
         Assert.Equal("Blocker", blockedLink.Title);
         Assert.Equal(StatusCategory.Created, blockedLink.StatusCategory);
 
-        var blockerLink = Assert.Single((await GetIssue(organization, userId, blocker.Key)).Links);
+        var blockerLink = Assert.Single((await GetIssue(setup.Organization, setup.UserId, blocker.Key)).Links);
         Assert.Equal(IssueLinkRelation.Blocks, blockerLink.Relation);
         Assert.Equal(blocked.Key, blockerLink.Key);
     }
@@ -39,29 +39,29 @@ public class IssueLinksControllerTests(WebApiTestHost host) : IClassFixture<WebA
     public async Task RemoveLink_ShouldRemoveTheLinkFromBothIssues_WhenRemovedFromTheOtherSide()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, _, organization) = await Init(testScope);
-        var issue = organization.GetIssueData(1, 1, 0, 0);
-        var otherIssue = organization.GetIssueData(1, 1, 0, 1);
-        await AddLink(organization, userId, issue.Key, IssueLinkRelation.Duplicates, otherIssue.Key);
+        var setup = await Init(testScope);
+        var issue = setup.Organization.GetIssueData(1, 1, 0, 0);
+        var otherIssue = setup.Organization.GetIssueData(1, 1, 0, 1);
+        await AddLink(setup.Organization, setup.UserId, issue.Key, IssueLinkRelation.Duplicates, otherIssue.Key);
 
         await _issuesController
-            .WithOrganizationAuthorization(organization.Id, userId)
+            .WithOrganizationAuthorization(setup.Organization.Id, setup.UserId)
             .Execute(x => x.RemoveLink(otherIssue.Key, issue.Key));
 
-        Assert.Empty((await GetIssue(organization, userId, issue.Key)).Links);
-        Assert.Empty((await GetIssue(organization, userId, otherIssue.Key)).Links);
+        Assert.Empty((await GetIssue(setup.Organization, setup.UserId, issue.Key)).Links);
+        Assert.Empty((await GetIssue(setup.Organization, setup.UserId, otherIssue.Key)).Links);
     }
 
     [Fact]
     public async Task AddLink_ShouldReturnNotFound_WhenTheOtherIssueIsNotReadable()
     {
         using var testScope = host.CreateTestScope();
-        var (_, memberId, organization) = await Init(testScope, member => member.CanUpdateIssues = true);
-        var readable = organization.GetIssueData(1, 1, 0, 0);
-        var notReadable = organization.GetIssueData(0, 0, 0, 0);
+        var setup = await Init(testScope, member => member.CanUpdateIssues = true);
+        var readable = setup.Organization.GetIssueData(1, 1, 0, 0);
+        var notReadable = setup.Organization.GetIssueData(0, 0, 0, 0);
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => AddLink(organization, memberId, readable.Key, IssueLinkRelation.RelatesTo, notReadable.Key));
+            () => AddLink(setup.Organization, setup.MemberId, readable.Key, IssueLinkRelation.RelatesTo, notReadable.Key));
 
         var notFound = ex.HasInnerException<NotFoundException>();
         Assert.Equal($"Issue: {notReadable.Key} is not found or not accessible", notFound.Message);
@@ -71,12 +71,12 @@ public class IssueLinksControllerTests(WebApiTestHost host) : IClassFixture<WebA
     public async Task AddLink_ShouldReturnNotFound_WhenTheIssueIsNotReadable()
     {
         using var testScope = host.CreateTestScope();
-        var (_, memberId, organization) = await Init(testScope, member => member.CanUpdateIssues = true);
-        var notReadable = organization.GetIssueData(0, 0, 0, 0);
-        var readable = organization.GetIssueData(1, 1, 0, 0);
+        var setup = await Init(testScope, member => member.CanUpdateIssues = true);
+        var notReadable = setup.Organization.GetIssueData(0, 0, 0, 0);
+        var readable = setup.Organization.GetIssueData(1, 1, 0, 0);
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => AddLink(organization, memberId, notReadable.Key, IssueLinkRelation.RelatesTo, readable.Key));
+            () => AddLink(setup.Organization, setup.MemberId, notReadable.Key, IssueLinkRelation.RelatesTo, readable.Key));
 
         ex.HasInnerException<NotFoundException>();
     }
@@ -85,12 +85,12 @@ public class IssueLinksControllerTests(WebApiTestHost host) : IClassFixture<WebA
     public async Task AddLink_ShouldReturnForbidden_WhenTheIssueIsReadableButNotUpdatable()
     {
         using var testScope = host.CreateTestScope();
-        var (_, memberId, organization) = await Init(testScope, _ => { });
-        var issue = organization.GetIssueData(1, 1, 0, 0);
-        var otherIssue = organization.GetIssueData(1, 1, 0, 1);
+        var setup = await Init(testScope, _ => { });
+        var issue = setup.Organization.GetIssueData(1, 1, 0, 0);
+        var otherIssue = setup.Organization.GetIssueData(1, 1, 0, 1);
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => AddLink(organization, memberId, issue.Key, IssueLinkRelation.RelatesTo, otherIssue.Key));
+            () => AddLink(setup.Organization, setup.MemberId, issue.Key, IssueLinkRelation.RelatesTo, otherIssue.Key));
 
         ex.HasInnerException<ForbiddenException>();
     }
@@ -99,43 +99,45 @@ public class IssueLinksControllerTests(WebApiTestHost host) : IClassFixture<WebA
     public async Task GetIssue_ShouldHideLinksToIssuesTheCallerCannotRead()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, memberId, organization) = await Init(testScope, _ => { });
-        var readable = organization.GetIssueData(1, 1, 0, 0);
-        var notReadable = organization.GetIssueData(0, 0, 0, 0);
-        await AddLink(organization, userId, readable.Key, IssueLinkRelation.BlockedBy, notReadable.Key);
+        var setup = await Init(testScope, _ => { });
+        var readable = setup.Organization.GetIssueData(1, 1, 0, 0);
+        var notReadable = setup.Organization.GetIssueData(0, 0, 0, 0);
+        await AddLink(setup.Organization, setup.UserId, readable.Key, IssueLinkRelation.BlockedBy, notReadable.Key);
 
-        Assert.Empty((await GetIssue(organization, memberId, readable.Key)).Links);
-        Assert.Single((await GetIssue(organization, userId, readable.Key)).Links);
+        Assert.Empty((await GetIssue(setup.Organization, setup.MemberId, readable.Key)).Links);
+        Assert.Single((await GetIssue(setup.Organization, setup.UserId, readable.Key)).Links);
     }
 
     [Fact]
     public async Task GetBoard_ShouldMarkTheIssueBlocked_UntilItsBlockerIsCompleted()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, _, organization) = await Init(testScope);
-        var blocked = organization.GetIssueData(1, 1, 0, 0);
-        var blocker = organization.GetIssueData(1, 1, 0, 1);
-        await AddLink(organization, userId, blocker.Key, IssueLinkRelation.Blocks, blocked.Key);
+        var setup = await Init(testScope);
+        var blocked = setup.Organization.GetIssueData(1, 1, 0, 0);
+        var blocker = setup.Organization.GetIssueData(1, 1, 0, 1);
+        await AddLink(setup.Organization, setup.UserId, blocker.Key, IssueLinkRelation.Blocks, blocked.Key);
 
-        var board = await GetBoardIssues(organization, userId);
+        var board = await GetBoardIssues(setup.Organization, setup.UserId);
         Assert.True(board[blocked.Key].IsBlocked);
         Assert.False(board[blocker.Key].IsBlocked);
 
-        var completedStatusId = organization.GetStatus(1, 1, 1).Id;
+        var completedStatusId = setup.Organization.GetStatus(1, 1, 1).Id;
         await testScope.Database.Issues
             .Where(x => x.Id == blocker.Issue.Id)
             .ExecuteUpdateAsync(u => u.SetProperty(x => x.StatusId, completedStatusId));
 
-        board = await GetBoardIssues(organization, userId);
+        board = await GetBoardIssues(setup.Organization, setup.UserId);
         Assert.False(board[blocked.Key].IsBlocked);
     }
+
+    private sealed record LinkTestSetup(Guid UserId, Guid MemberId, Organization Organization);
 
     /// <summary>
     /// The owner and a member who can read only the second space (index 1), whose added epic (index 1) has
     /// two issues - "Blocked" and "Blocker" - and a Completed status (index 1). The default space has one
     /// issue the member can't read.
     /// </summary>
-    private static async Task<(Guid UserId, Guid MemberId, Organization Organization)> Init(
+    private static async Task<LinkTestSetup> Init(
         WebApiTestHostScope testScope,
         Action<DirectSpaceAccessLevel>? memberAccess = null)
     {
@@ -159,7 +161,7 @@ public class IssueLinksControllerTests(WebApiTestHost host) : IClassFixture<WebA
                 }));
         });
 
-        return (userId, memberId, organization);
+        return new LinkTestSetup(userId, memberId, organization);
     }
 
     private Task AddLink(

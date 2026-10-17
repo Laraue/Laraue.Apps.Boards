@@ -19,23 +19,24 @@ public class CoreIssueLinksServiceTests(WebApiTestHost host) : IClassFixture<Web
     public async Task AddLink_ShouldStoreBlocksFromTheOtherIssue_WhenAddedAsBlockedBy()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 2);
+        var setup = await Init(testScope, issueCount: 2);
 
-        await AddLink(testScope, issues[0], IssueLinkRelation.BlockedBy, issues[1], userId);
+        await AddLink(testScope, setup.Issues[0], IssueLinkRelation.BlockedBy, setup.Issues[1], setup.UserId);
 
-        var link = await testScope.Database.IssueLinks.AsNoTracking().SingleAsync(x => x.SourceIssueId == issues[1].Id);
+        var link = await testScope.Database.IssueLinks.AsNoTracking().SingleAsync(x => x.SourceIssueId == setup.Issues[1].Id);
         Assert.Equal(IssueLinkType.Blocks, link.Type);
-        Assert.Equal(issues[0].Id, link.TargetIssueId);
+        Assert.Equal(setup.Issues[0].Id, link.TargetIssueId);
     }
 
     [Fact]
     public async Task AddLink_ShouldStoreLowerIdAsSource_WhenRelatesToIsAddedFromTheHigherId()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 2);
-        var (lower, higher) = issues[0].Id < issues[1].Id ? (issues[0], issues[1]) : (issues[1], issues[0]);
+        var setup = await Init(testScope, issueCount: 2);
+        var lower = setup.Issues[0].Id < setup.Issues[1].Id ? setup.Issues[0] : setup.Issues[1];
+        var higher = lower == setup.Issues[0] ? setup.Issues[1] : setup.Issues[0];
 
-        await AddLink(testScope, higher, IssueLinkRelation.RelatesTo, lower, userId);
+        await AddLink(testScope, higher, IssueLinkRelation.RelatesTo, lower, setup.UserId);
 
         var link = await testScope.Database.IssueLinks.AsNoTracking().SingleAsync(x => x.SourceIssueId == lower.Id);
         Assert.Equal(IssueLinkType.RelatesTo, link.Type);
@@ -46,21 +47,21 @@ public class CoreIssueLinksServiceTests(WebApiTestHost host) : IClassFixture<Web
     public async Task AddLink_ShouldRecordTheLinkOnBothIssues_FromEachIssueSide()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 2);
+        var setup = await Init(testScope, issueCount: 2);
         var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
-            .CreateAsync(issues[0].OrganizationId, userId, "Claude", CancellationToken.None);
+            .CreateAsync(setup.Issues[0].OrganizationId, setup.UserId, "Claude", CancellationToken.None);
 
-        await AddLink(testScope, issues[0], IssueLinkRelation.Duplicates, issues[1], new Actor(userId, apiKey.Id));
+        await AddLink(testScope, setup.Issues[0], IssueLinkRelation.Duplicates, setup.Issues[1], new Actor(setup.UserId, apiKey.Id));
 
-        var duplicateChange = await GetSingleLinkChange(testScope, issues[0]);
+        var duplicateChange = await GetSingleLinkChange(testScope, setup.Issues[0]);
         Assert.Equal(IssueLinkRelation.Duplicates, duplicateChange.Change.Relation);
-        Assert.Equal(issues[1].Key, duplicateChange.Change.IssueKey);
+        Assert.Equal(setup.Issues[1].Key, duplicateChange.Change.IssueKey);
         Assert.Equal(IssueLinkAction.Added, duplicateChange.Change.Action);
         Assert.Equal("Claude", duplicateChange.ApiKeyName);
 
-        var originalChange = await GetSingleLinkChange(testScope, issues[1]);
+        var originalChange = await GetSingleLinkChange(testScope, setup.Issues[1]);
         Assert.Equal(IssueLinkRelation.DuplicatedBy, originalChange.Change.Relation);
-        Assert.Equal(issues[0].Key, originalChange.Change.IssueKey);
+        Assert.Equal(setup.Issues[0].Key, originalChange.Change.IssueKey);
         Assert.Equal(IssueLinkAction.Added, originalChange.Change.Action);
     }
 
@@ -68,113 +69,121 @@ public class CoreIssueLinksServiceTests(WebApiTestHost host) : IClassFixture<Web
     public async Task AddLink_ShouldFail_WhenTheIssuesAreAlreadyLinkedInAnyWay()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 2);
-        await AddLink(testScope, issues[0], IssueLinkRelation.Blocks, issues[1], userId);
+        var setup = await Init(testScope, issueCount: 2);
+        await AddLink(testScope, setup.Issues[0], IssueLinkRelation.Blocks, setup.Issues[1], setup.UserId);
 
         var exception = await Assert.ThrowsAsync<BadRequestException>(
-            () => AddLink(testScope, issues[1], IssueLinkRelation.RelatesTo, issues[0], userId));
+            () => AddLink(testScope, setup.Issues[1], IssueLinkRelation.RelatesTo, setup.Issues[0], setup.UserId));
 
         // The existing link, from the side of the issue the new one was added from.
-        Assert.Contains($"({issues[1].Key} BlockedBy {issues[0].Key})", exception.Errors["otherIssueId"]![0]);
-        Assert.Equal(1, await testScope.Database.IssueLinks.CountAsync(x => x.SourceIssueId == issues[0].Id));
+        Assert.Contains($"({setup.Issues[1].Key} BlockedBy {setup.Issues[0].Key})", exception.Errors["otherIssueId"]![0]);
+        Assert.Equal(1, await testScope.Database.IssueLinks.CountAsync(x => x.SourceIssueId == setup.Issues[0].Id));
     }
 
     [Fact]
     public async Task AddLink_ShouldFail_WhenTheIssueIsLinkedToItself()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 1);
+        var setup = await Init(testScope, issueCount: 1);
 
         await Assert.ThrowsAsync<BadRequestException>(
-            () => AddLink(testScope, issues[0], IssueLinkRelation.RelatesTo, issues[0], userId));
+            () => AddLink(testScope, setup.Issues[0], IssueLinkRelation.RelatesTo, setup.Issues[0], setup.UserId));
     }
 
     [Fact]
     public async Task AddLink_ShouldFail_WhenBlocksLinksWouldFormACycle()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 3);
-        await AddLink(testScope, issues[0], IssueLinkRelation.Blocks, issues[1], userId);
-        await AddLink(testScope, issues[1], IssueLinkRelation.Blocks, issues[2], userId);
+        var setup = await Init(testScope, issueCount: 3);
+        await AddLink(testScope, setup.Issues[0], IssueLinkRelation.Blocks, setup.Issues[1], setup.UserId);
+        await AddLink(testScope, setup.Issues[1], IssueLinkRelation.Blocks, setup.Issues[2], setup.UserId);
 
         await Assert.ThrowsAsync<BadRequestException>(
-            () => AddLink(testScope, issues[0], IssueLinkRelation.BlockedBy, issues[2], userId));
+            () => AddLink(testScope, setup.Issues[0], IssueLinkRelation.BlockedBy, setup.Issues[2], setup.UserId));
     }
 
     [Fact]
     public async Task AddLink_ShouldSkipDeletedIssues_WhenLookingForACycle()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 3);
-        await AddLink(testScope, issues[0], IssueLinkRelation.Blocks, issues[1], userId);
-        await AddLink(testScope, issues[1], IssueLinkRelation.Blocks, issues[2], userId);
+        var setup = await Init(testScope, issueCount: 3);
+        await AddLink(testScope, setup.Issues[0], IssueLinkRelation.Blocks, setup.Issues[1], setup.UserId);
+        await AddLink(testScope, setup.Issues[1], IssueLinkRelation.Blocks, setup.Issues[2], setup.UserId);
         await testScope.Database.Issues
-            .Where(x => x.Id == issues[1].Id)
+            .Where(x => x.Id == setup.Issues[1].Id)
             .ExecuteUpdateAsync(u => u.SetProperty(x => x.DeletedAt, DateTime.UtcNow));
 
-        await AddLink(testScope, issues[2], IssueLinkRelation.Blocks, issues[0], userId);
+        await AddLink(testScope, setup.Issues[2], IssueLinkRelation.Blocks, setup.Issues[0], setup.UserId);
 
         Assert.True(await testScope.Database.IssueLinks
-            .AnyAsync(x => x.SourceIssueId == issues[2].Id && x.TargetIssueId == issues[0].Id));
+            .AnyAsync(x => x.SourceIssueId == setup.Issues[2].Id && x.TargetIssueId == setup.Issues[0].Id));
     }
 
     [Fact]
     public async Task AddLink_ShouldFail_WhenTheIssuesBelongToDifferentOrganizations()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 1);
-        var (_, otherIssues) = await Init(testScope, issueCount: 1);
+        var setup = await Init(testScope, issueCount: 1);
+        var otherSetup = await Init(testScope, issueCount: 1);
 
         await Assert.ThrowsAsync<BadRequestException>(
-            () => AddLink(testScope, issues[0], IssueLinkRelation.RelatesTo, otherIssues[0], userId));
+            () => AddLink(testScope, setup.Issues[0], IssueLinkRelation.RelatesTo, otherSetup.Issues[0], setup.UserId));
     }
 
     [Fact]
     public async Task RemoveLink_ShouldRemoveTheLinkAndRecordItOnBothIssues_WhenRemovedFromTheTarget()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 2);
-        await AddLink(testScope, issues[0], IssueLinkRelation.Blocks, issues[1], userId);
+        var setup = await Init(testScope, issueCount: 2);
+        await AddLink(testScope, setup.Issues[0], IssueLinkRelation.Blocks, setup.Issues[1], setup.UserId);
 
-        await RemoveLink(testScope, issues[1], issues[0], userId);
+        await RemoveLink(testScope, setup.Issues[1], setup.Issues[0], setup.UserId);
 
-        Assert.False(await testScope.Database.IssueLinks.AnyAsync(x => x.SourceIssueId == issues[0].Id));
+        Assert.False(await testScope.Database.IssueLinks.AnyAsync(x => x.SourceIssueId == setup.Issues[0].Id));
 
-        var blockerHistory = await GetLinkChanges(testScope, issues[0]);
+        var blockerHistory = await GetLinkChanges(testScope, setup.Issues[0]);
         Assert.Equal(
-            [(IssueLinkRelation.Blocks, IssueLinkAction.Removed), (IssueLinkRelation.Blocks, IssueLinkAction.Added)],
-            blockerHistory.Select(x => (x.Change.Relation, x.Change.Action)));
+            [
+                new LinkChangeLine(IssueLinkRelation.Blocks, IssueLinkAction.Removed),
+                new LinkChangeLine(IssueLinkRelation.Blocks, IssueLinkAction.Added),
+            ],
+            blockerHistory
+                .Select(x => new LinkChangeLine(x.Change.Relation, x.Change.Action)));
 
-        var blockedHistory = await GetLinkChanges(testScope, issues[1]);
+        var blockedHistory = await GetLinkChanges(testScope, setup.Issues[1]);
         Assert.Equal(
-            [(IssueLinkRelation.BlockedBy, IssueLinkAction.Removed), (IssueLinkRelation.BlockedBy, IssueLinkAction.Added)],
-            blockedHistory.Select(x => (x.Change.Relation, x.Change.Action)));
+            [
+                new LinkChangeLine(IssueLinkRelation.BlockedBy, IssueLinkAction.Removed),
+                new LinkChangeLine(IssueLinkRelation.BlockedBy, IssueLinkAction.Added),
+            ],
+            blockedHistory
+                .Select(x => new LinkChangeLine(x.Change.Relation, x.Change.Action)));
     }
 
     [Fact]
     public async Task RemoveLink_ShouldThrowNotFound_WhenTheIssuesAreNotLinked()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 2);
+        var setup = await Init(testScope, issueCount: 2);
 
         await Assert.ThrowsAsync<NotFoundException>(
-            () => RemoveLink(testScope, issues[0], issues[1], userId));
+            () => RemoveLink(testScope, setup.Issues[0], setup.Issues[1], setup.UserId));
     }
 
     [Fact]
     public async Task IssueLinksTable_ShouldRejectASecondLinkForTheSamePair_InTheOtherDirection()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, issues) = await Init(testScope, issueCount: 2);
-        await AddLink(testScope, issues[0], IssueLinkRelation.Duplicates, issues[1], userId);
+        var setup = await Init(testScope, issueCount: 2);
+        await AddLink(testScope, setup.Issues[0], IssueLinkRelation.Duplicates, setup.Issues[1], setup.UserId);
 
         testScope.Database.IssueLinks.Add(new IssueLink
         {
             Type = IssueLinkType.Blocks,
-            SourceIssueId = issues[1].Id,
-            TargetIssueId = issues[0].Id,
+            SourceIssueId = setup.Issues[1].Id,
+            TargetIssueId = setup.Issues[0].Id,
             CreatedAt = DateTime.UtcNow,
-            CreatedByUserId = userId,
+            CreatedByUserId = setup.UserId,
         });
 
         var exception = await Assert.ThrowsAsync<DbUpdateException>(() => testScope.Database.SaveChangesAsync());
@@ -184,7 +193,13 @@ public class CoreIssueLinksServiceTests(WebApiTestHost host) : IClassFixture<Web
 
     private sealed record TestIssue(long Id, string Key, long OrganizationId);
 
-    private static async Task<(Guid UserId, TestIssue[] Issues)> Init(WebApiTestHostScope testScope, int issueCount)
+    /// <summary>The organization's owner and the issues created in its default status, in order.</summary>
+    private sealed record TestSetup(Guid UserId, TestIssue[] Issues);
+
+    /// <summary>A link change as a history line shows it: the relation from the issue's side and the action.</summary>
+    private sealed record LinkChangeLine(IssueLinkRelation Relation, IssueLinkAction Action);
+
+    private static async Task<TestSetup> Init(WebApiTestHostScope testScope, int issueCount)
     {
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId, org =>
@@ -198,7 +213,7 @@ public class CoreIssueLinksServiceTests(WebApiTestHost host) : IClassFixture<Web
             .Select(x => new TestIssue(x.Issue.Id, x.Key, organization.Id))
             .ToArray();
 
-        return (userId, issues);
+        return new TestSetup(userId, issues);
     }
 
     private static async Task AddLink(

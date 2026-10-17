@@ -15,10 +15,10 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
     public async Task CreateIssueLink_ShouldShowTheLinkOnBothIssues_AndLeaveTheBlockedOneOutOfListIssues()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, _, organization) = await Init(testScope);
-        var blocked = organization.GetIssueData(1, 1, 0, 0).Key;
-        var blocker = organization.GetIssueData(1, 1, 0, 1).Key;
-        var authData = IssueMcpServiceTests.AuthDataFor(organization.Id, userId);
+        var setup = await Init(testScope);
+        var blocked = setup.Organization.GetIssueData(1, 1, 0, 0).Key;
+        var blocker = setup.Organization.GetIssueData(1, 1, 0, 1).Key;
+        var authData = IssueMcpServiceTests.AuthDataFor(setup.Organization.Id, setup.UserId);
         var mcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
 
         await mcpService.CreateIssueLink(authData, blocked, "blockedBy", blocker, CancellationToken.None);
@@ -43,12 +43,12 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
     public async Task CreateIssueLink_ShouldWriteBothIssuesHistory_AsTheApiKey()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, _, organization) = await Init(testScope);
-        var issue = organization.GetIssueData(1, 1, 0, 0).Key;
-        var original = organization.GetIssueData(1, 1, 0, 1).Key;
+        var setup = await Init(testScope);
+        var issue = setup.Organization.GetIssueData(1, 1, 0, 0).Key;
+        var original = setup.Organization.GetIssueData(1, 1, 0, 1).Key;
         var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
-            .CreateAsync(organization.Id, userId, "Claude", CancellationToken.None);
-        var authData = IssueMcpServiceTests.AuthDataFor(organization.Id, userId, apiKey.Id);
+            .CreateAsync(setup.Organization.Id, setup.UserId, "Claude", CancellationToken.None);
+        var authData = IssueMcpServiceTests.AuthDataFor(setup.Organization.Id, setup.UserId, apiKey.Id);
         var mcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
 
         await mcpService.CreateIssueLink(authData, issue, "Duplicates", original, CancellationToken.None);
@@ -65,14 +65,14 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
     public async Task CreateIssueLink_ShouldThrowBadRequest_WhenTheRelationIsUnknown()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, _, organization) = await Init(testScope);
+        var setup = await Init(testScope);
         var mcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
 
         var exception = await Assert.ThrowsAsync<BadRequestException>(() => mcpService.CreateIssueLink(
-            IssueMcpServiceTests.AuthDataFor(organization.Id, userId),
-            organization.GetIssueData(1, 1, 0, 0).Key,
+            IssueMcpServiceTests.AuthDataFor(setup.Organization.Id, setup.UserId),
+            setup.Organization.GetIssueData(1, 1, 0, 0).Key,
             "DependsOn",
-            organization.GetIssueData(1, 1, 0, 1).Key,
+            setup.Organization.GetIssueData(1, 1, 0, 1).Key,
             CancellationToken.None));
 
         Assert.Contains("Blocks, BlockedBy, RelatesTo, Duplicates, DuplicatedBy", exception.Errors["relation"]![0]);
@@ -82,14 +82,14 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
     public async Task CreateIssueLink_ShouldThrowNotFound_WhenTheOtherIssueIsNotReadable()
     {
         using var testScope = host.CreateTestScope();
-        var (_, memberId, organization) = await Init(testScope);
+        var setup = await Init(testScope);
         var mcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
 
         await Assert.ThrowsAsync<NotFoundException>(() => mcpService.CreateIssueLink(
-            IssueMcpServiceTests.AuthDataFor(organization.Id, memberId),
-            organization.GetIssueData(1, 1, 0, 0).Key,
+            IssueMcpServiceTests.AuthDataFor(setup.Organization.Id, setup.MemberId),
+            setup.Organization.GetIssueData(1, 1, 0, 0).Key,
             "RelatesTo",
-            organization.GetIssueData(0, 0, 0, 0).Key,
+            setup.Organization.GetIssueData(0, 0, 0, 0).Key,
             CancellationToken.None));
     }
 
@@ -97,10 +97,10 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
     public async Task DeleteIssueLink_ShouldRemoveTheLink_WhenCalledFromTheOtherIssue()
     {
         using var testScope = host.CreateTestScope();
-        var (userId, _, organization) = await Init(testScope);
-        var issue = organization.GetIssueData(1, 1, 0, 0).Key;
-        var otherIssue = organization.GetIssueData(1, 1, 0, 1).Key;
-        var authData = IssueMcpServiceTests.AuthDataFor(organization.Id, userId);
+        var setup = await Init(testScope);
+        var issue = setup.Organization.GetIssueData(1, 1, 0, 0).Key;
+        var otherIssue = setup.Organization.GetIssueData(1, 1, 0, 1).Key;
+        var authData = IssueMcpServiceTests.AuthDataFor(setup.Organization.Id, setup.UserId);
         var mcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
         await mcpService.CreateIssueLink(authData, issue, "RelatesTo", otherIssue, CancellationToken.None);
 
@@ -109,12 +109,14 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
         Assert.Empty((await mcpService.GetIssue(authData, issue, CancellationToken.None)).Links);
     }
 
+    private sealed record LinkTestSetup(Guid UserId, Guid MemberId, Organization Organization);
+
     /// <summary>
     /// The owner and a member who can read and update only the second space ("LNK", index 1), whose added
     /// epic (index 1) has two issues - "Blocked" and "Blocker". The default space has one issue the member
     /// can't read.
     /// </summary>
-    private static async Task<(Guid UserId, Guid MemberId, Organization Organization)> Init(WebApiTestHostScope testScope)
+    private static async Task<LinkTestSetup> Init(WebApiTestHostScope testScope)
     {
         var userId = await testScope.CreateUser();
         var memberId = await testScope.CreateUser();
@@ -130,6 +132,6 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
                     .AddIssue(userId, 0, issue => issue.WithTitle("Blocked"))
                     .AddIssue(userId, 0, issue => issue.WithTitle("Blocker")))));
 
-        return (userId, memberId, organization);
+        return new LinkTestSetup(userId, memberId, organization);
     }
 }
