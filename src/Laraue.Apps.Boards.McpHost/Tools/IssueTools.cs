@@ -19,7 +19,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Lists issues in the caller's organization, optionally filtered by space, epic id, status id, status category id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue has a title, and its canEdit/canDelete reflect the caller's actual permissions on it, statusCategory/statusCategoryId tell what its status means (Created, InProgress, Review or Completed), and url is its page in the web app.")]
+    [Description("Lists issues in the caller's organization, optionally filtered by space, epic id, status id, status category id, or assignee id. Returns up to 50 per page, most recently updated first - check hasNextPage for more. Each issue has a title, and its canEdit/canDelete reflect the caller's actual permissions on it, statusCategory/statusCategoryId tell what its status means (Created, InProgress, Review or Completed), isBlocked is true while an issue blocking it isn't Completed (get_issue's links say which), and url is its page in the web app.")]
     public Task<IssueListPage> ListIssues(
         [Description("Only issues in this space (e.g. 'BRD'), from list_spaces. Omit to search every space.")] string? spaceKey = null,
         [Description("Only issues in this epic id, from list_epics. Omit to include every epic.")] long? epicId = null,
@@ -34,12 +34,33 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
+    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), links - the issues it's linked to, each with its relation from this issue's side (Blocks, BlockedBy, RelatesTo, Duplicates, DuplicatedBy), key, title and status category - and url - the issue's page in the web app, to give the user as a link.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
     {
         return issueMcpService.GetIssue(GetAuthData(), issueKey, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Links two issues of the organization: issueKey [relation] otherIssueKey, e.g. 'BRD-7 BlockedBy BRD-3' means BRD-7 waits for BRD-3. Two issues can have only one link - delete_issue_link first to change its type. Blocks links can't form a cycle. Requires canEdit on issueKey (see get_issue/list_issues) and read access to otherIssueKey.")]
+    public Task CreateIssueLink(
+        [Description("The issue to link from, e.g. 'BRD-7'.")] string issueKey,
+        [Description("What the link means from issueKey's side: Blocks (issueKey must be done first), BlockedBy (otherIssueKey must be done first), RelatesTo, Duplicates (issueKey is a duplicate of otherIssueKey, the original) or DuplicatedBy.")] string relation,
+        [Description("The issue on the other end, e.g. 'BRD-3'.")] string otherIssueKey,
+        CancellationToken cancellationToken = default)
+    {
+        return issueMcpService.CreateIssueLink(GetAuthData(), issueKey, relation, otherIssueKey, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Removes the link between two issues, whatever its type (see get_issue's links). Requires canEdit on issueKey (see get_issue/list_issues) and read access to otherIssueKey.")]
+    public Task DeleteIssueLink(
+        [Description("The issue to unlink from, e.g. 'BRD-7'.")] string issueKey,
+        [Description("The issue on the other end of the link, e.g. 'BRD-3'.")] string otherIssueKey,
+        CancellationToken cancellationToken = default)
+    {
+        return issueMcpService.DeleteIssueLink(GetAuthData(), issueKey, otherIssueKey, cancellationToken);
     }
 
     [McpServerTool]

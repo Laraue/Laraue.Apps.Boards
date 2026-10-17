@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.History;
+using Laraue.Apps.Boards.Services.Links;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -61,6 +62,28 @@ public interface IIssueMcpService
     Task<IssueDetail> GetIssue(
         OrganizationAuthData authData,
         string issueKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Links two issues: "<paramref name="issueKey"/> [<paramref name="relation"/>] <paramref name="otherIssueKey"/>",
+    /// <paramref name="relation"/> being an <see cref="IssueLinkRelation"/> name. Needs CanUpdateIssue on the
+    /// issue and CanRead on the other one - the same checks as REST's <c>IssueLinksService.AddLink</c>.
+    /// </summary>
+    Task CreateIssueLink(
+        OrganizationAuthData authData,
+        string issueKey,
+        string relation,
+        string otherIssueKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes the link between two issues, whatever its type, with the same checks as
+    /// <see cref="CreateIssueLink"/>.
+    /// </summary>
+    Task DeleteIssueLink(
+        OrganizationAuthData authData,
+        string issueKey,
+        string otherIssueKey,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -248,7 +271,8 @@ public interface IIssueMcpService
 /// </summary>
 /// <see cref="Url"/> is the issue's page in the web app, for handing the user a clickable link.
 /// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
-/// <see cref="StatusSummary"/>'s category.
+/// <see cref="StatusSummary"/>'s category. <see cref="IsBlocked"/>: an issue the caller can read blocks this
+/// one and isn't Completed yet (see <see cref="IssueDetail.Links"/>).
 public sealed record IssueSummary(
     string Key,
     string Url,
@@ -258,7 +282,8 @@ public sealed record IssueSummary(
     string StatusCategory,
     string Assignee,
     bool CanEdit,
-    bool CanDelete);
+    bool CanDelete,
+    bool IsBlocked);
 
 /// <summary>
 /// One page of <see cref="IssueSummary"/> results - same page/perPage/hasNextPage shape the REST
@@ -317,7 +342,8 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 /// <see cref="IIssueMcpService.DeleteIssue"/> will actually succeed before calling them, rather
 /// than discovering it via a thrown <see cref="ForbiddenException"/>.
 /// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
-/// <see cref="StatusSummary"/>'s category.
+/// <see cref="StatusSummary"/>'s category. <see cref="Links"/> are the issue's links to issues the caller can
+/// read.
 /// </summary>
 public sealed record IssueDetail(
     string Key,
@@ -333,7 +359,21 @@ public sealed record IssueDetail(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int CommentCount,
-    IReadOnlyList<IssueAttachmentSummary> Attachments);
+    IReadOnlyList<IssueAttachmentSummary> Attachments,
+    IReadOnlyList<IssueLinkSummary> Links);
+
+/// <summary>
+/// A link of an issue, from that issue's side: "this issue [<see cref="Relation"/>] <see cref="Key"/>".
+/// <see cref="Relation"/> is an <see cref="IssueLinkRelation"/> name - Blocks, BlockedBy, RelatesTo, Duplicates
+/// or DuplicatedBy. <see cref="Status"/> is null for an issue in its space's backlog.
+/// </summary>
+public sealed record IssueLinkSummary(
+    string Relation,
+    string Key,
+    string Title,
+    string? Status,
+    int StatusCategoryId,
+    string StatusCategory);
 
 /// <summary>A space, as returned by <see cref="IIssueMcpService.ListSpaces"/> - its
 /// <see cref="Key"/> is what <see cref="IIssueMcpService.ListIssues"/>'s <c>spaceKey</c> and
@@ -407,6 +447,8 @@ public class IssueMcpService(
     IDateTimeProvider dateTimeProvider,
     IIssueUrlBuilder issueUrlBuilder,
     IOrganizationHistoryReader historyReader,
+    IIssueLinksReader issueLinksReader,
+    ICoreIssueLinksService coreIssueLinksService,
     IMemberProfileReader memberProfileReader)
     : IIssueMcpService
 {
@@ -454,6 +496,7 @@ public class IssueMcpService(
                 .OrderByDescending(i => i.UpdatedAt)
                 .Select(i => new
                 {
+                    i.Id,
                     SpaceKey = i.IssueNumber!.Space!.Key,
                     i.IssueNumber.Number,
                     i.Title,
@@ -495,6 +538,15 @@ public class IssueMcpService(
                         .ToArrayAsyncEF(cancellationToken),
                     cancellationToken)).ToHashSet();
 
+            var blockedIssueIds = result.Data.Count == 0
+                ? []
+                : await issueLinksReader.GetBlockedIssueIds(
+                    result.Data
+                        .Select(x => x.Id)
+                        .ToArray(),
+                    await GetReadableSpaceIds(authData, cancellationToken),
+                    cancellationToken);
+
             var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
 
             var summaries = result.Data
@@ -507,7 +559,8 @@ public class IssueMcpService(
                     x.StatusCategory.ToString(),
                     x.Assignee.DisplayName,
                     spaceKeysWithUpdate.Contains(x.SpaceKey),
-                    spaceKeysWithDelete.Contains(x.SpaceKey)))
+                    spaceKeysWithDelete.Contains(x.SpaceKey),
+                    blockedIssueIds.Contains(x.Id)))
                 .ToList();
 
             return new IssueListPage(summaries, result.Page, result.HasNextPage);
@@ -549,6 +602,11 @@ public class IssueMcpService(
             .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
             .ToListAsyncEF(cancellationToken);
 
+        var links = await issueLinksReader.GetLinks(
+            issueId,
+            await GetReadableSpaceIds(authData, cancellationToken),
+            cancellationToken);
+
         var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
         await memberProfileReader.EnrichUsers(
             authData.OrganizationId,
@@ -569,7 +627,97 @@ public class IssueMcpService(
             issue.CreatedAt,
             issue.UpdatedAt,
             commentCount,
-            attachments);
+            attachments,
+            links
+                .Select(x => new IssueLinkSummary(
+                    x.Relation.ToString(),
+                    x.Key,
+                    x.Title,
+                    x.StatusName,
+                    (int)x.StatusCategory,
+                    x.StatusCategory.ToString()))
+                .ToList());
+    }
+
+    public async Task CreateIssueLink(
+        OrganizationAuthData authData,
+        string issueKey,
+        string relation,
+        string otherIssueKey,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.TryParse<IssueLinkRelation>(relation, ignoreCase: true, out var parsedRelation)
+            || !Enum.IsDefined(parsedRelation))
+            throw new BadRequestException(
+                nameof(relation),
+                string.Format(ErrorMessages.UnknownIssueLinkRelation, relation, string.Join(", ", Enum.GetNames<IssueLinkRelation>())));
+
+        var issueIds = await GetLinkedIssueIds(authData, issueKey, otherIssueKey, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreIssueLinksService.AddLink(
+            issueIds.IssueId,
+            parsedRelation,
+            issueIds.OtherIssueId,
+            authData.ToActor(),
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task DeleteIssueLink(
+        OrganizationAuthData authData,
+        string issueKey,
+        string otherIssueKey,
+        CancellationToken cancellationToken)
+    {
+        var issueIds = await GetLinkedIssueIds(authData, issueKey, otherIssueKey, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreIssueLinksService.RemoveLink(
+            issueIds.IssueId,
+            issueIds.OtherIssueId,
+            authData.ToActor(),
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private sealed record LinkedIssueIds(long IssueId, long OtherIssueId);
+
+    /// <summary>
+    /// Resolves both keys, checking CanUpdateIssue on the issue and CanRead on the other one. An issue the
+    /// caller can't read is reported as not found, not forbidden, so nobody learns it exists.
+    /// </summary>
+    private async Task<LinkedIssueIds> GetLinkedIssueIds(
+        OrganizationAuthData authData,
+        string issueKey,
+        string otherIssueKey,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(issueKey);
+        var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
+        await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
+            .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
+            .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
+
+        var otherKey = new IssueKey(otherIssueKey);
+        var otherIssueId = await GetIssueIdByIssueKey(authData.OrganizationId, otherKey, cancellationToken);
+        await accessService.GetAccessLevelsByIssueId(authData, otherIssueId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", otherKey))
+            .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", otherKey));
+
+        return new LinkedIssueIds(issueId, otherIssueId);
+    }
+
+    private Task<long[]> GetReadableSpaceIds(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        return accessService.GetAvailableSpaces(
+            authData,
+            query => query
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(cancellationToken),
+            includeDeleted: false,
+            cancellationToken);
     }
 
     public async Task<IssueHistoryPage> GetIssueHistory(

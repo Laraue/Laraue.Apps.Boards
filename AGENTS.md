@@ -716,12 +716,17 @@ exactly what a client receives (error results, metrics), drive a real MCP client
 
 Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`,
 `create_issue`/`edit_issue`/`delete_issue`, `create_comment`/`edit_comment`/`delete_comment`,
-`get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_epics`/`list_statuses`/
+`create_issue_link`/`delete_issue_link`, `get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_epics`/`list_statuses`/
 `list_attributes`/`list_members`. Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
 mutating tool maps to the REST API's own permission check (`CanCreateIssue` off the target status's
 epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for delete, owner-only for
 editing/deleting a comment). Design guardrails worth preserving:
 
+- **Issue links are their own tool pair**, unlike attachments: `edit_issue` requires the whole content and
+  title, so linking through it would make a caller re-send (and risk overwriting) the issue just to add a
+  link. `get_issue` returns `links` (relation from the issue's side, key, title, status category) and
+  `list_issues` an `isBlocked` flag, both through the shared `IssueLinksReader`. An issue the caller can't
+  read is a 404 on either end of a link and is left out of `links`.
 - **No separate attachment tool.** Attaching is `create_issue`/`edit_issue`'s `files` param;
   removing is `edit_issue`'s `removeAttachmentIds`. A per-file `add_attachment`/`remove_attachment`
   tool would just duplicate what `edit_issue` already does in one call.

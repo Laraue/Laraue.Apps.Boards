@@ -9,6 +9,7 @@ using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
+using Laraue.Apps.Boards.Services.Links;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -38,7 +39,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
     private const string WebAppUrl = "https://boards.example.com";
 
-    private static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
+    internal static IIssueMcpService CreateIssueMcpService(WebApiTestHostScope testScope)
     {
         return new IssueMcpService(
             testScope.Database,
@@ -50,10 +51,12 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<IDateTimeProvider>(),
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
             new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
+            new IssueLinksReader(testScope.Database),
+            testScope.Services.GetRequiredService<ICoreIssueLinksService>(),
             new MemberProfileReader(testScope.Database));
     }
 
-    private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
+    internal static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
     {
         return new OrganizationAuthData { OrganizationId = organizationId, UserId = userId, ApiKeyId = apiKeyId };
     }
