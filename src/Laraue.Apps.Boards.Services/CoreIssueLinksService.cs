@@ -157,7 +157,7 @@ public class CoreIssueLinksService(
     {
         context.Database.EnsureTransactionStarted();
 
-        await LockOrganizationLinks(organizationId, cancellationToken);
+        await context.Database.LockOrganizationIssueLinks(organizationId, cancellationToken);
 
         // The moved issues are in their new organization already, so the links to remove are the ones with one
         // issue still in organizationId and the other one elsewhere. Raw issues: a soft-deleted issue's links
@@ -288,7 +288,7 @@ public class CoreIssueLinksService(
     {
         var lockedOrganizationId = (await GetLinkedIssues(issueId, otherIssueId, cancellationToken)).OrganizationId;
 
-        await LockOrganizationLinks(lockedOrganizationId, cancellationToken);
+        await context.Database.LockOrganizationIssueLinks(lockedOrganizationId, cancellationToken);
 
         var issues = await GetLinkedIssues(issueId, otherIssueId, cancellationToken);
         if (issues.OrganizationId != lockedOrganizationId)
@@ -297,11 +297,6 @@ public class CoreIssueLinksService(
                 $"{issues.Issue.Name} was just moved to another organization. Try again.");
 
         return issues;
-    }
-
-    private Task LockOrganizationLinks(long organizationId, CancellationToken cancellationToken)
-    {
-        return context.Database.PgAdvisoryXactLock($"issue-links-{organizationId}", cancellationToken);
     }
 
     private Task<IssueLink?> FindLink(long issueId, long otherIssueId, CancellationToken cancellationToken)

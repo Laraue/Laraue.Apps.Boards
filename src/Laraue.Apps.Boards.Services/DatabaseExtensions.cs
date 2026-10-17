@@ -28,6 +28,18 @@ public static class DatabaseExtensions
     }
 
     /// <summary>
+    /// Serializes the issue link changes of an organization until the transaction ends, so the checks a
+    /// change makes ("one link per pair", no Blocks cycle) can't race with another change.
+    /// </summary>
+    public static Task LockOrganizationIssueLinks(
+        this DatabaseFacade facade,
+        long organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        return facade.PgAdvisoryXactLock($"issue-links-{organizationId}", cancellationToken);
+    }
+
+    /// <summary>
     /// Locks the matching users (<c>SELECT ... FOR UPDATE</c>) until the transaction ends. Rows are locked in
     /// id order so two transactions locking overlapping sets of users can't deadlock.
     /// </summary>
