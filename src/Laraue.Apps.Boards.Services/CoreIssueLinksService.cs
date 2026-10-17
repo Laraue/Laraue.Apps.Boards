@@ -39,12 +39,12 @@ public interface ICoreIssueLinksService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Call after a space or epic moved out of <paramref name="organizationId"/>: removes the links that now
-    /// cross organizations - between the moved issues and the ones that stayed - since a link never does.
-    /// Links among the moved issues themselves stay. Each removal is written to the history of both issues,
-    /// like <see cref="RemoveLink"/>.
+    /// Removes the links between issues of <paramref name="organizationId"/> and issues of other organizations,
+    /// which a link must never join. Call it after a space or epic moved out of <paramref name="organizationId"/>:
+    /// that is what leaves such links behind (links among the moved issues themselves stay). Each removal is
+    /// written to the history of both issues, like <see cref="RemoveLink"/>.
     /// </summary>
-    Task RemoveLinksLeavingOrganization(
+    Task RemoveCrossOrganizationLinks(
         long organizationId,
         Actor actor,
         CancellationToken cancellationToken);
@@ -149,7 +149,7 @@ public class CoreIssueLinksService(
             cancellationToken);
     }
 
-    public async Task RemoveLinksLeavingOrganization(
+    public async Task RemoveCrossOrganizationLinks(
         long organizationId,
         Actor actor,
         CancellationToken cancellationToken)

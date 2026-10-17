@@ -95,7 +95,7 @@ public class CoreMovementService(
         await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
 
         if (sourceData.OrganizationId != newOrganizationId)
-            await issueLinksService.RemoveLinksLeavingOrganization(
+            await issueLinksService.RemoveCrossOrganizationLinks(
                 sourceData.OrganizationId,
                 actor,
                 cancellationToken);
@@ -163,7 +163,7 @@ public class CoreMovementService(
         if (organizationWillChanged)
         {
             await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
-            await issueLinksService.RemoveLinksLeavingOrganization(
+            await issueLinksService.RemoveCrossOrganizationLinks(
                 organizationIdBySpaceId[spaceId],
                 actor,
                 cancellationToken);
@@ -238,7 +238,7 @@ public class CoreMovementService(
         if (organizationWillChanged)
         {
             await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
-            await issueLinksService.RemoveLinksLeavingOrganization(
+            await issueLinksService.RemoveCrossOrganizationLinks(
                 oldOrganizationId,
                 actor,
                 cancellationToken);
