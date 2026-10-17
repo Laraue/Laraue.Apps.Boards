@@ -1,6 +1,5 @@
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
@@ -23,21 +22,6 @@ public interface IIssueLinksService
     /// on the other one.
     /// </summary>
     Task RemoveLink(RemoveIssueLinkRequest request, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// The issue's links to active issues the caller can read, each with its meaning from this issue's side,
-    /// ordered by that meaning. No permission check on the issue itself: the caller has checked CanRead.
-    /// </summary>
-    Task<IssueLinkDto[]> GetLinks(OrganizationAuthData authData, long issueId, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Which of <paramref name="issueIds"/> are blocked: some active issue the caller can read blocks them
-    /// and isn't in a Completed status.
-    /// </summary>
-    Task<HashSet<long>> GetBlockedIssueIds(
-        OrganizationAuthData authData,
-        IReadOnlyCollection<long> issueIds,
-        CancellationToken cancellationToken);
 }
 
 public class IssueLinksService(
@@ -79,90 +63,6 @@ public class IssueLinksService(
             request.AuthData.UserId,
             cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-    }
-
-    public async Task<IssueLinkDto[]> GetLinks(
-        OrganizationAuthData authData,
-        long issueId,
-        CancellationToken cancellationToken)
-    {
-        var readableSpaceIds = await GetReadableSpaceIds(authData, cancellationToken);
-
-        var outgoing = context.IssueLinks
-            .Where(x => x.SourceIssueId == issueId)
-            .Select(x => new { x.Type, IsSource = true, OtherIssueId = x.TargetIssueId });
-
-        var incoming = context.IssueLinks
-            .Where(x => x.TargetIssueId == issueId)
-            .Select(x => new { x.Type, IsSource = false, OtherIssueId = x.SourceIssueId });
-
-        var links = await outgoing
-            .Concat(incoming)
-            .Join(
-                context.ActiveIssues()
-                    .Where(x => readableSpaceIds.Contains(x.Status!.Epic!.SpaceId)),
-                link => link.OtherIssueId,
-                issue => issue.Id,
-                (link, issue) => new
-                {
-                    link.Type,
-                    link.IsSource,
-                    issue.Title,
-                    SpaceKey = issue.IssueNumber!.Space!.Key,
-                    issue.IssueNumber.Number,
-                    StatusName = issue.Status!.Epic!.IsDefault ? null : issue.Status.Name,
-                    StatusColor = issue.Status.Epic.IsDefault ? null : issue.Status.Color,
-                    StatusCategory = issue.Status.Category,
-                })
-            .ToArrayAsyncEF(cancellationToken);
-
-        return links
-            .Select(x => new IssueLinkDto
-            {
-                Relation = x.Type.ToRelation(x.IsSource),
-                Key = new IssueKey(x.SpaceKey, x.Number).ToString(),
-                Title = x.Title,
-                StatusName = x.StatusName,
-                StatusColor = x.StatusColor,
-                StatusCategory = x.StatusCategory,
-            })
-            .OrderBy(x => x.Relation)
-            .ThenBy(x => x.Key)
-            .ToArray();
-    }
-
-    public async Task<HashSet<long>> GetBlockedIssueIds(
-        OrganizationAuthData authData,
-        IReadOnlyCollection<long> issueIds,
-        CancellationToken cancellationToken)
-    {
-        if (issueIds.Count == 0)
-            return [];
-
-        var readableSpaceIds = await GetReadableSpaceIds(authData, cancellationToken);
-
-        var blockedIssueIds = await context.IssueLinks
-            .Where(x => x.Type == IssueLinkType.Blocks)
-            .Where(x => issueIds.Contains(x.TargetIssueId))
-            .Where(x => x.SourceIssue!.DeletedAt == null)
-            .Where(x => x.SourceIssue!.Status!.Category != StatusCategory.Completed)
-            .Where(x => readableSpaceIds.Contains(x.SourceIssue!.Status!.Epic!.SpaceId))
-            .Select(x => x.TargetIssueId)
-            .Distinct()
-            .ToArrayAsyncEF(cancellationToken);
-
-        return blockedIssueIds.ToHashSet();
-    }
-
-    private Task<long[]> GetReadableSpaceIds(OrganizationAuthData authData, CancellationToken cancellationToken)
-    {
-        return accessService.GetAvailableSpaces(
-            authData,
-            query => query
-                .Select(x => x.Id)
-                .ToArrayAsyncEF(cancellationToken),
-            includeDeleted: false,
-            cancellationToken);
     }
 
     private sealed record LinkedIssueIds(long IssueId, long OtherIssueId);
@@ -226,19 +126,4 @@ public record RemoveIssueLinkRequest
     public OrganizationAuthData AuthData { get; set; }
     public required string IssueKey { get; init; }
     public required string OtherIssueKey { get; init; }
-}
-
-/// <summary>
-/// A link of an issue, seen from that issue's side: "this issue [<see cref="Relation"/>] <see cref="Key"/>".
-/// </summary>
-public record IssueLinkDto
-{
-    public required IssueLinkRelation Relation { get; init; }
-    public required string Key { get; init; }
-    public required string Title { get; init; }
-
-    /// <summary>Null for an issue in its space's backlog, which has no visible status.</summary>
-    public required string? StatusName { get; init; }
-    public required string? StatusColor { get; init; }
-    public required StatusCategory StatusCategory { get; init; }
 }

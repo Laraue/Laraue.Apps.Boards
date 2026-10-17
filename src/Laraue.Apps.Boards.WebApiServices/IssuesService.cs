@@ -10,6 +10,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
+using Laraue.Apps.Boards.Services.Links;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Billing;
@@ -105,7 +106,7 @@ public class IssuesService(
     ITokenEstimate tokenEstimate,
     IUsageLimitService usageLimitService,
     IMemberProfileReader memberProfileReader,
-    IIssueLinksService issueLinksService,
+    IIssueLinksReader issueLinksReader,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -745,7 +746,10 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
-            Links = await issueLinksService.GetLinks(request.AuthData, issueId, cancellationToken),
+            Links = await issueLinksReader.GetLinks(
+                issueId,
+                await GetReadableSpaceIds(request.AuthData, cancellationToken),
+                cancellationToken),
         };
 
         await memberProfileReader.EnrichUsers(
@@ -1185,15 +1189,29 @@ public class IssuesService(
         IList<IssueListDto> elements,
         CancellationToken ct)
     {
-        var blockedIssueIds = await issueLinksService.GetBlockedIssueIds(
-            authData,
+        if (elements.Count == 0)
+            return;
+
+        var blockedIssueIds = await issueLinksReader.GetBlockedIssueIds(
             elements
                 .Select(x => x.Id)
                 .ToArray(),
+            await GetReadableSpaceIds(authData, ct),
             ct);
 
         foreach (var element in elements)
             element.IsBlocked = blockedIssueIds.Contains(element.Id);
+    }
+
+    private Task<long[]> GetReadableSpaceIds(OrganizationAuthData authData, CancellationToken ct)
+    {
+        return accessService.GetAvailableSpaces(
+            authData,
+            query => query
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(ct),
+            includeDeleted: false,
+            ct);
     }
 
     private async Task EnrichAttributes(IList<IssueListDto> elements, CancellationToken ct)

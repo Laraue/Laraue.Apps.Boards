@@ -206,8 +206,9 @@ Solution: `Laraue.Apps.Boards.sln`
   (`WebApiServices.OrganizationHistoryService`, `IssueMcpService.GetIssueHistory`), then passes the ids
   in. Its DTOs (`OrganizationHistoryItem`, `HistoryItemChange` subtypes, `UserDetails`) moved with it;
   OpenAPI schema names are type names, so the REST contract and the frontend's generated types didn't
-  change. Only reach for this when a read's mapping is genuinely shared and non-trivial - a plain query
-  still belongs in the host's own service.
+  change. `Services.Links.IssueLinksReader` (an issue's links, and which issues are blocked) follows the
+  same shape: no permission checks, the caller passes the spaces it may read. Only reach for this when a
+  read's mapping is genuinely shared and non-trivial - a plain query still belongs in the host's own service.
 - `WebApiServices` and `TelegramServices` sit on top of core and hold logic specific to their own
   surface (request/response shaping, Telegram formatting and commands, permission checks tied to
   that surface's flow, etc.). They call into core services rather than duplicating their logic.
