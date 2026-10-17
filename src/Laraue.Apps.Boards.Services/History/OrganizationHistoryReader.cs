@@ -392,6 +392,12 @@ public class OrganizationHistoryReader(
                 OldSpaceName = item.OldDisplayValue,
                 OldSpaceColor = item.OldValueId is not null ? spacesColors[item.OldValueId] : null,
             },
+            PropertyType.AgentRun => new IssueHistoryAgentRunChange
+            {
+                RunId = long.Parse(item.ParentId!),
+                OldState = item.OldValueId is not null ? (AgentRunState)int.Parse(item.OldValueId) : null,
+                NewState = (AgentRunState)int.Parse(item.NewValueId!),
+            },
             _ => throw new InvalidOperationException($"Change of type {item.PropertyType} is not supported yet")
         };
     }

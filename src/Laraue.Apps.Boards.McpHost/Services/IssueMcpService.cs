@@ -317,7 +317,8 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 /// <see cref="IIssueMcpService.DeleteIssue"/> will actually succeed before calling them, rather
 /// than discovering it via a thrown <see cref="ForbiddenException"/>.
 /// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
-/// <see cref="StatusSummary"/>'s category.
+/// <see cref="StatusSummary"/>'s category. <see cref="LatestAgentRun"/> is the issue's most recent agent run
+/// (null when it was never handed to the agent) - its state tells whether an agent is on it.
 /// </summary>
 public sealed record IssueDetail(
     string Key,
@@ -333,7 +334,8 @@ public sealed record IssueDetail(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int CommentCount,
-    IReadOnlyList<IssueAttachmentSummary> Attachments);
+    IReadOnlyList<IssueAttachmentSummary> Attachments,
+    AgentRunSummary? LatestAgentRun);
 
 /// <summary>A space, as returned by <see cref="IIssueMcpService.ListSpaces"/> - its
 /// <see cref="Key"/> is what <see cref="IIssueMcpService.ListIssues"/>'s <c>spaceKey</c> and
@@ -407,7 +409,8 @@ public class IssueMcpService(
     IDateTimeProvider dateTimeProvider,
     IIssueUrlBuilder issueUrlBuilder,
     IOrganizationHistoryReader historyReader,
-    IMemberProfileReader memberProfileReader)
+    IMemberProfileReader memberProfileReader,
+    IAgentRunMcpService agentRunMcpService)
     : IIssueMcpService
 {
     private const int MaxResults = 50;
@@ -555,6 +558,8 @@ public class IssueMcpService(
             [issue.Assignee],
             cancellationToken);
 
+        var latestAgentRun = await agentRunMcpService.GetLatestRun(authData.OrganizationId, issueId, cancellationToken);
+
         return new IssueDetail(
             key.ToString(),
             issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
@@ -569,7 +574,8 @@ public class IssueMcpService(
             issue.CreatedAt,
             issue.UpdatedAt,
             commentCount,
-            attachments);
+            attachments,
+            latestAgentRun);
     }
 
     public async Task<IssueHistoryPage> GetIssueHistory(
@@ -626,6 +632,7 @@ public class IssueMcpService(
                 : $"attachment removed: {c.FileName}",
             IssueHistoryEpicChange c => $"epic: {c.OldEpicName ?? "none"} -> {c.NewEpicName ?? "none"}",
             IssueHistorySpaceChange c => $"space: {c.OldSpaceName ?? "none"} -> {c.NewSpaceName ?? "none"}",
+            IssueHistoryAgentRunChange c => $"agent run {c.RunId}: {c.OldState?.ToString() ?? "none"} -> {c.NewState}",
             _ => change.GetType().Name,
         };
     }

@@ -45,6 +45,9 @@
     <data name="FileTooLarge" xml:space="preserve">
         <value>File '{0}': size is limited to 3MB</value>
     </data>
+    <data name="AgentRunFinishStateInvalid" xml:space="preserve">
+        <value>A run can only be finished as Done or Failed</value>
+    </data>
     <data name="AttachmentTooLargeToDownload" xml:space="preserve">
         <value>Attachment: {0} exceeds the 3MB download limit</value>
     </data>

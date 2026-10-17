@@ -148,6 +148,7 @@ public class IssuesService(
             .ToArray();
         
         await EnrichAttributes(projected, cancellationToken);
+        await EnrichAgentRuns(projected, cancellationToken);
 
         return new BatchResult<IssueListDto>
         {
@@ -246,6 +247,7 @@ public class IssuesService(
             .ToList();
         
         await EnrichAttributes(allData, cancellationToken);
+        await EnrichAgentRuns(allData, cancellationToken);
 
         return result.ToArray();
     }
@@ -636,6 +638,7 @@ public class IssuesService(
 
         var mapped = temporaryResult.MapTo(Map);
         await EnrichAttributes(mapped.Data, ct);
+        await EnrichAgentRuns(mapped.Data, ct);
         
         var result = await MapToSearchDtos(request.AuthData, mapped.Data, ct);
         return new ShortPaginatedResult<SearchIssueDto>(
@@ -712,6 +715,12 @@ public class IssuesService(
 
         var media = await GetAttachments(result.Id, cancellationToken);
 
+        var latestAgentRun = await context.IssueAgentRuns
+            .Where(r => r.IssueId == issueId)
+            .OrderByDescending(r => r.Id)
+            .Select(AgentRunDto.Projection)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
         var issue = new IssueDetailDto
         {
             Id = result.Id,
@@ -741,6 +750,7 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
+            LatestAgentRun = latestAgentRun,
         };
 
         await memberProfileReader.EnrichUsers(
@@ -1090,6 +1100,7 @@ public class IssuesService(
                 Time = element.Time,
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
+                LatestAgentRun = element.LatestAgentRun,
                 CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceKey),
             });
         }
@@ -1172,6 +1183,25 @@ public class IssuesService(
         var result = await GetIssuesAttributeValues([issueId], cancellationToken);
 
         return result.GetValueOrDefault(issueId, new Dictionary<long, string>());
+    }
+
+    /// <summary>
+    /// Sets each issue's latest agent run (BRD-305) - what the card's agent badge shows.
+    /// </summary>
+    private async Task EnrichAgentRuns(IList<IssueListDto> elements, CancellationToken ct)
+    {
+        var ids = elements.Select(x => x.Id).ToArray();
+        if (ids.Length == 0)
+            return;
+
+        var latestRuns = await context.IssueAgentRuns
+            .Where(r => ids.Contains(r.IssueId))
+            .Where(r => !context.IssueAgentRuns.Any(o => o.IssueId == r.IssueId && o.Id > r.Id))
+            .Select(r => new { r.IssueId, Run = new IssueAgentRunShortDto { Id = r.Id, State = r.State } })
+            .ToDictionaryAsyncEF(x => x.IssueId, x => x.Run, ct);
+
+        foreach (var element in elements)
+            element.LatestAgentRun = latestRuns.GetValueOrDefault(element.Id);
     }
 
     private async Task EnrichAttributes(IList<IssueListDto> elements, CancellationToken ct)
@@ -1692,6 +1722,17 @@ public record IssueListDto
     public required long StatusId { get; set; }
     public required string SpaceKey { get; set; }
     public List<IssueListAttributeDto> Attributes { get; set; } = [];
+
+    /// <summary>
+    /// The issue's most recent agent run, null when it was never handed to the agent.
+    /// </summary>
+    public IssueAgentRunShortDto? LatestAgentRun { get; set; }
+}
+
+public record IssueAgentRunShortDto
+{
+    public required long Id { get; set; }
+    public required AgentRunState State { get; set; }
 }
 
 public record IssueListAttributeDto
@@ -1908,6 +1949,11 @@ public class IssueDetailDto
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
+
+    /// <summary>
+    /// The issue's most recent agent run, null when it was never handed to the agent.
+    /// </summary>
+    public required AgentRunDto? LatestAgentRun { get; set; }
 }
 
 public record CommentDto

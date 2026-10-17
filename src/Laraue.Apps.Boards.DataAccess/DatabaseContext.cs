@@ -46,7 +46,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
     public DbSet<LinkedTelegramChat> LinkedTelegramChats { get; init; }
     public DbSet<ApiKey> ApiKeys { get; init; }
-    
+    public DbSet<IssueAgentRun> IssueAgentRuns { get; init; }
+
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
     public DbSet<IssueAttributeListValue> IssueAttributeListValues { get; set; }
@@ -247,6 +248,29 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsUnique();
 
             entity.HasIndex(x => new { x.OrganizationId, x.CreatedByUserId });
+        });
+
+        modelBuilder.Entity<IssueAgentRun>(entity =>
+        {
+            // The race-free "one open run per issue" check: a second Ready/Working row for the same
+            // issue is a unique violation. 0 = Ready, 1 = Working (AgentRunState).
+            entity
+                .HasIndex(x => x.IssueId)
+                .IsUnique()
+                .HasDatabaseName(Constraints.OpenAgentRunIndexName)
+                .HasFilter("state IN (0, 1)");
+
+            // The latest run of an issue, and the runs of an issue in order.
+            entity.HasIndex(x => new { x.IssueId, x.Id });
+
+            entity.HasIndex(x => x.State);
+
+            // Revoking (deleting) the runner's key must not lose the run - it only loses that attribution.
+            entity
+                .HasOne(x => x.ClaimedByApiKey)
+                .WithMany()
+                .HasForeignKey(x => x.ClaimedByApiKeyId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Retro>(entity =>

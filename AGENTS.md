@@ -716,7 +716,8 @@ exactly what a client receives (error results, metrics), drive a real MCP client
 Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`,
 `create_issue`/`edit_issue`/`delete_issue`, `create_comment`/`edit_comment`/`delete_comment`,
 `get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_epics`/`list_statuses`/
-`list_attributes`/`list_members`. Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
+`list_attributes`/`list_members`, and the agent-run tools `create_agent_run`/`list_agent_runs`/
+`claim_agent_run`/`finish_agent_run`/`cancel_agent_run` (see "Agent runs" below). Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
 mutating tool maps to the REST API's own permission check (`CanCreateIssue` off the target status's
 epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for delete, owner-only for
 editing/deleting a comment). Design guardrails worth preserving:
@@ -770,6 +771,17 @@ editing/deleting a comment). Design guardrails worth preserving:
   layering") and flattens each change into a readable line (`status: To Do -> Done`, `attachment
   added: x.png`; content shortened to 200 chars) instead of REST's UI-oriented objects with
   colors/preview ids. Existing issues only - like every MCP tool, a deleted issue's key isn't found.
+
+**Agent runs** (BRD-305, `IssueAgentRun`, `ICoreAgentRunsService`, `AgentRunMcpService`/`AgentRunTools`,
+REST `AgentRunsController`) - handing an issue to a coding agent that runs on the user's own machine. One row per
+hand-off (Ready -> Working -> Done/Failed, or Cancelled by a person); a retry is a new row. A partial unique index
+(`Constraints.OpenAgentRunIndexName`, `state IN (0, 1)`) allows one open run per issue - a second hand-off is
+detected by the violation itself (400), like a duplicate space key. Every transition is one conditional `UPDATE
+... WHERE State = expected` (`ExecuteUpdateAsync`), returning false to the loser, so two runners claiming the same
+run get exactly one `true` - no row lock, and `edit_issue_status` is untouched (the runner moves the issue itself
+after claiming). Each transition is an `OrganizationLog` item (`PropertyType.AgentRun`, the run id in
+`ParentId`, the state numbers in the value ids), so history shows the API key the runner used. Every action
+needs `CanUpdateIssue` (reads `CanRead`). `get_issue` and the web card/detail return the latest run.
 
 **Text length limits**: free-text arguments (issue title/content, comment text, `edit_issue_status`'s comment) carry `[MaxLength(Constraints.*)]` on the tool parameter and say the limit in their description. The SDK writes it into the tool's input schema as `maxLength`, and `McpArgumentValidator` (run by `McpToolCallFilter`) rejects a longer value as a readable `BadRequest` naming the argument, instead of a database error. The attribute is the single source of the limit - don't re-check it in `IssueMcpService`. Add it to any new text argument.
 

@@ -40,4 +40,10 @@ public enum PropertyType
     Epic,
     Space,
     Title,
+
+    /// <summary>
+    /// An agent run of the issue changed state (<see cref="IssueAgentRun"/>): <see cref="OrganizationLogItem.ParentId"/>
+    /// is the run id, the value ids/display values the old and new <c>AgentRunState</c> (number/name).
+    /// </summary>
+    AgentRun,
 }

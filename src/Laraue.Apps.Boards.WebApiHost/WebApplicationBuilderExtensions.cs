@@ -50,6 +50,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IBillingService, BillingService>()
                 .AddScoped<IMovementService, MovementService>()
                 .AddScoped<IApiKeysService, ApiKeysService>()
+                .AddScoped<IAgentRunsService, AgentRunsService>()
                 .AddScoped<IUserFeedbackService, UserFeedbackService>();
 
             builder.Services

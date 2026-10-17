@@ -40,6 +40,7 @@ public sealed class Program
             .AddDatabaseServices(dbConnectionStringName);
 
         builder.Services.AddScoped<IIssueMcpService, IssueMcpService>();
+        builder.Services.AddScoped<IAgentRunMcpService, AgentRunMcpService>();
 
         // For each issue's web app link (get_issue/list_issues' url).
         builder.AddValidatedOptions<WebAppOptions>("AppOptions");

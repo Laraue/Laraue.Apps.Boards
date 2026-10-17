@@ -34,7 +34,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), and url - the issue's page in the web app, to give the user as a link.")]
+    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), url - the issue's page in the web app, to give the user as a link, and latestAgentRun - the issue's most recent agent run (null if it was never handed to the agent), whose state says whether an agent is on it.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
