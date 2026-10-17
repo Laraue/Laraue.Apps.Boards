@@ -4,7 +4,6 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
-using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -298,27 +297,24 @@ public class CoreIssueLinksService(
     /// </summary>
     private async Task<bool> IsBlockedTransitively(long blockerId, long blockedId, CancellationToken cancellationToken)
     {
-        // Runs on the EF Core connection, inside the caller's transaction.
-        await using var db = context.CreateLinqToDBConnection();
+        // UNION (not UNION ALL) drops the issues already reached, so the walk ends even if the table holds a
+        // cycle through a soft-deleted issue.
+        var blocksType = (int)IssueLinkType.Blocks;
 
-        // WITH RECURSIVE: the issues blockedId blocks, directly or not. Union (not UNION ALL) drops the issues
-        // already reached, so the walk ends even if the table holds a cycle through a soft-deleted issue.
-        var blockedIssues = db.GetCte<BlockedIssue>(blocked => db.GetTable<Issue>()
-            .Where(x => x.Id == blockedId)
-            .Select(x => new BlockedIssue { IssueId = x.Id })
-            .Union(
-                from link in db.GetTable<IssueLink>()
-                join b in blocked on link.SourceIssueId equals b.IssueId
-                join target in db.GetTable<Issue>() on link.TargetIssueId equals target.Id
-                where link.Type == IssueLinkType.Blocks && target.DeletedAt == null
-                select new BlockedIssue { IssueId = link.TargetIssueId }));
-
-        return await blockedIssues.AnyAsyncLinqToDB(x => x.IssueId == blockerId, cancellationToken);
-    }
-
-    private sealed class BlockedIssue
-    {
-        public long IssueId { get; init; }
+        return await context.Database
+            .SqlQuery<bool>($"""
+                WITH RECURSIVE blocked(issue_id) AS (
+                    SELECT {blockedId}::bigint
+                    UNION
+                    SELECT l.target_issue_id
+                    FROM issue_links l
+                    JOIN blocked b ON b.issue_id = l.source_issue_id
+                    JOIN issues i ON i.id = l.target_issue_id AND i.deleted_at IS NULL
+                    WHERE l.type = {blocksType}
+                )
+                SELECT EXISTS (SELECT 1 FROM blocked WHERE issue_id = {blockerId}) AS "Value"
+                """)
+            .SingleAsync(cancellationToken);
     }
 
     /// <summary>One end of a link: the issue's id and key, and the organization its history is written to.</summary>
