@@ -227,10 +227,10 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Creates a comment on an issue and returns its id. The text is limited to 4096 characters.")]
+    [Description("Adds a new comment to an issue, posted as you (the API key's owner; the issue's history also names the key), and returns the comment's id - what edit_comment/delete_comment take. Requires canEdit on the issue (see get_issue/list_issues); an issue you can't read is reported as not found. Everyone who can read the issue sees the comment; no notification is sent. Only you can later edit or delete it. Use it for discussion and progress notes; to change an existing comment use edit_comment, to note why while moving the issue pass edit_issue_status's comment instead, and to change the issue's own text use edit_issue.")]
     public Task<long> CreateComment(
-        [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
-        [Description("The comment's text, max 4096 characters.")] [MaxLength(Constraints.MaxCommentLength)] string text,
+        [Description("The issue to comment on, e.g. 'BRD-42' - a key from list_issues or get_issue.")] string issueKey,
+        [Description("The comment's text, max 4096 characters. Plain text or markdown.")] [MaxLength(Constraints.MaxCommentLength)] string text,
         CancellationToken cancellationToken)
     {
         return issueMcpService.CreateComment(GetAuthData(), issueKey, text, cancellationToken);
