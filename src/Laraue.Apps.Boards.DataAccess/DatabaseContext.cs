@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Telegram.NET.Interceptors.EFCore;
 using Laraue.Telegram.NET.UpdatesQueue.EFCore;
 using Laraue.Telegram.NET.UpdatesQueue.EFCore.DataAccess;
@@ -46,6 +47,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
     public DbSet<LinkedTelegramChat> LinkedTelegramChats { get; init; }
     public DbSet<ApiKey> ApiKeys { get; init; }
+    public DbSet<IssueLink> IssueLinks { get; init; }
     
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
@@ -94,6 +96,34 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .WithMany()
                 .HasForeignKey(x => x.DeletedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<IssueLink>(entity =>
+        {
+            // One link per pair of issues, whatever its type and direction, is the unique expression
+            // index Constraints.IssueLinkPairIndexName, created by raw SQL in the AddIssueLinks migration.
+            // The foreign key indexes below cover reading an issue's links from either side.
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("ck_issue_links_not_self", "source_issue_id <> target_issue_id");
+
+                // RelatesTo is symmetric and stored once: the lower id is always the source.
+                table.HasCheckConstraint(
+                    "ck_issue_links_relates_to_ordered",
+                    $"type <> {(int)IssueLinkType.RelatesTo} OR source_issue_id < target_issue_id");
+            });
+
+            entity
+                .HasOne(x => x.SourceIssue)
+                .WithMany(x => x.OutgoingLinks)
+                .HasForeignKey(x => x.SourceIssueId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity
+                .HasOne(x => x.TargetIssue)
+                .WithMany(x => x.IncomingLinks)
+                .HasForeignKey(x => x.TargetIssueId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<IssueNumber>(entity =>
