@@ -405,6 +405,46 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         Assert.Equal(targetOrganization.Id, await GetLinkRemovalLogOrganization(testScope, moved.Id));
     }
 
+    [Fact]
+    public async Task MoveSpace_ShouldRemoveEveryCrossOrganizationLink_WhenThereAreMoreThanOneBatch()
+    {
+        const int linkCount = 501;
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var sourceOrganization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "MOV", s => s.AddEpic(userId, e =>
+                {
+                    for (var i = 0; i < linkCount; i++)
+                        e.AddIssue(userId, 0);
+                }))
+                .AddIssueToDefaultStatus(userId));
+        var targetOrganization = await testScope.InitializeOrganization(userId);
+        var leftBehind = sourceOrganization.GetIssueData(0, 0, 0, 0).Issue;
+        testScope.Database.IssueLinks.AddRange(Enumerable.Range(0, linkCount)
+            .Select(i => sourceOrganization.GetIssueData(1, 1, 0, i).Issue)
+            .Select(moved => new IssueLink
+            {
+                Type = IssueLinkType.Blocks,
+                SourceIssueId = leftBehind.Id,
+                TargetIssueId = moved.Id,
+                CreatedAt = DateTime.UtcNow,
+                CreatedByUserId = userId,
+            }));
+        await testScope.Database.SaveChangesAsync();
+
+        await _controller
+            .WithOrganizationAuthorization(sourceOrganization.Id, userId)
+            .Execute(x => x.MoveSpace(sourceOrganization.GetSpace(1).Key, targetOrganization.Id));
+
+        Assert.False(await testScope.Database.IssueLinks.AnyAsync(x => x.SourceIssueId == leftBehind.Id));
+        Assert.Equal(linkCount, await testScope.Database.OrganizationLogs
+            .CountAsync(x => x.EntityId == leftBehind.Id && x.OrganizationId == sourceOrganization.Id));
+        Assert.Equal(linkCount, await testScope.Database.OrganizationLogs
+            .CountAsync(x => x.EntityId != leftBehind.Id && x.OrganizationId == targetOrganization.Id));
+    }
+
     private static async Task AddLink(
         WebApiTestHostScope testScope,
         long issueId,

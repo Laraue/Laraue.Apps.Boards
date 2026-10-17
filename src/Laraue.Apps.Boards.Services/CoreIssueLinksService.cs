@@ -12,7 +12,9 @@ namespace Laraue.Apps.Boards.Services;
 /// <summary>
 /// Adds and removes <see cref="IssueLink"/>s. Both methods must run inside a transaction opened by the
 /// caller, and check no permissions - the caller checks CanUpdateIssue on <c>issueId</c> and CanRead on
-/// <c>otherIssueId</c> first. Each change is written to the history of both issues.
+/// <c>otherIssueId</c> first. Each change is written to the history of both issues - built here rather than
+/// through <see cref="IIssueHistoryService"/>, which saves one row per call, so a change's rows (or a whole
+/// batch of them) are saved together.
 /// </summary>
 public interface ICoreIssueLinksService
 {
@@ -52,7 +54,6 @@ public interface ICoreIssueLinksService
 
 public class CoreIssueLinksService(
     DatabaseContext context,
-    IIssueHistoryService historyService,
     IOrganizationLogItemFactory logItemFactory,
     IDateTimeProvider dateTimeProvider)
     : ICoreIssueLinksService
@@ -108,14 +109,14 @@ public class CoreIssueLinksService(
         context.IssueLinks.Add(link);
         await context.SaveChangesAsync(cancellationToken);
 
-        await RecordOnBothIssues(
+        context.OrganizationLogs.AddRange(CreateLogsForBothIssues(
             new LinkSide(issues.OrganizationId, issues.Issue),
             relation,
             new LinkSide(issues.OrganizationId, issues.OtherIssue),
             actor,
             now,
-            logItemFactory.IssueLinkAdded,
-            cancellationToken);
+            logItemFactory.IssueLinkAdded));
+        await context.SaveChangesAsync(cancellationToken);
 
         return link.Id;
     }
@@ -139,14 +140,14 @@ public class CoreIssueLinksService(
             .Where(x => x.Id == link.Id)
             .ExecuteDeleteAsync(cancellationToken);
 
-        await RecordOnBothIssues(
+        context.OrganizationLogs.AddRange(CreateLogsForBothIssues(
             new LinkSide(issues.OrganizationId, issues.Issue),
             relation,
             new LinkSide(issues.OrganizationId, issues.OtherIssue),
             actor,
             dateTimeProvider.UtcNow,
-            logItemFactory.IssueLinkRemoved,
-            cancellationToken);
+            logItemFactory.IssueLinkRemoved));
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task RemoveCrossOrganizationLinks(
@@ -161,64 +162,81 @@ public class CoreIssueLinksService(
         // The moved issues are in their new organization already, so the links to remove are the ones with one
         // issue still in organizationId and the other one elsewhere. Raw issues: a soft-deleted issue's links
         // are only hidden, they must not cross organizations either.
-        var links = await context.IssueLinks
-            .Select(x => new
-            {
-                Link = x,
-                SourceOrganizationId = x.SourceIssue!.Status!.Epic!.Space!.OrganizationId,
-                TargetOrganizationId = x.TargetIssue!.Status!.Epic!.Space!.OrganizationId,
-            })
-            .Where(x =>
-                (x.SourceOrganizationId == organizationId && x.TargetOrganizationId != organizationId)
-                || (x.SourceOrganizationId != organizationId && x.TargetOrganizationId == organizationId))
-            .Select(x => x.Link)
+        var crossingLinks = context.IssueLinks
             .Select(x => new
             {
                 x.Id,
                 x.Type,
                 Source = new
                 {
-                    x.SourceIssueId,
+                    IssueId = x.SourceIssueId,
                     x.SourceIssue!.Status!.Epic!.Space!.OrganizationId,
                     SpaceKey = x.SourceIssue.IssueNumber!.Space!.Key,
                     x.SourceIssue.IssueNumber.Number,
                 },
                 Target = new
                 {
-                    x.TargetIssueId,
+                    IssueId = x.TargetIssueId,
                     x.TargetIssue!.Status!.Epic!.Space!.OrganizationId,
                     SpaceKey = x.TargetIssue.IssueNumber!.Space!.Key,
                     x.TargetIssue.IssueNumber.Number,
                 },
             })
-            .ToListAsyncEF(cancellationToken);
-
-        if (links.Count == 0)
-            return;
-
-        var linkIds = links.Select(x => x.Id).ToArray();
-        await context.IssueLinks
-            .Where(x => linkIds.Contains(x.Id))
-            .ExecuteDeleteAsync(cancellationToken);
+            .Where(x =>
+                (x.Source.OrganizationId == organizationId && x.Target.OrganizationId != organizationId)
+                || (x.Source.OrganizationId != organizationId && x.Target.OrganizationId == organizationId));
 
         var now = dateTimeProvider.UtcNow;
 
-        foreach (var link in links)
+        // A batch at a time: each one is deleted before the next is read, so the same query returns the next
+        // batch. Its history rows are saved together and detached afterwards, so neither memory nor the change
+        // tracker grows with the number of links.
+        while (true)
         {
-            await RecordOnBothIssues(
-                new LinkSide(
-                    link.Source.OrganizationId,
-                    new IdName<long>(link.Source.SourceIssueId, new IssueKey(link.Source.SpaceKey, link.Source.Number).ToString())),
-                link.Type.ToRelation(isSource: true),
-                new LinkSide(
-                    link.Target.OrganizationId,
-                    new IdName<long>(link.Target.TargetIssueId, new IssueKey(link.Target.SpaceKey, link.Target.Number).ToString())),
-                actor,
-                now,
-                logItemFactory.IssueLinkRemoved,
-                cancellationToken);
+            var links = await crossingLinks
+                .OrderBy(x => x.Id)
+                .Take(CrossOrganizationLinksBatchSize)
+                .ToListAsyncEF(cancellationToken);
+
+            if (links.Count == 0)
+                return;
+
+            var linkIds = links.Select(x => x.Id).ToArray();
+            await context.IssueLinks
+                .Where(x => linkIds.Contains(x.Id))
+                .ExecuteDeleteAsync(cancellationToken);
+
+            var logs = links
+                .SelectMany(link => CreateLogsForBothIssues(
+                    new LinkSide(
+                        link.Source.OrganizationId,
+                        new IdName<long>(link.Source.IssueId, new IssueKey(link.Source.SpaceKey, link.Source.Number).ToString())),
+                    link.Type.ToRelation(isSource: true),
+                    new LinkSide(
+                        link.Target.OrganizationId,
+                        new IdName<long>(link.Target.IssueId, new IssueKey(link.Target.SpaceKey, link.Target.Number).ToString())),
+                    actor,
+                    now,
+                    logItemFactory.IssueLinkRemoved))
+                .ToArray();
+
+            context.OrganizationLogs.AddRange(logs);
+            await context.SaveChangesAsync(cancellationToken);
+
+            foreach (var log in logs)
+            {
+                foreach (var item in log.Items!)
+                    context.Entry(item).State = EntityState.Detached;
+
+                context.Entry(log).State = EntityState.Detached;
+            }
+
+            if (links.Count < CrossOrganizationLinksBatchSize)
+                return;
         }
     }
+
+    private const int CrossOrganizationLinksBatchSize = 500;
 
     /// <param name="Issue">The issue the change is made from: its id and key.</param>
     /// <param name="OtherIssue">The issue on the other end of the link: its id and key.</param>
@@ -326,40 +344,40 @@ public class CoreIssueLinksService(
     private sealed record LinkSide(long OrganizationId, IdName<long> Issue);
 
     /// <summary>
-    /// Writes "<paramref name="issue"/> [<paramref name="relation"/>] <paramref name="otherIssue"/>" to the
-    /// history of both issues, each from its own side.
+    /// The history rows of "<paramref name="issue"/> [<paramref name="relation"/>] <paramref name="otherIssue"/>"
+    /// for both issues, each from its own side - not added to the context yet.
     /// </summary>
-    private async Task RecordOnBothIssues(
+    private static OrganizationLog[] CreateLogsForBothIssues(
         LinkSide issue,
         IssueLinkRelation relation,
         LinkSide otherIssue,
         Actor actor,
         DateTime createdAt,
-        Func<IssueLinkRelation, IdName<long>, OrganizationLogItem> createItem,
-        CancellationToken cancellationToken)
+        Func<IssueLinkRelation, IdName<long>, OrganizationLogItem> createItem)
     {
         // The link seen from the other issue: "A is blocked by B" is "B blocks A" there.
         var stored = relation.ToStored(issue.Issue.Id, otherIssue.Issue.Id);
         var otherRelation = stored.Type.ToRelation(stored.SourceIssueId == otherIssue.Issue.Id);
 
-        await historyService.Record(
-            issue.Issue.Id,
-            LogEntityType.Issue,
-            LogAction.Update,
-            issue.OrganizationId,
-            actor,
-            createdAt,
-            [createItem(relation, otherIssue.Issue)],
-            cancellationToken);
+        return
+        [
+            CreateLog(issue, createItem(relation, otherIssue.Issue), actor, createdAt),
+            CreateLog(otherIssue, createItem(otherRelation, issue.Issue), actor, createdAt),
+        ];
+    }
 
-        await historyService.Record(
-            otherIssue.Issue.Id,
-            LogEntityType.Issue,
-            LogAction.Update,
-            otherIssue.OrganizationId,
-            actor,
-            createdAt,
-            [createItem(otherRelation, issue.Issue)],
-            cancellationToken);
+    private static OrganizationLog CreateLog(LinkSide side, OrganizationLogItem item, Actor actor, DateTime createdAt)
+    {
+        return new OrganizationLog
+        {
+            EntityId = side.Issue.Id,
+            EntityType = LogEntityType.Issue,
+            Action = LogAction.Update,
+            OrganizationId = side.OrganizationId,
+            OwnerId = actor.UserId,
+            ApiKeyId = actor.ApiKeyId,
+            CreatedAt = createdAt,
+            Items = [item],
+        };
     }
 }
