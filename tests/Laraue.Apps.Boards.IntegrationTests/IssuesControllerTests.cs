@@ -796,6 +796,32 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task User_ShouldFindIssueByItsKey_WhenSearchStringIsAnIssueKey()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithTitle("First"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithTitle("Second")));
+        var second = organization.GetIssueData(0, 0, 0, 1);
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    SearchString = second.Key.ToLowerInvariant(),
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        Assert.Equal(second.Key, Assert.Single(issuesResult.Data).Key);
+    }
+
+    [Fact]
     public async Task User_ShouldSearchIssuesByEpicStatus_WhenEpicStatusesProvided()
     {
         using var testScope = host.CreateTestScope();

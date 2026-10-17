@@ -21,6 +21,19 @@ public struct IssueKey
         Number = int.Parse(match.Groups[2].Value); 
     }
 
+    /// <summary>
+    /// Reads <paramref name="value"/> as an issue key (e.g. "BRD-12") without throwing when it isn't one.
+    /// </summary>
+    public static bool TryParse(string value, out IssueKey issueKey)
+    {
+        var match = IssueFormat.Match(value.Trim());
+        issueKey = match.Success
+            ? new IssueKey(match.Groups[1].Value, int.Parse(match.Groups[2].Value))
+            : default;
+
+        return match.Success;
+    }
+
     public IssueKey(string spaceKey, int number)
     {
         SpaceKey = spaceKey;

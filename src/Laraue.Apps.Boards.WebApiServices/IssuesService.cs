@@ -1277,6 +1277,18 @@ public class IssuesService(
     {
         var term = searchString.AsSearchable();
 
+        // A search for a key ("BRD-12", any case) also finds that issue, e.g. to pick one to link.
+        if (IssueKey.TryParse(searchString, out var issueKey))
+        {
+            var spaceKey = issueKey.SpaceKey.ToUpperInvariant();
+            var number = issueKey.Number;
+
+            return query.Where(x =>
+                (x.IssueNumber!.Number == number && x.IssueNumber.Space!.Key == spaceKey)
+                || x.Title.ILike(term)
+                || x.Content!.ILike(term));
+        }
+
         return query.Where(x => x.Title.ILike(term) || x.Content!.ILike(term));
     }
 
