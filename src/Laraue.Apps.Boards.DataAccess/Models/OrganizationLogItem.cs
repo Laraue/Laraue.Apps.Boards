@@ -40,4 +40,14 @@ public enum PropertyType
     Epic,
     Space,
     Title,
+
+    // 8 is AgentRun on the BRD-305 branch, not merged yet; IssueLink takes 9 so the two don't collide.
+
+    /// <summary>
+    /// A link to another issue was added or removed (<see cref="IssueLink"/>). Written to both issues:
+    /// <see cref="OrganizationLogItem.PropertyName"/> is the link's meaning from this issue's side (an
+    /// <c>IssueLinkRelation</c> name, e.g. BlockedBy), the new (added) or old (removed) value id/display
+    /// value the other issue's id/key.
+    /// </summary>
+    IssueLink = 9,
 }

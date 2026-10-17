@@ -626,6 +626,9 @@ public class IssueMcpService(
                 : $"attachment removed: {c.FileName}",
             IssueHistoryEpicChange c => $"epic: {c.OldEpicName ?? "none"} -> {c.NewEpicName ?? "none"}",
             IssueHistorySpaceChange c => $"space: {c.OldSpaceName ?? "none"} -> {c.NewSpaceName ?? "none"}",
+            IssueHistoryLinkChange c => c.Action == IssueLinkAction.Added
+                ? $"link added: {c.Relation.ToDisplayText()} {c.IssueKey}"
+                : $"link removed: {c.Relation.ToDisplayText()} {c.IssueKey}",
             _ => change.GetType().Name,
         };
     }
