@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
+using LinqToDB;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -160,9 +161,13 @@ public class CoreIssueLinksService(
 
         await LockOrganizationLinks(organizationId, cancellationToken);
 
-        // Raw issues: a soft-deleted issue's links are only hidden, they must not cross organizations either.
+        // The moved issues are in their new organization already, so a link that crosses organizations now is
+        // one to an issue left behind. Raw issues: a soft-deleted issue's links are only hidden, they must not
+        // cross organizations either.
         var links = await context.IssueLinks
-            .Where(x => movedIssueIds.Contains(x.SourceIssueId) != movedIssueIds.Contains(x.TargetIssueId))
+            .Where(x => movedIssueIds.Contains(x.SourceIssueId) || movedIssueIds.Contains(x.TargetIssueId))
+            .Where(x => x.SourceIssue!.Status!.Epic!.Space!.OrganizationId
+                != x.TargetIssue!.Status!.Epic!.Space!.OrganizationId)
             .Select(x => new
             {
                 x.Id,
@@ -250,18 +255,26 @@ public class CoreIssueLinksService(
 
     /// <summary>
     /// Locks the link changes of the issues' organization and reads the issues again after that: a space
-    /// move that held the lock may have moved one of them to another organization meanwhile.
+    /// move that held the lock may have moved them to another organization meanwhile. Then the request
+    /// fails rather than taking that organization's lock too - holding two organizations' locks, in whatever
+    /// order the moves dictate, is how two requests would deadlock.
     /// </summary>
     private async Task<LinkedIssues> LockAndGetLinkedIssues(
         long issueId,
         long otherIssueId,
         CancellationToken cancellationToken)
     {
+        var lockedOrganizationId = (await GetLinkedIssues(issueId, otherIssueId, cancellationToken)).OrganizationId;
+
+        await LockOrganizationLinks(lockedOrganizationId, cancellationToken);
+
         var issues = await GetLinkedIssues(issueId, otherIssueId, cancellationToken);
+        if (issues.OrganizationId != lockedOrganizationId)
+            throw new BadRequestException(
+                nameof(issueId),
+                $"{issues.Issue.Name} was just moved to another organization. Try again.");
 
-        await LockOrganizationLinks(issues.OrganizationId, cancellationToken);
-
-        return await GetLinkedIssues(issueId, otherIssueId, cancellationToken);
+        return issues;
     }
 
     private Task LockOrganizationLinks(long organizationId, CancellationToken cancellationToken)
@@ -285,24 +298,27 @@ public class CoreIssueLinksService(
     /// </summary>
     private async Task<bool> IsBlockedTransitively(long blockerId, long blockedId, CancellationToken cancellationToken)
     {
-        // UNION (not UNION ALL) drops the issues already reached, so the walk ends even if the table holds a
-        // cycle through a soft-deleted issue.
-        var blocksType = (int)IssueLinkType.Blocks;
+        // Runs on the EF Core connection, inside the caller's transaction.
+        await using var db = context.CreateLinqToDBConnection();
 
-        return await context.Database
-            .SqlQuery<bool>($"""
-                WITH RECURSIVE blocked(issue_id) AS (
-                    SELECT {blockedId}::bigint
-                    UNION
-                    SELECT l.target_issue_id
-                    FROM issue_links l
-                    JOIN blocked b ON b.issue_id = l.source_issue_id
-                    JOIN issues i ON i.id = l.target_issue_id AND i.deleted_at IS NULL
-                    WHERE l.type = {blocksType}
-                )
-                SELECT EXISTS (SELECT 1 FROM blocked WHERE issue_id = {blockerId}) AS "Value"
-                """)
-            .SingleAsync(cancellationToken);
+        // WITH RECURSIVE: the issues blockedId blocks, directly or not. Union (not UNION ALL) drops the issues
+        // already reached, so the walk ends even if the table holds a cycle through a soft-deleted issue.
+        var blockedIssues = db.GetCte<BlockedIssue>(blocked => db.GetTable<Issue>()
+            .Where(x => x.Id == blockedId)
+            .Select(x => new BlockedIssue { IssueId = x.Id })
+            .Union(
+                from link in db.GetTable<IssueLink>()
+                join b in blocked on link.SourceIssueId equals b.IssueId
+                join target in db.GetTable<Issue>() on link.TargetIssueId equals target.Id
+                where link.Type == IssueLinkType.Blocks && target.DeletedAt == null
+                select new BlockedIssue { IssueId = link.TargetIssueId }));
+
+        return await blockedIssues.AnyAsyncLinqToDB(x => x.IssueId == blockerId, cancellationToken);
+    }
+
+    private sealed class BlockedIssue
+    {
+        public long IssueId { get; init; }
     }
 
     /// <summary>One end of a link: the issue's id and key, and the organization its history is written to.</summary>
