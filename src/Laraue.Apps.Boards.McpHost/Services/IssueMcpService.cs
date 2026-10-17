@@ -32,7 +32,7 @@ public interface IIssueMcpService
         long? statusId,
         int? statusCategoryId,
         Guid? assigneeId,
-        bool? isBlocked,
+        bool includeBlocked,
         int? page,
         int? count,
         CancellationToken cancellationToken);
@@ -460,7 +460,7 @@ public class IssueMcpService(
         long? statusId,
         int? statusCategoryId,
         Guid? assigneeId,
-        bool? isBlocked,
+        bool includeBlocked,
         int? page,
         int? count,
         CancellationToken cancellationToken)
@@ -492,15 +492,14 @@ public class IssueMcpService(
             if (assigneeId is not null)
                 query = query.Where(i => i.AssigneeId == assigneeId);
 
-            if (isBlocked is not null)
+            if (!includeBlocked)
             {
                 // Blocked = an issue the caller can read (issues is already the readable, active ones) blocks it
                 // and isn't Completed - the same rule as the web app's "blocked" mark.
-                var blocked = isBlocked.Value;
-                query = query.Where(i => context.IssueLinks.Any(l =>
+                query = query.Where(i => !context.IssueLinks.Any(l =>
                     l.Type == IssueLinkType.Blocks
                     && l.TargetIssueId == i.Id
-                    && issues.Any(b => b.Id == l.SourceIssueId && b.Status!.Category != StatusCategory.Completed)) == blocked);
+                    && issues.Any(b => b.Id == l.SourceIssueId && b.Status!.Category != StatusCategory.Completed)));
             }
 
             var result = await query

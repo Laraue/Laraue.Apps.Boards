@@ -725,7 +725,7 @@ editing/deleting a comment). Design guardrails worth preserving:
 - **Issue links are their own tool pair**, unlike attachments: `edit_issue` requires the whole content and
   title, so linking through it would make a caller re-send (and risk overwriting) the issue just to add a
   link. `get_issue` returns `links` (relation from the issue's side, key, title, status category) through the
-  shared `IssueLinksReader`; `list_issues` takes an `isBlocked` filter rather than returning a flag, so an
+  shared `IssueLinksReader`; `list_issues` takes an `includeBlocked` filter rather than returning a flag, so an
   agent asking for work ready to start gets full pages of it. An issue the caller can't
   read is a 404 on either end of a link and is left out of `links`.
 - **No separate attachment tool.** Attaching is `create_issue`/`edit_issue`'s `files` param;
