@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -13,11 +14,14 @@ namespace Laraue.Apps.Boards.Services;
 public interface ICoreMovementService
 {
     /// <summary>
-    /// Move space to the new organization.
+    /// Move space to the new organization. Links between its issues and the issues left behind are removed
+    /// (as <paramref name="actor"/>), since a link never crosses organizations; the same goes for the moves
+    /// below whenever they change the organization.
     /// </summary>
     Task MoveSpace(
         long spaceId,
         long newOrganizationId,
+        Actor actor,
         CancellationToken cancellationToken);
     
     /// <summary>
@@ -26,6 +30,7 @@ public interface ICoreMovementService
     Task MoveSpaceEpics(
         long spaceId,
         long newSpaceId,
+        Actor actor,
         CancellationToken cancellationToken);
     
     /// <summary>
@@ -34,25 +39,28 @@ public interface ICoreMovementService
     Task MoveEpic(
         long epicId,
         long newSpaceId,
+        Actor actor,
         CancellationToken cancellationToken);
 }
 
 public class CoreMovementService(
     DatabaseContext context,
     IIssueNumbersService issueNumbersService,
-    ICoreIssuesService issuesService)
+    ICoreIssuesService issuesService,
+    ICoreIssueLinksService issueLinksService)
     : ICoreMovementService
 {
     public async Task MoveSpace(
         long spaceId,
         long newOrganizationId,
+        Actor actor,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
         
         var sourceData = await context.ActiveSpaces()
             .Where(x => x.Id == spaceId)
-            .Select(x => new { x.IsDefault, x.Key })
+            .Select(x => new { x.IsDefault, x.Key, x.OrganizationId })
             .FirstOrThrowNotFoundEFAsync($"Space: {spaceId} is not found", cancellationToken);
 
         if (sourceData.IsDefault)
@@ -86,6 +94,12 @@ public class CoreMovementService(
 
         await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
 
+        if (sourceData.OrganizationId != newOrganizationId)
+            await issueLinksService.RemoveCrossOrganizationLinks(
+                sourceData.OrganizationId,
+                actor,
+                cancellationToken);
+
         if (lastIssueInNewOrganization.HasValue)
         {
             var activeIssueIds = await context.ActiveIssues()
@@ -104,6 +118,7 @@ public class CoreMovementService(
     public async Task MoveSpaceEpics(
         long spaceId,
         long newSpaceId,
+        Actor actor,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
@@ -146,7 +161,13 @@ public class CoreMovementService(
             .ToArrayAsyncEF(cancellationToken);
 
         if (organizationWillChanged)
+        {
             await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
+            await issueLinksService.RemoveCrossOrganizationLinks(
+                organizationIdBySpaceId[spaceId],
+                actor,
+                cancellationToken);
+        }
 
         if (lastIssueInNewOrganization.HasValue)
         {
@@ -166,6 +187,7 @@ public class CoreMovementService(
     public async Task MoveEpic(
         long epicId,
         long newSpaceId,
+        Actor actor,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
@@ -213,8 +235,14 @@ public class CoreMovementService(
             .Select(x => x.Id)
             .ToArrayAsyncEF(cancellationToken);
 
-        if (oldOrganizationId != newOrganizationId)
+        if (organizationWillChanged)
+        {
             await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
+            await issueLinksService.RemoveCrossOrganizationLinks(
+                oldOrganizationId,
+                actor,
+                cancellationToken);
+        }
 
         if (lastIssueInNewOrganization.HasValue)
         {

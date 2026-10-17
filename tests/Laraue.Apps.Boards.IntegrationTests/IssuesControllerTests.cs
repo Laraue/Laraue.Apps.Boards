@@ -796,6 +796,32 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task User_ShouldFindIssueByItsKey_WhenSearchStringIsAnIssueKey()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithTitle("First"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithTitle("Second")));
+        var second = organization.GetIssueData(0, 0, 0, 1);
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    SearchString = second.Key.ToLowerInvariant(),
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        Assert.Equal(second.Key, Assert.Single(issuesResult.Data).Key);
+    }
+
+    [Fact]
     public async Task User_ShouldSearchIssuesByEpicStatus_WhenEpicStatusesProvided()
     {
         using var testScope = host.CreateTestScope();
@@ -2511,12 +2537,15 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var counts = await testScope.Database.IssuePeriodCounts
             .Where(x => x.OrganizationId == organization.Id)
             .OrderBy(x => x.PeriodStartedAt)
-            .Select(x => new { x.PeriodStartedAt, x.Count })
+            .Select(x => new PeriodCount(x.PeriodStartedAt, x.Count))
             .ToListAsyncEF();
         Assert.Equal(
-            [(oldPeriod, 1), (newPeriod, 1)],
-            counts.Select(x => (x.PeriodStartedAt, x.Count)));
+            [new PeriodCount(oldPeriod, 1), new PeriodCount(newPeriod, 1)],
+            counts);
     }
+
+    /// <summary>How many issues an organization created in the period starting at <see cref="PeriodStartedAt"/>.</summary>
+    private sealed record PeriodCount(DateTime PeriodStartedAt, int Count);
 
     [Fact]
     public async Task GetIssue_ShouldShowOrganizationProfile_OnlyInThatOrganization()

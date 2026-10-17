@@ -21,6 +21,9 @@
     <data name="EntityNotFound" xml:space="preserve">
         <value>{0}: {1} is not found</value>
     </data>
+    <data name="UnknownIssueLinkRelation" xml:space="preserve">
+        <value>'{0}' is not a link type. Use one of: {1}</value>
+    </data>
     <data name="EntityNotFoundOrNotAccessible" xml:space="preserve">
         <value>{0}: {1} is not found or not accessible</value>
     </data>

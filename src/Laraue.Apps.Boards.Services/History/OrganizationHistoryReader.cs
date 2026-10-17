@@ -392,6 +392,14 @@ public class OrganizationHistoryReader(
                 OldSpaceName = item.OldDisplayValue,
                 OldSpaceColor = item.OldValueId is not null ? spacesColors[item.OldValueId] : null,
             },
+            PropertyType.IssueLink => new IssueHistoryLinkChange
+            {
+                Relation = Enum.Parse<IssueLinkRelation>(item.PropertyName!),
+                IssueKey = item.NewDisplayValue ?? item.OldDisplayValue,
+                Action = item.NewValueId is not null
+                    ? IssueLinkAction.Added
+                    : IssueLinkAction.Removed,
+            },
             _ => throw new InvalidOperationException($"Change of type {item.PropertyType} is not supported yet")
         };
     }

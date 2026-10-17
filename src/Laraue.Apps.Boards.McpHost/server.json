@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.laraue/boards",
-  "description": "List, view, create, edit, delete, comment on, and see the history of Laraue Boards issues.",
+  "description": "List, view, create, edit, delete, link, comment on, and see the history of Laraue Boards issues.",
   "title": "Laraue Boards",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "websiteUrl": "https://boards.laraue.com",
   "repository": {
     "url": "https://github.com/Laraue/Laraue.Apps.Boards",

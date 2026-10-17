@@ -23,6 +23,15 @@ public interface IOrganizationLogItemFactory
     OrganizationLogItem EpicChanged(IdName<long>? oldValue, IdName<long>? newValue);
 
     OrganizationLogItem StatusChanged(IdName<long>? oldValue, IdName<long>? newValue);
+
+    /// <summary>
+    /// A link to <paramref name="otherIssue"/> (id and key) was added, meaning
+    /// <paramref name="relation"/> from the side of the issue the item is written to.
+    /// </summary>
+    OrganizationLogItem IssueLinkAdded(IssueLinkRelation relation, IdName<long> otherIssue);
+
+    /// <inheritdoc cref="IssueLinkAdded"/>
+    OrganizationLogItem IssueLinkRemoved(IssueLinkRelation relation, IdName<long> otherIssue);
 }
 
 public class OrganizationLogItemFactory : IOrganizationLogItemFactory
@@ -78,6 +87,28 @@ public class OrganizationLogItemFactory : IOrganizationLogItemFactory
 
     public OrganizationLogItem StatusChanged(IdName<long>? oldValue, IdName<long>? newValue)
         => GetLogItem(PropertyType.Status, oldValue, newValue);
+
+    public OrganizationLogItem IssueLinkAdded(IssueLinkRelation relation, IdName<long> otherIssue)
+    {
+        return new OrganizationLogItem
+        {
+            PropertyType = PropertyType.IssueLink,
+            PropertyName = relation.ToString(),
+            NewValueId = otherIssue.Id.ToString(),
+            NewDisplayValue = otherIssue.Name,
+        };
+    }
+
+    public OrganizationLogItem IssueLinkRemoved(IssueLinkRelation relation, IdName<long> otherIssue)
+    {
+        return new OrganizationLogItem
+        {
+            PropertyType = PropertyType.IssueLink,
+            PropertyName = relation.ToString(),
+            OldValueId = otherIssue.Id.ToString(),
+            OldDisplayValue = otherIssue.Name,
+        };
+    }
 
     private static OrganizationLogItem GetLogItem<T>(
         PropertyType propertyType,
