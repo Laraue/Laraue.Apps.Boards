@@ -2233,14 +2233,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasConstraintName("fk_issue_links_users_created_by_user_id");
 
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "SourceIssue")
-                        .WithMany("OutgoingLinks")
+                        .WithMany()
                         .HasForeignKey("SourceIssueId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_issue_links_issues_source_issue_id");
 
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "TargetIssue")
-                        .WithMany("IncomingLinks")
+                        .WithMany()
                         .HasForeignKey("TargetIssueId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
@@ -2654,8 +2654,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.Navigation("DecimalAttributes");
 
-                    b.Navigation("IncomingLinks");
-
                     b.Navigation("IntegerAttributes");
 
                     b.Navigation("IssueAttachments");
@@ -2665,8 +2663,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("IssueNumber");
 
                     b.Navigation("ListAttributes");
-
-                    b.Navigation("OutgoingLinks");
 
                     b.Navigation("TextAttributes");
                 });

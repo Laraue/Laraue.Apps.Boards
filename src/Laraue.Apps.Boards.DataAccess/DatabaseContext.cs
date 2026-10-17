@@ -102,7 +102,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         {
             // One link per pair of issues, whatever its type and direction, is the unique expression
             // index Constraints.IssueLinkPairIndexName, created by raw SQL in the AddIssueLinks migration.
-            // The foreign key indexes below cover reading an issue's links from either side.
+            // The foreign key indexes cover reading an issue's links from either side.
             entity.ToTable(table =>
             {
                 table.HasCheckConstraint("ck_issue_links_not_self", "source_issue_id <> target_issue_id");
@@ -112,18 +112,6 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                     "ck_issue_links_relates_to_ordered",
                     $"type <> {(int)IssueLinkType.RelatesTo} OR source_issue_id < target_issue_id");
             });
-
-            entity
-                .HasOne(x => x.SourceIssue)
-                .WithMany(x => x.OutgoingLinks)
-                .HasForeignKey(x => x.SourceIssueId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity
-                .HasOne(x => x.TargetIssue)
-                .WithMany(x => x.IncomingLinks)
-                .HasForeignKey(x => x.TargetIssueId)
-                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<IssueNumber>(entity =>

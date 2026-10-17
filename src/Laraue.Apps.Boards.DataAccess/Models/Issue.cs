@@ -79,14 +79,4 @@ public class Issue
     public List<IssueAttributeDateTimeValue>? DateTimeAttributes { get; set; }
     public List<IssueAttachment>? IssueAttachments { get; set; }
     public List<IssueComment>? IssueComments { get; set; }
-
-    /// <summary>
-    /// Links where this issue is the source ("this issue blocks/duplicates/relates to ...").
-    /// </summary>
-    public List<IssueLink>? OutgoingLinks { get; set; }
-
-    /// <summary>
-    /// Links where this issue is the target ("... blocks/duplicates/relates to this issue").
-    /// </summary>
-    public List<IssueLink>? IncomingLinks { get; set; }
 }
