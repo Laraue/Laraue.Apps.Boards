@@ -76,23 +76,24 @@ public class CoreIssueLinksService(
 
         var existingLink = await FindLink(issueId, otherIssueId, cancellationToken);
         if (existingLink is not null)
-        {
-            var existingRelation = existingLink.Type.ToRelation(existingLink.SourceIssueId == issueId);
             throw new BadRequestException(
                 nameof(otherIssueId),
-                $"{issues.Issue.Name} {existingRelation.ToDisplayText()} {issues.OtherIssue.Name} already. " +
+                $"{issues.Issue.Name} and {issues.OtherIssue.Name} are linked already. " +
                 "Two issues can have only one link: remove it first to link them in another way.");
-        }
 
         var stored = relation.ToStored(issueId, otherIssueId);
 
         if (stored.Type == IssueLinkType.Blocks
             && await IsBlockedTransitively(stored.SourceIssueId, stored.TargetIssueId, cancellationToken))
         {
+            var (blocker, blocked) = stored.SourceIssueId == issueId
+                ? (issues.Issue.Name, issues.OtherIssue.Name)
+                : (issues.OtherIssue.Name, issues.Issue.Name);
+
             throw new BadRequestException(
                 nameof(otherIssueId),
-                $"{issues.Issue.Name} can't be {relation.ToDisplayText()} {issues.OtherIssue.Name}: " +
-                "the blocking links would form a cycle.");
+                $"{blocker} can't block {blocked}: {blocked} already blocks {blocker}, directly or through other " +
+                "issues, and the blocking links would form a cycle.");
         }
 
         var now = dateTimeProvider.UtcNow;

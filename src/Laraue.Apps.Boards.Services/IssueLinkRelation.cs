@@ -65,20 +65,4 @@ public static class IssueLinkRelationExtensions
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
         };
     }
-
-    /// <summary>
-    /// The relation as it reads between two issue keys, e.g. "BRD-1 is blocked by BRD-2".
-    /// </summary>
-    public static string ToDisplayText(this IssueLinkRelation relation)
-    {
-        return relation switch
-        {
-            IssueLinkRelation.Blocks => "blocks",
-            IssueLinkRelation.BlockedBy => "is blocked by",
-            IssueLinkRelation.RelatesTo => "relates to",
-            IssueLinkRelation.Duplicates => "duplicates",
-            IssueLinkRelation.DuplicatedBy => "is duplicated by",
-            _ => throw new ArgumentOutOfRangeException(nameof(relation), relation, null),
-        };
-    }
 }

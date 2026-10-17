@@ -627,9 +627,25 @@ public class IssueMcpService(
             IssueHistoryEpicChange c => $"epic: {c.OldEpicName ?? "none"} -> {c.NewEpicName ?? "none"}",
             IssueHistorySpaceChange c => $"space: {c.OldSpaceName ?? "none"} -> {c.NewSpaceName ?? "none"}",
             IssueHistoryLinkChange c => c.Action == IssueLinkAction.Added
-                ? $"link added: {c.Relation.ToDisplayText()} {c.IssueKey}"
-                : $"link removed: {c.Relation.ToDisplayText()} {c.IssueKey}",
+                ? $"link added: {DescribeRelation(c.Relation)} {c.IssueKey}"
+                : $"link removed: {DescribeRelation(c.Relation)} {c.IssueKey}",
             _ => change.GetType().Name,
+        };
+    }
+
+    /// <summary>
+    /// The relation as it reads between two issue keys, e.g. "BRD-1 is blocked by BRD-2".
+    /// </summary>
+    private static string DescribeRelation(IssueLinkRelation relation)
+    {
+        return relation switch
+        {
+            IssueLinkRelation.Blocks => "blocks",
+            IssueLinkRelation.BlockedBy => "is blocked by",
+            IssueLinkRelation.RelatesTo => "relates to",
+            IssueLinkRelation.Duplicates => "duplicates",
+            IssueLinkRelation.DuplicatedBy => "is duplicated by",
+            _ => throw new ArgumentOutOfRangeException(nameof(relation), relation, null),
         };
     }
 
