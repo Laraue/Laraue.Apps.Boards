@@ -32,6 +32,7 @@ public interface IIssueMcpService
         long? statusId,
         int? statusCategoryId,
         Guid? assigneeId,
+        bool? isBlocked,
         int? page,
         int? count,
         CancellationToken cancellationToken);
@@ -271,8 +272,7 @@ public interface IIssueMcpService
 /// </summary>
 /// <see cref="Url"/> is the issue's page in the web app, for handing the user a clickable link.
 /// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
-/// <see cref="StatusSummary"/>'s category. <see cref="IsBlocked"/>: an issue the caller can read blocks this
-/// one and isn't Completed yet (see <see cref="IssueDetail.Links"/>).
+/// <see cref="StatusSummary"/>'s category.
 public sealed record IssueSummary(
     string Key,
     string Url,
@@ -282,8 +282,7 @@ public sealed record IssueSummary(
     string StatusCategory,
     string Assignee,
     bool CanEdit,
-    bool CanDelete,
-    bool IsBlocked);
+    bool CanDelete);
 
 /// <summary>
 /// One page of <see cref="IssueSummary"/> results - same page/perPage/hasNextPage shape the REST
@@ -461,6 +460,7 @@ public class IssueMcpService(
         long? statusId,
         int? statusCategoryId,
         Guid? assigneeId,
+        bool? isBlocked,
         int? page,
         int? count,
         CancellationToken cancellationToken)
@@ -492,11 +492,21 @@ public class IssueMcpService(
             if (assigneeId is not null)
                 query = query.Where(i => i.AssigneeId == assigneeId);
 
+            if (isBlocked is not null)
+            {
+                // Blocked = an issue the caller can read (issues is already the readable, active ones) blocks it
+                // and isn't Completed - the same rule as the web app's "blocked" mark.
+                var blocked = isBlocked.Value;
+                query = query.Where(i => context.IssueLinks.Any(l =>
+                    l.Type == IssueLinkType.Blocks
+                    && l.TargetIssueId == i.Id
+                    && issues.Any(b => b.Id == l.SourceIssueId && b.Status!.Category != StatusCategory.Completed)) == blocked);
+            }
+
             var result = await query
                 .OrderByDescending(i => i.UpdatedAt)
                 .Select(i => new
                 {
-                    i.Id,
                     SpaceKey = i.IssueNumber!.Space!.Key,
                     i.IssueNumber.Number,
                     i.Title,
@@ -538,15 +548,6 @@ public class IssueMcpService(
                         .ToArrayAsyncEF(cancellationToken),
                     cancellationToken)).ToHashSet();
 
-            var blockedIssueIds = result.Data.Count == 0
-                ? []
-                : await issueLinksReader.GetBlockedIssueIds(
-                    result.Data
-                        .Select(x => x.Id)
-                        .ToArray(),
-                    await GetReadableSpaceIds(authData, cancellationToken),
-                    cancellationToken);
-
             var organization = await GetOrganizationSlugAsync(authData.OrganizationId, cancellationToken);
 
             var summaries = result.Data
@@ -559,8 +560,7 @@ public class IssueMcpService(
                     x.StatusCategory.ToString(),
                     x.Assignee.DisplayName,
                     spaceKeysWithUpdate.Contains(x.SpaceKey),
-                    spaceKeysWithDelete.Contains(x.SpaceKey),
-                    blockedIssueIds.Contains(x.Id)))
+                    spaceKeysWithDelete.Contains(x.SpaceKey)))
                 .ToList();
 
             return new IssueListPage(summaries, result.Page, result.HasNextPage);

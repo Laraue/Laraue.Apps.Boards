@@ -12,7 +12,7 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
 {
     [Fact]
-    public async Task CreateIssueLink_ShouldShowTheLinkOnBothIssues_AndMarkTheBlockedOneInListIssues()
+    public async Task CreateIssueLink_ShouldShowTheLinkOnBothIssues_AndFilterListIssuesByBlocked()
     {
         using var testScope = host.CreateTestScope();
         var (userId, _, organization) = await Init(testScope);
@@ -32,11 +32,11 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
         Assert.Equal("Blocks", blockerLink.Relation);
         Assert.Equal(blocked, blockerLink.Key);
 
-        var issues = (await mcpService.ListIssues(authData, "LNK", null, null, null, null, null, null, CancellationToken.None))
-            .Issues
-            .ToDictionary(x => x.Key);
-        Assert.True(issues[blocked].IsBlocked);
-        Assert.False(issues[blocker].IsBlocked);
+        var blockedIssues = await mcpService.ListIssues(authData, "LNK", null, null, null, null, true, null, null, CancellationToken.None);
+        Assert.Equal([blocked], blockedIssues.Issues.Select(x => x.Key));
+
+        var readyIssues = await mcpService.ListIssues(authData, "LNK", null, null, null, null, false, null, null, CancellationToken.None);
+        Assert.Equal([blocker], readyIssues.Issues.Select(x => x.Key));
     }
 
     [Fact]
