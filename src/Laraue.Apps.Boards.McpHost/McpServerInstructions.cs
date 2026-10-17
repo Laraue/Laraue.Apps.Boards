@@ -30,7 +30,7 @@ public static class McpServerInstructions
         - Attachments: create_issue/edit_issue add files, edit_issue removes them, get_attachment
           downloads one by its id from get_issue or list_issue_comments.
         - Issues can be linked: one blocks another (it must be done first), relates to it, or duplicates it.
-          get_issue lists an issue's links; list_issues with includeBlocked=false leaves out blocked issues (a
+          get_issue lists an issue's links; list_issues with excludeBlocked=true leaves out blocked issues (a
           blocker counts until it's Completed - Review still blocks). create_issue_link/delete_issue_link add or remove a link.
         - When you mention an issue to the user, link it with its url from list_issues/get_issue.
         - A failed call says why ('NotFound: ...', 'Forbidden: ...', or 'BadRequest: ...' with a line

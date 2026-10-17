@@ -26,12 +26,12 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("Only issues with this exact status id, from list_statuses. Omit to include every status.")] long? statusId = null,
         [Description("Only issues whose status has this category id, from list_statuses' categoryId: 0 = Created (not started), 1 = InProgress, 2 = Completed (finished), 3 = Review (done, waiting to be checked). Works across epics whatever their statuses are named. Omit to include every category.")] int? statusCategoryId = null,
         [Description("Only issues assigned to this user id, from list_members. Omit to include every assignee.")] Guid? assigneeId = null,
-        [Description("Pass false to leave out blocked issues, e.g. to find work ready to start. An issue is blocked while an issue that blocks it (see get_issue's links) is in Created, InProgress or Review - only Completed releases it. Blockers you can't read don't count. Omit to include blocked issues.")] bool includeBlocked = true,
+        [Description("Pass true to leave out blocked issues, e.g. to find work ready to start. An issue is blocked while an issue that blocks it (see get_issue's links) is in Created, InProgress or Review - only Completed releases it. Blockers you can't read don't count. Omit to include blocked issues.")] bool excludeBlocked = false,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
         [Description("Max issues per page, 1-50. Omit for the default of 50.")] int? count = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.ListIssues(GetAuthData(), spaceKey, epicId, statusId, statusCategoryId, assigneeId, includeBlocked, page, count, cancellationToken);
+        return issueMcpService.ListIssues(GetAuthData(), spaceKey, epicId, statusId, statusCategoryId, assigneeId, excludeBlocked, page, count, cancellationToken);
     }
 
     [McpServerTool]

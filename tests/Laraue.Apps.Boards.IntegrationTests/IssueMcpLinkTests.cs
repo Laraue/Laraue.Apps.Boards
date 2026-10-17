@@ -32,10 +32,10 @@ public class IssueMcpLinkTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
         Assert.Equal("Blocks", blockerLink.Relation);
         Assert.Equal(blocked, blockerLink.Key);
 
-        var allIssues = await mcpService.ListIssues(authData, "LNK", null, null, null, null, true, null, null, CancellationToken.None);
+        var allIssues = await mcpService.ListIssues(authData, "LNK", null, null, null, null, false, null, null, CancellationToken.None);
         Assert.Equal(2, allIssues.Issues.Count);
 
-        var readyIssues = await mcpService.ListIssues(authData, "LNK", null, null, null, null, false, null, null, CancellationToken.None);
+        var readyIssues = await mcpService.ListIssues(authData, "LNK", null, null, null, null, true, null, null, CancellationToken.None);
         Assert.Equal([blocker], readyIssues.Issues.Select(x => x.Key));
     }
 
