@@ -29,11 +29,12 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     public Task<AgentRunListPage> ListAgentRuns(
         [Description("Only runs of issues in this space (e.g. 'BRD'), from list_spaces. Omit to include every space.")] string? spaceKey = null,
         [Description("Only runs in this state: Ready, Working, Done, Failed or Cancelled. Omit to include every state.")] string? state = null,
+        [Description("Only runs of issues assigned to one of these user ids, from list_members or get_me - e.g. a runner passes its own user id to take only its owner's issues. Omit to include every assignee.")] IReadOnlyList<Guid>? assigneeIds = null,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
         [Description("Max runs per page, 1-50. Omit for the default of 50.")] int? count = null,
         CancellationToken cancellationToken = default)
     {
-        return agentRunMcpService.ListAgentRuns(GetAuthData(), spaceKey, state, page, count, cancellationToken);
+        return agentRunMcpService.ListAgentRuns(GetAuthData(), spaceKey, state, assigneeIds, page, count, cancellationToken);
     }
 
     [McpServerTool]

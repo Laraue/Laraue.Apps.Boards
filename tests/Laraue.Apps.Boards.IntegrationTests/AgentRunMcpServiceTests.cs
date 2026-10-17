@@ -170,7 +170,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var claimedRun = await service.CreateAgentRun(authData, claimedKey, CancellationToken.None);
         await service.ClaimAgentRun(authData, claimedRun.Id, CancellationToken.None);
 
-        var page = await service.ListAgentRuns(authData, null, "Ready", null, null, CancellationToken.None);
+        var page = await service.ListAgentRuns(authData, null, "Ready", null, null, null, CancellationToken.None);
 
         var run = Assert.Single(page.Runs);
         Assert.Equal(readyRun.Id, run.Id);
@@ -193,9 +193,33 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             .CreateAgentRun(AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
 
         var page = await CreateAgentRunMcpService(testScope.Services)
-            .ListAgentRuns(AuthDataFor(organization.Id, memberId), null, "Ready", null, null, CancellationToken.None);
+            .ListAgentRuns(AuthDataFor(organization.Id, memberId), null, "Ready", null, null, null, CancellationToken.None);
 
         Assert.Empty(page.Runs);
+    }
+
+    [Fact]
+    public async Task ListAgentRuns_ShouldReturnOnlyRunsOfGivenAssignees_WhenFilteredByAssignee()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Owner's issue"))
+            .AddIssueToDefaultStatus(memberId, issue => issue.WithContent("Member's issue")));
+        var ownerIssueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var memberIssueKey = organization.GetIssueData(0, 0, 0, 1).Key;
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        await service.CreateAgentRun(authData, ownerIssueKey, CancellationToken.None);
+        await service.CreateAgentRun(authData, memberIssueKey, CancellationToken.None);
+
+        var ownerRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId], null, null, CancellationToken.None);
+        var bothRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId, memberId], null, null, CancellationToken.None);
+
+        Assert.Equal([ownerIssueKey], ownerRuns.Runs.Select(r => r.IssueKey));
+        Assert.Equal([ownerIssueKey, memberIssueKey], bothRuns.Runs.Select(r => r.IssueKey));
     }
 
     [Fact]
@@ -206,7 +230,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId);
 
         await Assert.ThrowsAsync<BadRequestException>(() => CreateAgentRunMcpService(testScope.Services)
-            .ListAgentRuns(AuthDataFor(organization.Id, ownerId), null, "Sleeping", null, null, CancellationToken.None));
+            .ListAgentRuns(AuthDataFor(organization.Id, ownerId), null, "Sleeping", null, null, null, CancellationToken.None));
     }
 
     [Fact]

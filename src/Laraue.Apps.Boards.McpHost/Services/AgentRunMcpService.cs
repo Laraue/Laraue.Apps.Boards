@@ -27,12 +27,15 @@ public interface IAgentRunMcpService
 
     /// <summary>
     /// One page of runs of the issues the caller can read, oldest first - the order a runner should take Ready
-    /// runs in. <paramref name="state"/> is an <see cref="AgentRunState"/> name.
+    /// runs in. <paramref name="state"/> is an <see cref="AgentRunState"/> name. <paramref name="assigneeIds"/> keeps
+    /// runs of issues assigned to one of these users - a runner's choice of whose issues it takes (its owner's only,
+    /// a few people's, or anyone's when omitted); claiming doesn't check the assignee.
     /// </summary>
     Task<AgentRunListPage> ListAgentRuns(
         OrganizationAuthData authData,
         string? spaceKey,
         string? state,
+        IReadOnlyList<Guid>? assigneeIds,
         int? page,
         int? count,
         CancellationToken cancellationToken);
@@ -122,6 +125,7 @@ public class AgentRunMcpService(
         OrganizationAuthData authData,
         string? spaceKey,
         string? state,
+        IReadOnlyList<Guid>? assigneeIds,
         int? page,
         int? count,
         CancellationToken cancellationToken)
@@ -140,6 +144,9 @@ public class AgentRunMcpService(
         {
             if (!string.IsNullOrWhiteSpace(spaceKey))
                 issues = issues.Where(i => i.Status!.Epic!.Space!.Key == spaceKey);
+
+            if (assigneeIds is { Count: > 0 })
+                issues = issues.Where(i => assigneeIds.Contains(i.AssigneeId));
 
             var runs = context.IssueAgentRuns
                 .Where(r => issues
