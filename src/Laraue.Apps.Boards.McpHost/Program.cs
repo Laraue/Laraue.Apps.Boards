@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Auth;
 using Laraue.Apps.Boards.Services.History;
+using Laraue.Apps.Boards.Services.Links;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Laraue.Apps.Boards.Services.Metrics;
@@ -45,6 +46,7 @@ public sealed class Program
         builder.AddValidatedOptions<WebAppOptions>("AppOptions");
         builder.Services.AddSingleton<IIssueUrlBuilder, IssueUrlBuilder>();
         builder.Services.AddScoped<IOrganizationHistoryReader, OrganizationHistoryReader>();
+        builder.Services.AddScoped<IIssueLinksReader, IssueLinksReader>();
 
         builder.Services.AddControllers();
         builder.AddValidatedOptions<ServerCardOptions>("ServerCard");
