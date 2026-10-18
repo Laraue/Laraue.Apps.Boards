@@ -804,9 +804,9 @@ while a run is open, the claim checks the board again: if the issue moved to a b
 run fails with that reason and the claim returns false.
 Issue links (BRD-308) hold runs back: a run is `isBlocked` while an issue the caller can read blocks its issue and
 isn't Completed - the same rule as `list_issues`' `excludeBlocked` and the web "blocked" mark. A blocked issue can
-still be handed off; `list_agent_runs(excludeBlocked: true)` leaves its run out, and the claim's conditional update
-also requires no such blocker (`ICoreAgentRunsService.Claim` takes the caller's readable space ids), so the run
-becomes claimable by itself once its blockers are Completed.
+still be handed off; `list_agent_runs(excludeBlocked: true)` leaves its run out, and `claim_agent_run` returns false
+for it (checked in `AgentRunMcpService` through `IIssueLinksReader`, since "readable" is a permission question;
+the core `Claim` only moves the state), so the run becomes claimable by itself once its blockers are Completed.
 
 **Text length limits**: free-text arguments (issue title/content, comment text, `edit_issue_status`'s comment) carry `[MaxLength(Constraints.*)]` on the tool parameter and say the limit in their description. The SDK writes it into the tool's input schema as `maxLength`, and `McpArgumentValidator` (run by `McpToolCallFilter`) rejects a longer value as a readable `BadRequest` naming the argument, instead of a database error. The attribute is the single source of the limit - don't re-check it in `IssueMcpService`. Add it to any new text argument. For an argument with a fixed set of values take an enum parameter, not a string parsed by hand: the SDK lists its names in the schema's `enum` (case-insensitive on input), and `McpArgumentValidator` answers an unknown value with `- state: Must be one of: Done, Failed.` - the binder's own failure would be the bare generic error. When a tool accepts only some of an enum's values, give it its own enum (`AgentRunFinishState`).
 

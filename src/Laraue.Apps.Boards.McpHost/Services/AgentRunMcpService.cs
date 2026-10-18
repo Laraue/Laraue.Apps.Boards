@@ -218,10 +218,18 @@ public class AgentRunMcpService(
             string.Format(ErrorMessages.AgentRunClaimOnlyAssignee, runId),
             cancellationToken);
 
-        var readableSpaceIds = await GetReadableSpaceIds(authData, cancellationToken);
+        // A blocked issue's run waits - the same rule as isBlocked and excludeBlocked: a blocker the caller can read
+        // that isn't Completed. Checked before the claim, not inside its update: a blocker linked in between counts
+        // as one linked just after the claim, which doesn't stop the agent either.
+        var blockedIssueIds = await issueLinksReader.GetBlockedIssueIds(
+            [issueId],
+            await GetReadableSpaceIds(authData, cancellationToken),
+            cancellationToken);
+        if (blockedIssueIds.Count > 0)
+            return false;
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var claimed = await coreAgentRunsService.Claim(runId, readableSpaceIds, authData.ToActor(), cancellationToken);
+        var claimed = await coreAgentRunsService.Claim(runId, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return claimed;

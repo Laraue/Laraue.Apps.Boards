@@ -33,14 +33,11 @@ public interface ICoreAgentRunsService
     /// <summary>
     /// Ready -> Working. True when this call claimed the run, false when it wasn't Ready any more
     /// (someone else claimed it first, or it was cancelled), its board no longer has the statuses the agent needs
-    /// (the issue moved, or a status was removed - the run then fails with that reason), or its issue is blocked:
-    /// an active issue in
-    /// <paramref name="blockerSpaceIds"/> (the caller's readable spaces) blocks it and isn't Completed. The
-    /// blocked check is part of the same conditional update, so a run can't be claimed past a blocker.
+    /// (the issue moved, or a status was removed - the run then fails with that reason). Whether the issue is
+    /// blocked depends on which blockers the caller can read, so the caller checks that first.
     /// </summary>
     Task<bool> Claim(
         long runId,
-        IReadOnlyCollection<long> blockerSpaceIds,
         Actor actor,
         CancellationToken cancellationToken);
 
@@ -119,7 +116,6 @@ public class CoreAgentRunsService(
 
     public async Task<bool> Claim(
         long runId,
-        IReadOnlyCollection<long> blockerSpaceIds,
         Actor actor,
         CancellationToken cancellationToken)
     {
@@ -156,12 +152,6 @@ public class CoreAgentRunsService(
 
         var updated = await context.IssueAgentRuns
             .Where(x => x.Id == runId && x.State == AgentRunState.Ready)
-            .Where(x => !context.IssueLinks.Any(l =>
-                l.Type == IssueLinkType.Blocks
-                && l.TargetIssueId == x.IssueId
-                && l.SourceIssue!.DeletedAt == null
-                && l.SourceIssue.Status!.Category != StatusCategory.Completed
-                && blockerSpaceIds.Contains(l.SourceIssue.Status.Epic!.SpaceId)))
             .ExecuteUpdateAsync(
                 u => u
                     .SetProperty(x => x.State, AgentRunState.Working)
