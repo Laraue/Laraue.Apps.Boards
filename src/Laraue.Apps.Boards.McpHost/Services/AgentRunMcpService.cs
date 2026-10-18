@@ -4,10 +4,12 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Links;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
+using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.McpHost.Services;
@@ -29,17 +31,23 @@ public interface IAgentRunMcpService
     /// One page of runs of the issues the caller can read, oldest first - the order a runner should take Ready
     /// runs in. <paramref name="state"/> is an <see cref="AgentRunState"/> name. <paramref name="assigneeIds"/> keeps
     /// runs of issues assigned to one of these users - a runner's choice of whose issues it takes (its owner's only,
-    /// a few people's, or anyone's when omitted); claiming doesn't check the assignee.
+    /// a few people's, or anyone's when omitted); claiming doesn't check the assignee. <paramref name="excludeBlocked"/>
+    /// leaves out runs of blocked issues - what a runner polls with, since it can't claim them.
     /// </summary>
     Task<AgentRunListPage> ListAgentRuns(
         OrganizationAuthData authData,
         string? spaceKey,
         string? state,
         IReadOnlyList<Guid>? assigneeIds,
+        bool excludeBlocked,
         int? page,
         int? count,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Ready -> Working. False when the run isn't Ready any more, or its issue is blocked (see
+    /// <see cref="AgentRunSummary.IsBlocked"/>).
+    /// </summary>
     Task<bool> ClaimAgentRun(
         OrganizationAuthData authData,
         long runId,
@@ -63,14 +71,15 @@ public interface IAgentRunMcpService
     /// <see cref="IIssueMcpService.GetIssue"/>, which has already checked that the issue is readable.
     /// </summary>
     Task<AgentRunSummary?> GetLatestRun(
-        long organizationId,
+        OrganizationAuthData authData,
         long issueId,
         CancellationToken cancellationToken);
 }
 
 /// <summary>
 /// An agent run (one hand-off of an issue). <see cref="State"/> is Ready, Working, Done, Failed or Cancelled;
-/// <see cref="ClaimedByApiKey"/> names the runner's API key once it claimed the run.
+/// <see cref="ClaimedByApiKey"/> names the runner's API key once it claimed the run. <see cref="IsBlocked"/>: an issue
+/// the caller can read blocks this run's issue and isn't Completed yet - a blocked Ready run can't be claimed.
 /// </summary>
 public sealed record AgentRunSummary(
     long Id,
@@ -83,7 +92,8 @@ public sealed record AgentRunSummary(
     DateTime? ClaimedAt,
     string? ClaimedByApiKey,
     DateTime? FinishedAt,
-    string? FailureReason);
+    string? FailureReason,
+    bool IsBlocked);
 
 public sealed record AgentRunListPage(IReadOnlyList<AgentRunSummary> Runs, long Page, bool HasNextPage);
 
@@ -92,6 +102,7 @@ public class AgentRunMcpService(
     IAccessService accessService,
     ICoreAgentRunsService coreAgentRunsService,
     IIssueUrlBuilder issueUrlBuilder,
+    IIssueLinksReader issueLinksReader,
     IMemberProfileReader memberProfileReader)
     : IAgentRunMcpService
 {
@@ -113,7 +124,7 @@ public class AgentRunMcpService(
         await transaction.CommitAsync(cancellationToken);
 
         var runs = await MapRuns(
-            authData.OrganizationId,
+            authData,
             context.IssueAgentRuns
                 .Where(r => r.Id == runId),
             cancellationToken);
@@ -126,6 +137,7 @@ public class AgentRunMcpService(
         string? spaceKey,
         string? state,
         IReadOnlyList<Guid>? assigneeIds,
+        bool excludeBlocked,
         int? page,
         int? count,
         CancellationToken cancellationToken)
@@ -140,13 +152,25 @@ public class AgentRunMcpService(
             PerPage = Math.Clamp(count ?? MaxResults, 1, MaxResults),
         };
 
-        return await accessService.GetAvailableIssues(authData, async issues =>
+        return await accessService.GetAvailableIssues(authData, async readableIssues =>
         {
+            var issues = readableIssues;
+
             if (!string.IsNullOrWhiteSpace(spaceKey))
                 issues = issues.Where(i => i.Status!.Epic!.Space!.Key == spaceKey);
 
             if (assigneeIds is { Count: > 0 })
                 issues = issues.Where(i => assigneeIds.Contains(i.AssigneeId));
+
+            // Blocked = an issue the caller can read blocks it and isn't Completed - the rule of list_issues'
+            // excludeBlocked, the web app's "blocked" mark, and the claim.
+            if (excludeBlocked)
+            {
+                issues = issues.Where(i => !context.IssueLinks.Any(l =>
+                    l.Type == IssueLinkType.Blocks
+                    && l.TargetIssueId == i.Id
+                    && readableIssues.Any(b => b.Id == l.SourceIssueId && b.Status!.Category != StatusCategory.Completed)));
+            }
 
             var runs = context.IssueAgentRuns
                 .Where(r => issues
@@ -166,7 +190,7 @@ public class AgentRunMcpService(
                 .ToArray();
 
             var summaries = await MapRuns(
-                authData.OrganizationId,
+                authData,
                 context.IssueAgentRuns
                     .Where(r => pageIds.Contains(r.Id)),
                 cancellationToken);
@@ -182,8 +206,10 @@ public class AgentRunMcpService(
     {
         await EnsureCanUpdateRun(authData, runId, cancellationToken);
 
+        var readableSpaceIds = await GetReadableSpaceIds(authData, cancellationToken);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var claimed = await coreAgentRunsService.Claim(runId, authData.ToActor(), cancellationToken);
+        var claimed = await coreAgentRunsService.Claim(runId, readableSpaceIds, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return claimed;
@@ -224,12 +250,12 @@ public class AgentRunMcpService(
     }
 
     public async Task<AgentRunSummary?> GetLatestRun(
-        long organizationId,
+        OrganizationAuthData authData,
         long issueId,
         CancellationToken cancellationToken)
     {
         var runs = await MapRuns(
-            organizationId,
+            authData,
             context.IssueAgentRuns
                 .Where(r => r.IssueId == issueId)
                 .OrderByDescending(r => r.Id)
@@ -240,7 +266,7 @@ public class AgentRunMcpService(
     }
 
     private async Task<List<AgentRunSummary>> MapRuns(
-        long organizationId,
+        OrganizationAuthData authData,
         IQueryable<IssueAgentRun> runs,
         CancellationToken cancellationToken)
     {
@@ -248,6 +274,7 @@ public class AgentRunMcpService(
             .Select(r => new
             {
                 r.Id,
+                r.IssueId,
                 SpaceKey = r.Issue!.IssueNumber!.Space!.Key,
                 r.Issue.IssueNumber.Number,
                 r.Issue.Title,
@@ -262,13 +289,21 @@ public class AgentRunMcpService(
             .ToListAsync(cancellationToken);
 
         await memberProfileReader.EnrichUsers(
-            organizationId,
+            authData.OrganizationId,
             data
                 .Select(x => x.CreatedBy),
             cancellationToken);
 
+        var blockedIssueIds = await issueLinksReader.GetBlockedIssueIds(
+            data
+                .Select(x => x.IssueId)
+                .Distinct()
+                .ToArray(),
+            await GetReadableSpaceIds(authData, cancellationToken),
+            cancellationToken);
+
         var organization = await context.ActiveOrganizations()
-            .Where(o => o.Id == organizationId)
+            .Where(o => o.Id == authData.OrganizationId)
             .Select(o => new { o.Slug, o.SlugPostfix })
             .SingleAsync(cancellationToken);
 
@@ -289,9 +324,21 @@ public class AgentRunMcpService(
                     x.ClaimedAt,
                     x.ClaimedByApiKey,
                     x.FinishedAt,
-                    x.FailureReason);
+                    x.FailureReason,
+                    blockedIssueIds.Contains(x.IssueId));
             })
             .ToList();
+    }
+
+    private Task<long[]> GetReadableSpaceIds(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        return accessService.GetAvailableSpaces(
+            authData,
+            query => query
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(cancellationToken),
+            includeDeleted: false,
+            cancellationToken);
     }
 
     private async Task EnsureCanUpdateRun(

@@ -615,7 +615,7 @@ public class IssueMcpService(
             [issue.Assignee],
             cancellationToken);
 
-        var latestAgentRun = await agentRunMcpService.GetLatestRun(authData.OrganizationId, issueId, cancellationToken);
+        var latestAgentRun = await agentRunMcpService.GetLatestRun(authData, issueId, cancellationToken);
 
         return new IssueDetail(
             key.ToString(),

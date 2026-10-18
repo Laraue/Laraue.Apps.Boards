@@ -789,6 +789,11 @@ run get exactly one `true` - no row lock, and `edit_issue_status` is untouched (
 after claiming). Each transition is an `OrganizationLog` item (`PropertyType.AgentRun`, the run id in
 `ParentId`, the state numbers in the value ids), so history shows the API key the runner used. Every action
 needs `CanUpdateIssue` (reads `CanRead`). `get_issue` and the web card/detail return the latest run.
+Issue links (BRD-308) hold runs back: a run is `isBlocked` while an issue the caller can read blocks its issue and
+isn't Completed - the same rule as `list_issues`' `excludeBlocked` and the web "blocked" mark. A blocked issue can
+still be handed off; `list_agent_runs(excludeBlocked: true)` leaves its run out, and the claim's conditional update
+also requires no such blocker (`ICoreAgentRunsService.Claim` takes the caller's readable space ids), so the run
+becomes claimable by itself once its blockers are Completed.
 
 **Text length limits**: free-text arguments (issue title/content, comment text, `edit_issue_status`'s comment) carry `[MaxLength(Constraints.*)]` on the tool parameter and say the limit in their description. The SDK writes it into the tool's input schema as `maxLength`, and `McpArgumentValidator` (run by `McpToolCallFilter`) rejects a longer value as a readable `BadRequest` naming the argument, instead of a database error. The attribute is the single source of the limit - don't re-check it in `IssueMcpService`. Add it to any new text argument.
 

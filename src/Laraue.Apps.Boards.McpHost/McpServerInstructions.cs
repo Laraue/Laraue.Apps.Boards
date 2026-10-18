@@ -33,10 +33,11 @@ public static class McpServerInstructions
           get_issue lists an issue's links; list_issues with excludeBlocked=true leaves out blocked issues (a
           blocker counts until it's Completed - Review still blocks). create_issue_link/delete_issue_link add or remove a link.
         - Agent runs hand issues to a coding agent: create_agent_run hands one off (state Ready). A runner
-          polls list_agent_runs(state 'Ready'), takes a run with claim_agent_run (false = someone else has
-          it, skip), moves the issue to an InProgress status, works, and ends with finish_agent_run (Done or
-          Failed). cancel_agent_run stops an open run; a runner whose finish_agent_run returns false was
-          cancelled and should stop. get_issue's latestAgentRun shows the current one.
+          polls list_agent_runs(state 'Ready', excludeBlocked=true), takes a run with claim_agent_run
+          (false = someone else has it, or it's blocked: skip), moves the issue to an InProgress status,
+          works, and ends with finish_agent_run (Done or Failed). cancel_agent_run stops an open run; a
+          runner whose finish_agent_run returns false was cancelled and should stop. get_issue's
+          latestAgentRun shows the current one.
         - When you mention an issue to the user, link it with its url from list_issues/get_issue.
         - A failed call says why ('NotFound: ...', 'Forbidden: ...', or 'BadRequest: ...' with a line
           per invalid field) - fix the request instead of retrying it unchanged.

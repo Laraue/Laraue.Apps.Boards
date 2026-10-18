@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Links;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -31,6 +32,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             services.GetRequiredService<IAccessService>(),
             services.GetRequiredService<ICoreAgentRunsService>(),
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
+            new IssueLinksReader(database),
             new MemberProfileReader(database));
     }
 
@@ -170,7 +172,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var claimedRun = await service.CreateAgentRun(authData, claimedKey, CancellationToken.None);
         await service.ClaimAgentRun(authData, claimedRun.Id, CancellationToken.None);
 
-        var page = await service.ListAgentRuns(authData, null, "Ready", null, null, null, CancellationToken.None);
+        var page = await service.ListAgentRuns(authData, null, "Ready", null, false, null, null, CancellationToken.None);
 
         var run = Assert.Single(page.Runs);
         Assert.Equal(readyRun.Id, run.Id);
@@ -193,7 +195,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             .CreateAgentRun(AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
 
         var page = await CreateAgentRunMcpService(testScope.Services)
-            .ListAgentRuns(AuthDataFor(organization.Id, memberId), null, "Ready", null, null, null, CancellationToken.None);
+            .ListAgentRuns(AuthDataFor(organization.Id, memberId), null, "Ready", null, false, null, null, CancellationToken.None);
 
         Assert.Empty(page.Runs);
     }
@@ -215,11 +217,88 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         await service.CreateAgentRun(authData, ownerIssueKey, CancellationToken.None);
         await service.CreateAgentRun(authData, memberIssueKey, CancellationToken.None);
 
-        var ownerRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId], null, null, CancellationToken.None);
-        var bothRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId, memberId], null, null, CancellationToken.None);
+        var ownerRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId], false, null, null, CancellationToken.None);
+        var bothRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId, memberId], false, null, null, CancellationToken.None);
 
         Assert.Equal([ownerIssueKey], ownerRuns.Runs.Select(r => r.IssueKey));
         Assert.Equal([ownerIssueKey, memberIssueKey], bothRuns.Runs.Select(r => r.IssueKey));
+    }
+
+    [Fact]
+    public async Task ListAgentRuns_ShouldLeaveOutBlockedRunUntilBlockerIsCompleted_WhenExcludingBlocked()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateBlockedIssueSetup(testScope);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.CreateAgentRun(setup.AuthData, setup.BlockedKey, CancellationToken.None);
+
+        Assert.True(run.IsBlocked);
+        Assert.Empty((await service.ListAgentRuns(setup.AuthData, null, "Ready", null, true, null, null, CancellationToken.None)).Runs);
+        var allRuns = await service.ListAgentRuns(setup.AuthData, null, "Ready", null, false, null, null, CancellationToken.None);
+        Assert.True(Assert.Single(allRuns.Runs).IsBlocked);
+
+        await CompleteBlocker(testScope, setup);
+
+        var readyRun = Assert.Single(
+            (await service.ListAgentRuns(setup.AuthData, null, "Ready", null, true, null, null, CancellationToken.None)).Runs);
+        Assert.Equal(run.Id, readyRun.Id);
+        Assert.False(readyRun.IsBlocked);
+    }
+
+    [Fact]
+    public async Task ClaimAgentRun_ShouldReturnFalseUntilBlockerIsCompleted_WhenIssueIsBlocked()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateBlockedIssueSetup(testScope);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.CreateAgentRun(setup.AuthData, setup.BlockedKey, CancellationToken.None);
+
+        Assert.False(await service.ClaimAgentRun(setup.AuthData, run.Id, CancellationToken.None));
+        var storedRun = await testScope.Database.IssueAgentRuns.SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Ready, storedRun.State);
+
+        await CompleteBlocker(testScope, setup);
+
+        Assert.True(await service.ClaimAgentRun(setup.AuthData, run.Id, CancellationToken.None));
+    }
+
+    private sealed record BlockedIssueSetup(
+        OrganizationAuthData AuthData,
+        string BlockerKey,
+        string BlockedKey,
+        long DoneStatusId);
+
+    // Two issues in a board with a Completed "Done" status; the second one is blocked by the first.
+    private static async Task<BlockedIssueSetup> CreateBlockedIssueSetup(WebApiTestHostScope testScope)
+    {
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic
+                    .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed))
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Blocker"))
+                    .AddIssue(ownerId, 0, issue => issue.WithContent("Blocked")))));
+        var blocker = organization.GetIssueData(1, 1, 0, 0);
+        var blocked = organization.GetIssueData(1, 1, 0, 1);
+
+        await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
+        {
+            await testScope.Services.GetRequiredService<ICoreIssueLinksService>()
+                .AddLink(blocked.Issue.Id, IssueLinkRelation.BlockedBy, blocker.Issue.Id, ownerId, CancellationToken.None);
+            await transaction.CommitAsync();
+        }
+
+        return new BlockedIssueSetup(
+            AuthDataFor(organization.Id, ownerId),
+            blocker.Key,
+            blocked.Key,
+            organization.GetStatus(1, 1, 1).Id);
+    }
+
+    private static Task CompleteBlocker(WebApiTestHostScope testScope, BlockedIssueSetup setup)
+    {
+        return IssueMcpServiceTests.CreateIssueMcpService(testScope)
+            .EditIssueStatus(setup.AuthData, setup.BlockerKey, setup.DoneStatusId, comment: null, CancellationToken.None);
     }
 
     [Fact]
@@ -230,7 +309,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId);
 
         await Assert.ThrowsAsync<BadRequestException>(() => CreateAgentRunMcpService(testScope.Services)
-            .ListAgentRuns(AuthDataFor(organization.Id, ownerId), null, "Sleeping", null, null, null, CancellationToken.None));
+            .ListAgentRuns(AuthDataFor(organization.Id, ownerId), null, "Sleeping", null, false, null, null, CancellationToken.None));
     }
 
     [Fact]
@@ -249,7 +328,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var finished = await service.FinishAgentRun(authData, run.Id, "Failed", "Build is red", CancellationToken.None);
 
         Assert.True(finished);
-        var latest = await service.GetLatestRun(organization.Id, organization.GetIssueData(0, 0, 0, 0).Issue.Id, CancellationToken.None);
+        var latest = await service.GetLatestRun(authData, organization.GetIssueData(0, 0, 0, 0).Issue.Id, CancellationToken.None);
         Assert.NotNull(latest);
         Assert.Equal("Failed", latest.State);
         Assert.Equal("Build is red", latest.FailureReason);

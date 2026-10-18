@@ -16,7 +16,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Hands an issue to the agent: creates an agent run in state Ready, which a runner then claims with claim_agent_run. An issue can have only one open run (Ready or Working) - cancel it first to hand the issue off again. Returns the run. Requires canEdit (see get_issue/list_issues).")]
+    [Description("Hands an issue to the agent: creates an agent run in state Ready, which a runner then claims with claim_agent_run. An issue can have only one open run (Ready or Working) - cancel it first to hand the issue off again. A blocked issue can be handed off: its run waits (isBlocked) until every issue blocking it is Completed. Returns the run. Requires canEdit (see get_issue/list_issues).")]
     public Task<AgentRunSummary> CreateAgentRun(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -25,20 +25,21 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool]
-    [Description("Lists agent runs of the issues the caller can read, oldest first, up to 50 per page - check hasNextPage for more. A runner polls state 'Ready' and takes the first run it can claim. Each run has its id, the issue (key, title, url), state (Ready, Working, Done, Failed or Cancelled), who handed it off and when, the API key that claimed it, and when it finished and why it failed.")]
+    [Description("Lists agent runs of the issues the caller can read, oldest first, up to 50 per page - check hasNextPage for more. A runner polls state 'Ready' with excludeBlocked=true and takes the first run it can claim. Each run has its id, the issue (key, title, url), state (Ready, Working, Done, Failed or Cancelled), isBlocked (an issue blocking it isn't Completed yet - see get_issue's links), who handed it off and when, the API key that claimed it, and when it finished and why it failed.")]
     public Task<AgentRunListPage> ListAgentRuns(
         [Description("Only runs of issues in this space (e.g. 'BRD'), from list_spaces. Omit to include every space.")] string? spaceKey = null,
         [Description("Only runs in this state: Ready, Working, Done, Failed or Cancelled. Omit to include every state.")] string? state = null,
         [Description("Only runs of issues assigned to one of these user ids, from list_members or get_me - e.g. a runner passes its own user id to take only its owner's issues. Omit to include every assignee.")] IReadOnlyList<Guid>? assigneeIds = null,
+        [Description("Pass true to leave out runs of blocked issues - an issue is blocked while an issue that blocks it is in Created, InProgress or Review; only Completed releases it. Blockers you can't read don't count. A runner should pass true: a blocked run can't be claimed. Omit to include them.")] bool excludeBlocked = false,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
         [Description("Max runs per page, 1-50. Omit for the default of 50.")] int? count = null,
         CancellationToken cancellationToken = default)
     {
-        return agentRunMcpService.ListAgentRuns(GetAuthData(), spaceKey, state, assigneeIds, page, count, cancellationToken);
+        return agentRunMcpService.ListAgentRuns(GetAuthData(), spaceKey, state, assigneeIds, excludeBlocked, page, count, cancellationToken);
     }
 
     [McpServerTool]
-    [Description("Claims a Ready agent run for this runner, moving it to Working. Returns true when this call claimed it, false when it was no longer Ready (another runner claimed it first, or it was cancelled) - on false, skip the run. Atomic: of two runners claiming the same run, exactly one gets true. After claiming, move the issue to its epic's first InProgress status with edit_issue_status. Requires canEdit on the issue.")]
+    [Description("Claims a Ready agent run for this runner, moving it to Working. Returns true when this call claimed it, false when it was no longer Ready (another runner claimed it first, or it was cancelled) or its issue is blocked - on false, skip the run. Atomic: of two runners claiming the same run, exactly one gets true. After claiming, move the issue to its epic's first InProgress status with edit_issue_status. Requires canEdit on the issue.")]
     public Task<bool> ClaimAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,
         CancellationToken cancellationToken)
