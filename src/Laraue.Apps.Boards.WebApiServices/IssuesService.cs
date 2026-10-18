@@ -723,7 +723,7 @@ public class IssuesService(
         var latestAgentRun = await context.IssueAgentRuns
             .Where(r => r.IssueId == issueId)
             .OrderByDescending(r => r.Id)
-            .Select(AgentRunDto.Projection)
+            .SelectAgentRunDto()
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         var missingStatusCategoriesForAgent = await context.GetMissingStatusCategories(result.CategoryId, cancellationToken);

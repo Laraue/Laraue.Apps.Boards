@@ -1,8 +1,6 @@
-using System.Linq.Expressions;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
-using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
@@ -62,7 +60,7 @@ public class AgentRunsService(
 
         return await context.IssueAgentRuns
             .Where(r => r.Id == runId)
-            .Select(AgentRunDto.Projection)
+            .SelectAgentRunDto()
             .FirstAsync(cancellationToken);
     }
 
@@ -121,15 +119,4 @@ public record AgentRunDto
     public required string? ClaimedByApiKeyName { get; init; }
     public required DateTime? FinishedAt { get; init; }
     public required string? FailureReason { get; init; }
-
-    public static readonly Expression<Func<IssueAgentRun, AgentRunDto>> Projection = r => new AgentRunDto
-    {
-        Id = r.Id,
-        State = r.State,
-        CreatedAt = r.CreatedAt,
-        ClaimedAt = r.ClaimedAt,
-        ClaimedByApiKeyName = r.ClaimedByApiKey!.Name,
-        FinishedAt = r.FinishedAt,
-        FailureReason = r.FailureReason,
-    };
 }
