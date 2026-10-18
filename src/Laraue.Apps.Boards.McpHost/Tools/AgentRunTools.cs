@@ -3,7 +3,6 @@ using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.McpHost.Services;
-using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
 using ModelContextProtocol.Server;
 
@@ -26,8 +25,8 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool]
-    [Description("Lists agent runs of the issues the caller can read, oldest first, up to 50 per page in data - check hasNextPage for more. A runner polls state 'Ready' with excludeBlocked=true and takes the first run it can claim. Each run has its id, the issue (key, title, url), state (Ready, Working, Done, Failed or Cancelled), isBlocked (an issue blocking it isn't Completed yet - see get_issue's links), who handed it off and when, the API key that claimed it, and when it finished and why it failed.")]
-    public Task<ShortPaginatedResult<AgentRunSummary>> ListAgentRuns(
+    [Description("Lists agent runs of the issues the caller can read, oldest first, up to 50 per page - check hasNextPage for more. A runner polls state 'Ready' with excludeBlocked=true and takes the first run it can claim. Each run has its id, the issue (key, title, url), state (Ready, Working, Done, Failed or Cancelled), isBlocked (an issue blocking it isn't Completed yet - see get_issue's links), who handed it off and when, the API key that claimed it, and when it finished and why it failed.")]
+    public Task<AgentRunListPage> ListAgentRuns(
         [Description("Only runs of issues in this space (e.g. 'BRD'), from list_spaces. Omit to include every space.")] string? spaceKey = null,
         [Description("Only runs in this state: Ready, Working, Done, Failed or Cancelled. Omit to include every state.")] string? state = null,
         [Description("Only runs of issues assigned to one of these user ids, from list_members or get_me - e.g. a runner passes its own user id to take only its owner's issues. Omit to include every assignee.")] IReadOnlyList<Guid>? assigneeIds = null,
