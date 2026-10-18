@@ -174,7 +174,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
 
         var page = await service.ListAgentRuns(authData, null, "Ready", null, false, null, null, CancellationToken.None);
 
-        var run = Assert.Single(page.Runs);
+        var run = Assert.Single(page.Data);
         Assert.Equal(readyRun.Id, run.Id);
         Assert.Equal(handedOffKey, run.IssueKey);
         Assert.Equal("Ready", run.State);
@@ -197,7 +197,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var page = await CreateAgentRunMcpService(testScope.Services)
             .ListAgentRuns(AuthDataFor(organization.Id, memberId), null, "Ready", null, false, null, null, CancellationToken.None);
 
-        Assert.Empty(page.Runs);
+        Assert.Empty(page.Data);
     }
 
     [Fact]
@@ -224,8 +224,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var ownerRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId], false, null, null, CancellationToken.None);
         var bothRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId, memberId], false, null, null, CancellationToken.None);
 
-        Assert.Equal([ownerIssueKey], ownerRuns.Runs.Select(r => r.IssueKey));
-        Assert.Equal([ownerIssueKey, memberIssueKey], bothRuns.Runs.Select(r => r.IssueKey));
+        Assert.Equal([ownerIssueKey], ownerRuns.Data.Select(r => r.IssueKey));
+        Assert.Equal([ownerIssueKey, memberIssueKey], bothRuns.Data.Select(r => r.IssueKey));
     }
 
     [Fact]
@@ -237,14 +237,14 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var run = await service.CreateAgentRun(setup.AuthData, setup.BlockedKey, CancellationToken.None);
 
         Assert.True(run.IsBlocked);
-        Assert.Empty((await service.ListAgentRuns(setup.AuthData, null, "Ready", null, true, null, null, CancellationToken.None)).Runs);
+        Assert.Empty((await service.ListAgentRuns(setup.AuthData, null, "Ready", null, true, null, null, CancellationToken.None)).Data);
         var allRuns = await service.ListAgentRuns(setup.AuthData, null, "Ready", null, false, null, null, CancellationToken.None);
-        Assert.True(Assert.Single(allRuns.Runs).IsBlocked);
+        Assert.True(Assert.Single(allRuns.Data).IsBlocked);
 
         await CompleteBlocker(testScope, setup);
 
         var readyRun = Assert.Single(
-            (await service.ListAgentRuns(setup.AuthData, null, "Ready", null, true, null, null, CancellationToken.None)).Runs);
+            (await service.ListAgentRuns(setup.AuthData, null, "Ready", null, true, null, null, CancellationToken.None)).Data);
         Assert.Equal(run.Id, readyRun.Id);
         Assert.False(readyRun.IsBlocked);
     }

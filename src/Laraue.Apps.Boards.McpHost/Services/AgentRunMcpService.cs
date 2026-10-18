@@ -34,7 +34,7 @@ public interface IAgentRunMcpService
     /// a few people's, or anyone's when omitted); claiming doesn't check the assignee. <paramref name="excludeBlocked"/>
     /// leaves out runs of blocked issues - what a runner polls with, since it can't claim them.
     /// </summary>
-    Task<AgentRunListPage> ListAgentRuns(
+    Task<ShortPaginatedResult<AgentRunSummary>> ListAgentRuns(
         OrganizationAuthData authData,
         string? spaceKey,
         string? state,
@@ -95,8 +95,6 @@ public sealed record AgentRunSummary(
     string? FailureReason,
     bool IsBlocked);
 
-public sealed record AgentRunListPage(IReadOnlyList<AgentRunSummary> Runs, long Page, bool HasNextPage);
-
 public class AgentRunMcpService(
     DatabaseContext context,
     IAccessService accessService,
@@ -137,7 +135,7 @@ public class AgentRunMcpService(
         return runs.Single();
     }
 
-    public async Task<AgentRunListPage> ListAgentRuns(
+    public async Task<ShortPaginatedResult<AgentRunSummary>> ListAgentRuns(
         OrganizationAuthData authData,
         string? spaceKey,
         string? state,
@@ -200,7 +198,7 @@ public class AgentRunMcpService(
                     .Where(r => pageIds.Contains(r.Id)),
                 cancellationToken);
 
-            return new AgentRunListPage(summaries, runIds.Page, runIds.HasNextPage);
+            return new ShortPaginatedResult<AgentRunSummary>(runIds.Page, runIds.PerPage, runIds.HasNextPage, summaries);
         }, cancellationToken);
     }
 
