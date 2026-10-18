@@ -246,7 +246,7 @@ public class AgentRunMcpService(
         {
             AgentRunFinishState.Done => AgentRunState.Done,
             AgentRunFinishState.Failed => AgentRunState.Failed,
-            _ => throw new BadRequestException(nameof(state), $"Unknown state {state}."),
+            _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
         };
 
         await EnsureCanUpdateRun(authData, runId, cancellationToken);

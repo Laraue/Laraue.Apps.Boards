@@ -1,4 +1,5 @@
 using System.Net;
+using Laraue.Apps.Boards.Services.Resources;
 using Laraue.Core.Exceptions.Web;
 
 namespace Laraue.Apps.Boards.Services;
@@ -10,6 +11,4 @@ namespace Laraue.Apps.Boards.Services;
 /// catches it and answers with its own phrase.
 /// </summary>
 public class IssueLockedByAgentRunException()
-    : HttpException(
-        HttpStatusCode.Conflict,
-        "The issue is handed to the agent and can't be edited until the run is finished or cancelled.");
+    : HttpException(HttpStatusCode.Conflict, ErrorMessages.IssueLockedByAgentRun);

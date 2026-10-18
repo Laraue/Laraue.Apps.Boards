@@ -2,6 +2,7 @@ using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Resources;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using Microsoft.EntityFrameworkCore;
@@ -81,7 +82,7 @@ public class CoreAgentRunsService(
             .FirstAsync(cancellationToken);
 
         if (issue.Category != StatusCategory.Created)
-            throw new BadRequestException("issueKey", IssueStartedMessage);
+            throw new BadRequestException("issueKey", ErrorMessages.AgentRunIssueStarted);
 
         var missingCategories = await context.GetMissingStatusCategories(issue.EpicId, cancellationToken);
         if (missingCategories.Length > 0)
@@ -106,7 +107,7 @@ public class CoreAgentRunsService(
         catch (DbUpdateException ex) when (IsOpenRunViolation(ex))
         {
             context.Entry(run).State = EntityState.Detached;
-            throw new BadRequestException("issueKey", OpenRunAlreadyExistsMessage);
+            throw new BadRequestException("issueKey", ErrorMessages.AgentRunAlreadyOpen);
         }
 
         await RecordStateChange(run.Id, null, AgentRunState.Ready, actor, now, cancellationToken);
@@ -175,7 +176,7 @@ public class CoreAgentRunsService(
         CancellationToken cancellationToken)
     {
         if (state is not (AgentRunState.Done or AgentRunState.Failed))
-            throw new BadRequestException("state", "A run can only be finished as Done or Failed.");
+            throw new BadRequestException("state", ErrorMessages.AgentRunFinishStateInvalid);
 
         context.Database.EnsureTransactionStarted();
 
@@ -269,16 +270,9 @@ public class CoreAgentRunsService(
             cancellationToken);
     }
 
-    private const string OpenRunAlreadyExistsMessage = "The issue is already handed to the agent - cancel that run first.";
-
-    private const string IssueStartedMessage =
-        "Only a not started issue can be handed to the agent - move it to a Created status first.";
-
     private static string BoardNotReadyMessage(IEnumerable<StatusCategory> missingCategories)
     {
-        return "The issue's board needs a status in each of these categories for the agent: "
-            + string.Join(", ", missingCategories)
-            + ".";
+        return string.Format(ErrorMessages.AgentRunBoardNotReady, string.Join(", ", missingCategories));
     }
 
     // The partial unique index is the only race-free check, so a second open run is detected by the violation itself.
