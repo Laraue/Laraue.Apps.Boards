@@ -271,12 +271,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         modelBuilder.Entity<IssueAgentRun>(entity =>
         {
             // The race-free "one open run per issue" check: a second Ready/Working row for the same
-            // issue is a unique violation. 0 = Ready, 1 = Working (AgentRunState).
+            // issue is a unique violation.
             entity
                 .HasIndex(x => x.IssueId)
                 .IsUnique()
                 .HasDatabaseName(Constraints.OpenAgentRunIndexName)
-                .HasFilter("state IN (0, 1)");
+                .HasFilter($"state IN ({(int)AgentRunState.Ready}, {(int)AgentRunState.Working})");
 
             // The latest run of an issue, and the runs of an issue in order.
             entity.HasIndex(x => new { x.IssueId, x.Id });
