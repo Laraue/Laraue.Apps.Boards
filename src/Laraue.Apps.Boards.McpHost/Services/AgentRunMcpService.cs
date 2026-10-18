@@ -121,9 +121,10 @@ public class AgentRunMcpService(
     {
         var key = new IssueKey(issueKey);
 
-        var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
+        var issue = await accessService.GetIssueAccessByKey(authData, key, includeDeleted: false, cancellationToken);
+        EnsureCanUpdateIssue(issue?.AccessLevels, "Issue", key.ToString());
+        var issueId = issue!.IssueId;
 
-        await EnsureCanUpdateIssue(authData, issueId, "Issue", key.ToString(), cancellationToken);
         await EnsureIsAssignee(
             issueId,
             authData.UserId,
@@ -378,7 +379,10 @@ public class AgentRunMcpService(
                 string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Agent run", runId),
                 cancellationToken);
 
-        await EnsureCanUpdateIssue(authData, issueId, "Agent run", runId.ToString(), cancellationToken);
+        EnsureCanUpdateIssue(
+            await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken),
+            "Agent run",
+            runId.ToString());
 
         return issueId;
     }
@@ -400,31 +404,15 @@ public class AgentRunMcpService(
             throw new ForbiddenException(message);
     }
 
-    // 404 when the issue isn't readable, 403 when it's readable but the caller can't change it - see AGENTS.md
-    // "Choosing 404 vs 403".
-    private async Task EnsureCanUpdateIssue(
-        OrganizationAuthData authData,
-        long issueId,
-        string entityName,
-        string entityId,
-        CancellationToken cancellationToken)
+    // 404 when the issue is missing or not readable, 403 when it's readable but the caller can't change it - see
+    // AGENTS.md "Choosing 404 vs 403".
+    private static void EnsureCanUpdateIssue(AccessLevels? accessLevels, string entityName, string entityId)
     {
-        var accessLevels = await accessService.GetAccessLevelsByIssueId(authData, issueId, includeDeleted: false, cancellationToken)
-            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, entityName, entityId))
-            .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, entityName, entityId));
+        if (accessLevels is not { CanRead: true })
+            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, entityName, entityId));
 
         if (!accessLevels.CanUpdateIssue)
             throw new ForbiddenException(string.Format(ErrorMessages.EntityActionForbidden, entityName, entityId, "update"));
     }
 
-    private Task<long> GetIssueIdByIssueKey(long organizationId, IssueKey issueKey, CancellationToken cancellationToken)
-    {
-        return context.IssueNumbers
-            .Where(x => x.Number == issueKey.Number)
-            .Where(x => x.Space!.Key == issueKey.SpaceKey)
-            .Where(x => x.Space!.OrganizationId == organizationId)
-            .Where(x => x.Issue!.DeletedAt == null)
-            .Select(x => x.IssueId)
-            .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.IssueNotFoundInOrganization, issueKey), cancellationToken);
-    }
 }

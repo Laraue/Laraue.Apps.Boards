@@ -149,6 +149,19 @@ public interface IAccessService
         CancellationToken cancellationToken);
     
     /// <summary>
+    /// The issue behind <paramref name="issueKey"/> (e.g. BRD-42) in the caller's organization, with the caller's
+    /// access to it - for callers that get an issue by its key. Null only when the organization has no such
+    /// issue; an issue the caller can't read still comes back, with <c>CanRead</c> false, so the caller can
+    /// answer 404 for both (see "Choosing 404 vs 403" in AGENTS.md). <paramref name="includeDeleted"/> as in
+    /// <see cref="GetAccessLevelsByIssueId"/>.
+    /// </summary>
+    Task<IssueAccess?> GetIssueAccessByKey(
+        OrganizationAuthData authData,
+        IssueKey issueKey,
+        bool includeDeleted,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Return access level for the requested issue. Pass <paramref name="includeDeleted"/> as
     /// <c>true</c> only for audit/history features that must keep resolving access after the
     /// issue - or its space - was soft-deleted; every other caller should pass <c>false</c>.
@@ -464,6 +477,28 @@ public class AccessService(DatabaseContext context) : IAccessService
             cancellationToken);
     }
 
+    public async Task<IssueAccess?> GetIssueAccessByKey(
+        OrganizationAuthData authData,
+        IssueKey issueKey,
+        bool includeDeleted,
+        CancellationToken cancellationToken)
+    {
+        var issueId = await context.IssueNumbers
+            .Where(x => x.Number == issueKey.Number)
+            .Where(x => x.Space!.Key == issueKey.SpaceKey)
+            .Where(x => x.Space!.OrganizationId == authData.OrganizationId)
+            .Where(x => includeDeleted || x.Issue!.DeletedAt == null)
+            .Select(x => (long?)x.IssueId)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (issueId is null)
+            return null;
+
+        var accessLevels = await GetAccessLevelsByIssueId(authData, issueId.Value, includeDeleted, cancellationToken);
+
+        return accessLevels is null ? null : new IssueAccess(issueId.Value, accessLevels);
+    }
+
     public async Task<AccessLevels?> GetAccessLevelsByIssueId(
         OrganizationAuthData authData,
         long issueId,
@@ -622,6 +657,9 @@ public class AccessService(DatabaseContext context) : IAccessService
             .Where(sos => sos.OrganizationUser!.UserId == authData.UserId);
     }
 }
+
+/// <summary>An issue found by its key, and the caller's access to it (<see cref="IAccessService.GetIssueAccessByKey"/>).</summary>
+public sealed record IssueAccess(long IssueId, AccessLevels AccessLevels);
 
 public record AccessLevels
 {

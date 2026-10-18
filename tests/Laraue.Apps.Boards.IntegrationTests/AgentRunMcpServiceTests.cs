@@ -308,6 +308,31 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
     }
 
     [Fact]
+    public async Task CreateAgentRun_ShouldThrowNotFound_WhenIssueKeyDoesNotExist()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateAgentRunMcpService(testScope.Services)
+            .CreateAgentRun(AuthDataFor(organization.Id, ownerId), "AGT-999", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateAgentRun_ShouldThrowNotFound_WhenCallerCannotReadIssue()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId)
+            .AddIssueToAgentBoard(memberId, issue => issue.WithContent("Assigned to a member who can't read it")));
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateAgentRunMcpService(testScope.Services)
+            .CreateAgentRun(AuthDataFor(organization.Id, memberId), organization.GetIssueData(1, 1, 0, 0).Key, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task CreateAgentRun_ShouldThrowForbidden_WhenCallerIsNotAssignee()
     {
         using var testScope = host.CreateTestScope();

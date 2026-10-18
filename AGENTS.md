@@ -62,7 +62,10 @@ applies everywhere, a space-level grant applies only there, and either is enough
 issue-level checks (`GetAccessLevelsByEpicId`, `GetAccessLevelsByIssueId`) resolve to the owning
 space and delegate to the same space-level check — there's no separate epic/issue permission
 table. Always go through `IAccessService` for a permission check rather than reading
-`OrganizationUser`/`DirectSpacePermission` directly.
+`OrganizationUser`/`DirectSpacePermission` directly. To start from an issue key (`BRD-42`), use `IAccessService.GetIssueAccessByKey`
+- it returns the issue id with the caller's `AccessLevels` (null only when the key doesn't exist), instead of yet
+another `IssueNumbers` lookup followed by `GetAccessLevelsByIssueId`. Older services still have their own copies of
+that lookup.
 
 Permission checks belong at the **host level** (controllers in `WebApiHost`, command/message
 handlers in `TelegramHost`/`TelegramServices`) — call `IAccessService` there, before invoking a
