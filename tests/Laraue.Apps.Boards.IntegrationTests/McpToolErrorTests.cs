@@ -18,6 +18,42 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
     : IClassFixture<WebApiTestHost>, IClassFixture<McpHostTestHost>
 {
     [Fact]
+    public async Task ListTools_ShouldOfferEnumValues_WhenParameterIsAnEnum()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var tools = await client.ListToolsAsync();
+
+        var state = tools.Single(t => t.Name == "finish_agent_run").JsonSchema
+            .GetProperty("properties")
+            .GetProperty("state");
+        Assert.Equal(["Done", "Failed"], state.GetProperty("enum").EnumerateArray().Select(x => x.GetString()));
+    }
+
+    [Fact]
+    public async Task CallTool_ShouldListAllowedValues_WhenEnumArgumentIsUnknown()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        var result = await client.CallToolAsync("finish_agent_run", new Dictionary<string, object?>
+        {
+            ["runId"] = 1,
+            ["state"] = "Cancelled",
+        });
+
+        Assert.True(result.IsError);
+        Assert.Equal(
+            $"BadRequest: Bad request{Environment.NewLine}- state: Must be one of: Done, Failed.",
+            GetText(result));
+    }
+
+    [Fact]
     public async Task CallTool_ShouldReturnNotFoundMessage_WhenIssueDoesNotExist()
     {
         using var testScope = webApiHost.CreateTestScope();

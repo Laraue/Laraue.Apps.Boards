@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Core.Exceptions.Web;
 using ModelContextProtocol.Server;
@@ -28,7 +29,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     [Description("Lists agent runs of the issues the caller can read, oldest first, up to 50 per page - check hasNextPage for more. A runner polls state 'Ready' with excludeBlocked=true and takes the first run it can claim. Each run has its id, the issue (key, title, url), state (Ready, Working, Done, Failed or Cancelled), isBlocked (an issue blocking it isn't Completed yet - see get_issue's links), who handed it off and when, the API key that claimed it, and when it finished and why it failed.")]
     public Task<AgentRunListPage> ListAgentRuns(
         [Description("Only runs of issues in this space (e.g. 'BRD'), from list_spaces. Omit to include every space.")] string? spaceKey = null,
-        [Description("Only runs in this state: Ready, Working, Done, Failed or Cancelled. Omit to include every state.")] string? state = null,
+        [Description("Only runs in this state. Omit to include every state.")] AgentRunState? state = null,
         [Description("Only runs of issues assigned to one of these user ids, from list_members or get_me - e.g. a runner passes its own user id to take only its owner's issues. Omit to include every assignee.")] IReadOnlyList<Guid>? assigneeIds = null,
         [Description("Pass true to leave out runs of blocked issues - an issue is blocked while an issue that blocks it is in Created, InProgress or Review; only Completed releases it. Blockers you can't read don't count. A runner should pass true: a blocked run can't be claimed. Omit to include them.")] bool excludeBlocked = false,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
@@ -51,7 +52,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     [Description("Finishes a Working agent run as Done or Failed. Returns true when the run was finished, false when it was no longer Working - a person cancelled it, so stop working on it. Requires canEdit on the issue.")]
     public Task<bool> FinishAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,
-        [Description("'Done' when the work is finished, 'Failed' when the agent gave up.")] string state,
+        [Description("Done when the work is finished, Failed when the agent gave up.")] AgentRunFinishState state,
         [Description("Why the run failed, max 4096 characters - kept with a Failed run, ignored for Done. Omit for Done.")] [MaxLength(Constraints.MaxAgentRunFailureReasonLength)] string? reason = null,
         CancellationToken cancellationToken = default)
     {

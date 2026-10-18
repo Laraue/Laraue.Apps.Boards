@@ -29,7 +29,7 @@ public interface IAgentRunMcpService
 
     /// <summary>
     /// One page of runs of the issues the caller can read, oldest first - the order a runner should take Ready
-    /// runs in. <paramref name="state"/> is an <see cref="AgentRunState"/> name. <paramref name="assigneeIds"/> keeps
+    /// runs in. <paramref name="assigneeIds"/> keeps
     /// runs of issues assigned to one of these users - a runner's choice of whose issues it takes (its owner's only,
     /// a few people's, or anyone's when omitted); claiming doesn't check the assignee. <paramref name="excludeBlocked"/>
     /// leaves out runs of blocked issues - what a runner polls with, since it can't claim them.
@@ -37,7 +37,7 @@ public interface IAgentRunMcpService
     Task<AgentRunListPage> ListAgentRuns(
         OrganizationAuthData authData,
         string? spaceKey,
-        string? state,
+        AgentRunState? state,
         IReadOnlyList<Guid>? assigneeIds,
         bool excludeBlocked,
         int? page,
@@ -53,11 +53,10 @@ public interface IAgentRunMcpService
         long runId,
         CancellationToken cancellationToken);
 
-    /// <summary><paramref name="state"/> is "Done" or "Failed".</summary>
     Task<bool> FinishAgentRun(
         OrganizationAuthData authData,
         long runId,
-        string state,
+        AgentRunFinishState state,
         string? reason,
         CancellationToken cancellationToken);
 
@@ -94,6 +93,13 @@ public sealed record AgentRunSummary(
     DateTime? FinishedAt,
     string? FailureReason,
     bool IsBlocked);
+
+/// <summary>How a runner ends a run: the work is done, or the agent gave up.</summary>
+public enum AgentRunFinishState
+{
+    Done,
+    Failed,
+}
 
 public sealed record AgentRunListPage(IReadOnlyList<AgentRunSummary> Runs, long Page, bool HasNextPage);
 
@@ -140,17 +146,13 @@ public class AgentRunMcpService(
     public async Task<AgentRunListPage> ListAgentRuns(
         OrganizationAuthData authData,
         string? spaceKey,
-        string? state,
+        AgentRunState? state,
         IReadOnlyList<Guid>? assigneeIds,
         bool excludeBlocked,
         int? page,
         int? count,
         CancellationToken cancellationToken)
     {
-        AgentRunState? parsedState = null;
-        if (state is not null)
-            parsedState = ParseState(nameof(state), state);
-
         var pagination = new PaginationData
         {
             Page = page ?? 0,
@@ -182,8 +184,8 @@ public class AgentRunMcpService(
                     .Select(i => i.Id)
                     .Contains(r.IssueId));
 
-            if (parsedState is not null)
-                runs = runs.Where(r => r.State == parsedState);
+            if (state is not null)
+                runs = runs.Where(r => r.State == state);
 
             var runIds = await runs
                 .OrderBy(r => r.Id)
@@ -228,18 +230,21 @@ public class AgentRunMcpService(
     public async Task<bool> FinishAgentRun(
         OrganizationAuthData authData,
         long runId,
-        string state,
+        AgentRunFinishState state,
         string? reason,
         CancellationToken cancellationToken)
     {
-        var parsedState = ParseState(nameof(state), state);
-        if (parsedState is not (AgentRunState.Done or AgentRunState.Failed))
-            throw new BadRequestException(nameof(state), ErrorMessages.AgentRunFinishStateInvalid);
+        var finishState = state switch
+        {
+            AgentRunFinishState.Done => AgentRunState.Done,
+            AgentRunFinishState.Failed => AgentRunState.Failed,
+            _ => throw new BadRequestException(nameof(state), $"Unknown state {state}."),
+        };
 
         await EnsureCanUpdateRun(authData, runId, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var finished = await coreAgentRunsService.Finish(runId, parsedState, reason, authData.ToActor(), cancellationToken);
+        var finished = await coreAgentRunsService.Finish(runId, finishState, reason, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return finished;
@@ -402,20 +407,6 @@ public class AgentRunMcpService(
 
         if (!accessLevels.CanUpdateIssue)
             throw new ForbiddenException(string.Format(ErrorMessages.EntityActionForbidden, entityName, entityId, "update"));
-    }
-
-    private static AgentRunState ParseState(string argumentName, string state)
-    {
-        if (!Enum.TryParse<AgentRunState>(state, ignoreCase: true, out var parsed)
-            || !Enum.IsDefined(parsed)
-            || int.TryParse(state, out _))
-        {
-            throw new BadRequestException(
-                argumentName,
-                string.Format(ErrorMessages.EntityNotFound, "Agent run state", state));
-        }
-
-        return parsed;
     }
 
     private Task<long> GetIssueIdByIssueKey(long organizationId, IssueKey issueKey, CancellationToken cancellationToken)

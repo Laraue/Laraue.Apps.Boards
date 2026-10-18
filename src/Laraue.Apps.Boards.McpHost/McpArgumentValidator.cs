@@ -5,7 +5,7 @@ namespace Laraue.Apps.Boards.McpHost;
 
 /// <summary>
 /// Checks a tool call's arguments against the tool's own input schema (required properties, their
-/// JSON types and string <c>maxLength</c>) before the tool runs. The SDK's argument binding fails with a bare "An error occurred
+/// JSON types, string <c>maxLength</c> and <c>enum</c> - an enum-typed parameter's allowed names) before the tool runs. The SDK's argument binding fails with a bare "An error occurred
 /// invoking '...'" - dropping which argument was missing or malformed - so <see cref="McpToolCallFilter"/>
 /// runs this first and reports the problem per argument, like a field error of a REST request.
 /// Only the top-level properties are checked - nested values are left to the binder.
@@ -49,7 +49,7 @@ public static class McpArgumentValidator
                 continue;
             }
 
-            var error = ValidateType(property, value) ?? ValidateMaxLength(property, value);
+            var error = ValidateType(property, value) ?? ValidateMaxLength(property, value) ?? ValidateEnum(property, value);
             if (error is not null)
             {
                 errors[name] = [error];
@@ -88,6 +88,26 @@ public static class McpArgumentValidator
                && value.GetString()!.Length > limit
             ? string.Format(ErrorMessages.MaxLengthExceeded, limit)
             : null;
+    }
+
+    // The binder reads enum names case-insensitively, so "ready" is as good as "Ready".
+    private static string? ValidateEnum(JsonElement property, JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.String
+            || !property.TryGetProperty("enum", out var allowedValues)
+            || allowedValues.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var allowed = allowedValues.EnumerateArray()
+            .Where(x => x.ValueKind == JsonValueKind.String)
+            .Select(x => x.GetString()!)
+            .ToArray();
+
+        return allowed.Contains(value.GetString(), StringComparer.OrdinalIgnoreCase)
+            ? null
+            : $"Must be one of: {string.Join(", ", allowed)}.";
     }
 
     private static bool Matches(string schemaType, JsonElement value)
