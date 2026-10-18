@@ -620,5 +620,11 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
                 return ResourceManager.GetString("YourCategories", resourceCulture);
             }
         }
+        
+        internal static string IssueLockedByAgentRun {
+            get {
+                return ResourceManager.GetString("IssueLockedByAgentRun", resourceCulture);
+            }
+        }
     }
 }

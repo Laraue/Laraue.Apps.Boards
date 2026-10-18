@@ -36,7 +36,7 @@ public interface ICoreIssuesService
     /// actually set on it are touched and logged to history. One method regardless of whether
     /// the caller is doing a full Web API edit (content + assignee + attributes + attachments
     /// all at once) or a narrow Telegram sync (content only, or linking one already-stored
-    /// attachment).
+    /// attachment). Throws <see cref="IssueLockedByAgentRunException"/> while the issue has an open agent run.
     /// </summary>
     Task Update(
         long issueId,
@@ -44,6 +44,9 @@ public interface ICoreIssuesService
         IssueUpdateRequest request,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Throws <see cref="IssueLockedByAgentRunException"/> while the issue has an open agent run.
+    /// </summary>
     Task Delete(
         long id,
         Actor actor,
@@ -297,6 +300,8 @@ public class CoreIssuesService(
         IssueUpdateRequest request,
         CancellationToken cancellationToken)
     {
+        await EnsureNotLockedByAgentRun(issueId, cancellationToken);
+
         var date = dateTimeProvider.UtcNow;
 
         var issueData = await context.ActiveIssues()
@@ -409,6 +414,20 @@ public class CoreIssuesService(
             await TouchEpics([issueData.EpicId], date, cancellationToken);
     }
 
+    // An open run (Ready or Working) freezes the issue: the agent works from what was handed off. Checked up front,
+    // since some callers (Telegram edit sync) run without a transaction to roll a half-applied update back.
+    private async Task EnsureNotLockedByAgentRun(long issueId, CancellationToken cancellationToken)
+    {
+        var locked = await context.IssueAgentRuns
+            .AnyAsync(
+                x => x.IssueId == issueId
+                    && (x.State == AgentRunState.Ready || x.State == AgentRunState.Working),
+                cancellationToken);
+
+        if (locked)
+            throw new IssueLockedByAgentRunException();
+    }
+
     /// <summary>
     /// Links any number of already-persisted attachments to an issue in one round trip - ids
     /// already linked to any issue are silently skipped. Batched so a Telegram media group with
@@ -449,6 +468,8 @@ public class CoreIssuesService(
         Actor actor,
         CancellationToken cancellationToken)
     {
+        await EnsureNotLockedByAgentRun(id, cancellationToken);
+
         var issueData = await context.ActiveIssues()
             .Where(x => x.Id == id)
             .Select(x => new

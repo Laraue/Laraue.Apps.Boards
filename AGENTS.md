@@ -789,6 +789,14 @@ run get exactly one `true` - no row lock, and `edit_issue_status` is untouched (
 after claiming). Each transition is an `OrganizationLog` item (`PropertyType.AgentRun`, the run id in
 `ParentId`, the state numbers in the value ids), so history shows the API key the runner used. Every action
 needs `CanUpdateIssue` (reads `CanRead`). `get_issue` and the web card/detail return the latest run.
+A run belongs to the issue's assignee: only the assignee hands an issue off, and only the assignee's runner (an API
+key of the assignee) can claim it - both checked in the hosts (`AgentRunMcpService.EnsureIsAssignee`,
+`AgentRunsService.Create`), 403 otherwise. While a run is open (Ready or Working) the issue is locked:
+`ICoreIssuesService.Update`/`Delete` throw `IssueLockedByAgentRunException` (409) before writing anything, since
+Telegram's edit sync calls them without a transaction - so every surface (web, MCP, mass edits, Telegram) refuses
+field edits and deletion. Status changes and comments stay open to anyone with edit rights, and so does cancel,
+which is how a person unlocks the issue. The lock also keeps the assignee fixed, so a run can't move to another
+person's machine.
 Issue links (BRD-308) hold runs back: a run is `isBlocked` while an issue the caller can read blocks its issue and
 isn't Completed - the same rule as `list_issues`' `excludeBlocked` and the web "blocked" mark. A blocked issue can
 still be handed off; `list_agent_runs(excludeBlocked: true)` leaves its run out, and the claim's conditional update

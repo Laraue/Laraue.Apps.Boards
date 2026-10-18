@@ -1,3 +1,4 @@
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Telegram.NET.Core.Routing;
@@ -115,7 +116,20 @@ public class DeleteCommandService(
         long issueId,
         CancellationToken cancellationToken)
     {
-        var deleted = await saveMessageService.DeleteIssue(issueId, userId, cancellationToken);
+        bool deleted;
+        try
+        {
+            deleted = await saveMessageService.DeleteIssue(issueId, userId, cancellationToken);
+        }
+        catch (IssueLockedByAgentRunException)
+        {
+            await client.AnswerCallbackQuery(
+                callbackQuery.Id,
+                Phrases.IssueLockedByAgentRun,
+                showAlert: true,
+                cancellationToken: cancellationToken);
+            return;
+        }
 
         if (!deleted)
         {

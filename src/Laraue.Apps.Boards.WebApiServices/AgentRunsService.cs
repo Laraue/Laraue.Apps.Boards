@@ -13,7 +13,8 @@ namespace Laraue.Apps.Boards.WebApiServices;
 
 /// <summary>
 /// The web app's side of agent runs (BRD-305): "Hand to agent" and "Cancel" on an issue. Runners claim and finish
-/// runs through the MCP host. Both actions need <c>CanUpdateIssue</c> on the issue.
+/// runs through the MCP host. Both actions need <c>CanUpdateIssue</c> on the issue; handing off also needs the
+/// caller to be the issue's assignee.
 /// </summary>
 public interface IAgentRunsService
 {
@@ -53,6 +54,15 @@ public class AgentRunsService(
                 cancellationToken);
 
         await EnsureCanUpdateIssue(authData, issueId, "Issue", key.ToString(), cancellationToken);
+
+        // Only the assignee hands an issue to their agent; see AgentRunMcpService.EnsureIsAssignee.
+        var assigneeId = await context.ActiveIssues()
+            .Where(i => i.Id == issueId)
+            .Select(i => i.AssigneeId)
+            .FirstAsync(cancellationToken);
+
+        if (assigneeId != authData.UserId)
+            throw new ForbiddenException(string.Format(ErrorMessages.AgentRunHandOffOnlyAssignee, key));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var runId = await coreAgentRunsService.Create(issueId, authData.ToActor(), cancellationToken);

@@ -144,4 +144,7 @@
     <data name="FeedbackServiceUnavailable" xml:space="preserve">
         <value>Feedback can't be sent right now, please try again later.</value>
     </data>
+    <data name="AgentRunHandOffOnlyAssignee" xml:space="preserve">
+        <value>Issue: {0} can be handed to the agent only by its assignee</value>
+    </data>
 </root>

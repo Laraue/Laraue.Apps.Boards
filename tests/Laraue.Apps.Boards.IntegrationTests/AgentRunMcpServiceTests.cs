@@ -207,7 +207,11 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var ownerId = await testScope.CreateUser();
         var memberId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true))
+            .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanUpdateIssues = true;
+            }))
             .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Owner's issue"))
             .AddIssueToDefaultStatus(memberId, issue => issue.WithContent("Member's issue")));
         var ownerIssueKey = organization.GetIssueData(0, 0, 0, 0).Key;
@@ -215,7 +219,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         await service.CreateAgentRun(authData, ownerIssueKey, CancellationToken.None);
-        await service.CreateAgentRun(authData, memberIssueKey, CancellationToken.None);
+        await service.CreateAgentRun(AuthDataFor(organization.Id, memberId), memberIssueKey, CancellationToken.None);
 
         var ownerRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId], false, null, null, CancellationToken.None);
         var bothRuns = await service.ListAgentRuns(authData, null, "Ready", [ownerId, memberId], false, null, null, CancellationToken.None);
@@ -299,6 +303,103 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
     {
         return IssueMcpServiceTests.CreateIssueMcpService(testScope)
             .EditIssueStatus(setup.AuthData, setup.BlockerKey, setup.DoneStatusId, comment: null, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CreateAgentRun_ShouldThrowForbidden_WhenCallerIsNotAssignee()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateAgentRunMcpService(testScope.Services)
+            .CreateAgentRun(setup.EditorAuthData, setup.IssueKey, CancellationToken.None));
+        Assert.Equal(0, await testScope.Database.IssueAgentRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task ClaimAgentRun_ShouldThrowForbidden_WhenCallerIsNotAssignee()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.CreateAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => service
+            .ClaimAgentRun(setup.EditorAuthData, run.Id, CancellationToken.None));
+        var storedRun = await testScope.Database.IssueAgentRuns.SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Ready, storedRun.State);
+    }
+
+    [Fact]
+    public async Task CancelAgentRun_ShouldCancel_WhenCallerCanEditButIsNotAssignee()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.CreateAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        Assert.True(await service.CancelAgentRun(setup.EditorAuthData, run.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldThrowConflictUntilRunIsCancelled_WhenIssueIsHandedOff()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var issueMcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
+        var run = await service.CreateAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        var ex = await Assert.ThrowsAsync<IssueLockedByAgentRunException>(() => issueMcpService.EditIssue(
+            setup.EditorAuthData, setup.IssueKey, "Do something else", "Title", null, null, null, null, CancellationToken.None));
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, ex.StatusCode);
+        await Assert.ThrowsAsync<IssueLockedByAgentRunException>(() => issueMcpService.DeleteIssue(
+            setup.OwnerAuthData, setup.IssueKey, CancellationToken.None));
+
+        await service.CancelAgentRun(setup.EditorAuthData, run.Id, CancellationToken.None);
+        await issueMcpService.EditIssue(
+            setup.EditorAuthData, setup.IssueKey, "Do something else", "Title", null, null, null, null, CancellationToken.None);
+
+        var issue = await issueMcpService.GetIssue(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+        Assert.Equal("Do something else", issue.Content);
+    }
+
+    [Fact]
+    public async Task CreateComment_ShouldWork_WhenIssueIsHandedOff()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+        await CreateAgentRunMcpService(testScope.Services)
+            .CreateAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        var commentId = await IssueMcpServiceTests.CreateIssueMcpService(testScope)
+            .CreateComment(setup.EditorAuthData, setup.IssueKey, "Note for the agent", CancellationToken.None);
+
+        Assert.True(commentId > 0);
+    }
+
+    private sealed record OwnerIssueWithEditorSetup(
+        OrganizationAuthData OwnerAuthData,
+        OrganizationAuthData EditorAuthData,
+        string IssueKey);
+
+    // An issue assigned to the owner, and a member who can edit it but isn't its assignee.
+    private static async Task<OwnerIssueWithEditorSetup> CreateOwnerIssueWithEditorSetup(WebApiTestHostScope testScope)
+    {
+        var ownerId = await testScope.CreateUser();
+        var editorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(editorId, builder => builder.SetGlobalAccessLevel(x =>
+            {
+                x.CanRead = true;
+                x.CanUpdateIssues = true;
+            }))
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        return new OwnerIssueWithEditorSetup(
+            AuthDataFor(organization.Id, ownerId),
+            AuthDataFor(organization.Id, editorId),
+            organization.GetIssueData(0, 0, 0, 0).Key);
     }
 
     [Fact]

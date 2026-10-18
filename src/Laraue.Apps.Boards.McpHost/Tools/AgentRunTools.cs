@@ -16,7 +16,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Hands an issue to the agent: creates an agent run in state Ready, which a runner then claims with claim_agent_run. An issue can have only one open run (Ready or Working) - cancel it first to hand the issue off again. A blocked issue can be handed off: its run waits (isBlocked) until every issue blocking it is Completed. Returns the run. Requires canEdit (see get_issue/list_issues).")]
+    [Description("Hands an issue to the agent: creates an agent run in state Ready, which a runner then claims with claim_agent_run. An issue can have only one open run (Ready or Working) - cancel it first to hand the issue off again. A blocked issue can be handed off: its run waits (isBlocked) until every issue blocking it is Completed. While the run is open the issue is locked: edit_issue and delete_issue fail until it's finished or cancelled (status changes and comments still work). Returns the run. Only the issue's assignee can hand it off, with canEdit (see get_issue/list_issues).")]
     public Task<AgentRunSummary> CreateAgentRun(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -39,7 +39,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool]
-    [Description("Claims a Ready agent run for this runner, moving it to Working. Returns true when this call claimed it, false when it was no longer Ready (another runner claimed it first, or it was cancelled) or its issue is blocked - on false, skip the run. Atomic: of two runners claiming the same run, exactly one gets true. After claiming, move the issue to its epic's first InProgress status with edit_issue_status. Requires canEdit on the issue.")]
+    [Description("Claims a Ready agent run for this runner, moving it to Working. Returns true when this call claimed it, false when it was no longer Ready (another runner claimed it first, or it was cancelled) or its issue is blocked - on false, skip the run. Atomic: of two runners claiming the same run, exactly one gets true. Only the issue's assignee can claim it (a runner works only on its own user's issues). After claiming, move the issue to its epic's first InProgress status with edit_issue_status. Requires canEdit on the issue.")]
     public Task<bool> ClaimAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,
         CancellationToken cancellationToken)
@@ -59,7 +59,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool]
-    [Description("Cancels an open (Ready or Working) agent run: a Ready run is no longer offered to runners, and the runner working on a Working run sees it is no longer Working and stops. Returns false when the run had already finished or was cancelled. Requires canEdit on the issue.")]
+    [Description("Cancels an open (Ready or Working) agent run: a Ready run is no longer offered to runners, and the runner working on a Working run sees it is no longer Working and stops. Cancelling also unlocks the issue for editing. Returns false when the run had already finished or was cancelled. Requires canEdit on the issue.")]
     public Task<bool> CancelAgentRun(
         [Description("The run's id, from list_agent_runs or get_issue's latestAgentRun.")] long runId,
         CancellationToken cancellationToken)

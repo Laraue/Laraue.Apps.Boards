@@ -296,5 +296,11 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
                 return ResourceManager.GetString("GoogleCredentialMissing", resourceCulture);
             }
         }
+        
+        internal static string AgentRunHandOffOnlyAssignee {
+            get {
+                return ResourceManager.GetString("AgentRunHandOffOnlyAssignee", resourceCulture);
+            }
+        }
     }
 }

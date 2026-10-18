@@ -2296,6 +2296,53 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleTextMessage_ShouldKeepCardAndExplain_WhenEditedWhileHandedToAgent()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        db.IssueAgentRuns.Add(new IssueAgentRun
+        {
+            IssueId = issue.Id,
+            State = Laraue.Apps.Boards.DataAccess.Enums.AgentRunState.Ready,
+            CreatedAt = DateTime.UtcNow,
+            CreatedByUserId = issue.AssigneeId,
+        });
+        await db.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Edited Test message",
+                Chat = PrivateChat,
+            }
+        });
+
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Test message", issue.Content);
+        var reply = host.Requests().OfType<SendMessageRequest>().Last();
+        Assert.Equal(
+            "This card is handed to the agent and can't be changed until the run is finished or cancelled.",
+            reply.Text);
+    }
+
+    [Fact]
     public async Task HandleTextMessage_ShouldRecordHistory_WhenContentEditedViaTelegram()
     {
         using var host = GetTelegramTestHost();

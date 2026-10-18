@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.Services.Billing;
+﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -51,6 +52,19 @@ public class TelegramMessageService(
                 await client.SendMessage(
                     request.ExternalChatId,
                     Phrases.IssueLimitExceeded,
+                    cancellationToken: cancellationToken);
+            }
+
+            return;
+        }
+        catch (IssueLockedByAgentRunException)
+        {
+            // An edited message whose card is with the agent: the card keeps the text that was handed off.
+            if (notifyOnFailure)
+            {
+                await client.SendMessage(
+                    request.ExternalChatId,
+                    Phrases.IssueLockedByAgentRun,
                     cancellationToken: cancellationToken);
             }
 

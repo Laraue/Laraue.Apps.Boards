@@ -118,6 +118,11 @@ public class AgentRunMcpService(
         var issueId = await GetIssueIdByIssueKey(authData.OrganizationId, key, cancellationToken);
 
         await EnsureCanUpdateIssue(authData, issueId, "Issue", key.ToString(), cancellationToken);
+        await EnsureIsAssignee(
+            issueId,
+            authData.UserId,
+            string.Format(ErrorMessages.AgentRunHandOffOnlyAssignee, key),
+            cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var runId = await coreAgentRunsService.Create(issueId, authData.ToActor(), cancellationToken);
@@ -204,7 +209,12 @@ public class AgentRunMcpService(
         long runId,
         CancellationToken cancellationToken)
     {
-        await EnsureCanUpdateRun(authData, runId, cancellationToken);
+        var issueId = await EnsureCanUpdateRun(authData, runId, cancellationToken);
+        await EnsureIsAssignee(
+            issueId,
+            authData.UserId,
+            string.Format(ErrorMessages.AgentRunClaimOnlyAssignee, runId),
+            cancellationToken);
 
         var readableSpaceIds = await GetReadableSpaceIds(authData, cancellationToken);
 
@@ -341,7 +351,8 @@ public class AgentRunMcpService(
             cancellationToken);
     }
 
-    private async Task EnsureCanUpdateRun(
+    // Returns the run's issue id.
+    private async Task<long> EnsureCanUpdateRun(
         OrganizationAuthData authData,
         long runId,
         CancellationToken cancellationToken)
@@ -355,6 +366,25 @@ public class AgentRunMcpService(
                 cancellationToken);
 
         await EnsureCanUpdateIssue(authData, issueId, "Agent run", runId.ToString(), cancellationToken);
+
+        return issueId;
+    }
+
+    // A run belongs to the issue's assignee: only they hand it off, only their runner claims it. The assignee can't
+    // change while the run is open (the issue is locked), so the run can't move to someone else's machine.
+    private async Task EnsureIsAssignee(
+        long issueId,
+        Guid userId,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        var assigneeId = await context.ActiveIssues()
+            .Where(i => i.Id == issueId)
+            .Select(i => i.AssigneeId)
+            .FirstAsync(cancellationToken);
+
+        if (assigneeId != userId)
+            throw new ForbiddenException(message);
     }
 
     // 404 when the issue isn't readable, 403 when it's readable but the caller can't change it - see AGENTS.md

@@ -112,7 +112,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Fully replaces an issue's text content - not an append or merge. Fetch the existing content via get_issue first if you need to preserve any of it. Also requires the title - pass the current one (from get_issue) to keep it. Does not change status. Requires canEdit (see get_issue/list_issues).")]
+    [Description("Fully replaces an issue's text content - not an append or merge. Fetch the existing content via get_issue first if you need to preserve any of it. Also requires the title - pass the current one (from get_issue) to keep it. Does not change status. Requires canEdit (see get_issue/list_issues). Fails while the issue is handed to the agent (an open run in get_issue's latestAgentRun) - cancel_agent_run first.")]
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The issue's complete new text content, replacing what's there now, max 4096 characters.")] [MaxLength(Constraints.MaxContentLength)] string content,
@@ -127,7 +127,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Deletes an issue - it stops appearing anywhere except its own audit history. Requires canDelete (see get_issue/list_issues).")]
+    [Description("Deletes an issue - it stops appearing anywhere except its own audit history. Requires canDelete (see get_issue/list_issues). Fails while the issue is handed to the agent (an open run in get_issue's latestAgentRun) - cancel_agent_run first.")]
     public Task DeleteIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
