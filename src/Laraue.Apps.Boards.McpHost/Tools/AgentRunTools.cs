@@ -16,7 +16,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextAccessor httpContextAccessor)
 {
     [McpServerTool]
-    [Description("Hands an issue to the agent: creates an agent run in state Ready, which a runner then claims with claim_agent_run. An issue can have only one open run (Ready or Working) - cancel it first to hand the issue off again. A blocked issue can be handed off: its run waits (isBlocked) until every issue blocking it is Completed. While the run is open the issue is locked: edit_issue and delete_issue fail until it's finished or cancelled (status changes and comments still work). Returns the run. Only the issue's assignee can hand it off, with canEdit (see get_issue/list_issues).")]
+    [Description("Hands an issue to the agent: creates an agent run in state Ready, which a runner then claims with claim_agent_run. An issue can have only one open run (Ready or Working) - cancel it first to hand the issue off again. A blocked issue can be handed off: its run waits (isBlocked) until every issue blocking it is Completed. While the run is open the issue is locked: edit_issue and delete_issue fail until it's finished or cancelled (status changes and comments still work). Returns the run. Only the issue's assignee can hand it off, with canEdit (see get_issue/list_issues); the issue must be in a Created status, and its epic needs Created, InProgress and Review statuses (see list_statuses) - the agent moves it through them.")]
     public Task<AgentRunSummary> CreateAgentRun(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)

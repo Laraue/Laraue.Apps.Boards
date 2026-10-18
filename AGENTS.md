@@ -797,6 +797,11 @@ Telegram's edit sync calls them without a transaction - so every surface (web, M
 field edits and deletion. Status changes and comments stay open to anyone with edit rights, and so does cancel,
 which is how a person unlocks the issue. The lock also keeps the assignee fixed, so a run can't move to another
 person's machine.
+A hand-off also needs the issue in a Created status and its epic to have Created, InProgress and Review statuses
+(`AgentRunBoardRequirements`) - the agent moves the issue through them; 400 otherwise, and the web issue detail's
+`MissingStatusCategoriesForAgent` lets the page show why instead of the button. Since status changes stay allowed
+while a run is open, the claim checks the board again: if the issue moved to a board without those statuses, the
+run fails with that reason and the claim returns false.
 Issue links (BRD-308) hold runs back: a run is `isBlocked` while an issue the caller can read blocks its issue and
 isn't Completed - the same rule as `list_issues`' `excludeBlocked` and the web "blocked" mark. A blocked issue can
 still be handed off; `list_agent_runs(excludeBlocked: true)` leaves its run out, and the claim's conditional update

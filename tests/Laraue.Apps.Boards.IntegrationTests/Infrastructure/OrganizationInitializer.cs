@@ -454,6 +454,34 @@ public class OrganizationInitializer(
         return AddIssueToDefaultStatus(creatorId, _ => {});
     }
 
+    private const string AgentBoardSpaceKey = "AGT";
+
+    /// <summary>
+    /// Adds an issue, in its "New" status, to a board the agent can work on (BRD-305: it has Created, InProgress
+    /// and Review statuses - the default backlog has only "New"). The board is made on first use as the second
+    /// space's first epic, so its issues are <c>GetIssueData(1, 1, 0, i)</c> and the board <c>GetEpic(1, 1)</c>,
+    /// as long as no other space is added before it.
+    /// </summary>
+    public OrganizationInitializer AddIssueToAgentBoard(
+        Guid creatorId,
+        Action<IssueBuilder> setupIssue)
+    {
+        if (_spaces.All(x => x.SpaceKey != AgentBoardSpaceKey))
+        {
+            AddSpace(creatorId, AgentBoardSpaceKey, space => space
+                .AddEpic(creatorId, epic => epic
+                    .AddStatus(s => s.WithName("In Progress").WithCategory(StatusCategory.InProgress))
+                    .AddStatus(s => s.WithName("Review").WithCategory(StatusCategory.Review))));
+        }
+
+        _spaces
+            .Single(x => x.SpaceKey == AgentBoardSpaceKey)
+            .Epics[0]
+            .AddIssue(creatorId, 0, setupIssue);
+
+        return this;
+    }
+
     public record TestUserPermissions
     {
         public GlobalAccessLevels GlobalAccessLevels { get; set; } = new();

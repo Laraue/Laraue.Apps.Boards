@@ -47,8 +47,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var apiKeys = testScope.Services.GetRequiredService<ICoreApiKeysService>();
         var firstKey = await apiKeys.CreateAsync(organization.Id, ownerId, "Runner 1", CancellationToken.None);
         var secondKey = await apiKeys.CreateAsync(organization.Id, ownerId, "Runner 2", CancellationToken.None);
@@ -81,8 +81,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -97,8 +97,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -119,8 +119,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
 
         using var firstScope = host.Services.CreateScope();
@@ -142,8 +142,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var firstRun = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -161,11 +161,11 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Handed off"))
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Claimed"))
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Not handed off")));
-        var handedOffKey = organization.GetIssueData(0, 0, 0, 0).Key;
-        var claimedKey = organization.GetIssueData(0, 0, 0, 1).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Handed off"))
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Claimed"))
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Not handed off")));
+        var handedOffKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var claimedKey = organization.GetIssueData(1, 1, 0, 1).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var readyRun = await service.CreateAgentRun(authData, handedOffKey, CancellationToken.None);
@@ -189,8 +189,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var memberId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(memberId)
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         await CreateAgentRunMcpService(testScope.Services)
             .CreateAgentRun(AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
 
@@ -212,10 +212,10 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
                 x.CanRead = true;
                 x.CanUpdateIssues = true;
             }))
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Owner's issue"))
-            .AddIssueToDefaultStatus(memberId, issue => issue.WithContent("Member's issue")));
-        var ownerIssueKey = organization.GetIssueData(0, 0, 0, 0).Key;
-        var memberIssueKey = organization.GetIssueData(0, 0, 0, 1).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Owner's issue"))
+            .AddIssueToAgentBoard(memberId, issue => issue.WithContent("Member's issue")));
+        var ownerIssueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var memberIssueKey = organization.GetIssueData(1, 1, 0, 1).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         await service.CreateAgentRun(authData, ownerIssueKey, CancellationToken.None);
@@ -280,6 +280,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             .AddSpace(ownerId, space => space
                 .AddEpic(ownerId, epic => epic
                     .AddStatus(s => s.WithName("Done").WithCategory(StatusCategory.Completed))
+                    .AddStatus(s => s.WithName("In Progress").WithCategory(StatusCategory.InProgress))
+                    .AddStatus(s => s.WithName("Review").WithCategory(StatusCategory.Review))
                     .AddIssue(ownerId, 0, issue => issue.WithContent("Blocker"))
                     .AddIssue(ownerId, 0, issue => issue.WithContent("Blocked")))));
         var blocker = organization.GetIssueData(1, 1, 0, 0);
@@ -394,12 +396,66 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
                 x.CanRead = true;
                 x.CanUpdateIssues = true;
             }))
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
 
         return new OwnerIssueWithEditorSetup(
             AuthDataFor(organization.Id, ownerId),
             AuthDataFor(organization.Id, editorId),
-            organization.GetIssueData(0, 0, 0, 0).Key);
+            organization.GetIssueData(1, 1, 0, 0).Key);
+    }
+
+    [Fact]
+    public async Task CreateAgentRun_ShouldReject_WhenBoardHasNoInProgressOrReviewStatus()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("In the backlog")));
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() => CreateAgentRunMcpService(testScope.Services)
+            .CreateAgentRun(AuthDataFor(organization.Id, ownerId), organization.GetIssueData(0, 0, 0, 0).Key, CancellationToken.None));
+
+        Assert.Contains("InProgress, Review", ex.Message + string.Join(" ", ex.Errors?.SelectMany(e => e.Value) ?? []));
+        Assert.Equal(0, await testScope.Database.IssueAgentRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateAgentRun_ShouldReject_WhenIssueIsAlreadyStarted()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        await IssueMcpServiceTests.CreateIssueMcpService(testScope)
+            .EditIssueStatus(authData, issueKey, organization.GetStatus(1, 1, 1).Id, comment: null, CancellationToken.None);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => CreateAgentRunMcpService(testScope.Services)
+            .CreateAgentRun(authData, issueKey, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ClaimAgentRun_ShouldFailRun_WhenIssueMovedToBoardWithoutReview()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
+
+        // Status changes stay allowed while the issue is handed off - here, to the default space's backlog.
+        await IssueMcpServiceTests.CreateIssueMcpService(testScope)
+            .EditIssueStatus(authData, issueKey, organization.GetStatus(0, 0, 0).Id, comment: null, CancellationToken.None);
+
+        Assert.False(await service.ClaimAgentRun(authData, run.Id, CancellationToken.None));
+
+        var storedRun = await testScope.Database.IssueAgentRuns.SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Failed, storedRun.State);
+        Assert.Contains("InProgress, Review", storedRun.FailureReason);
     }
 
     [Fact]
@@ -419,8 +475,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -429,7 +485,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var finished = await service.FinishAgentRun(authData, run.Id, "Failed", "Build is red", CancellationToken.None);
 
         Assert.True(finished);
-        var latest = await service.GetLatestRun(authData, organization.GetIssueData(0, 0, 0, 0).Issue.Id, CancellationToken.None);
+        var latest = await service.GetLatestRun(authData, organization.GetIssueData(1, 1, 0, 0).Issue.Id, CancellationToken.None);
         Assert.NotNull(latest);
         Assert.Equal("Failed", latest.State);
         Assert.Equal("Build is red", latest.FailureReason);
@@ -442,8 +498,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -463,8 +519,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -478,8 +534,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -497,8 +553,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var memberId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(memberId, builder => builder.SetGlobalAccessLevel(x => x.CanRead = true))
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
 
         await Assert.ThrowsAsync<ForbiddenException>(() => CreateAgentRunMcpService(testScope.Services)
             .CreateAgentRun(AuthDataFor(organization.Id, memberId), issueKey, CancellationToken.None));
@@ -512,8 +568,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var memberId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddUser(memberId)
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var run = await CreateAgentRunMcpService(testScope.Services)
             .CreateAgentRun(AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
 
@@ -527,8 +583,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
             .CreateAsync(organization.Id, ownerId, "Claude Code agent", CancellationToken.None);
         var service = CreateAgentRunMcpService(testScope.Services);
@@ -558,8 +614,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var issueMcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
         var service = CreateAgentRunMcpService(testScope.Services);

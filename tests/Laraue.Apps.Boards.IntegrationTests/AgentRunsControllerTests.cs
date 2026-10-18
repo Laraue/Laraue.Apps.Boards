@@ -20,8 +20,8 @@ public class AgentRunsControllerTests(WebApiTestHost host) : IClassFixture<WebAp
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId, o => o
-            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(userId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
 
         var run = await _agentRunsController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -31,9 +31,9 @@ public class AgentRunsControllerTests(WebApiTestHost host) : IClassFixture<WebAp
 
         var columns = await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetBoard(new GetBoardRequest { EpicId = organization.GetEpic(0, 0).Id, Take = 10 }));
+            .Execute(x => x.GetBoard(new GetBoardRequest { EpicId = organization.GetEpic(1, 1).Id, Take = 10 }));
 
-        var card = Assert.Single(Assert.Single(columns).Items.Data);
+        var card = Assert.Single(columns.SelectMany(x => x.Items.Data));
         Assert.Equal(new IssueAgentRunShortDto { Id = run.Id, State = AgentRunState.Ready }, card.LatestAgentRun);
     }
 
@@ -43,8 +43,8 @@ public class AgentRunsControllerTests(WebApiTestHost host) : IClassFixture<WebAp
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId, o => o
-            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(userId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var controller = _agentRunsController.WithOrganizationAuthorization(organization.Id, userId);
         var run = await controller.Execute(x => x.Create(new CreateAgentRunRequest { IssueKey = issueKey }));
 
@@ -66,8 +66,8 @@ public class AgentRunsControllerTests(WebApiTestHost host) : IClassFixture<WebAp
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId, o => o
-            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(userId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var controller = _agentRunsController.WithOrganizationAuthorization(organization.Id, userId);
         await controller.Execute(x => x.Create(new CreateAgentRunRequest { IssueKey = issueKey }));
 
@@ -83,8 +83,8 @@ public class AgentRunsControllerTests(WebApiTestHost host) : IClassFixture<WebAp
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId, o => o
-            .AddIssueToDefaultStatus(userId, issue => issue.WithContent("Fix the thing")));
-        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+            .AddIssueToAgentBoard(userId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var run = await _agentRunsController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.Create(new CreateAgentRunRequest { IssueKey = issueKey }));

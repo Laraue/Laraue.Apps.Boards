@@ -726,6 +726,8 @@ public class IssuesService(
             .Select(AgentRunDto.Projection)
             .FirstOrDefaultAsyncEF(cancellationToken);
 
+        var missingStatusCategoriesForAgent = await context.GetMissingStatusCategories(result.CategoryId, cancellationToken);
+
         var issue = new IssueDetailDto
         {
             Id = result.Id,
@@ -756,6 +758,7 @@ public class IssuesService(
             SpaceColor = result.SpaceColor,
             Attachments = media,
             LatestAgentRun = latestAgentRun,
+            MissingStatusCategoriesForAgent = missingStatusCategoriesForAgent,
             Links = await issueLinksReader.GetLinks(
                 issueId,
                 await GetReadableSpaceIds(request.AuthData, cancellationToken),
@@ -2016,6 +2019,12 @@ public class IssueDetailDto
     /// The issue's most recent agent run, null when it was never handed to the agent.
     /// </summary>
     public required AgentRunDto? LatestAgentRun { get; set; }
+
+    /// <summary>
+    /// Status categories the issue's board has no status in but the agent needs
+    /// (<see cref="AgentRunBoardRequirements"/>); empty when its issues can be handed to the agent.
+    /// </summary>
+    public required StatusCategory[] MissingStatusCategoriesForAgent { get; set; }
 }
 
 public record CommentDto

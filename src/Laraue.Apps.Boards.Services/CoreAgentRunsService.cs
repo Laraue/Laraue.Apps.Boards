@@ -20,7 +20,9 @@ public interface ICoreAgentRunsService
 {
     /// <summary>
     /// Hands the issue off: creates a <see cref="AgentRunState.Ready"/> run. Throws
-    /// <see cref="BadRequestException"/> when the issue already has an open (Ready or Working) run.
+    /// <see cref="BadRequestException"/> when the issue already has an open (Ready or Working) run, isn't in a
+    /// Created status, or its board misses a status category the agent needs
+    /// (<see cref="AgentRunBoardRequirements"/>).
     /// Returns the new run's id.
     /// </summary>
     Task<long> Create(
@@ -30,7 +32,9 @@ public interface ICoreAgentRunsService
 
     /// <summary>
     /// Ready -> Working. True when this call claimed the run, false when it wasn't Ready any more
-    /// (someone else claimed it first, or it was cancelled) or its issue is blocked: an active issue in
+    /// (someone else claimed it first, or it was cancelled), its board no longer has the statuses the agent needs
+    /// (the issue moved, or a status was removed - the run then fails with that reason), or its issue is blocked:
+    /// an active issue in
     /// <paramref name="blockerSpaceIds"/> (the caller's readable spaces) blocks it and isn't Completed. The
     /// blocked check is part of the same conditional update, so a run can't be claimed past a blocker.
     /// </summary>
@@ -74,6 +78,18 @@ public class CoreAgentRunsService(
     {
         context.Database.EnsureTransactionStarted();
 
+        var issue = await context.ActiveIssues()
+            .Where(x => x.Id == issueId)
+            .Select(x => new { x.Status!.Category, x.Status.EpicId })
+            .FirstAsync(cancellationToken);
+
+        if (issue.Category != StatusCategory.Created)
+            throw new BadRequestException("issueKey", IssueStartedMessage);
+
+        var missingCategories = await context.GetMissingStatusCategories(issue.EpicId, cancellationToken);
+        if (missingCategories.Length > 0)
+            throw new BadRequestException("issueKey", BoardNotReadyMessage(missingCategories));
+
         var now = dateTimeProvider.UtcNow;
 
         var run = new IssueAgentRun
@@ -110,6 +126,33 @@ public class CoreAgentRunsService(
         context.Database.EnsureTransactionStarted();
 
         var now = dateTimeProvider.UtcNow;
+
+        // Status changes stay allowed while a run is open, so the issue may have moved to a board the agent can't
+        // finish on (or a status was removed): such a run fails instead of being claimed.
+        var epicId = await context.IssueAgentRuns
+            .Where(x => x.Id == runId)
+            .Select(x => x.Issue!.Status!.EpicId)
+            .FirstAsync(cancellationToken);
+
+        var missingCategories = await context.GetMissingStatusCategories(epicId, cancellationToken);
+        if (missingCategories.Length > 0)
+        {
+            var reason = BoardNotReadyMessage(missingCategories);
+
+            var failed = await context.IssueAgentRuns
+                .Where(x => x.Id == runId && x.State == AgentRunState.Ready)
+                .ExecuteUpdateAsync(
+                    u => u
+                        .SetProperty(x => x.State, AgentRunState.Failed)
+                        .SetProperty(x => x.FinishedAt, now)
+                        .SetProperty(x => x.FailureReason, reason),
+                    cancellationToken);
+
+            if (failed > 0)
+                await RecordStateChange(runId, AgentRunState.Ready, AgentRunState.Failed, actor, now, cancellationToken);
+
+            return false;
+        }
 
         var updated = await context.IssueAgentRuns
             .Where(x => x.Id == runId && x.State == AgentRunState.Ready)
@@ -237,6 +280,16 @@ public class CoreAgentRunsService(
     }
 
     private const string OpenRunAlreadyExistsMessage = "The issue is already handed to the agent - cancel that run first.";
+
+    private const string IssueStartedMessage =
+        "Only a not started issue can be handed to the agent - move it to a Created status first.";
+
+    private static string BoardNotReadyMessage(IEnumerable<StatusCategory> missingCategories)
+    {
+        return "The issue's board needs a status in each of these categories for the agent: "
+            + string.Join(", ", missingCategories)
+            + ".";
+    }
 
     // The partial unique index is the only race-free check, so a second open run is detected by the violation itself.
     private static bool IsOpenRunViolation(Exception ex)
