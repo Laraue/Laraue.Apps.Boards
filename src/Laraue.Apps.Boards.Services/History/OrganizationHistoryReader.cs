@@ -398,6 +398,14 @@ public class OrganizationHistoryReader(
                 OldState = item.OldValueId is not null ? (AgentRunState)int.Parse(item.OldValueId) : null,
                 NewState = (AgentRunState)int.Parse(item.NewValueId!),
             },
+            PropertyType.IssueLink => new IssueHistoryLinkChange
+            {
+                Relation = Enum.Parse<IssueLinkRelation>(item.PropertyName!),
+                IssueKey = item.NewDisplayValue ?? item.OldDisplayValue,
+                Action = item.NewValueId is not null
+                    ? IssueLinkAction.Added
+                    : IssueLinkAction.Removed,
+            },
             _ => throw new InvalidOperationException($"Change of type {item.PropertyType} is not supported yet")
         };
     }

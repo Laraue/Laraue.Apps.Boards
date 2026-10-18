@@ -106,6 +106,7 @@ public static class WebApplicationBuilderExtensions
                 .AddSingleton<BoardsMetrics>()
                 .AddScoped<IAccessService, AccessService>()
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()
+                .AddScoped<ICoreIssueLinksService, CoreIssueLinksService>()
                 .AddScoped<ICoreIssueAttributesService, CoreIssueAttributesService>()
                 .AddAttributeUpdaters()
                 .AddScoped<IIssueHistoryService, IssueHistoryService>()

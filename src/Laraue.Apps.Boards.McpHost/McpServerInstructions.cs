@@ -29,6 +29,9 @@ public static class McpServerInstructions
         - edit_issue replaces the whole content - read the issue first to keep what should stay.
         - Attachments: create_issue/edit_issue add files, edit_issue removes them, get_attachment
           downloads one by its id from get_issue or list_issue_comments.
+        - Issues can be linked: one blocks another (it must be done first), relates to it, or duplicates it.
+          get_issue lists an issue's links; list_issues with excludeBlocked=true leaves out blocked issues (a
+          blocker counts until it's Completed - Review still blocks). create_issue_link/delete_issue_link add or remove a link.
         - Agent runs hand issues to a coding agent: create_agent_run hands one off (state Ready). A runner
           polls list_agent_runs(state 'Ready'), takes a run with claim_agent_run (false = someone else has
           it, skip), moves the issue to an InProgress status, works, and ends with finish_agent_run (Done or

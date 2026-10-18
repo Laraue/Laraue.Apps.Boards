@@ -785,6 +785,55 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("issue_comments_attachments", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueLink", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<long>("SourceIssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_issue_id");
+
+                    b.Property<long>("TargetIssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_issue_id");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_issue_links");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_issue_links_created_by_user_id");
+
+                    b.HasIndex("SourceIssueId")
+                        .HasDatabaseName("ix_issue_links_source_issue_id");
+
+                    b.HasIndex("TargetIssueId")
+                        .HasDatabaseName("ix_issue_links_target_issue_id");
+
+                    b.ToTable("issue_links", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_issue_links_not_self", "source_issue_id <> target_issue_id");
+
+                            t.HasCheckConstraint("ck_issue_links_relates_to_ordered", "type <> 1 OR source_issue_id < target_issue_id");
+                        });
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueNumber", b =>
                 {
                     b.Property<long>("IssueId")
@@ -2266,6 +2315,36 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Attachment");
 
                     b.Navigation("Comment");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueLink", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_links_users_created_by_user_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "SourceIssue")
+                        .WithMany()
+                        .HasForeignKey("SourceIssueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_links_issues_source_issue_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "TargetIssue")
+                        .WithMany()
+                        .HasForeignKey("TargetIssueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_links_issues_target_issue_id");
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("SourceIssue");
+
+                    b.Navigation("TargetIssue");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueNumber", b =>

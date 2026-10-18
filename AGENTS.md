@@ -206,8 +206,9 @@ Solution: `Laraue.Apps.Boards.sln`
   (`WebApiServices.OrganizationHistoryService`, `IssueMcpService.GetIssueHistory`), then passes the ids
   in. Its DTOs (`OrganizationHistoryItem`, `HistoryItemChange` subtypes, `UserDetails`) moved with it;
   OpenAPI schema names are type names, so the REST contract and the frontend's generated types didn't
-  change. Only reach for this when a read's mapping is genuinely shared and non-trivial - a plain query
-  still belongs in the host's own service.
+  change. `Services.Links.IssueLinksReader` (an issue's links, and which issues are blocked) follows the
+  same shape: no permission checks, the caller passes the spaces it may read. Only reach for this when a
+  read's mapping is genuinely shared and non-trivial - a plain query still belongs in the host's own service.
 - `WebApiServices` and `TelegramServices` sit on top of core and hold logic specific to their own
   surface (request/response shaping, Telegram formatting and commands, permission checks tied to
   that surface's flow, etc.). They call into core services rather than duplicating their logic.
@@ -715,13 +716,19 @@ exactly what a client receives (error results, metrics), drive a real MCP client
 
 Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`,
 `create_issue`/`edit_issue`/`delete_issue`, `create_comment`/`edit_comment`/`delete_comment`,
-`get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_epics`/`list_statuses`/
+`create_issue_link`/`delete_issue_link`, `get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_epics`/`list_statuses`/
 `list_attributes`/`list_members`, and the agent-run tools `create_agent_run`/`list_agent_runs`/
 `claim_agent_run`/`finish_agent_run`/`cancel_agent_run` (see "Agent runs" below). Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
 mutating tool maps to the REST API's own permission check (`CanCreateIssue` off the target status's
 epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for delete, owner-only for
 editing/deleting a comment). Design guardrails worth preserving:
 
+- **Issue links are their own tool pair**, unlike attachments: `edit_issue` requires the whole content and
+  title, so linking through it would make a caller re-send (and risk overwriting) the issue just to add a
+  link. `get_issue` returns `links` (relation from the issue's side, key, title, status category) through the
+  shared `IssueLinksReader`; `list_issues` takes an `excludeBlocked` filter rather than returning a flag, so an
+  agent asking for work ready to start gets full pages of it. An issue the caller can't
+  read is a 404 on either end of a link and is left out of `links`.
 - **No separate attachment tool.** Attaching is `create_issue`/`edit_issue`'s `files` param;
   removing is `edit_issue`'s `removeAttachmentIds`. A per-file `add_attachment`/`remove_attachment`
   tool would just duplicate what `edit_issue` already does in one call.

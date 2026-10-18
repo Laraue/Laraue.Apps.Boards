@@ -69,6 +69,15 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to '{0}' is not a link type. Use one of: {1}.
+        /// </summary>
+        internal static string UnknownIssueLinkRelation {
+            get {
+                return ResourceManager.GetString("UnknownIssueLinkRelation", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to {0}: {1} is not found or not accessible.
         /// </summary>
         internal static string EntityNotFoundOrNotAccessible {

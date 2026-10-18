@@ -9,6 +9,7 @@ using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
+using Laraue.Apps.Boards.Services.Links;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -50,11 +51,13 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<IDateTimeProvider>(),
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
             new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
+            new IssueLinksReader(testScope.Database),
+            testScope.Services.GetRequiredService<ICoreIssueLinksService>(),
             new MemberProfileReader(testScope.Database),
             AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services));
     }
 
-    private static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
+    internal static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
     {
         return new OrganizationAuthData { OrganizationId = organizationId, UserId = userId, ApiKeyId = apiKeyId };
     }
@@ -92,9 +95,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
 
         var ownerIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, false, null, null, CancellationToken.None);
         var memberIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, false, null, null, CancellationToken.None);
 
         var issue = Assert.Single(ownerIssues.Issues);
         Assert.Equal(issueData.Key, issue.Key);
@@ -135,7 +138,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
 
         var page = await CreateIssueMcpService(testScope).ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, false, null, null, CancellationToken.None);
 
         var issue = Assert.Single(page.Issues);
         Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
@@ -195,11 +198,11 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var authData = AuthDataFor(organization.Id, ownerId);
 
         var bySpace = await issueMcpService.ListIssues(
-            authData, organization.GetSpace(1).Key, null, null, null, null, null, null, CancellationToken.None);
+            authData, organization.GetSpace(1).Key, null, null, null, null, false, null, null, CancellationToken.None);
         var byStatus = await issueMcpService.ListIssues(
-            authData, null, null, inProgressStatusId, null, null, null, null, CancellationToken.None);
+            authData, null, null, inProgressStatusId, null, null, false, null, null, CancellationToken.None);
         var byAssignee = await issueMcpService.ListIssues(
-            authData, null, null, null, null, otherAssignee, null, null, CancellationToken.None);
+            authData, null, null, null, null, otherAssignee, false, null, null, CancellationToken.None);
 
         Assert.Equal(
             new HashSet<string> { targetIssueData.Key, wrongStatusIssueKey },
@@ -229,6 +232,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             null,
             null,
             null,
+            false,
             null,
             null,
             CancellationToken.None);
@@ -259,6 +263,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             null,
             (int)StatusCategory.Completed,
             null,
+            false,
             null,
             null,
             CancellationToken.None);
@@ -292,6 +297,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             null,
             (int)StatusCategory.Review,
             null,
+            false,
             null,
             null,
             CancellationToken.None);
@@ -316,6 +322,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             null,
             4,
             null,
+            false,
             null,
             null,
             CancellationToken.None));
@@ -355,8 +362,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
         var authData = AuthDataFor(organization.Id, ownerId);
 
-        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, null, CancellationToken.None);
-        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 1, null, CancellationToken.None);
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, false, null, null, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, false, 1, null, CancellationToken.None);
 
         Assert.Equal(IssuesPerPage, firstPage.Issues.Count);
         Assert.True(firstPage.HasNextPage);
@@ -383,9 +390,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
         var authData = AuthDataFor(organization.Id, ownerId);
 
-        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, 2, CancellationToken.None);
-        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, 1, 2, CancellationToken.None);
-        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, null, 1000, CancellationToken.None);
+        var firstPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, false, null, 2, CancellationToken.None);
+        var secondPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, false, 1, 2, CancellationToken.None);
+        var clampedPage = await issueMcpService.ListIssues(authData, null, null, null, null, null, false, null, 1000, CancellationToken.None);
 
         Assert.Equal(2, firstPage.Issues.Count);
         Assert.True(firstPage.HasNextPage);
@@ -1940,9 +1947,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueMcpService = CreateIssueMcpService(testScope);
 
         var ownerIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), null, null, null, null, null, false, null, null, CancellationToken.None);
         var memberIssues = await issueMcpService.ListIssues(
-            AuthDataFor(organization.Id, memberId), null, null, null, null, null, null, null, CancellationToken.None);
+            AuthDataFor(organization.Id, memberId), null, null, null, null, null, false, null, null, CancellationToken.None);
 
         var ownerIssue = Assert.Single(ownerIssues.Issues);
         Assert.True(ownerIssue.CanEdit);

@@ -26,6 +26,7 @@ public record OrganizationHistoryItem
 [JsonDerivedType(typeof(IssueHistoryEpicChange), "epic")]
 [JsonDerivedType(typeof(IssueHistorySpaceChange), "space")]
 [JsonDerivedType(typeof(IssueHistoryAgentRunChange), "agentRun")]
+[JsonDerivedType(typeof(IssueHistoryLinkChange), "link")]
 public abstract record HistoryItemChange
 {
 }
@@ -108,4 +109,22 @@ public record IssueHistoryAgentRunChange : HistoryItemChange
     public required long RunId { get; set; }
     public required AgentRunState? OldState { get; set; }
     public required AgentRunState NewState { get; set; }
+}
+
+/// <summary>
+/// A link to another issue was added or removed. Only the other issue's key as it was then: the history is
+/// read without permission checks, so it says nothing more about an issue the reader may not see.
+/// </summary>
+public record IssueHistoryLinkChange : HistoryItemChange
+{
+    /// <summary>What the link means from this issue's side.</summary>
+    public required IssueLinkRelation Relation { get; set; }
+    public required string? IssueKey { get; set; }
+    public required IssueLinkAction Action { get; set; }
+}
+
+public enum IssueLinkAction
+{
+    Added,
+    Removed,
 }

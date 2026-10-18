@@ -4,7 +4,10 @@ using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.Exceptions.Web;
+using Laraue.Apps.Boards.Services;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -338,5 +341,130 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
         Assert.NotNull(allowedSpaces);
         var allowedSpace = Assert.Single(allowedSpaces);
         Assert.Equal("Allowed", allowedSpace.Name);
+    }
+
+    [Fact]
+    public async Task MoveSpace_ShouldRemoveLinksToIssuesLeftBehind_AndKeepLinksInsideTheSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var sourceOrganization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "MOV", s => s.AddEpic(userId, e => e.AddIssue(userId, 0).AddIssue(userId, 0)))
+                .AddIssueToDefaultStatus(userId));
+        var targetOrganization = await testScope.InitializeOrganization(userId);
+        var leftBehind = sourceOrganization.GetIssueData(0, 0, 0, 0).Issue;
+        var moved = sourceOrganization.GetIssueData(1, 1, 0, 0).Issue;
+        var movedToo = sourceOrganization.GetIssueData(1, 1, 0, 1).Issue;
+        await AddLink(testScope, leftBehind.Id, IssueLinkRelation.Blocks, moved.Id, userId);
+        await AddLink(testScope, moved.Id, IssueLinkRelation.RelatesTo, movedToo.Id, userId);
+
+        await _controller
+            .WithOrganizationAuthorization(sourceOrganization.Id, userId)
+            .Execute(x => x.MoveSpace(sourceOrganization.GetSpace(1).Key, targetOrganization.Id));
+
+        var links = await testScope.Database.IssueLinks
+            .AsNoTracking()
+            .Where(x => x.SourceIssueId == leftBehind.Id || x.TargetIssueId == movedToo.Id || x.SourceIssueId == movedToo.Id)
+            .ToListAsync();
+        var remaining = Assert.Single(links);
+        Assert.Equal(IssueLinkType.RelatesTo, remaining.Type);
+
+        Assert.Equal(sourceOrganization.Id, await GetLinkRemovalLogOrganization(testScope, leftBehind.Id));
+        Assert.Equal(targetOrganization.Id, await GetLinkRemovalLogOrganization(testScope, moved.Id));
+    }
+
+    [Fact]
+    public async Task MoveEpic_ShouldRemoveLinksToIssuesLeftBehind_WhenTheOrganizationChanges()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var sourceOrganization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, s => s.AddEpic(userId, e => e.AddIssue(userId, 0)))
+                .AddIssueToDefaultStatus(userId));
+        var targetOrganization = await testScope.InitializeOrganization(userId);
+        var leftBehind = sourceOrganization.GetIssueData(0, 0, 0, 0).Issue;
+        var moved = sourceOrganization.GetIssueData(1, 1, 0, 0).Issue;
+        await AddLink(testScope, moved.Id, IssueLinkRelation.Duplicates, leftBehind.Id, userId);
+        var spaceToReceive = targetOrganization.GetSpace(0);
+
+        await _controller
+            .WithOrganizationAuthorization(sourceOrganization.Id, userId)
+            .Execute(x => x.MoveEpic(new MoveEpicRequest
+            {
+                NewSpaceKey = spaceToReceive.Key,
+                NewOrganizationId = targetOrganization.Id,
+                SourceEpicId = sourceOrganization.GetEpic(1, 1).Id,
+            }));
+
+        Assert.False(await testScope.Database.IssueLinks.AnyAsync(x => x.SourceIssueId == moved.Id));
+        Assert.Equal(sourceOrganization.Id, await GetLinkRemovalLogOrganization(testScope, leftBehind.Id));
+        Assert.Equal(targetOrganization.Id, await GetLinkRemovalLogOrganization(testScope, moved.Id));
+    }
+
+    [Fact]
+    public async Task MoveSpace_ShouldRemoveEveryCrossOrganizationLink_WhenThereAreMoreThanOneBatch()
+    {
+        const int linkCount = 501;
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var sourceOrganization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "MOV", s => s.AddEpic(userId, e =>
+                {
+                    for (var i = 0; i < linkCount; i++)
+                        e.AddIssue(userId, 0);
+                }))
+                .AddIssueToDefaultStatus(userId));
+        var targetOrganization = await testScope.InitializeOrganization(userId);
+        var leftBehind = sourceOrganization.GetIssueData(0, 0, 0, 0).Issue;
+        testScope.Database.IssueLinks.AddRange(Enumerable.Range(0, linkCount)
+            .Select(i => sourceOrganization.GetIssueData(1, 1, 0, i).Issue)
+            .Select(moved => new IssueLink
+            {
+                Type = IssueLinkType.Blocks,
+                SourceIssueId = leftBehind.Id,
+                TargetIssueId = moved.Id,
+                CreatedAt = DateTime.UtcNow,
+                CreatedByUserId = userId,
+            }));
+        await testScope.Database.SaveChangesAsync();
+
+        await _controller
+            .WithOrganizationAuthorization(sourceOrganization.Id, userId)
+            .Execute(x => x.MoveSpace(sourceOrganization.GetSpace(1).Key, targetOrganization.Id));
+
+        Assert.False(await testScope.Database.IssueLinks.AnyAsync(x => x.SourceIssueId == leftBehind.Id));
+        Assert.Equal(linkCount, await testScope.Database.OrganizationLogs
+            .CountAsync(x => x.EntityId == leftBehind.Id && x.OrganizationId == sourceOrganization.Id));
+        Assert.Equal(linkCount, await testScope.Database.OrganizationLogs
+            .CountAsync(x => x.EntityId != leftBehind.Id && x.OrganizationId == targetOrganization.Id));
+    }
+
+    private static async Task AddLink(
+        WebApiTestHostScope testScope,
+        long issueId,
+        IssueLinkRelation relation,
+        long otherIssueId,
+        Guid userId)
+    {
+        await using var transaction = await testScope.Database.Database.BeginTransactionAsync();
+        await testScope.Services.GetRequiredService<ICoreIssueLinksService>()
+            .AddLink(issueId, relation, otherIssueId, userId, CancellationToken.None);
+        await transaction.CommitAsync();
+    }
+
+    /// <summary>The organization of the issue's single "link removed" history row.</summary>
+    private static Task<long> GetLinkRemovalLogOrganization(WebApiTestHostScope testScope, long issueId)
+    {
+        return testScope.Database.OrganizationLogs
+            .Where(x => x.EntityType == LogEntityType.Issue && x.EntityId == issueId)
+            .Where(x => x.Items!.Any(i => i.PropertyType == PropertyType.IssueLink && i.OldValueId != null))
+            .Select(x => x.OrganizationId)
+            .SingleAsync();
     }
 }

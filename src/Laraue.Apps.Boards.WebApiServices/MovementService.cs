@@ -53,7 +53,7 @@ public class MovementService(
             throw new NotFoundException(string.Format(ErrorMessages.SpaceCreationForbiddenCannotMove, request.NewOrganizationId));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await movementService.MoveSpace(spaceId, request.NewOrganizationId, cancellationToken);
+        await movementService.MoveSpace(spaceId, request.NewOrganizationId, request.AuthData.UserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -85,7 +85,7 @@ public class MovementService(
         await CanCreateEpicsOrThrow(request.AuthData.UserId, request.NewSpaceKey, newSpaceId, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await movementService.MoveSpaceEpics(spaceId, newSpaceId, cancellationToken);
+        await movementService.MoveSpaceEpics(spaceId, newSpaceId, request.AuthData.UserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -109,7 +109,7 @@ public class MovementService(
         await CanCreateEpicsOrThrow(request.AuthData.UserId, request.NewSpaceKey, newSpaceId, cancellationToken);
         
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await movementService.MoveEpic(request.SourceEpicId, newSpaceId, cancellationToken);
+        await movementService.MoveEpic(request.SourceEpicId, newSpaceId, request.AuthData.UserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

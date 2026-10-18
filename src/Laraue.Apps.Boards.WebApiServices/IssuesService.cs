@@ -10,6 +10,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
+using Laraue.Apps.Boards.Services.Links;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Billing;
@@ -105,6 +106,7 @@ public class IssuesService(
     ITokenEstimate tokenEstimate,
     IUsageLimitService usageLimitService,
     IMemberProfileReader memberProfileReader,
+    IIssueLinksReader issueLinksReader,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -149,6 +151,7 @@ public class IssuesService(
         
         await EnrichAttributes(projected, cancellationToken);
         await EnrichAgentRuns(projected, cancellationToken);
+        await EnrichBlocked(request.AuthData, projected, cancellationToken);
 
         return new BatchResult<IssueListDto>
         {
@@ -248,6 +251,7 @@ public class IssuesService(
         
         await EnrichAttributes(allData, cancellationToken);
         await EnrichAgentRuns(allData, cancellationToken);
+        await EnrichBlocked(request.AuthData, allData, cancellationToken);
 
         return result.ToArray();
     }
@@ -639,6 +643,7 @@ public class IssuesService(
         var mapped = temporaryResult.MapTo(Map);
         await EnrichAttributes(mapped.Data, ct);
         await EnrichAgentRuns(mapped.Data, ct);
+        await EnrichBlocked(request.AuthData, mapped.Data, ct);
         
         var result = await MapToSearchDtos(request.AuthData, mapped.Data, ct);
         return new ShortPaginatedResult<SearchIssueDto>(
@@ -751,6 +756,10 @@ public class IssuesService(
             SpaceColor = result.SpaceColor,
             Attachments = media,
             LatestAgentRun = latestAgentRun,
+            Links = await issueLinksReader.GetLinks(
+                issueId,
+                await GetReadableSpaceIds(request.AuthData, cancellationToken),
+                cancellationToken),
         };
 
         await memberProfileReader.EnrichUsers(
@@ -1102,6 +1111,7 @@ public class IssuesService(
                 Attributes = element.Attributes,
                 LatestAgentRun = element.LatestAgentRun,
                 CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceKey),
+                IsBlocked = element.IsBlocked,
             });
         }
         
@@ -1204,6 +1214,36 @@ public class IssuesService(
             element.LatestAgentRun = latestRuns.GetValueOrDefault(element.Id);
     }
 
+    private async Task EnrichBlocked(
+        OrganizationAuthData authData,
+        IList<IssueListDto> elements,
+        CancellationToken ct)
+    {
+        if (elements.Count == 0)
+            return;
+
+        var blockedIssueIds = await issueLinksReader.GetBlockedIssueIds(
+            elements
+                .Select(x => x.Id)
+                .ToArray(),
+            await GetReadableSpaceIds(authData, ct),
+            ct);
+
+        foreach (var element in elements)
+            element.IsBlocked = blockedIssueIds.Contains(element.Id);
+    }
+
+    private Task<long[]> GetReadableSpaceIds(OrganizationAuthData authData, CancellationToken ct)
+    {
+        return accessService.GetAvailableSpaces(
+            authData,
+            query => query
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(ct),
+            includeDeleted: false,
+            ct);
+    }
+
     private async Task EnrichAttributes(IList<IssueListDto> elements, CancellationToken ct)
     {
         var ids = elements.Select(x => x.Id).ToArray();
@@ -1266,6 +1306,18 @@ public class IssuesService(
     private static IQueryable<Issue> ApplySearch(IQueryable<Issue> query, string searchString)
     {
         var term = searchString.AsSearchable();
+
+        // A search for a key ("BRD-12", any case) also finds that issue, e.g. to pick one to link.
+        if (IssueKey.TryParse(searchString, out var issueKey))
+        {
+            var spaceKey = issueKey.SpaceKey.ToUpperInvariant();
+            var number = issueKey.Number;
+
+            return query.Where(x =>
+                (x.IssueNumber!.Number == number && x.IssueNumber.Space!.Key == spaceKey)
+                || x.Title.ILike(term)
+                || x.Content!.ILike(term));
+        }
 
         return query.Where(x => x.Title.ILike(term) || x.Content!.ILike(term));
     }
@@ -1724,6 +1776,11 @@ public record IssueListDto
     public List<IssueListAttributeDto> Attributes { get; set; } = [];
 
     /// <summary>
+    /// Some issue the caller can read blocks this one and isn't in a Completed status yet.
+    /// </summary>
+    public bool IsBlocked { get; set; }
+
+    /// <summary>
     /// The issue's most recent agent run, null when it was never handed to the agent.
     /// </summary>
     public IssueAgentRunShortDto? LatestAgentRun { get; set; }
@@ -1949,6 +2006,11 @@ public class IssueDetailDto
     public required string Key { get; set; }
     public required DetailIssueAttributeDto[] AttributeValues { get; set; }
     public required List<AttachmentData> Attachments { get; set; }
+
+    /// <summary>
+    /// Links to the issues the caller can read, each with its meaning from this issue's side.
+    /// </summary>
+    public required IssueLinkDto[] Links { get; set; }
 
     /// <summary>
     /// The issue's most recent agent run, null when it was never handed to the agent.
