@@ -79,7 +79,7 @@ public class ApiKeysControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
 
         var keys = await _apiKeysController
             .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.GetAll(new GetApiKeysRequest { Pagination = DefaultPagination }));
+            .Execute(x => x.GetAll(new GetApiKeysRequest { Pagination = DefaultPagination, IncludeRevoked = true }));
 
         var key = Assert.Single(keys.Data);
         Assert.NotNull(key.RevokedAt);
@@ -87,6 +87,46 @@ public class ApiKeysControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
         var coreApiKeysService = testScope.Services.GetRequiredService<ICoreApiKeysService>();
         var principal = await coreApiKeysService.ValidateAsync(created.RawKey, CancellationToken.None);
         Assert.Null(principal);
+    }
+
+    [Fact]
+    public async Task GetAll_ShouldListOnlyActiveKeys_WhenRevokedAreNotRequested()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var revoked = await CreateKey(organization.Id, userId, "Old key");
+        var active = await CreateKey(organization.Id, userId, "New key");
+        await _apiKeysController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Revoke(revoked.Id));
+
+        var keys = await _apiKeysController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetAll(new GetApiKeysRequest { Pagination = DefaultPagination }));
+
+        var key = Assert.Single(keys.Data);
+        Assert.Equal(active.Id, key.Id);
+    }
+
+    [Fact]
+    public async Task GetAll_ShouldListRevokedKeysToo_WhenRequested()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var revoked = await CreateKey(organization.Id, userId, "Old key");
+        await CreateKey(organization.Id, userId, "New key");
+        await _apiKeysController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Revoke(revoked.Id));
+
+        var keys = await _apiKeysController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetAll(new GetApiKeysRequest { Pagination = DefaultPagination, IncludeRevoked = true }));
+
+        Assert.Equal(2, keys.Data.Count());
+        Assert.Contains(keys.Data, x => x.Id == revoked.Id && x.RevokedAt != null);
     }
 
     [Fact]
@@ -108,5 +148,12 @@ public class ApiKeysControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
             .Execute(x => x.Revoke(created.Id)));
 
         Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+    }
+
+    private Task<CreateApiKeyResponse> CreateKey(long organizationId, Guid userId, string name)
+    {
+        return _apiKeysController
+            .WithOrganizationAuthorization(organizationId, userId)
+            .Execute(x => x.Create(new CreateApiKeyRequest { Name = name }));
     }
 }
