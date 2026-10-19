@@ -159,6 +159,22 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
     }
 
+    [Fact]
+    public async Task GetIssue_ShouldReturnStatusAndEpicIds_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        var issue = await CreateIssueMcpService(testScope).GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
+
+        Assert.Equal(organization.GetStatus(0, 0, 0).Id, issue.StatusId);
+        Assert.Equal(organization.GetEpic(0, 0).Id, issue.EpicId);
+    }
+
     private static async Task<string> ExpectedIssueUrlAsync(
         WebApiTestHostScope testScope,
         long organizationId,
