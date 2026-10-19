@@ -988,6 +988,74 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
+    public async Task Login_ShouldReturnNotFound_WhenUserIsNotMemberOfOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var otherUserId = await testScope.CreateUser();
+
+        var organization = await testScope.InitializeOrganization(ownerId);
+        await testScope.InitializeOrganization(otherUserId);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithUserAuthorization(otherUserId)
+            .Execute(x => x.Login(
+                new LoginRequest
+                {
+                    OrganizationId = organization.Id
+                })));
+        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_ShouldReturnNotFound_WhenUserLeftOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var formerMemberId = await testScope.CreateUser();
+
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(formerMemberId));
+        await testScope.InitializeOrganization(formerMemberId);
+
+        await _organizationsController
+            .WithUserAuthorization(formerMemberId)
+            .Execute(x => x.Leave(organization.Id));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithUserAuthorization(formerMemberId)
+            .Execute(x => x.Login(
+                new LoginRequest
+                {
+                    OrganizationId = organization.Id
+                })));
+        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_ShouldReturnNotFound_WhenOrganizationIsDeleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+
+        var organization = await testScope.InitializeOrganization(ownerId);
+        await testScope.InitializeOrganization(ownerId);
+
+        await _adminOrganizationsController
+            .WithUserAuthorization(ownerId)
+            .Execute(x => x.Delete(organization.Id));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithUserAuthorization(ownerId)
+            .Execute(x => x.Login(
+                new LoginRequest
+                {
+                    OrganizationId = organization.Id
+                })));
+        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+    }
+
+    [Fact]
     public async Task GetOrganizationHistory_ShouldOnlyIncludeReadableSpaces_WhenUserHasSpaceLevelAccessOnly()
     {
         using var testScope = host.CreateTestScope();
