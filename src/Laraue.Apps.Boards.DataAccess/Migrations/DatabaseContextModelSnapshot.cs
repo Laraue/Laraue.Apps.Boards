@@ -24,6 +24,90 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "uuid-ossp");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.AgentSignInRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("DeviceCodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("device_code_hash");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime?>("LastPolledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_polled_at");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(44)
+                        .HasColumnType("character varying(44)")
+                        .HasColumnName("machine_name");
+
+                    b.Property<long?>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer")
+                        .HasColumnName("state");
+
+                    b.Property<string>("UserCode")
+                        .IsRequired()
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)")
+                        .HasColumnName("user_code");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agent_sign_in_requests");
+
+                    b.HasIndex("ApiKeyId")
+                        .HasDatabaseName("ix_agent_sign_in_requests_api_key_id");
+
+                    b.HasIndex("DeviceCodeHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_agent_sign_in_requests_device_code_hash");
+
+                    b.HasIndex("OrganizationId")
+                        .HasDatabaseName("ix_agent_sign_in_requests_organization_id");
+
+                    b.HasIndex("UserCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_agent_sign_in_requests_user_code");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_agent_sign_in_requests_user_id");
+
+                    b.ToTable("agent_sign_in_requests", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.ApiKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1912,6 +1996,31 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasName("pk_updates");
 
                     b.ToTable("updates", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.AgentSignInRequest", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.ApiKey", "ApiKey")
+                        .WithMany()
+                        .HasForeignKey("ApiKeyId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_agent_sign_in_requests_api_keys_api_key_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .HasConstraintName("fk_agent_sign_in_requests_organizations_organization_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .HasConstraintName("fk_agent_sign_in_requests_users_user_id");
+
+                    b.Navigation("ApiKey");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.ApiKey", b =>

@@ -49,6 +49,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<ApiKey> ApiKeys { get; init; }
     public DbSet<IssueAgentRun> IssueAgentRuns { get; init; }
     public DbSet<IssueLink> IssueLinks { get; init; }
+    public DbSet<AgentSignInRequest> AgentSignInRequests { get; init; }
     
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
@@ -288,6 +289,26 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasOne(x => x.ClaimedByApiKey)
                 .WithMany()
                 .HasForeignKey(x => x.ClaimedByApiKeyId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<AgentSignInRequest>(entity =>
+        {
+            entity
+                .HasIndex(x => x.DeviceCodeHash)
+                .IsUnique();
+
+            // Unique for good, not only among pending requests: there's no cleanup of old rows, and the Allow page
+            // looks a request up by this code alone. A collision is retried with a new code.
+            entity
+                .HasIndex(x => x.UserCode)
+                .IsUnique();
+
+            // Deleting the issued key keeps the request - it only loses the link.
+            entity
+                .HasOne(x => x.ApiKey)
+                .WithMany()
+                .HasForeignKey(x => x.ApiKeyId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
