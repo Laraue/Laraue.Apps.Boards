@@ -845,12 +845,6 @@ public class IssueMcpService(
                 c.Id,
                 c.OwnerId,
                 Author = new UserDetails { UserId = c.OwnerId },
-                ApiKeyName = context.OrganizationLogs
-                    .Where(l => l.EntityType == LogEntityType.Comment
-                        && l.EntityId == c.Id
-                        && l.Action == LogAction.Create)
-                    .Select(l => l.ApiKey!.Name)
-                    .FirstOrDefault(),
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,
@@ -866,11 +860,17 @@ public class IssueMcpService(
                 .Select(c => c.Author),
             cancellationToken);
 
+        var apiKeyNames = await context.GetCommentApiKeyNames(
+            result.Data
+                .Select(c => c.Id)
+                .ToArray(),
+            cancellationToken);
+
         var comments = result.Data
             .Select(c => new IssueCommentSummary(
                 c.Id,
                 c.Author.DisplayName,
-                c.ApiKeyName,
+                apiKeyNames.GetValueOrDefault(c.Id),
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,

@@ -975,14 +975,6 @@ public class IssuesService(
                 x.CreatedAt,
                 x.UpdatedAt,
                 x.OwnerId,
-                // Written through an API key (e.g. by an agent): the key named on the comment's create entry, as
-                // the history shows it.
-                ApiKeyName = context.OrganizationLogs
-                    .Where(l => l.EntityType == LogEntityType.Comment
-                        && l.EntityId == x.Id
-                        && l.Action == LogAction.Create)
-                    .Select(l => l.ApiKey!.Name)
-                    .FirstOrDefault(),
                 CanModify = x.OwnerId == request.AuthData.UserId,
                 Attachments = x.Attachments
                     .Select(a => new AttachmentData
@@ -997,6 +989,13 @@ public class IssuesService(
             })
             .ShortPaginateEFAsync(request.Pagination, ct);
 
+        // Written through an API key (e.g. by an agent): one query for the page.
+        var apiKeyNames = await context.GetCommentApiKeyNames(
+            commentsData.Data
+                .Select(x => x.Id)
+                .ToArray(),
+            ct);
+
         var result = commentsData.MapTo(item => new CommentDto
         {
             Id = item.Id,
@@ -1005,7 +1004,7 @@ public class IssuesService(
             UpdatedAt = item.UpdatedAt,
             CanModify = item.CanModify,
             Owner = new UserDetails { UserId = item.OwnerId },
-            ApiKeyName = item.ApiKeyName,
+            ApiKeyName = apiKeyNames.GetValueOrDefault(item.Id),
             Attachments = item.Attachments,
         });
 
