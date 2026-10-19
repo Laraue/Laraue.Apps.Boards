@@ -46,13 +46,15 @@ public class AgentSignInRequest
     public DateTime? LastPolledAt { get; set; }
 
     /// <summary>
-    /// The person who allowed or denied it.
+    /// The person who allowed or denied it. With <see cref="OrganizationId"/>, this is the person's choice for the
+    /// time between Allow and the runner's next poll, when the key doesn't exist yet. Once it does,
+    /// <see cref="ApiKey"/>'s own organization and user are the source of truth.
     /// </summary>
     public Guid? UserId { get; set; }
     public User? User { get; set; }
 
     /// <summary>
-    /// The organization the key is for - set on Allow.
+    /// The organization the key is for - set on Allow, see <see cref="UserId"/>.
     /// </summary>
     public long? OrganizationId { get; set; }
     public Organization? Organization { get; set; }

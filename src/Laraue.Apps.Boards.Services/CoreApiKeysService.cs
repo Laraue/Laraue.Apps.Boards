@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -28,6 +26,16 @@ public interface ICoreApiKeysService
         long organizationId,
         Guid callerId,
         Guid apiKeyId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Revokes the caller's active keys with this exact name in the organization - how a new key replaces the one
+    /// an earlier sign-in of the same machine issued. Returns how many were revoked.
+    /// </summary>
+    Task<int> RevokeByNameAsync(
+        long organizationId,
+        Guid callerId,
+        string name,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -66,7 +74,7 @@ public class CoreApiKeysService(
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             Name = name,
-            KeyHash = Hash(rawKey),
+            KeyHash = SecretHash.Compute(rawKey),
             KeyPrefix = rawKey[..KeyPrefixLength],
             CreatedByUserId = createdByUserId,
             CreatedAt = dateTimeProvider.UtcNow,
@@ -96,9 +104,25 @@ public class CoreApiKeysService(
         return updatedCount > 0;
     }
 
+    public Task<int> RevokeByNameAsync(
+        long organizationId,
+        Guid callerId,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        return context.ApiKeys
+            .Where(x => x.OrganizationId == organizationId
+                && x.CreatedByUserId == callerId
+                && x.Name == name
+                && x.RevokedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(x => x.RevokedAt, dateTimeProvider.UtcNow),
+                cancellationToken);
+    }
+
     public async Task<ApiKeyPrincipal?> ValidateAsync(string rawKey, CancellationToken cancellationToken)
     {
-        var keyHash = Hash(rawKey);
+        var keyHash = SecretHash.Compute(rawKey);
 
         var apiKey = await context.ApiKeys
             .Where(x => x.KeyHash == keyHash && x.RevokedAt == null)
@@ -115,11 +139,5 @@ public class CoreApiKeysService(
                 cancellationToken);
 
         return new ApiKeyPrincipal(apiKey.OrganizationId, apiKey.CreatedByUserId, apiKey.Id);
-    }
-
-    private static string Hash(string rawKey)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(rawKey));
-        return Convert.ToHexStringLower(bytes);
     }
 }

@@ -302,7 +302,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             // looks a request up by this code alone. A collision is retried with a new code.
             entity
                 .HasIndex(x => x.UserCode)
-                .IsUnique();
+                .IsUnique()
+                .HasDatabaseName(Constraints.AgentSignInUserCodeIndexName);
 
             // Deleting the issued key keeps the request - it only loses the link.
             entity

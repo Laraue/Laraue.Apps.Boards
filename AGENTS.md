@@ -782,6 +782,17 @@ editing/deleting a comment). Design guardrails worth preserving:
   added: x.png`; content shortened to 200 chars) instead of REST's UI-oriented objects with
   colors/preview ids. Existing issues only - like every MCP tool, a deleted issue's key isn't found.
 
+**Agent sign-in** (BRD-309, `AgentSignInRequest`, `ICoreAgentSignInService`, `AgentSignInService`/`AgentSignInController`,
+`/api/agent-sign-in`) - how `boards-agent setup` gets an API key without the person copying one. The runner starts a
+sign-in (anonymous) and polls `POST /api/agent-sign-in/token` with its secret device code (stored only as a SHA-256,
+`SecretHash`, like `ApiKey.KeyHash`); the person opens the web app's Allow page by the short user code, picks one of
+their organizations and allows or denies it (`AuthSchemas.User`, since the organization is chosen on that page; a
+non-member gets 404). The key is created on the first poll after Allow and returned once - the raw key is never stored -
+named `Claude Code agent (<machine>)`, revoking the user's earlier active key of that name in the organization so
+re-running setup replaces it. One key = one organization. Refusals (pending, slow down, denied, expired) are a 200 with an
+`AgentSignInPollOutcome`, like `AccountLinkOutcome`. It borrows the shape of the OAuth device grant but isn't OAuth: a
+general sign-in server belongs to Laraue.Apps.Identity, while Boards keeps issuing its own organization-scoped keys.
+
 **Agent runs** (BRD-305, `IssueAgentRun`, `ICoreAgentRunsService`, `AgentRunMcpService`/`AgentRunTools`,
 REST `AgentRunsController`) - handing an issue to a coding agent that runs on the user's own machine. One row per
 hand-off (Ready -> Working -> Done/Failed, or Cancelled by a person); a retry is a new row. A partial unique index

@@ -124,6 +124,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
                 .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
+                .AddScoped<ICoreAgentSignInService, CoreAgentSignInService>()
                 .AddScoped<ICoreAgentRunsService, CoreAgentRunsService>()
                 .AddScoped<IAgentRunBoardRequirements, AgentRunBoardRequirements>()
                 .AddScoped<IBillingTokenClient, BillingTokenClient>()

@@ -30,6 +30,12 @@ public class Constraints
     public const int AgentSignInUserCodeLength = 9;
 
     /// <summary>
+    /// The unique index on <see cref="Models.AgentSignInRequest.UserCode"/> - a new request whose random code
+    /// collides with it is retried with another code.
+    /// </summary>
+    public const string AgentSignInUserCodeIndexName = "ix_agent_sign_in_requests_user_code";
+
+    /// <summary>
     /// Leaves room for the key name around it, "Claude Code agent (...)", within the key name's 64 characters.
     /// </summary>
     public const int MaxAgentSignInMachineNameLength = 44;
