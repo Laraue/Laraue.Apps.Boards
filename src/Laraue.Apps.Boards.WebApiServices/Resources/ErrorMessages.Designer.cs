@@ -302,5 +302,11 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
                 return ResourceManager.GetString("AgentRunHandOffOnlyAssignee", resourceCulture);
             }
         }
+        
+        internal static string AgentRunNeedsApiKey {
+            get {
+                return ResourceManager.GetString("AgentRunNeedsApiKey", resourceCulture);
+            }
+        }
     }
 }

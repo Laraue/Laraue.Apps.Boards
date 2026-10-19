@@ -802,7 +802,9 @@ which is how a person unlocks the issue. The lock also keeps the assignee fixed,
 person's machine.
 A hand-off also needs the issue in a Created status and its epic to have Created, InProgress and Review statuses
 (`AgentRunBoardRequirements`) - the agent moves the issue through them; 400 otherwise, and the web issue detail's
-`MissingStatusCategoriesForAgent` lets the page show why instead of the button. Since status changes stay allowed
+`MissingStatusCategoriesForAgent` lets the page show why instead of the button. The web hand-off (`POST /api/agent-runs`) also needs
+the caller to have an active API key in the organization - their runner signs in with one, so without it nothing
+could claim the run (400; the issue detail's `HasApiKey` lets the page say so). MCP callers always use a key. Since status changes stay allowed
 while a run is open, the claim checks the board again: if the issue moved to a board without those statuses, the
 run fails with that reason and the claim returns false.
 Issue links (BRD-308) hold runs back: a run is `isBlocked` while an issue the caller can read blocks its issue and

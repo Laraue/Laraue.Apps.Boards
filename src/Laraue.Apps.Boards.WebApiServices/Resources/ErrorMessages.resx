@@ -147,4 +147,7 @@
     <data name="AgentRunHandOffOnlyAssignee" xml:space="preserve">
         <value>Issue: {0} can be handed to the agent only by its assignee</value>
     </data>
+    <data name="AgentRunNeedsApiKey" xml:space="preserve">
+        <value>Create an API key for your agent runner first (Account - API keys)</value>
+    </data>
 </root>

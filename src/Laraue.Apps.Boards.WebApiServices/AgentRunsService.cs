@@ -54,6 +54,11 @@ public class AgentRunsService(
         if (assigneeId != authData.UserId)
             throw new ForbiddenException(string.Format(ErrorMessages.AgentRunHandOffOnlyAssignee, key));
 
+        // A runner signs in with one of the assignee's API keys; without any, nothing could ever claim the run.
+        // (Through MCP the caller is already using a key, so only the web app needs this check.)
+        if (!await context.HasActiveApiKey(authData, cancellationToken))
+            throw new BadRequestException("issueKey", ErrorMessages.AgentRunNeedsApiKey);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var runId = await coreAgentRunsService.Create(issueId, authData.ToActor(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);

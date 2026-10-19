@@ -727,6 +727,7 @@ public class IssuesService(
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         var missingStatusCategoriesForAgent = await context.GetMissingStatusCategories(result.CategoryId, cancellationToken);
+        var hasApiKey = await context.HasActiveApiKey(request.AuthData, cancellationToken);
 
         var issue = new IssueDetailDto
         {
@@ -759,6 +760,7 @@ public class IssuesService(
             Attachments = media,
             LatestAgentRun = latestAgentRun,
             MissingStatusCategoriesForAgent = missingStatusCategoriesForAgent,
+            HasApiKey = hasApiKey,
             Links = await issueLinksReader.GetLinks(
                 issueId,
                 await GetReadableSpaceIds(request.AuthData, cancellationToken),
@@ -2034,6 +2036,12 @@ public class IssueDetailDto
     /// (<see cref="AgentRunBoardRequirements"/>); empty when its issues can be handed to the agent.
     /// </summary>
     public required StatusCategory[] MissingStatusCategoriesForAgent { get; set; }
+
+    /// <summary>
+    /// Whether the caller has an active API key in the organization - their agent runner needs one, so the web app
+    /// offers the hand-off only when there is.
+    /// </summary>
+    public required bool HasApiKey { get; set; }
 }
 
 public record CommentDto
