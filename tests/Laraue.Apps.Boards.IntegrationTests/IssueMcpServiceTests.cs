@@ -940,6 +940,28 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task ListIssueComments_ShouldNameApiKey_WhenCommentWasWrittenThroughOne()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organization.Id, ownerId, "boards-agent", CancellationToken.None);
+        var service = CreateIssueMcpService(testScope);
+        await service.CreateComment(AuthDataFor(organization.Id, ownerId), issueKey, "By hand", CancellationToken.None);
+        await service.CreateComment(AuthDataFor(organization.Id, ownerId, apiKey.Id), issueKey, "By the agent", CancellationToken.None);
+
+        var page = await service.ListIssueComments(AuthDataFor(organization.Id, ownerId), issueKey, null, null, CancellationToken.None);
+
+        Assert.Collection(
+            page.Comments,
+            byHand => Assert.Null(byHand.ApiKeyName),
+            byAgent => Assert.Equal("boards-agent", byAgent.ApiKeyName));
+    }
+
+    [Fact]
     public async Task CreateComment_ShouldRecordNoApiKeyIdOnHistory_WhenCallerAuthenticatedWithoutApiKey()
     {
         using var testScope = host.CreateTestScope();

@@ -973,6 +973,14 @@ public class IssuesService(
                 x.CreatedAt,
                 x.UpdatedAt,
                 x.OwnerId,
+                // Written through an API key (e.g. by an agent): the key named on the comment's create entry, as
+                // the history shows it.
+                ApiKeyName = context.OrganizationLogs
+                    .Where(l => l.EntityType == LogEntityType.Comment
+                        && l.EntityId == x.Id
+                        && l.Action == LogAction.Create)
+                    .Select(l => l.ApiKey!.Name)
+                    .FirstOrDefault(),
                 CanModify = x.OwnerId == request.AuthData.UserId,
                 Attachments = x.Attachments
                     .Select(a => new AttachmentData
@@ -995,6 +1003,7 @@ public class IssuesService(
             UpdatedAt = item.UpdatedAt,
             CanModify = item.CanModify,
             Owner = new UserDetails { UserId = item.OwnerId },
+            ApiKeyName = item.ApiKeyName,
             Attachments = item.Attachments,
         });
 
@@ -2036,6 +2045,11 @@ public record CommentDto
     public required DateTime UpdatedAt { get; set; }
     public required bool CanModify { get; set; }
     public required UserDetails Owner { get; set; }
+
+    /// <summary>
+    /// The API key the comment was written through (e.g. an agent's), null when it was written in the app.
+    /// </summary>
+    public required string? ApiKeyName { get; set; }
 }
 
 public record IssueAssigneeDetails : UserDetails

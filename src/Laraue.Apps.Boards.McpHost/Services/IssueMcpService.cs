@@ -296,12 +296,14 @@ public sealed record IssueListPage(IReadOnlyList<IssueSummary> Issues, long Page
 /// <see cref="IIssueMcpService.EditComment"/>/<see cref="IIssueMcpService.DeleteComment"/> both
 /// enforce (not gated by <c>CanUpdateIssue</c>) - so a caller can tell upfront whether either will
 /// succeed, rather than discovering it via a thrown <see cref="ForbiddenException"/>.
+/// <see cref="ApiKeyName"/> is set when the comment was written through an API key (e.g. by an agent).
 /// <see cref="Attachments"/>' ids are what <see cref="IIssueMcpService.GetAttachmentContent"/> takes,
 /// same as the issue's own attachments.
 /// </summary>
 public sealed record IssueCommentSummary(
     long Id,
     string Author,
+    string? ApiKeyName,
     string Text,
     DateTime CreatedAt,
     DateTime UpdatedAt,
@@ -843,6 +845,12 @@ public class IssueMcpService(
                 c.Id,
                 c.OwnerId,
                 Author = new UserDetails { UserId = c.OwnerId },
+                ApiKeyName = context.OrganizationLogs
+                    .Where(l => l.EntityType == LogEntityType.Comment
+                        && l.EntityId == c.Id
+                        && l.Action == LogAction.Create)
+                    .Select(l => l.ApiKey!.Name)
+                    .FirstOrDefault(),
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,
@@ -862,6 +870,7 @@ public class IssueMcpService(
             .Select(c => new IssueCommentSummary(
                 c.Id,
                 c.Author.DisplayName,
+                c.ApiKeyName,
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,

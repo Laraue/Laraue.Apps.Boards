@@ -76,7 +76,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists an issue's comments, oldest first, up to 50 per page - check hasNextPage for more. Each comment has its id and canManage (for edit_comment/delete_comment - only the author can manage a comment), author, text, createdAt/updatedAt, and attachments (ids usable with get_attachment).")]
+    [Description("Lists an issue's comments, oldest first, up to 50 per page - check hasNextPage for more. Each comment has its id and canManage (for edit_comment/delete_comment - only the author can manage a comment), author, apiKeyName (the API key it was written through, e.g. an agent's - null when written in the app), text, createdAt/updatedAt, and attachments (ids usable with get_attachment).")]
     public Task<IssueCommentPage> ListIssueComments(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
