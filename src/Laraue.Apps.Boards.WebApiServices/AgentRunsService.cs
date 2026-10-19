@@ -31,7 +31,8 @@ public interface IAgentRunsService
 public class AgentRunsService(
     DatabaseContext context,
     IAccessService accessService,
-    ICoreAgentRunsService coreAgentRunsService)
+    ICoreAgentRunsService coreAgentRunsService,
+    IApiKeysService apiKeysService)
     : IAgentRunsService
 {
     public async Task<AgentRunDto> Create(
@@ -56,7 +57,7 @@ public class AgentRunsService(
 
         // A runner signs in with one of the assignee's API keys; without any, nothing could ever claim the run.
         // (Through MCP the caller is already using a key, so only the web app needs this check.)
-        if (!await context.HasActiveApiKey(authData, cancellationToken))
+        if (!await apiKeysService.HasActiveApiKey(authData, cancellationToken))
             throw new BadRequestException("issueKey", ErrorMessages.AgentRunNeedsApiKey);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);

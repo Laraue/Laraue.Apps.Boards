@@ -107,6 +107,9 @@ public class IssuesService(
     IUsageLimitService usageLimitService,
     IMemberProfileReader memberProfileReader,
     IIssueLinksReader issueLinksReader,
+    IOrganizationHistoryReader organizationHistoryReader,
+    IApiKeysService apiKeysService,
+    IAgentRunBoardRequirements agentRunBoardRequirements,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -726,8 +729,8 @@ public class IssuesService(
             .SelectAgentRunDto()
             .FirstOrDefaultAsyncEF(cancellationToken);
 
-        var missingStatusCategoriesForAgent = await context.GetMissingStatusCategories(result.CategoryId, cancellationToken);
-        var hasApiKey = await context.HasActiveApiKey(request.AuthData, cancellationToken);
+        var missingStatusCategoriesForAgent = await agentRunBoardRequirements.GetMissingStatusCategories(result.CategoryId, cancellationToken);
+        var hasApiKey = await apiKeysService.HasActiveApiKey(request.AuthData, cancellationToken);
 
         var issue = new IssueDetailDto
         {
@@ -990,7 +993,7 @@ public class IssuesService(
             .ShortPaginateEFAsync(request.Pagination, ct);
 
         // Written through an API key (e.g. by an agent): one query for the page.
-        var apiKeyNames = await context.GetCommentApiKeyNames(
+        var apiKeyNames = await organizationHistoryReader.GetCommentApiKeyNames(
             commentsData.Data
                 .Select(x => x.Id)
                 .ToArray(),

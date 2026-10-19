@@ -66,6 +66,7 @@ public interface ICoreAgentRunsService
 public class CoreAgentRunsService(
     DatabaseContext context,
     IIssueHistoryService issueHistoryService,
+    IAgentRunBoardRequirements agentRunBoardRequirements,
     IDateTimeProvider dateTimeProvider)
     : ICoreAgentRunsService
 {
@@ -84,7 +85,7 @@ public class CoreAgentRunsService(
         if (issue.Category != StatusCategory.Created)
             throw new BadRequestException("issueKey", ErrorMessages.AgentRunIssueStarted);
 
-        var missingCategories = await context.GetMissingStatusCategories(issue.EpicId, cancellationToken);
+        var missingCategories = await agentRunBoardRequirements.GetMissingStatusCategories(issue.EpicId, cancellationToken);
         if (missingCategories.Length > 0)
             throw new BadRequestException("issueKey", BoardNotReadyMessage(missingCategories));
 
@@ -131,7 +132,7 @@ public class CoreAgentRunsService(
             .Select(x => x.Issue!.Status!.EpicId)
             .FirstAsync(cancellationToken);
 
-        var missingCategories = await context.GetMissingStatusCategories(epicId, cancellationToken);
+        var missingCategories = await agentRunBoardRequirements.GetMissingStatusCategories(epicId, cancellationToken);
         if (missingCategories.Length > 0)
         {
             var reason = BoardNotReadyMessage(missingCategories);

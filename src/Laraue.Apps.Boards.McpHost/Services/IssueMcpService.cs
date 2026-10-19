@@ -860,7 +860,7 @@ public class IssueMcpService(
                 .Select(c => c.Author),
             cancellationToken);
 
-        var apiKeyNames = await context.GetCommentApiKeyNames(
+        var apiKeyNames = await historyReader.GetCommentApiKeyNames(
             result.Data
                 .Select(c => c.Id)
                 .ToArray(),
