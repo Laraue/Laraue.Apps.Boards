@@ -108,8 +108,7 @@ public class IssuesService(
     IMemberProfileReader memberProfileReader,
     IIssueLinksReader issueLinksReader,
     IOrganizationHistoryReader organizationHistoryReader,
-    IApiKeysService apiKeysService,
-    IAgentRunBoardRequirements agentRunBoardRequirements,
+    IAgentRunsService agentRunsService,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -729,8 +728,7 @@ public class IssuesService(
             .SelectAgentRunDto()
             .FirstOrDefaultAsyncEF(cancellationToken);
 
-        var missingStatusCategoriesForAgent = await agentRunBoardRequirements.GetMissingStatusCategories(result.CategoryId, cancellationToken);
-        var hasApiKey = await apiKeysService.HasActiveApiKey(request.AuthData, cancellationToken);
+        var agentHandOff = await agentRunsService.GetHandOff(request.AuthData, issueId, issueAccessLevels, cancellationToken);
 
         var issue = new IssueDetailDto
         {
@@ -762,8 +760,7 @@ public class IssuesService(
             SpaceColor = result.SpaceColor,
             Attachments = media,
             LatestAgentRun = latestAgentRun,
-            MissingStatusCategoriesForAgent = missingStatusCategoriesForAgent,
-            HasApiKey = hasApiKey,
+            AgentHandOff = agentHandOff,
             Links = await issueLinksReader.GetLinks(
                 issueId,
                 await GetReadableSpaceIds(request.AuthData, cancellationToken),
@@ -2034,16 +2031,10 @@ public class IssueDetailDto
     public required AgentRunDto? LatestAgentRun { get; set; }
 
     /// <summary>
-    /// Status categories the issue's board has no status in but the agent needs
-    /// (<see cref="AgentRunBoardRequirements"/>); empty when its issues can be handed to the agent.
+    /// Whether the caller can hand the issue to the agent now, and what stands in the way if not - decided by the
+    /// backend, so the page only shows it.
     /// </summary>
-    public required StatusCategory[] MissingStatusCategoriesForAgent { get; set; }
-
-    /// <summary>
-    /// Whether the caller has an active API key in the organization - their agent runner needs one, so the web app
-    /// offers the hand-off only when there is.
-    /// </summary>
-    public required bool HasApiKey { get; set; }
+    public required AgentHandOffDto AgentHandOff { get; set; }
 }
 
 public record CommentDto
