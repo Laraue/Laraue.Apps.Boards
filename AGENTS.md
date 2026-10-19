@@ -62,7 +62,10 @@ applies everywhere, a space-level grant applies only there, and either is enough
 issue-level checks (`GetAccessLevelsByEpicId`, `GetAccessLevelsByIssueId`) resolve to the owning
 space and delegate to the same space-level check — there's no separate epic/issue permission
 table. Always go through `IAccessService` for a permission check rather than reading
-`OrganizationUser`/`DirectSpacePermission` directly.
+`OrganizationUser`/`DirectSpacePermission` directly. To start from an issue key (`BRD-42`), use `IAccessService.GetIssueAccessByKey`
+- it returns the issue id with the caller's `AccessLevels` (null only when the key doesn't exist), instead of yet
+another `IssueNumbers` lookup followed by `GetAccessLevelsByIssueId`. Older services still have their own copies of
+that lookup.
 
 Permission checks belong at the **host level** (controllers in `WebApiHost`, command/message
 handlers in `TelegramHost`/`TelegramServices`) — call `IAccessService` there, before invoking a
@@ -717,7 +720,8 @@ exactly what a client receives (error results, metrics), drive a real MCP client
 Tools: `list_issues`/`get_issue`/`list_issue_comments`/`get_issue_history`/`edit_issue_status`,
 `create_issue`/`edit_issue`/`delete_issue`, `create_comment`/`edit_comment`/`delete_comment`,
 `create_issue_link`/`delete_issue_link`, `get_attachment`, and the discovery tools `get_me`/`list_spaces`/`list_epics`/`list_statuses`/
-`list_attributes`/`list_members`. Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
+`list_attributes`/`list_members`, and the agent-run tools `create_agent_run`/`list_agent_runs`/
+`claim_agent_run`/`finish_agent_run`/`cancel_agent_run` (see "Agent runs" below). Reads need `CanRead` (except `get_attachment`, see "File attachments"); each
 mutating tool maps to the REST API's own permission check (`CanCreateIssue` off the target status's
 epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue` for delete, owner-only for
 editing/deleting a comment). Design guardrails worth preserving:
@@ -778,7 +782,40 @@ editing/deleting a comment). Design guardrails worth preserving:
   added: x.png`; content shortened to 200 chars) instead of REST's UI-oriented objects with
   colors/preview ids. Existing issues only - like every MCP tool, a deleted issue's key isn't found.
 
-**Text length limits**: free-text arguments (issue title/content, comment text, `edit_issue_status`'s comment) carry `[MaxLength(Constraints.*)]` on the tool parameter and say the limit in their description. The SDK writes it into the tool's input schema as `maxLength`, and `McpArgumentValidator` (run by `McpToolCallFilter`) rejects a longer value as a readable `BadRequest` naming the argument, instead of a database error. The attribute is the single source of the limit - don't re-check it in `IssueMcpService`. Add it to any new text argument.
+**Agent runs** (BRD-305, `IssueAgentRun`, `ICoreAgentRunsService`, `AgentRunMcpService`/`AgentRunTools`,
+REST `AgentRunsController`) - handing an issue to a coding agent that runs on the user's own machine. One row per
+hand-off (Ready -> Working -> Done/Failed, or Cancelled by a person); a retry is a new row. A partial unique index
+(`Constraints.OpenAgentRunIndexName`, `state IN (0, 1)`) allows one open run per issue - a second hand-off is
+detected by the violation itself (400), like a duplicate space key. Every transition is one conditional `UPDATE
+... WHERE State = expected` (`ExecuteUpdateAsync`), returning false to the loser, so two runners claiming the same
+run get exactly one `true` - no row lock, and `edit_issue_status` is untouched (the runner moves the issue itself
+after claiming). Each transition is an `OrganizationLog` item (`PropertyType.AgentRun`, the run id in
+`ParentId`, the state numbers in the value ids), so history shows the API key the runner used. Every action
+needs `CanUpdateIssue` (reads `CanRead`). `get_issue` and the web card/detail return the latest run.
+A run belongs to the issue's assignee: only the assignee hands an issue off, and only the assignee's runner (an API
+key of the assignee) can claim it - both checked in the hosts (`AgentRunMcpService.EnsureIsAssignee`,
+`AgentRunsService.Create`), 403 otherwise. While a run is open (Ready or Working) the issue is locked:
+`ICoreIssuesService.Update`/`Delete` throw `IssueLockedByAgentRunException` (409) before writing anything, since
+Telegram's edit sync calls them without a transaction - so every surface (web, MCP, mass edits, Telegram) refuses
+field edits and deletion. Status changes and comments stay open to anyone with edit rights, and so does cancel,
+which is how a person unlocks the issue. The lock also keeps the assignee fixed, so a run can't move to another
+person's machine.
+A hand-off also needs the issue in a Created status and its epic to have Created, InProgress and Review statuses
+(`AgentRunBoardRequirements`) - the agent moves the issue through them; 400 otherwise. The web hand-off
+(`POST /api/agent-runs`) also needs the caller to have an active API key in the organization - their runner signs in
+with one, so without it nothing could claim the run (400). MCP callers always use a key. The web app doesn't
+re-derive any of this: `IAgentRunsService.GetHandOff` decides once - available, or the blocker (`NotAllowed`,
+`RunOpen`, `NoApiKey`, `BoardNotReady` with the missing categories, `IssueStarted`) - and the issue detail returns it
+as `AgentHandOff`; `POST /api/agent-runs` checks the same result, so the button and the endpoint can't disagree. Since status changes stay allowed
+while a run is open, the claim checks the board again: if the issue moved to a board without those statuses, the
+run fails with that reason and the claim returns false.
+Issue links (BRD-308) hold runs back: a run is `isBlocked` while an issue the caller can read blocks its issue and
+isn't Completed - the same rule as `list_issues`' `excludeBlocked` and the web "blocked" mark. A blocked issue can
+still be handed off; `list_agent_runs(excludeBlocked: true)` leaves its run out, and `claim_agent_run` returns false
+for it (checked in `AgentRunMcpService` through `IIssueLinksReader`, since "readable" is a permission question;
+the core `Claim` only moves the state), so the run becomes claimable by itself once its blockers are Completed.
+
+**Text length limits**: free-text arguments (issue title/content, comment text, `edit_issue_status`'s comment) carry `[MaxLength(Constraints.*)]` on the tool parameter and say the limit in their description. The SDK writes it into the tool's input schema as `maxLength`, and `McpArgumentValidator` (run by `McpToolCallFilter`) rejects a longer value as a readable `BadRequest` naming the argument, instead of a database error. The attribute is the single source of the limit - don't re-check it in `IssueMcpService`. Add it to any new text argument. For an argument with a fixed set of values take an enum parameter, not a string parsed by hand: the SDK lists its names in the schema's `enum` (case-insensitive on input), and `McpArgumentValidator` answers an unknown value with `- state: Must be one of: Done, Failed.` - the binder's own failure would be the bare generic error. When a tool accepts only some of an enum's values, give it its own enum (`AgentRunFinishState`).
 
 **Tool errors** go through `McpToolCallFilter` (a call-tool filter registered in `Program.cs`), the
 MCP counterpart of WebApiHost's `ExceptionHandleMiddleware`. Without it the SDK turns *any* tool

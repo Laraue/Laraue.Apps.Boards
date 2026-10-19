@@ -6,6 +6,7 @@ using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -22,6 +23,12 @@ public interface IApiKeysService
     Task<ShortPaginatedResult<ApiKeyDto>> GetAll(GetApiKeysRequest request, CancellationToken cancellationToken);
 
     Task Revoke(RevokeApiKeyRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Whether the user has an unrevoked API key in the organization - what their agent runner signs in with, so
+    /// without one nothing could pick up an issue they hand to the agent.
+    /// </summary>
+    Task<bool> HasActiveApiKey(OrganizationAuthData authData, CancellationToken cancellationToken);
 }
 
 public class ApiKeysService(
@@ -73,6 +80,16 @@ public class ApiKeysService(
         {
             throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "ApiKey", request.Id));
         }
+    }
+
+    public Task<bool> HasActiveApiKey(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        return context.ApiKeys
+            .AnyAsync(
+                x => x.OrganizationId == authData.OrganizationId
+                    && x.CreatedByUserId == authData.UserId
+                    && x.RevokedAt == null,
+                cancellationToken);
     }
 }
 

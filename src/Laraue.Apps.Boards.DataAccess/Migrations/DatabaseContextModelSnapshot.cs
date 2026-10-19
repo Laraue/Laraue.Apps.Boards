@@ -461,6 +461,71 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("issues", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueAgentRun", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("claimed_at");
+
+                    b.Property<Guid?>("ClaimedByApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("claimed_by_api_key_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<long>("IssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("issue_id");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer")
+                        .HasColumnName("state");
+
+                    b.HasKey("Id")
+                        .HasName("pk_issue_agent_runs");
+
+                    b.HasIndex("ClaimedByApiKeyId")
+                        .HasDatabaseName("ix_issue_agent_runs_claimed_by_api_key_id");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_issue_agent_runs_created_by_user_id");
+
+                    b.HasIndex("IssueId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_issue_agent_runs_issue_id_open")
+                        .HasFilter("state IN (0, 1)");
+
+                    b.HasIndex("State")
+                        .HasDatabaseName("ix_issue_agent_runs_state");
+
+                    b.HasIndex("IssueId", "Id")
+                        .HasDatabaseName("ix_issue_agent_runs_issue_id_id");
+
+                    b.ToTable("issue_agent_runs", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueAttachment", b =>
                 {
                     b.Property<long>("IssueId")
@@ -2017,6 +2082,35 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("TelegramMessage");
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueAgentRun", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.ApiKey", "ClaimedByApiKey")
+                        .WithMany()
+                        .HasForeignKey("ClaimedByApiKeyId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_issue_agent_runs_api_keys_claimed_by_api_key_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_agent_runs_users_created_by_user_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Issue", "Issue")
+                        .WithMany("AgentRuns")
+                        .HasForeignKey("IssueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_issue_agent_runs_issues_issue_id");
+
+                    b.Navigation("ClaimedByApiKey");
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Issue");
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.IssueAttachment", b =>
                 {
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Attachment", "Attachment")
@@ -2648,6 +2742,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Issue", b =>
                 {
+                    b.Navigation("AgentRuns");
+
                     b.Navigation("DateAttributes");
 
                     b.Navigation("DateTimeAttributes");

@@ -54,4 +54,10 @@
     <data name="UserNotBelongsToOrganization" xml:space="preserve">
         <value>User: {0} does not exist or does not belong to organization</value>
     </data>
+    <data name="AgentRunHandOffOnlyAssignee" xml:space="preserve">
+        <value>Issue: {0} can be handed to the agent only by its assignee</value>
+    </data>
+    <data name="AgentRunClaimOnlyAssignee" xml:space="preserve">
+        <value>Agent run: {0} can be claimed only by the runner of its issue's assignee</value>
+    </data>
 </root>

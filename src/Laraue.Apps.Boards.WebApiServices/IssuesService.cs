@@ -107,6 +107,8 @@ public class IssuesService(
     IUsageLimitService usageLimitService,
     IMemberProfileReader memberProfileReader,
     IIssueLinksReader issueLinksReader,
+    IOrganizationHistoryReader organizationHistoryReader,
+    IAgentRunsService agentRunsService,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -150,6 +152,7 @@ public class IssuesService(
             .ToArray();
         
         await EnrichAttributes(projected, cancellationToken);
+        await EnrichAgentRuns(projected, cancellationToken);
         await EnrichBlocked(request.AuthData, projected, cancellationToken);
 
         return new BatchResult<IssueListDto>
@@ -249,6 +252,7 @@ public class IssuesService(
             .ToList();
         
         await EnrichAttributes(allData, cancellationToken);
+        await EnrichAgentRuns(allData, cancellationToken);
         await EnrichBlocked(request.AuthData, allData, cancellationToken);
 
         return result.ToArray();
@@ -640,6 +644,7 @@ public class IssuesService(
 
         var mapped = temporaryResult.MapTo(Map);
         await EnrichAttributes(mapped.Data, ct);
+        await EnrichAgentRuns(mapped.Data, ct);
         await EnrichBlocked(request.AuthData, mapped.Data, ct);
         
         var result = await MapToSearchDtos(request.AuthData, mapped.Data, ct);
@@ -717,6 +722,14 @@ public class IssuesService(
 
         var media = await GetAttachments(result.Id, cancellationToken);
 
+        var latestAgentRun = await context.IssueAgentRuns
+            .Where(r => r.IssueId == issueId)
+            .OrderByDescending(r => r.Id)
+            .SelectAgentRunDto()
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        var agentHandOff = await agentRunsService.GetHandOff(request.AuthData, issueId, issueAccessLevels, cancellationToken);
+
         var issue = new IssueDetailDto
         {
             Id = result.Id,
@@ -746,6 +759,8 @@ public class IssuesService(
             SpaceName = result.SpaceName,
             SpaceColor = result.SpaceColor,
             Attachments = media,
+            LatestAgentRun = latestAgentRun,
+            AgentHandOff = agentHandOff,
             Links = await issueLinksReader.GetLinks(
                 issueId,
                 await GetReadableSpaceIds(request.AuthData, cancellationToken),
@@ -974,6 +989,13 @@ public class IssuesService(
             })
             .ShortPaginateEFAsync(request.Pagination, ct);
 
+        // Written through an API key (e.g. by an agent): one query for the page.
+        var apiKeyNames = await organizationHistoryReader.GetCommentApiKeyNames(
+            commentsData.Data
+                .Select(x => x.Id)
+                .ToArray(),
+            ct);
+
         var result = commentsData.MapTo(item => new CommentDto
         {
             Id = item.Id,
@@ -982,6 +1004,7 @@ public class IssuesService(
             UpdatedAt = item.UpdatedAt,
             CanModify = item.CanModify,
             Owner = new UserDetails { UserId = item.OwnerId },
+            ApiKeyName = apiKeyNames.GetValueOrDefault(item.Id),
             Attachments = item.Attachments,
         });
 
@@ -1099,6 +1122,7 @@ public class IssuesService(
                 Time = element.Time,
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
+                LatestAgentRun = element.LatestAgentRun,
                 CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceKey),
                 IsBlocked = element.IsBlocked,
             });
@@ -1182,6 +1206,25 @@ public class IssuesService(
         var result = await GetIssuesAttributeValues([issueId], cancellationToken);
 
         return result.GetValueOrDefault(issueId, new Dictionary<long, string>());
+    }
+
+    /// <summary>
+    /// Sets each issue's latest agent run (BRD-305) - what the card's agent badge shows.
+    /// </summary>
+    private async Task EnrichAgentRuns(IList<IssueListDto> elements, CancellationToken ct)
+    {
+        var ids = elements.Select(x => x.Id).ToArray();
+        if (ids.Length == 0)
+            return;
+
+        var latestRuns = await context.IssueAgentRuns
+            .Where(r => ids.Contains(r.IssueId))
+            .Where(r => !context.IssueAgentRuns.Any(o => o.IssueId == r.IssueId && o.Id > r.Id))
+            .Select(r => new { r.IssueId, Run = new IssueAgentRunShortDto { Id = r.Id, State = r.State } })
+            .ToDictionaryAsyncEF(x => x.IssueId, x => x.Run, ct);
+
+        foreach (var element in elements)
+            element.LatestAgentRun = latestRuns.GetValueOrDefault(element.Id);
     }
 
     private async Task EnrichBlocked(
@@ -1749,6 +1792,17 @@ public record IssueListDto
     /// Some issue the caller can read blocks this one and isn't in a Completed status yet.
     /// </summary>
     public bool IsBlocked { get; set; }
+
+    /// <summary>
+    /// The issue's most recent agent run, null when it was never handed to the agent.
+    /// </summary>
+    public IssueAgentRunShortDto? LatestAgentRun { get; set; }
+}
+
+public record IssueAgentRunShortDto
+{
+    public required long Id { get; set; }
+    public required AgentRunState State { get; set; }
 }
 
 public record IssueListAttributeDto
@@ -1970,6 +2024,17 @@ public class IssueDetailDto
     /// Links to the issues the caller can read, each with its meaning from this issue's side.
     /// </summary>
     public required IssueLinkDto[] Links { get; set; }
+
+    /// <summary>
+    /// The issue's most recent agent run, null when it was never handed to the agent.
+    /// </summary>
+    public required AgentRunDto? LatestAgentRun { get; set; }
+
+    /// <summary>
+    /// Whether the caller can hand the issue to the agent now, and what stands in the way if not - decided by the
+    /// backend, so the page only shows it.
+    /// </summary>
+    public required AgentHandOffDto AgentHandOff { get; set; }
 }
 
 public record CommentDto
@@ -1981,6 +2046,11 @@ public record CommentDto
     public required DateTime UpdatedAt { get; set; }
     public required bool CanModify { get; set; }
     public required UserDetails Owner { get; set; }
+
+    /// <summary>
+    /// The API key the comment was written through (e.g. an agent's), null when it was written in the app.
+    /// </summary>
+    public required string? ApiKeyName { get; set; }
 }
 
 public record IssueAssigneeDetails : UserDetails

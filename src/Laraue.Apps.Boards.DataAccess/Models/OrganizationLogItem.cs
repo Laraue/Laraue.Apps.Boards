@@ -41,7 +41,11 @@ public enum PropertyType
     Space,
     Title,
 
-    // 8 is AgentRun on the BRD-305 branch, not merged yet; IssueLink takes 9 so the two don't collide.
+    /// <summary>
+    /// An agent run of the issue changed state (<see cref="IssueAgentRun"/>): <see cref="OrganizationLogItem.ParentId"/>
+    /// is the run id, the value ids/display values the old and new <c>AgentRunState</c> (number/name).
+    /// </summary>
+    AgentRun = 8,
 
     /// <summary>
     /// A link to another issue was added or removed (<see cref="IssueLink"/>). Written to both issues:

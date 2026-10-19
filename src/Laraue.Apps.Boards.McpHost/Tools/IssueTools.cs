@@ -35,7 +35,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), links - the issues it's linked to (only ones you can read), each with its relation read from this issue's side (Blocks, BlockedBy, RelatesTo, Duplicates, DuplicatedBy; e.g. relation BlockedBy with key BRD-3 means this issue waits for BRD-3), key, title and status category - and url - the issue's page in the web app, to give the user as a link.")]
+    [Description("Gets one issue's title, full content and attachments by its key (e.g. 'BRD-42'). Includes statusId and epicId (match them with list_statuses, e.g. to find the epic's InProgress status), statusCategory/statusCategoryId (what its status means - Created, InProgress, Review or Completed), canEdit/canDelete, commentCount (read the comments themselves with list_issue_comments), each attachment's id (for get_attachment and edit_issue's removeAttachmentIds parameter), links - the issues it's linked to (only ones you can read), each with its relation read from this issue's side (Blocks, BlockedBy, RelatesTo, Duplicates, DuplicatedBy; e.g. relation BlockedBy with key BRD-3 means this issue waits for BRD-3), key, title and status category - url - the issue's page in the web app, to give the user as a link, and latestAgentRun - the issue's most recent agent run (null if it was never handed to the agent), whose state says whether an agent is on it.")]
     public Task<IssueDetail> GetIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -76,7 +76,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists an issue's comments, oldest first, up to 50 per page - check hasNextPage for more. Each comment has its id and canManage (for edit_comment/delete_comment - only the author can manage a comment), author, text, createdAt/updatedAt, and attachments (ids usable with get_attachment).")]
+    [Description("Lists an issue's comments, oldest first, up to 50 per page - check hasNextPage for more. Each comment has its id and canManage (for edit_comment/delete_comment - only the author can manage a comment), author, apiKeyName (the API key it was written through, e.g. an agent's - null when written in the app), text, createdAt/updatedAt, and attachments (ids usable with get_attachment).")]
     public Task<IssueCommentPage> ListIssueComments(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
@@ -112,7 +112,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Fully replaces an issue's text content - not an append or merge. Fetch the existing content via get_issue first if you need to preserve any of it. Also requires the title - pass the current one (from get_issue) to keep it. Does not change status. Requires canEdit (see get_issue/list_issues).")]
+    [Description("Fully replaces an issue's text content - not an append or merge. Fetch the existing content via get_issue first if you need to preserve any of it. Also requires the title - pass the current one (from get_issue) to keep it. Does not change status. Requires canEdit (see get_issue/list_issues). Fails while the issue is handed to the agent (an open run in get_issue's latestAgentRun) - cancel_agent_run first.")]
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The issue's complete new text content, replacing what's there now, max 4096 characters.")] [MaxLength(Constraints.MaxContentLength)] string content,
@@ -127,7 +127,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Deletes an issue - it stops appearing anywhere except its own audit history. Requires canDelete (see get_issue/list_issues).")]
+    [Description("Deletes an issue - it stops appearing anywhere except its own audit history. Requires canDelete (see get_issue/list_issues). Fails while the issue is handed to the agent (an open run in get_issue's latestAgentRun) - cancel_agent_run first.")]
     public Task DeleteIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)

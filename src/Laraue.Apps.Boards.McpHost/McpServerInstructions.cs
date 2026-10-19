@@ -32,6 +32,13 @@ public static class McpServerInstructions
         - Issues can be linked: one blocks another (it must be done first), relates to it, or duplicates it.
           get_issue lists an issue's links; list_issues with excludeBlocked=true leaves out blocked issues (a
           blocker counts until it's Completed - Review still blocks). create_issue_link/delete_issue_link add or remove a link.
+        - Agent runs hand issues to a coding agent: the issue's assignee hands one off with create_agent_run
+          (state Ready), which locks the issue's fields until the run ends. A runner, acting as the assignee,
+          polls list_agent_runs(state 'Ready', assigneeIds=[its own user id], excludeBlocked=true), takes
+          a run with claim_agent_run (false = someone else has it, or it's blocked: skip), moves the issue
+          to an InProgress status, works, and ends with finish_agent_run (Done or Failed). Anyone who can
+          edit the issue can cancel_agent_run, which also unlocks it; a runner whose finish_agent_run
+          returns false was cancelled and should stop. get_issue's latestAgentRun shows the current one.
         - When you mention an issue to the user, link it with its url from list_issues/get_issue.
         - A failed call says why ('NotFound: ...', 'Forbidden: ...', or 'BadRequest: ...' with a line
           per invalid field) - fix the request instead of retrying it unchanged.

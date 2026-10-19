@@ -25,6 +25,7 @@ public record OrganizationHistoryItem
 [JsonDerivedType(typeof(IssueHistoryAttachmentChange), "attachment")]
 [JsonDerivedType(typeof(IssueHistoryEpicChange), "epic")]
 [JsonDerivedType(typeof(IssueHistorySpaceChange), "space")]
+[JsonDerivedType(typeof(IssueHistoryAgentRunChange), "agentRun")]
 [JsonDerivedType(typeof(IssueHistoryLinkChange), "link")]
 public abstract record HistoryItemChange
 {
@@ -99,6 +100,16 @@ public record IssueHistorySpaceChange : HistoryItemChange
     public required string? NewSpaceColor { get; set; }
 }
 
+/// <summary>
+/// An agent run of the issue changed state (BRD-305) - <see cref="OldState"/> is null when the run was created
+/// (the issue was handed to the agent).
+/// </summary>
+public record IssueHistoryAgentRunChange : HistoryItemChange
+{
+    public required long RunId { get; set; }
+    public required AgentRunState? OldState { get; set; }
+    public required AgentRunState NewState { get; set; }
+}
 
 /// <summary>
 /// A link to another issue was added or removed. Only the other issue's key as it was then: the history is

@@ -1,3 +1,4 @@
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Resources;
@@ -109,6 +110,11 @@ public class SaveCommandService(
         catch (IssueLimitExceededException)
         {
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueLimitExceeded, cancellationToken);
+            return;
+        }
+        catch (IssueLockedByAgentRunException)
+        {
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueLockedByAgentRun, cancellationToken);
             return;
         }
 

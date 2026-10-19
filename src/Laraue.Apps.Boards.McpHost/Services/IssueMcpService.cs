@@ -296,12 +296,14 @@ public sealed record IssueListPage(IReadOnlyList<IssueSummary> Issues, long Page
 /// <see cref="IIssueMcpService.EditComment"/>/<see cref="IIssueMcpService.DeleteComment"/> both
 /// enforce (not gated by <c>CanUpdateIssue</c>) - so a caller can tell upfront whether either will
 /// succeed, rather than discovering it via a thrown <see cref="ForbiddenException"/>.
+/// <see cref="ApiKeyName"/> is set when the comment was written through an API key (e.g. by an agent).
 /// <see cref="Attachments"/>' ids are what <see cref="IIssueMcpService.GetAttachmentContent"/> takes,
 /// same as the issue's own attachments.
 /// </summary>
 public sealed record IssueCommentSummary(
     long Id,
     string Author,
+    string? ApiKeyName,
     string Text,
     DateTime CreatedAt,
     DateTime UpdatedAt,
@@ -342,7 +344,8 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
 /// than discovering it via a thrown <see cref="ForbiddenException"/>.
 /// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
 /// <see cref="StatusSummary"/>'s category. <see cref="Links"/> are the issue's links to issues the caller can
-/// read.
+/// read. <see cref="LatestAgentRun"/> is the issue's most recent agent run (null when it was never handed to the
+/// agent) - its state tells whether an agent is on it.
 /// </summary>
 public sealed record IssueDetail(
     string Key,
@@ -350,6 +353,8 @@ public sealed record IssueDetail(
     string Title,
     string? Content,
     string Status,
+    long StatusId,
+    long EpicId,
     int StatusCategoryId,
     string StatusCategory,
     string Assignee,
@@ -359,7 +364,8 @@ public sealed record IssueDetail(
     DateTime UpdatedAt,
     int CommentCount,
     IReadOnlyList<IssueAttachmentSummary> Attachments,
-    IReadOnlyList<IssueLinkSummary> Links);
+    IReadOnlyList<IssueLinkSummary> Links,
+    AgentRunSummary? LatestAgentRun);
 
 /// <summary>
 /// A link of an issue, from that issue's side: "this issue [<see cref="Relation"/>] <see cref="Key"/>".
@@ -448,7 +454,8 @@ public class IssueMcpService(
     IOrganizationHistoryReader historyReader,
     IIssueLinksReader issueLinksReader,
     ICoreIssueLinksService coreIssueLinksService,
-    IMemberProfileReader memberProfileReader)
+    IMemberProfileReader memberProfileReader,
+    IAgentRunMcpService agentRunMcpService)
     : IIssueMcpService
 {
     private const int MaxResults = 50;
@@ -586,6 +593,8 @@ public class IssueMcpService(
                 i.Title,
                 i.Content,
                 StatusName = i.Status!.Name,
+                i.StatusId,
+                i.Status.EpicId,
                 StatusCategory = i.Status.Category,
                 Assignee = new UserDetails { UserId = i.AssigneeId },
                 i.CreatedAt,
@@ -612,12 +621,16 @@ public class IssueMcpService(
             [issue.Assignee],
             cancellationToken);
 
+        var latestAgentRun = await agentRunMcpService.GetLatestRun(authData, issueId, cancellationToken);
+
         return new IssueDetail(
             key.ToString(),
             issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
             issue.Title,
             issue.Content,
             issue.StatusName,
+            issue.StatusId,
+            issue.EpicId,
             (int)issue.StatusCategory,
             issue.StatusCategory.ToString(),
             issue.Assignee.DisplayName,
@@ -635,7 +648,8 @@ public class IssueMcpService(
                     x.StatusName,
                     (int)x.StatusCategory,
                     x.StatusCategory.ToString()))
-                .ToList());
+                .ToList(),
+            latestAgentRun);
     }
 
     public async Task CreateIssueLink(
@@ -773,6 +787,7 @@ public class IssueMcpService(
                 : $"attachment removed: {c.FileName}",
             IssueHistoryEpicChange c => $"epic: {c.OldEpicName ?? "none"} -> {c.NewEpicName ?? "none"}",
             IssueHistorySpaceChange c => $"space: {c.OldSpaceName ?? "none"} -> {c.NewSpaceName ?? "none"}",
+            IssueHistoryAgentRunChange c => $"agent run {c.RunId}: {c.OldState?.ToString() ?? "none"} -> {c.NewState}",
             IssueHistoryLinkChange c => c.Action == IssueLinkAction.Added
                 ? $"link added: {DescribeRelation(c.Relation)} {c.IssueKey}"
                 : $"link removed: {DescribeRelation(c.Relation)} {c.IssueKey}",
@@ -845,10 +860,17 @@ public class IssueMcpService(
                 .Select(c => c.Author),
             cancellationToken);
 
+        var apiKeyNames = await historyReader.GetCommentApiKeyNames(
+            result.Data
+                .Select(c => c.Id)
+                .ToArray(),
+            cancellationToken);
+
         var comments = result.Data
             .Select(c => new IssueCommentSummary(
                 c.Id,
                 c.Author.DisplayName,
+                apiKeyNames.GetValueOrDefault(c.Id),
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,

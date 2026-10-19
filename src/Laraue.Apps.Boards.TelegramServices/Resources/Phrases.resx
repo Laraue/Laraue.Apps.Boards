@@ -220,4 +220,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="InsufficientTokenBalance" xml:space="preserve">
         <value>Not enough tokens left for AI summarization - try /save with a title instead to save without it, e.g. /save Fix login bug.</value>
     </data>
+    <data name="IssueLockedByAgentRun" xml:space="preserve">
+        <value>This card is handed to the agent and can't be changed until the run is finished or cancelled.</value>
+    </data>
 </root>

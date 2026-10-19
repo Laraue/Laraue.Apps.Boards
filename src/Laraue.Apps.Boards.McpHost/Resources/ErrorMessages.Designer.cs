@@ -166,5 +166,17 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
                 return ResourceManager.GetString("UserNotBelongsToOrganization", resourceCulture);
             }
         }
+        
+        internal static string AgentRunHandOffOnlyAssignee {
+            get {
+                return ResourceManager.GetString("AgentRunHandOffOnlyAssignee", resourceCulture);
+            }
+        }
+        
+        internal static string AgentRunClaimOnlyAssignee {
+            get {
+                return ResourceManager.GetString("AgentRunClaimOnlyAssignee", resourceCulture);
+            }
+        }
     }
 }

@@ -30,6 +30,15 @@ public interface IOrganizationHistoryReader
     Task<ShortPaginatedResult<OrganizationHistoryItem>> GetOrganizationHistory(
         OrganizationHistoryQuery query,
         CancellationToken ct);
+
+    /// <summary>
+    /// The API key each of <paramref name="commentIds"/> was written through (e.g. an agent's), from the comment's
+    /// create entry - what the history shows as "via API key ...". One query for a page of comments; a comment
+    /// written in the app has no entry in the result.
+    /// </summary>
+    Task<Dictionary<long, string>> GetCommentApiKeyNames(
+        IReadOnlyCollection<long> commentIds,
+        CancellationToken ct);
 }
 
 public sealed record OrganizationHistoryQuery(
@@ -175,6 +184,19 @@ public class OrganizationHistoryReader(
             ct);
 
         return result;
+    }
+
+    public Task<Dictionary<long, string>> GetCommentApiKeyNames(
+        IReadOnlyCollection<long> commentIds,
+        CancellationToken ct)
+    {
+        return context.OrganizationLogs
+            .Where(l => l.EntityType == LogEntityType.Comment
+                && l.Action == LogAction.Create
+                && l.ApiKeyId != null
+                && commentIds.Contains(l.EntityId!.Value))
+            .Select(l => new { CommentId = l.EntityId!.Value, l.ApiKey!.Name })
+            .ToDictionaryAsyncEF(x => x.CommentId, x => x.Name, ct);
     }
 
     private sealed record IssueInfo(string Key, string Title);
@@ -391,6 +413,12 @@ public class OrganizationHistoryReader(
                 NewSpaceColor = item.NewValueId is not null ? spacesColors[item.NewValueId] : null,
                 OldSpaceName = item.OldDisplayValue,
                 OldSpaceColor = item.OldValueId is not null ? spacesColors[item.OldValueId] : null,
+            },
+            PropertyType.AgentRun => new IssueHistoryAgentRunChange
+            {
+                RunId = long.Parse(item.ParentId!),
+                OldState = item.OldValueId is not null ? (AgentRunState)int.Parse(item.OldValueId) : null,
+                NewState = (AgentRunState)int.Parse(item.NewValueId!),
             },
             PropertyType.IssueLink => new IssueHistoryLinkChange
             {

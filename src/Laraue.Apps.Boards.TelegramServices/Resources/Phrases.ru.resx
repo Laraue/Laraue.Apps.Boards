@@ -213,4 +213,7 @@
     <data name="InsufficientTokenBalance" xml:space="preserve">
         <value>Недостаточно токенов для ИИ-обработки — используйте /save с заголовком, чтобы сохранить без неё, например: /save Исправить вход.</value>
     </data>
+    <data name="IssueLockedByAgentRun" xml:space="preserve">
+        <value>Эта карточка передана агенту и не может быть изменена, пока запуск не завершён или не отменён.</value>
+    </data>
 </root>

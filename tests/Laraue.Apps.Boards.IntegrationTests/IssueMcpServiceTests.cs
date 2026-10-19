@@ -53,7 +53,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
             new IssueLinksReader(testScope.Database),
             testScope.Services.GetRequiredService<ICoreIssueLinksService>(),
-            new MemberProfileReader(testScope.Database));
+            new MemberProfileReader(testScope.Database),
+            AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services));
     }
 
     internal static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
@@ -156,6 +157,22 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
 
         Assert.Equal(await ExpectedIssueUrlAsync(testScope, organization.Id, issueKey), issue.Url);
+    }
+
+    [Fact]
+    public async Task GetIssue_ShouldReturnStatusAndEpicIds_WhenCalled()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+
+        var issue = await CreateIssueMcpService(testScope).GetIssue(
+            AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
+
+        Assert.Equal(organization.GetStatus(0, 0, 0).Id, issue.StatusId);
+        Assert.Equal(organization.GetEpic(0, 0).Id, issue.EpicId);
     }
 
     private static async Task<string> ExpectedIssueUrlAsync(
@@ -920,6 +937,28 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var log = await testScope.Database.OrganizationLogs.SingleAsyncEF(x =>
             x.EntityType == LogEntityType.Comment && x.EntityId == commentId);
         Assert.Equal(apiKey.Id, log.ApiKeyId);
+    }
+
+    [Fact]
+    public async Task ListIssueComments_ShouldNameApiKey_WhenCommentWasWrittenThroughOne()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organization.Id, ownerId, "boards-agent", CancellationToken.None);
+        var service = CreateIssueMcpService(testScope);
+        await service.CreateComment(AuthDataFor(organization.Id, ownerId), issueKey, "By hand", CancellationToken.None);
+        await service.CreateComment(AuthDataFor(organization.Id, ownerId, apiKey.Id), issueKey, "By the agent", CancellationToken.None);
+
+        var page = await service.ListIssueComments(AuthDataFor(organization.Id, ownerId), issueKey, null, null, CancellationToken.None);
+
+        Assert.Collection(
+            page.Comments,
+            byHand => Assert.Null(byHand.ApiKeyName),
+            byAgent => Assert.Equal("boards-agent", byAgent.ApiKeyName));
     }
 
     [Fact]
