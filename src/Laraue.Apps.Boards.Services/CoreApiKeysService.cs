@@ -29,16 +29,6 @@ public interface ICoreApiKeysService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Revokes the caller's active keys with this exact name in the organization - how a new key replaces the one
-    /// an earlier sign-in of the same machine issued. Returns how many were revoked.
-    /// </summary>
-    Task<int> RevokeByNameAsync(
-        long organizationId,
-        Guid callerId,
-        string name,
-        CancellationToken cancellationToken);
-
-    /// <summary>
     /// Resolves a raw secret to the organization/user it authenticates as, or null if the key
     /// doesn't exist or has been revoked. Best-effort bumps <see cref="ApiKey.LastUsedAt"/> on
     /// success.
@@ -102,22 +92,6 @@ public class CoreApiKeysService(
                 cancellationToken);
 
         return updatedCount > 0;
-    }
-
-    public Task<int> RevokeByNameAsync(
-        long organizationId,
-        Guid callerId,
-        string name,
-        CancellationToken cancellationToken)
-    {
-        return context.ApiKeys
-            .Where(x => x.OrganizationId == organizationId
-                && x.CreatedByUserId == callerId
-                && x.Name == name
-                && x.RevokedAt == null)
-            .ExecuteUpdateAsync(
-                setters => setters.SetProperty(x => x.RevokedAt, dateTimeProvider.UtcNow),
-                cancellationToken);
     }
 
     public async Task<ApiKeyPrincipal?> ValidateAsync(string rawKey, CancellationToken cancellationToken)

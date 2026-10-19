@@ -71,4 +71,11 @@ public class AgentSignInRequest
 
     public Guid? ApiKeyId { get; set; }
     public ApiKey? ApiKey { get; set; }
+
+    /// <summary>
+    /// The key the runner held before this sign-in (it proved it by sending the key itself), revoked when the new one is
+    /// issued - only if it belongs to the same user and organization. Null for a first sign-in.
+    /// </summary>
+    public Guid? ReplacesApiKeyId { get; set; }
+    public ApiKey? ReplacesApiKey { get; set; }
 }

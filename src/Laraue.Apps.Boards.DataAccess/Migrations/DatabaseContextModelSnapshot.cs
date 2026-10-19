@@ -71,6 +71,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("organization_id");
 
+                    b.Property<Guid?>("ReplacesApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("replaces_api_key_id");
+
                     b.Property<int>("State")
                         .HasColumnType("integer")
                         .HasColumnName("state");
@@ -97,6 +101,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasIndex("OrganizationId")
                         .HasDatabaseName("ix_agent_sign_in_requests_organization_id");
+
+                    b.HasIndex("ReplacesApiKeyId")
+                        .HasDatabaseName("ix_agent_sign_in_requests_replaces_api_key_id");
 
                     b.HasIndex("UserCode")
                         .IsUnique()
@@ -2011,6 +2018,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasForeignKey("OrganizationId")
                         .HasConstraintName("fk_agent_sign_in_requests_organizations_organization_id");
 
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.ApiKey", "ReplacesApiKey")
+                        .WithMany()
+                        .HasForeignKey("ReplacesApiKeyId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_agent_sign_in_requests_api_keys_replaces_api_key_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -2019,6 +2032,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("ApiKey");
 
                     b.Navigation("Organization");
+
+                    b.Navigation("ReplacesApiKey");
 
                     b.Navigation("User");
                 });

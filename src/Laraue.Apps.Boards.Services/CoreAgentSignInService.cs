@@ -17,10 +17,13 @@ namespace Laraue.Apps.Boards.Services;
 public interface ICoreAgentSignInService
 {
     /// <summary>
-    /// Starts a sign-in for the runner on <paramref name="machineName"/>.
+    /// Starts a sign-in for the runner on <paramref name="machineName"/>. <paramref name="replacesApiKey"/> is the raw key
+    /// the runner held so far, if any: that exact key is revoked once the new one is issued, provided it belongs to the
+    /// same user and organization. An unknown or revoked key is ignored, so the answer doesn't tell whether a key exists.
     /// </summary>
     Task<AgentSignInStartResult> Start(
         string machineName,
+        string? replacesApiKey,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -41,9 +44,9 @@ public interface ICoreAgentSignInService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// The runner's poll. On the first poll after Allow it creates the API key - revoking the user's earlier key with
-    /// the same name in that organization, so signing in the same machine again replaces its key - and returns it.
-    /// Null when no request has this device code. The caller must have opened a transaction.
+    /// The runner's poll. On the first poll after Allow it creates the API key - revoking the key the runner said it
+    /// replaces, see <see cref="Start"/> - and returns it. Null when no request has this device code. The caller must
+    /// have opened a transaction.
     /// </summary>
     Task<AgentSignInPollResult?> Poll(
         string deviceCode,
@@ -124,9 +127,20 @@ public class CoreAgentSignInService(
 
     public async Task<AgentSignInStartResult> Start(
         string machineName,
+        string? replacesApiKey,
         CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
+
+        Guid? replacesApiKeyId = null;
+        if (!string.IsNullOrEmpty(replacesApiKey))
+        {
+            var replacedHash = SecretHash.Compute(replacesApiKey);
+            replacesApiKeyId = await context.ApiKeys
+                .Where(x => x.KeyHash == replacedHash && x.RevokedAt == null)
+                .Select(x => (Guid?)x.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
 
         for (var attempt = 1; ; attempt++)
         {
@@ -141,6 +155,7 @@ public class CoreAgentSignInService(
                 State = AgentSignInState.Pending,
                 CreatedAt = now,
                 ExpiresAt = now + Lifetime,
+                ReplacesApiKeyId = replacesApiKeyId,
             };
 
             context.AgentSignInRequests.Add(request);
@@ -214,6 +229,7 @@ public class CoreAgentSignInService(
                 x.MachineName,
                 x.UserId,
                 x.OrganizationId,
+                x.ReplacesApiKeyId,
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -255,18 +271,21 @@ public class CoreAgentSignInService(
 
         var organizationId = request.OrganizationId!.Value;
         var userId = request.UserId!.Value;
-        var keyName = KeyName(request.MachineName);
-
-        await coreApiKeysService.RevokeByNameAsync(
-            organizationId,
-            userId,
-            keyName,
-            cancellationToken);
+        // RevokeAsync only touches the user's own key in this organization, so a key of someone else, or of another
+        // organization the person picked this time, is left alone.
+        if (request.ReplacesApiKeyId is { } replacedKeyId)
+        {
+            await coreApiKeysService.RevokeAsync(
+                organizationId,
+                userId,
+                replacedKeyId,
+                cancellationToken);
+        }
 
         var apiKey = await coreApiKeysService.CreateAsync(
             organizationId,
             userId,
-            keyName,
+            KeyName(request.MachineName),
             cancellationToken);
 
         await context.AgentSignInRequests

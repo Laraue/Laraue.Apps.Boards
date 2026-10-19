@@ -69,6 +69,7 @@ public class AgentSignInService(
     {
         var result = await coreAgentSignInService.Start(
             request.MachineName.Trim(),
+            request.ReplacesApiKey,
             cancellationToken);
 
         return new StartAgentSignInResponse
@@ -209,6 +210,13 @@ public record StartAgentSignInRequest
     [MinLength(1)]
     [MaxLength(Constraints.MaxAgentSignInMachineNameLength)]
     public required string MachineName { get; init; }
+
+    /// <summary>
+    /// The API key the runner signed in with so far, when it signs in again: that key is revoked once the new one is
+    /// issued, if it's the same user's key in the same organization.
+    /// </summary>
+    [MaxLength(256)]
+    public string? ReplacesApiKey { get; init; }
 }
 
 public record StartAgentSignInResponse

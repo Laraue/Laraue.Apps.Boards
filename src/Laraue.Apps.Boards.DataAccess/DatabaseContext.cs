@@ -311,6 +311,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .WithMany()
                 .HasForeignKey(x => x.ApiKeyId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            entity
+                .HasOne(x => x.ReplacesApiKey)
+                .WithMany()
+                .HasForeignKey(x => x.ReplacesApiKeyId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Retro>(entity =>

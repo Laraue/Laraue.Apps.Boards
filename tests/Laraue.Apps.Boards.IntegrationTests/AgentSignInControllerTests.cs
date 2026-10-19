@@ -99,14 +99,14 @@ public class AgentSignInControllerTests(WebApiTestHost host) : IClassFixture<Web
     }
 
     [Fact]
-    public async Task Poll_ShouldRevokeEarlierKeyOfSameMachine_WhenMachineSignsInAgain()
+    public async Task Poll_ShouldRevokeReplacedKey_WhenRunnerSignsInAgainWithItsKey()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
 
         var firstKey = await SignInAsync(userId, organization.Id, "same-mac");
-        var secondKey = await SignInAsync(userId, organization.Id, "same-mac");
+        var secondKey = await SignInAsync(userId, organization.Id, "same-mac", replacesApiKey: firstKey);
 
         var coreApiKeysService = testScope.Services.GetRequiredService<ICoreApiKeysService>();
         Assert.Null(await coreApiKeysService.ValidateAsync(firstKey, CancellationToken.None));
@@ -114,17 +114,35 @@ public class AgentSignInControllerTests(WebApiTestHost host) : IClassFixture<Web
     }
 
     [Fact]
-    public async Task Poll_ShouldKeepKeyOfOtherMachine_WhenAnotherMachineSignsIn()
+    public async Task Poll_ShouldKeepEarlierKeyWithSameName_WhenRunnerDoesNotReplaceIt()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
 
-        var laptopKey = await SignInAsync(userId, organization.Id, "laptop");
-        await SignInAsync(userId, organization.Id, "desktop");
+        // Two machines with the same name, or a key the person made with that name themselves.
+        var firstKey = await SignInAsync(userId, organization.Id, "same-mac");
+        await SignInAsync(userId, organization.Id, "same-mac");
 
         var coreApiKeysService = testScope.Services.GetRequiredService<ICoreApiKeysService>();
-        Assert.NotNull(await coreApiKeysService.ValidateAsync(laptopKey, CancellationToken.None));
+        Assert.NotNull(await coreApiKeysService.ValidateAsync(firstKey, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Poll_ShouldNotRevokeReplacedKey_WhenItBelongsToAnotherUser()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId, builder => builder
+                .SetGlobalAccessLevel(x => x.CanRead = true)));
+
+        var ownerKey = await SignInAsync(ownerId, organization.Id, "owner-mac");
+        await SignInAsync(memberId, organization.Id, "member-mac", replacesApiKey: ownerKey);
+
+        var coreApiKeysService = testScope.Services.GetRequiredService<ICoreApiKeysService>();
+        Assert.NotNull(await coreApiKeysService.ValidateAsync(ownerKey, CancellationToken.None));
     }
 
     [Fact]
@@ -208,10 +226,10 @@ public class AgentSignInControllerTests(WebApiTestHost host) : IClassFixture<Web
         Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
     }
 
-    private Task<StartAgentSignInResponse> StartAsync(string machineName = "test-machine")
+    private Task<StartAgentSignInResponse> StartAsync(string machineName = "test-machine", string? replacesApiKey = null)
     {
         return _controller.Execute(x => x.Start(
-            new StartAgentSignInRequest { MachineName = machineName },
+            new StartAgentSignInRequest { MachineName = machineName, ReplacesApiKey = replacesApiKey },
             CancellationToken.None));
     }
 
@@ -235,9 +253,9 @@ public class AgentSignInControllerTests(WebApiTestHost host) : IClassFixture<Web
     /// <summary>
     /// The whole flow - start, allow, poll - returning the issued raw key.
     /// </summary>
-    private async Task<string> SignInAsync(Guid userId, long organizationId, string machineName)
+    private async Task<string> SignInAsync(Guid userId, long organizationId, string machineName, string? replacesApiKey = null)
     {
-        var started = await StartAsync(machineName);
+        var started = await StartAsync(machineName, replacesApiKey);
         await ApproveAsync(userId, started.UserCode, organizationId);
         var poll = await PollAsync(started.DeviceCode);
         return poll.ApiKey!;
