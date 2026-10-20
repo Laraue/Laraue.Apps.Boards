@@ -24,7 +24,7 @@ public static class WebApplicationBuilderExtensions
                 .AddCoreServices()
                 .AddAiContentSummarizer()
                 .AddFeedbackClient();
-            builder.AddValidatedOptions<AgentSignInOptions>("AgentSignIn");
+            builder.AddValidatedOptions<AgentSignInOptions>(nameof(AgentSignInOptions));
             builder.Services.AddHttpClient();
 
             builder.Services

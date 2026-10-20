@@ -79,7 +79,7 @@ public class AgentSignInService(
         {
             DeviceCode = result.DeviceCode,
             UserCode = result.UserCode,
-            VerificationPath = $"{options.Value.AllowPagePath}?code={Uri.EscapeDataString(result.UserCode)}",
+            VerificationPath = $"{options.Value.AgentLoginPagePath}?code={Uri.EscapeDataString(result.UserCode)}",
             ExpiresAt = result.ExpiresAt,
             IntervalSeconds = (int)result.PollInterval.TotalSeconds,
         };
@@ -213,7 +213,7 @@ public sealed class AgentSignInOptions
     /// opens it with <c>?code=</c> and the user code.
     /// </summary>
     [Required]
-    public required string AllowPagePath { get; set; }
+    public required string AgentLoginPagePath { get; set; }
 }
 
 public record StartAgentSignInRequest
