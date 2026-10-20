@@ -299,11 +299,10 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsUnique();
 
             // Unique for good, not only among pending requests: there's no cleanup of old rows, and the Allow page
-            // looks a request up by this code alone. A collision is retried with a new code.
+            // looks a request up by this code alone.
             entity
                 .HasIndex(x => x.UserCode)
-                .IsUnique()
-                .HasDatabaseName(Constraints.AgentSignInUserCodeIndexName);
+                .IsUnique();
 
             // Deleting the issued key keeps the request - it only loses the link.
             entity

@@ -3,7 +3,6 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace Laraue.Apps.Boards.Services;
 
@@ -123,8 +122,6 @@ public class CoreAgentSignInService(
     /// </summary>
     private static readonly TimeSpan MinPollInterval = PollInterval - TimeSpan.FromSeconds(1);
 
-    private const int MaxUserCodeAttempts = 5;
-
     public async Task<AgentSignInStartResult> Start(
         string machineName,
         string? replacesApiKey,
@@ -142,34 +139,26 @@ public class CoreAgentSignInService(
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        for (var attempt = 1; ; attempt++)
+        var deviceCode = StringGenerator.GenerateAgentSignInDeviceCode();
+
+        // A user code equal to an earlier one (about 1 in 10^12 per existing row) fails on the unique index: the runner
+        // reports the error and setup is run again.
+        var request = new AgentSignInRequest
         {
-            var deviceCode = StringGenerator.GenerateAgentSignInDeviceCode();
+            Id = Guid.CreateVersion7(),
+            DeviceCodeHash = SecretHash.Compute(deviceCode),
+            UserCode = StringGenerator.GenerateAgentSignInUserCode(),
+            MachineName = machineName,
+            State = AgentSignInState.Pending,
+            CreatedAt = now,
+            ExpiresAt = now + Lifetime,
+            ReplacesApiKeyId = replacesApiKeyId,
+        };
 
-            var request = new AgentSignInRequest
-            {
-                Id = Guid.CreateVersion7(),
-                DeviceCodeHash = SecretHash.Compute(deviceCode),
-                UserCode = StringGenerator.GenerateAgentSignInUserCode(),
-                MachineName = machineName,
-                State = AgentSignInState.Pending,
-                CreatedAt = now,
-                ExpiresAt = now + Lifetime,
-                ReplacesApiKeyId = replacesApiKeyId,
-            };
+        context.AgentSignInRequests.Add(request);
+        await context.SaveChangesAsync(cancellationToken);
 
-            context.AgentSignInRequests.Add(request);
-
-            try
-            {
-                await context.SaveChangesAsync(cancellationToken);
-                return new AgentSignInStartResult(deviceCode, request.UserCode, request.ExpiresAt, PollInterval);
-            }
-            catch (DbUpdateException ex) when (attempt < MaxUserCodeAttempts && IsUserCodeViolation(ex))
-            {
-                context.Entry(request).State = EntityState.Detached;
-            }
-        }
+        return new AgentSignInStartResult(deviceCode, request.UserCode, request.ExpiresAt, PollInterval);
     }
 
     public async Task<bool> Approve(
@@ -311,16 +300,5 @@ public class CoreAgentSignInService(
             .Where(x => x.UserCode == userCode
                 && x.State == AgentSignInState.Pending
                 && x.ExpiresAt > now);
-    }
-
-    private static bool IsUserCodeViolation(Exception ex)
-    {
-        var pgException = ex as PostgresException ?? ex.InnerException as PostgresException;
-
-        return pgException is
-        {
-            SqlState: PostgresErrorCodes.UniqueViolation,
-            ConstraintName: Constraints.AgentSignInUserCodeIndexName,
-        };
     }
 }
