@@ -6,6 +6,7 @@ using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -60,7 +61,8 @@ public class AgentSignInService(
     DatabaseContext context,
     ICoreAgentSignInService coreAgentSignInService,
     IAccessService accessService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IOptions<AgentSignInOptions> options)
     : IAgentSignInService
 {
     public async Task<StartAgentSignInResponse> Start(
@@ -77,7 +79,7 @@ public class AgentSignInService(
         {
             DeviceCode = result.DeviceCode,
             UserCode = result.UserCode,
-            VerificationPath = $"/agent-sign-in?code={Uri.EscapeDataString(result.UserCode)}",
+            VerificationPath = $"{options.Value.AllowPagePath}?code={Uri.EscapeDataString(result.UserCode)}",
             ExpiresAt = result.ExpiresAt,
             IntervalSeconds = (int)result.PollInterval.TotalSeconds,
         };
@@ -202,6 +204,16 @@ public class AgentSignInService(
     {
         return new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "AgentSignIn", userCode));
     }
+}
+
+public sealed class AgentSignInOptions
+{
+    /// <summary>
+    /// The web app's Allow page, relative to its address - laraue-boards' <c>app/pages/agent-sign-in.vue</c>. The runner
+    /// opens it with <c>?code=</c> and the user code.
+    /// </summary>
+    [Required]
+    public required string AllowPagePath { get; set; }
 }
 
 public record StartAgentSignInRequest
