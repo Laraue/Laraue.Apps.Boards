@@ -187,7 +187,8 @@ public class OrganizationsService(
         await accessService.GetOrganizations(
             request.UserId,
             organizations => organizations
-                .Where(o => o.UserId == request.UserId)
+                .Where(o => o.OrganizationId == request.OrganizationId)
+                .Where(o => o.Organization!.DeletedAt == null)
                 .FirstOrThrowNotFoundEFAsync(
                     "Organization is not exists or user does not belong to organization",
                     cancellationToken));
