@@ -287,7 +287,7 @@ public class CoreAgentSignInService(
     }
 
     /// <summary>
-    /// The issued key's name - what the key list and issue history show, e.g. "Claude Code agent (Ilya-MacBook)".
+    /// The issued key's name - what the key list and issue history show, e.g. "Claude Code agent (dev-laptop)".
     /// </summary>
     public static string KeyName(string machineName)
     {

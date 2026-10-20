@@ -30,15 +30,15 @@ public class AgentSignInControllerTests(WebApiTestHost host) : IClassFixture<Web
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
-        var started = await StartAsync("Ilya-MacBook");
+        var started = await StartAsync("dev-laptop");
 
         var signIn = await _controller
             .WithUserAuthorization(userId)
             .Execute(x => x.Get(started.UserCode.ToLowerInvariant(), CancellationToken.None));
 
         Assert.Equal(started.UserCode, signIn.UserCode);
-        Assert.Equal("Ilya-MacBook", signIn.MachineName);
-        Assert.Equal("Claude Code agent (Ilya-MacBook)", signIn.KeyName);
+        Assert.Equal("dev-laptop", signIn.MachineName);
+        Assert.Equal("Claude Code agent (dev-laptop)", signIn.KeyName);
     }
 
     [Fact]
