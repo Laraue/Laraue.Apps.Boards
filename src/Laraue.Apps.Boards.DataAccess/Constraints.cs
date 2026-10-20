@@ -23,4 +23,19 @@ public class Constraints
     /// AddIssueLinks migration, since EF Core can't model one.
     /// </summary>
     public const string IssueLinkPairIndexName = "ux_issue_links_issue_pair";
+
+    /// <summary>
+    /// <c>XXXX-XXXX</c>: two groups of four, see <see cref="Models.AgentSignInRequest.UserCode"/>.
+    /// </summary>
+    public const int AgentSignInUserCodeLength = 9;
+
+    /// <summary>
+    /// The agent's own name, e.g. "Claude Code agent" - see <see cref="Models.AgentSignInRequest.ClientName"/>.
+    /// </summary>
+    public const int MaxAgentSignInClientNameLength = 24;
+
+    /// <summary>
+    /// With <see cref="MaxAgentSignInClientNameLength"/>, the key name "client (machine)" fits the key name's 64 characters.
+    /// </summary>
+    public const int MaxAgentSignInMachineNameLength = 37;
 }

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -66,7 +64,7 @@ public class CoreApiKeysService(
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             Name = name,
-            KeyHash = Hash(rawKey),
+            KeyHash = SecretHash.Compute(rawKey),
             KeyPrefix = rawKey[..KeyPrefixLength],
             CreatedByUserId = createdByUserId,
             CreatedAt = dateTimeProvider.UtcNow,
@@ -98,7 +96,7 @@ public class CoreApiKeysService(
 
     public async Task<ApiKeyPrincipal?> ValidateAsync(string rawKey, CancellationToken cancellationToken)
     {
-        var keyHash = Hash(rawKey);
+        var keyHash = SecretHash.Compute(rawKey);
 
         var apiKey = await context.ApiKeys
             .Where(x => x.KeyHash == keyHash && x.RevokedAt == null)
@@ -115,11 +113,5 @@ public class CoreApiKeysService(
                 cancellationToken);
 
         return new ApiKeyPrincipal(apiKey.OrganizationId, apiKey.CreatedByUserId, apiKey.Id);
-    }
-
-    private static string Hash(string rawKey)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(rawKey));
-        return Convert.ToHexStringLower(bytes);
     }
 }

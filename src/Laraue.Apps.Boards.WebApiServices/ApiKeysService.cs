@@ -55,6 +55,7 @@ public class ApiKeysService(
     {
         return context.ApiKeys
             .Where(x => x.OrganizationId == request.AuthData.OrganizationId && x.CreatedByUserId == request.AuthData.UserId)
+            .Where(x => request.IncludeRevoked || x.RevokedAt == null)
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new ApiKeyDto
             {
@@ -133,4 +134,10 @@ public record RevokeApiKeyRequest : ApiKeyRequest
 public record GetApiKeysRequest : ApiKeyRequest, IPaginatedRequest
 {
     public required PaginationData Pagination { get; set; }
+
+    /// <summary>
+    /// Also list revoked keys. Off by default: revoked keys pile up (e.g. one per agent sign-in that replaced a key) and
+    /// can't be used again anyway.
+    /// </summary>
+    public bool IncludeRevoked { get; set; }
 }

@@ -25,9 +25,29 @@ public static class StringGenerator
         return "brdk_" + GenerateRandomString(32);
     }
 
-    private static string GenerateRandomString(int length)
+    /// <summary>
+    /// The runner's secret for polling an agent sign-in - as long and random as an API key.
+    /// </summary>
+    public static string GenerateAgentSignInDeviceCode()
     {
-        return string.Create(length, (chars: Chars, length), (span, state) =>
+        return GenerateRandomString(43);
+    }
+
+    /// <summary>
+    /// The short code a person compares between the terminal and the Allow page, e.g. <c>WXYZ-2345</c>: upper-case
+    /// letters and digits without the look-alikes 0/O and 1/I.
+    /// </summary>
+    public static string GenerateAgentSignInUserCode()
+    {
+        var code = GenerateRandomString(8, UserCodeChars);
+        return $"{code[..4]}-{code[4..]}";
+    }
+
+    private const string UserCodeChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+    private static string GenerateRandomString(int length, string chars = Chars)
+    {
+        return string.Create(length, (chars, length), (span, state) =>
         {
             var charsArr = state.chars;
             for (var i = 0; i < state.length; i++)

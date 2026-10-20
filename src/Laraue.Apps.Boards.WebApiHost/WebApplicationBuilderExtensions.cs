@@ -24,6 +24,7 @@ public static class WebApplicationBuilderExtensions
                 .AddCoreServices()
                 .AddAiContentSummarizer()
                 .AddFeedbackClient();
+            builder.AddValidatedOptions<AgentSignInOptions>(nameof(AgentSignInOptions));
             builder.Services.AddHttpClient();
 
             builder.Services
@@ -53,6 +54,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IBillingService, BillingService>()
                 .AddScoped<IMovementService, MovementService>()
                 .AddScoped<IApiKeysService, ApiKeysService>()
+                .AddScoped<IAgentSignInService, AgentSignInService>()
                 .AddScoped<IAgentRunsService, AgentRunsService>()
                 .AddScoped<IUserFeedbackService, UserFeedbackService>();
 
