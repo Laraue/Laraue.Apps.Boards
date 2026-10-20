@@ -17,6 +17,13 @@ public class Space
     
     [MaxLength(3)]
     public required string Key { get; set; }
+
+    /// <summary>
+    /// Markdown overview of the space - what it is, how its work is organized - for people on the space page and for the
+    /// agent as context (BRD-312). Its parts (repositories, docs, ...) are <see cref="Links"/>.
+    /// </summary>
+    [MaxLength(Constraints.MaxSpaceDescriptionLength)]
+    public string? Description { get; set; }
     
     public Guid CreatorId { get; set; }
     public User? Creator { get; set; }
@@ -52,4 +59,6 @@ public class Space
     /// </summary>
     public IList<Epic>? Epics { get; set; }
     public IList<DirectSpacePermission>? Users { get; set; }
+
+    public IList<SpaceLink>? Links { get; set; }
 }
