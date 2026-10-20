@@ -35,6 +35,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("api_key_id");
 
+                    b.Property<string>("ClientName")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("client_name");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at");
@@ -63,8 +69,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.Property<string>("MachineName")
                         .IsRequired()
-                        .HasMaxLength(44)
-                        .HasColumnType("character varying(44)")
+                        .HasMaxLength(37)
+                        .HasColumnType("character varying(37)")
                         .HasColumnName("machine_name");
 
                     b.Property<long?>("OrganizationId")

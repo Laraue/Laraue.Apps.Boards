@@ -4,7 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
 /// <summary>
-/// One "connect this machine" sign-in of the agent runner (BRD-309), so `boards-agent setup` gets an
+/// One "connect this machine" sign-in of an agent runner (BRD-309), so `boards-agent setup` gets an
 /// <see cref="ApiKey"/> without the person copying one. The runner starts it and polls with its secret device code;
 /// the person opens the Allow page by <see cref="UserCode"/>, picks an organization and allows or denies it. On the
 /// first poll after Allow, the key is created for that user and organization and returned once - the raw key is
@@ -27,6 +27,13 @@ public class AgentSignInRequest
     /// </summary>
     [MaxLength(Constraints.AgentSignInUserCodeLength)]
     public required string UserCode { get; set; }
+
+    /// <summary>
+    /// The agent asking for a key, as it calls itself, e.g. "Claude Code agent" - shown on the Allow page and put in the
+    /// key's name. Any agent can use this sign-in; nothing here is specific to one.
+    /// </summary>
+    [MaxLength(Constraints.MaxAgentSignInClientNameLength)]
+    public required string ClientName { get; set; }
 
     /// <summary>
     /// The runner's machine, as it reported it - shown on the Allow page and put in the key's name.

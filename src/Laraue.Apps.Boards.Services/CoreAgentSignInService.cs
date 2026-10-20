@@ -16,11 +16,12 @@ namespace Laraue.Apps.Boards.Services;
 public interface ICoreAgentSignInService
 {
     /// <summary>
-    /// Starts a sign-in for the runner on <paramref name="machineName"/>. <paramref name="replacesApiKey"/> is the raw key
+    /// Starts a sign-in for the agent <paramref name="clientName"/> on <paramref name="machineName"/>. <paramref name="replacesApiKey"/> is the raw key
     /// the runner held so far, if any: that exact key is revoked once the new one is issued, provided it belongs to the
     /// same user and organization. An unknown or revoked key is ignored, so the answer doesn't tell whether a key exists.
     /// </summary>
     Task<AgentSignInStartResult> Start(
+        string clientName,
         string machineName,
         string? replacesApiKey,
         CancellationToken cancellationToken);
@@ -123,6 +124,7 @@ public class CoreAgentSignInService(
     private static readonly TimeSpan MinPollInterval = PollInterval - TimeSpan.FromSeconds(1);
 
     public async Task<AgentSignInStartResult> Start(
+        string clientName,
         string machineName,
         string? replacesApiKey,
         CancellationToken cancellationToken)
@@ -148,6 +150,7 @@ public class CoreAgentSignInService(
             Id = Guid.CreateVersion7(),
             DeviceCodeHash = SecretHash.Compute(deviceCode),
             UserCode = StringGenerator.GenerateAgentSignInUserCode(),
+            ClientName = clientName,
             MachineName = machineName,
             State = AgentSignInState.Pending,
             CreatedAt = now,
@@ -215,6 +218,7 @@ public class CoreAgentSignInService(
                 x.State,
                 x.ExpiresAt,
                 x.LastPolledAt,
+                x.ClientName,
                 x.MachineName,
                 x.UserId,
                 x.OrganizationId,
@@ -274,7 +278,7 @@ public class CoreAgentSignInService(
         var apiKey = await coreApiKeysService.CreateAsync(
             organizationId,
             userId,
-            KeyName(request.MachineName),
+            KeyName(request.ClientName, request.MachineName),
             cancellationToken);
 
         await context.AgentSignInRequests
@@ -289,9 +293,9 @@ public class CoreAgentSignInService(
     /// <summary>
     /// The issued key's name - what the key list and issue history show, e.g. "Claude Code agent (dev-laptop)".
     /// </summary>
-    public static string KeyName(string machineName)
+    public static string KeyName(string clientName, string machineName)
     {
-        return $"Claude Code agent ({machineName})";
+        return $"{clientName} ({machineName})";
     }
 
     private IQueryable<AgentSignInRequest> PendingRequest(string userCode, DateTime now)

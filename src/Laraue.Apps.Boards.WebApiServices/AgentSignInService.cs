@@ -68,6 +68,7 @@ public class AgentSignInService(
         CancellationToken cancellationToken)
     {
         var result = await coreAgentSignInService.Start(
+            request.ClientName.Trim(),
             request.MachineName.Trim(),
             request.ReplacesApiKey,
             cancellationToken);
@@ -126,6 +127,7 @@ public class AgentSignInService(
             .Select(x => new
             {
                 x.UserCode,
+                x.ClientName,
                 x.MachineName,
                 x.CreatedAt,
                 x.ExpiresAt,
@@ -136,8 +138,9 @@ public class AgentSignInService(
         return new AgentSignInDto
         {
             UserCode = request.UserCode,
+            ClientName = request.ClientName,
             MachineName = request.MachineName,
-            KeyName = CoreAgentSignInService.KeyName(request.MachineName),
+            KeyName = CoreAgentSignInService.KeyName(request.ClientName, request.MachineName),
             CreatedAt = request.CreatedAt,
             ExpiresAt = request.ExpiresAt,
         };
@@ -203,6 +206,15 @@ public class AgentSignInService(
 
 public record StartAgentSignInRequest
 {
+    /// <summary>
+    /// The agent asking for a key, as it calls itself, e.g. "Claude Code agent" - shown on the Allow page and put in the
+    /// key's name.
+    /// </summary>
+    [Required]
+    [MinLength(1)]
+    [MaxLength(Constraints.MaxAgentSignInClientNameLength)]
+    public required string ClientName { get; init; }
+
     /// <summary>
     /// The runner's machine - shown on the Allow page and put in the key's name.
     /// </summary>
@@ -271,6 +283,8 @@ public record PollAgentSignInResponse
 public record AgentSignInDto
 {
     public required string UserCode { get; init; }
+
+    public required string ClientName { get; init; }
 
     public required string MachineName { get; init; }
 

@@ -30,7 +30,12 @@ public class Constraints
     public const int AgentSignInUserCodeLength = 9;
 
     /// <summary>
-    /// Leaves room for the key name around it, "Claude Code agent (...)", within the key name's 64 characters.
+    /// The agent's own name, e.g. "Claude Code agent" - see <see cref="Models.AgentSignInRequest.ClientName"/>.
     /// </summary>
-    public const int MaxAgentSignInMachineNameLength = 44;
+    public const int MaxAgentSignInClientNameLength = 24;
+
+    /// <summary>
+    /// With <see cref="MaxAgentSignInClientNameLength"/>, the key name "client (machine)" fits the key name's 64 characters.
+    /// </summary>
+    public const int MaxAgentSignInMachineNameLength = 37;
 }

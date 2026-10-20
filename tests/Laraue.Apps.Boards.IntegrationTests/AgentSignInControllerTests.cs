@@ -37,6 +37,7 @@ public class AgentSignInControllerTests(WebApiTestHost host) : IClassFixture<Web
             .Execute(x => x.Get(started.UserCode.ToLowerInvariant(), CancellationToken.None));
 
         Assert.Equal(started.UserCode, signIn.UserCode);
+        Assert.Equal("Claude Code agent", signIn.ClientName);
         Assert.Equal("dev-laptop", signIn.MachineName);
         Assert.Equal("Claude Code agent (dev-laptop)", signIn.KeyName);
     }
@@ -221,15 +222,41 @@ public class AgentSignInControllerTests(WebApiTestHost host) : IClassFixture<Web
     [Fact]
     public async Task Start_ShouldReturnBadRequest_WhenMachineNameIsTooLong()
     {
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => StartAsync(new string('m', 45)));
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => StartAsync(new string('m', 38)));
 
         Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
     }
 
-    private Task<StartAgentSignInResponse> StartAsync(string machineName = "test-machine", string? replacesApiKey = null)
+    [Fact]
+    public async Task Start_ShouldReturnBadRequest_WhenClientNameIsTooLong()
+    {
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => StartAsync(clientName: new string('c', 25)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Poll_ShouldNameKeyAfterClientAndMachine_WhenAnotherAgentSignsIn()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var started = await StartAsync("build-box", clientName: "Codex agent");
+
+        await ApproveAsync(userId, started.UserCode, organization.Id);
+        var approved = await PollAsync(started.DeviceCode);
+
+        var key = await testScope.Database.ApiKeys.SingleAsync(x => x.Id == approved.ApiKeyId);
+        Assert.Equal("Codex agent (build-box)", key.Name);
+    }
+
+    private Task<StartAgentSignInResponse> StartAsync(
+        string machineName = "test-machine",
+        string? replacesApiKey = null,
+        string clientName = "Claude Code agent")
     {
         return _controller.Execute(x => x.Start(
-            new StartAgentSignInRequest { MachineName = machineName, ReplacesApiKey = replacesApiKey },
+            new StartAgentSignInRequest { ClientName = clientName, MachineName = machineName, ReplacesApiKey = replacesApiKey },
             CancellationToken.None));
     }
 

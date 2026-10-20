@@ -788,11 +788,13 @@ sign-in (anonymous) and polls `POST /api/agent-sign-in/token` with its secret de
 `SecretHash`, like `ApiKey.KeyHash`); the person opens the web app's Allow page by the short user code, picks one of
 their organizations and allows or denies it (`AuthSchemas.User`, since the organization is chosen on that page; a
 non-member gets 404). The key is created on the first poll after Allow and returned once - the raw key is never stored -
-named `Claude Code agent (<machine>)`. Signing in again replaces the runner's key without revoking anything by name:
-the runner sends the key it held (`replacesApiKey`, proof of possession), and only that exact key is revoked, and only
-when it's the approving user's key in the same organization. One key = one organization. Refusals (pending, slow down, denied, expired) are a 200 with an
-`AgentSignInPollOutcome`, like `AccountLinkOutcome`. It borrows the shape of the OAuth device grant but isn't OAuth: a
-general sign-in server belongs to Laraue.Apps.Identity, while Boards keeps issuing its own organization-scoped keys.
+named `<clientName> (<machine>)`, e.g. `Claude Code agent (dev-laptop)`. Not tied to one agent: the client sends its own
+name (`clientName`), which the Allow page shows too. Signing in again replaces the runner's key without revoking
+anything by name: the runner sends the key it held (`replacesApiKey`, proof of possession), and only that exact key is
+revoked, and only when it's the approving user's key in the same organization. One key = one organization. Refusals
+(pending, slow down, denied, expired) are a 200 with an `AgentSignInPollOutcome`, like `AccountLinkOutcome`. It borrows
+the shape of the OAuth device grant but isn't OAuth: a general sign-in server belongs to Laraue.Apps.Identity, while
+Boards keeps issuing its own organization-scoped keys.
 
 **Agent runs** (BRD-305, `IssueAgentRun`, `ICoreAgentRunsService`, `AgentRunMcpService`/`AgentRunTools`,
 REST `AgentRunsController`) - handing an issue to a coding agent that runs on the user's own machine. One row per
