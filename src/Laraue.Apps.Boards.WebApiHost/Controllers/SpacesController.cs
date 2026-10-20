@@ -9,7 +9,11 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 [ApiController]
 [Route("/api/spaces")]
-public class SpacesController(ISpacesService spacesService, IEpicsService epicsService) : ControllerBase
+public class SpacesController(
+    ISpacesService spacesService,
+    IEpicsService epicsService,
+    ISpaceAboutService spaceAboutService)
+    : ControllerBase
 {
     [HttpPost]
     public Task<string> Create(
@@ -105,6 +109,71 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
                 Key = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
             },
+            cancellationToken);
+    }
+
+    [HttpGet("{key}/about")]
+    public Task<SpaceAboutDto> GetAbout(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return spaceAboutService.Get(
+            key,
+            HttpContext.User.GetOrganizationAuthData(),
+            cancellationToken);
+    }
+
+    [HttpPut("{key}/description")]
+    public Task UpdateDescription(
+        string key,
+        [FromBody] UpdateSpaceDescriptionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return spaceAboutService.UpdateDescription(
+            key,
+            HttpContext.User.GetOrganizationAuthData(),
+            request,
+            cancellationToken);
+    }
+
+    [HttpPost("{key}/links")]
+    public Task<SpaceLinkDto> CreateLink(
+        string key,
+        [FromBody] SpaceLinkRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return spaceAboutService.CreateLink(
+            key,
+            HttpContext.User.GetOrganizationAuthData(),
+            request,
+            cancellationToken);
+    }
+
+    [HttpPut("{key}/links/{id:long}")]
+    public Task UpdateLink(
+        string key,
+        long id,
+        [FromBody] SpaceLinkRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return spaceAboutService.UpdateLink(
+            key,
+            id,
+            HttpContext.User.GetOrganizationAuthData(),
+            request,
+            cancellationToken);
+    }
+
+    [HttpDelete("{key}/links/{id:long}")]
+    public Task DeleteLink(
+        string key,
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return spaceAboutService.DeleteLink(
+            key,
+            id,
+            HttpContext.User.GetOrganizationAuthData(),
             cancellationToken);
     }
 }

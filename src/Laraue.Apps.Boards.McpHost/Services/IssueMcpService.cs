@@ -173,6 +173,15 @@ public interface IIssueMcpService
     /// <c>spaceKey</c> filter and <see cref="ListStatuses"/> take. Not paginated, same as the
     /// REST endpoint - an organization's space count is naturally small.
     /// </summary>
+    /// <summary>
+    /// A space's description and links (BRD-312) - context on what the space is and where its repositories, docs and
+    /// designs live. 404 when the space doesn't exist or the caller can't read it.
+    /// </summary>
+    Task<SpaceDetail> GetSpace(
+        OrganizationAuthData authData,
+        string spaceKey,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<SpaceSummary>> ListSpaces(
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
@@ -391,6 +400,12 @@ public sealed record IssueLinkSummary(
 /// eventually chosen.
 /// </summary>
 public sealed record SpaceSummary(string Key, string Name, bool CanCreateIssue);
+
+/// <summary>A space with its description and links, as returned by <see cref="IIssueMcpService.GetSpace"/>.</summary>
+public sealed record SpaceDetail(string Key, string Name, string? Description, IReadOnlyList<SpaceLinkSummary> Links);
+
+/// <summary>One of a space's links to something outside Boards, with what it is.</summary>
+public sealed record SpaceLinkSummary(string Url, string Description);
 
 /// <summary>An epic, as returned by <see cref="IIssueMcpService.ListEpics"/>. <see cref="IsDefault"/>
 /// marks the space's backlog-equivalent epic, which can't be deleted.</summary>
@@ -1053,6 +1068,31 @@ public class IssueMcpService(
             .FirstOrThrowNotFoundEFAsync(
                 string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Organization", authData.OrganizationId),
                 cancellationToken));
+    }
+
+    public async Task<SpaceDetail> GetSpace(
+        OrganizationAuthData authData,
+        string spaceKey,
+        CancellationToken cancellationToken)
+    {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
+
+        await accessService.GetAccessLevelsBySpaceId(authData, spaceId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
+            .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey));
+
+        var space = await context.Spaces
+            .Where(x => x.Id == spaceId)
+            .Select(x => new { x.Key, x.Name, x.Description })
+            .FirstAsyncEF(cancellationToken);
+
+        var links = await context.SpaceLinks
+            .Where(x => x.SpaceId == spaceId)
+            .OrderBy(x => x.Id)
+            .Select(x => new SpaceLinkSummary(x.Url, x.Description))
+            .ToListAsyncEF(cancellationToken);
+
+        return new SpaceDetail(space.Key, space.Name, space.Description, links);
     }
 
     public async Task<IReadOnlyList<SpaceSummary>> ListSpaces(
