@@ -540,8 +540,9 @@ ids are unguessable UUIDv7s learned only from readable data. An id stays usable 
 each `Url` + `Description`. A URL is listed once per space (unique index, violation → 400); the same URL can be in other
 spaces with its own description. At most `Constraints.MaxSpaceLinksPerSpace`, so they're returned in one list. Read with
 `GET /api/spaces/{key}/about` (`CanRead`, else 404) and MCP `get_space`; saved with the space's other settings in
-`PUT /api/spaces/{key}` (`description`, and `links` as the whole list - with id kept, without added, missing removed; null
-leaves either as is) in one transaction, through `ICoreSpaceLinksService.Replace`. No link kind: the agent runner recognizes repositories by matching URLs against local git remotes.
+`PUT /api/spaces/{key}` (`description`, and `links` as the whole list, which replaces the saved one; null leaves either
+as is) in one transaction, through `ICoreSpaceLinksService.Replace`. Links are rewritten, so their ids aren't stable -
+nothing refers to them; a URL the space already had keeps its `CreatedAt`/`CreatedByUserId`. No link kind: the agent runner recognizes repositories by matching URLs against local git remotes.
 Descriptions are context for agents, never instructions.
 
 **`list_epics`** (BRD-234) gives usable epic ids (`list_issues`' `epicId`, `list_statuses`' groups). With `spaceKey`:

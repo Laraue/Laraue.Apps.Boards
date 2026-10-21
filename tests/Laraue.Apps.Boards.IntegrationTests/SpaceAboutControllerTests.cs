@@ -51,49 +51,49 @@ public class SpaceAboutControllerTests(WebApiTestHost host) : IClassFixture<WebA
     }
 
     [Fact]
-    public async Task Update_ShouldKeepChangeAddAndRemoveLinks_WhenGivenTheWholeList()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
-        await UpdateAsync(organization.Id, ownerId, "ABC", null, [Link("https://example.com/a", "A"), Link("https://example.com/b", "B"), Link("https://example.com/c", "C")]);
-        var saved = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
-
-        await UpdateAsync(
-            organization.Id,
-            ownerId,
-            "ABC",
-            null,
-            [
-                Link("https://example.com/a", "A", saved[0].Id),
-                Link("https://example.com/b2", "B changed", saved[1].Id),
-                Link("https://example.com/d", "D"),
-            ]);
-
-        var links = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
-        Assert.Equal(["https://example.com/a", "https://example.com/b2", "https://example.com/d"], links.Select(x => x.Url));
-        Assert.Equal(saved[0].Id, links[0].Id);
-        Assert.Equal(saved[1].Id, links[1].Id);
-    }
-
-    [Fact]
-    public async Task Update_ShouldSwapUrlsBetweenLinks_WhenTwoLinksExchangeThem()
+    public async Task Update_ShouldReplaceLinks_WhenGivenTheWholeList()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
         await UpdateAsync(organization.Id, ownerId, "ABC", null, [Link("https://example.com/a", "A"), Link("https://example.com/b", "B")]);
-        var saved = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
 
         await UpdateAsync(
             organization.Id,
             ownerId,
             "ABC",
             null,
-            [Link("https://example.com/b", "A", saved[0].Id), Link("https://example.com/a", "B", saved[1].Id)]);
+            [Link("https://example.com/c", "C"), Link("https://example.com/a", "A changed")]);
 
         var links = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
-        Assert.Equal(["https://example.com/b", "https://example.com/a"], links.Select(x => x.Url));
+        Assert.Equal(["https://example.com/c", "https://example.com/a"], links.Select(x => x.Url));
+        Assert.Equal(["C", "A changed"], links.Select(x => x.Description));
+    }
+
+    [Fact]
+    public async Task Update_ShouldKeepWhenALinkWasAdded_WhenItsUrlStays()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var editorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, "ABC")
+            .AddUser(editorId, builder => builder
+                .SetGlobalAccessLevel(x =>
+                {
+                    x.CanRead = true;
+                    x.CanUpdateSpaces = true;
+                })));
+        await UpdateAsync(organization.Id, ownerId, "ABC", null, [Link("https://example.com/a", "A")]);
+
+        await UpdateAsync(organization.Id, editorId, "ABC", null, [Link("https://example.com/a", "A changed"), Link("https://example.com/b", "B")]);
+
+        var addedBy = await testScope.Database.SpaceLinks
+            .Where(x => x.Space!.OrganizationId == organization.Id)
+            .OrderBy(x => x.Url)
+            .Select(x => x.CreatedByUserId)
+            .ToListAsync();
+        Assert.Equal([ownerId, editorId], addedBy);
     }
 
     [Fact]
@@ -133,27 +133,6 @@ public class SpaceAboutControllerTests(WebApiTestHost host) : IClassFixture<WebA
         Assert.Equal("https://example.com/a", Assert.Single(about.Links).Url);
         var space = await testScope.Database.Spaces.AsNoTracking().SingleAsync(x => x.OrganizationId == organization.Id && x.Key == "ABC");
         Assert.NotEqual("Renamed space", space.Name);
-    }
-
-    [Fact]
-    public async Task Update_ShouldReturnBadRequest_WhenALinkIdBelongsToAnotherSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddSpace(ownerId, "ABC")
-            .AddSpace(ownerId, "XYZ"));
-        await UpdateAsync(organization.Id, ownerId, "XYZ", null, [Link("https://example.com/x", "X")]);
-        var otherLink = Assert.Single((await GetAboutAsync(organization.Id, ownerId, "XYZ")).Links);
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateAsync(
-            organization.Id,
-            ownerId,
-            "ABC",
-            null,
-            [Link("https://example.com/x", "Taken over", otherLink.Id)]));
-
-        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
     }
 
     [Fact]
@@ -216,9 +195,9 @@ public class SpaceAboutControllerTests(WebApiTestHost host) : IClassFixture<WebA
         Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
     }
 
-    private static SpaceLinkRequest Link(string url, string description, long? id = null)
+    private static SpaceLinkRequest Link(string url, string description)
     {
-        return new SpaceLinkRequest { Id = id, Url = url, Description = description };
+        return new SpaceLinkRequest { Url = url, Description = description };
     }
 
     private Task<SpaceAboutDto> GetAboutAsync(long organizationId, Guid userId, string spaceKey)

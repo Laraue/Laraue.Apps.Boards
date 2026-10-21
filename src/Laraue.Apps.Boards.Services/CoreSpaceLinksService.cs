@@ -14,10 +14,10 @@ namespace Laraue.Apps.Boards.Services;
 public interface ICoreSpaceLinksService
 {
     /// <summary>
-    /// Makes <paramref name="links"/> the space's links: those with an id are kept (and changed), new ones added, the
-    /// rest removed. <see cref="BadRequestException"/>, with every problem as a field error, when an id isn't one of the
-    /// space's links, a URL is listed twice, or there are more than <see cref="Constraints.MaxSpaceLinksPerSpace"/>.
-    /// The caller must have opened a transaction, so a failure changes nothing.
+    /// Makes <paramref name="links"/> the space's links, in that order. A link whose URL the space already had keeps
+    /// when and by whom it was added. <see cref="BadRequestException"/>, with every problem as a field error, when a URL
+    /// is listed twice or there are more than <see cref="Constraints.MaxSpaceLinksPerSpace"/>. The caller must have
+    /// opened a transaction, so a failure changes nothing.
     /// </summary>
     Task Replace(
         long spaceId,
@@ -26,8 +26,7 @@ public interface ICoreSpaceLinksService
         CancellationToken cancellationToken);
 }
 
-/// <param name="Id">The existing link's id, or null for a new link.</param>
-public sealed record SpaceLinkChange(long? Id, string Url, string Description);
+public sealed record SpaceLinkChange(string Url, string Description);
 
 public class CoreSpaceLinksService(
     DatabaseContext context,
@@ -41,61 +40,38 @@ public class CoreSpaceLinksService(
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+        Validate(links);
 
-        var existing = await context.SpaceLinks
+        var added = await context.SpaceLinks
             .Where(x => x.SpaceId == spaceId)
-            .ToDictionaryAsync(x => x.Id, cancellationToken);
+            .ToDictionaryAsync(
+                x => x.Url,
+                x => new LinkAdded(x.CreatedAt, x.CreatedByUserId),
+                cancellationToken);
 
-        Validate(links, existing);
-
-        var keptIds = links
-            .Select(x => x.Id)
-            .OfType<long>()
-            .ToHashSet();
+        // Rewritten as a whole: the list is short, and nothing refers to a link's id.
         await context.SpaceLinks
-            .Where(x => x.SpaceId == spaceId && !keptIds.Contains(x.Id))
+            .Where(x => x.SpaceId == spaceId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        // Two existing links may swap URLs, which the unique (space, URL) index would refuse half-way: changed URLs
-        // are parked on a unique placeholder first, then set.
-        var changedUrls = links
-            .Where(x => x.Id is { } id && existing[id].Url != x.Url)
-            .ToList();
-        foreach (var link in changedUrls)
-        {
-            await context.SpaceLinks
-                .Where(x => x.Id == link.Id)
-                .ExecuteUpdateAsync(
-                    setters => setters.SetProperty(x => x.Url, $"pending:{link.Id}"),
-                    cancellationToken);
-        }
-
-        foreach (var link in links.Where(x => x.Id is { } id && IsChanged(existing[id], x)))
-        {
-            await context.SpaceLinks
-                .Where(x => x.Id == link.Id)
-                .ExecuteUpdateAsync(
-                    setters => setters
-                        .SetProperty(x => x.Url, link.Url)
-                        .SetProperty(x => x.Description, link.Description),
-                    cancellationToken);
-        }
-
-        var now = dateTimeProvider.UtcNow;
+        var now = new LinkAdded(dateTimeProvider.UtcNow, userId);
         context.SpaceLinks.AddRange(links
-            .Where(x => x.Id is null)
-            .Select(x => new SpaceLink
+            .Select(x =>
             {
-                SpaceId = spaceId,
-                Url = x.Url,
-                Description = x.Description,
-                CreatedAt = now,
-                CreatedByUserId = userId,
+                var linkAdded = added.GetValueOrDefault(x.Url, now);
+                return new SpaceLink
+                {
+                    SpaceId = spaceId,
+                    Url = x.Url,
+                    Description = x.Description,
+                    CreatedAt = linkAdded.At,
+                    CreatedByUserId = linkAdded.ByUserId,
+                };
             }));
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    private static void Validate(IReadOnlyList<SpaceLinkChange> links, Dictionary<long, SpaceLink> existing)
+    private static void Validate(IReadOnlyList<SpaceLinkChange> links)
     {
         var errors = new Dictionary<string, string?[]>();
         if (links.Count > Constraints.MaxSpaceLinksPerSpace)
@@ -106,11 +82,6 @@ public class CoreSpaceLinksService(
         var seenUrls = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < links.Count; i++)
         {
-            if (links[i].Id is { } id && !existing.ContainsKey(id))
-            {
-                errors[$"links[{i}].id"] = [ErrorMessages.SpaceLinkNotFound];
-            }
-
             if (!seenUrls.Add(links[i].Url))
             {
                 errors[$"links[{i}].url"] = [ErrorMessages.SpaceLinkUrlAlreadyAdded];
@@ -123,8 +94,5 @@ public class CoreSpaceLinksService(
         }
     }
 
-    private static bool IsChanged(SpaceLink saved, SpaceLinkChange link)
-    {
-        return saved.Url != link.Url || saved.Description != link.Description;
-    }
+    private sealed record LinkAdded(DateTime At, Guid ByUserId);
 }

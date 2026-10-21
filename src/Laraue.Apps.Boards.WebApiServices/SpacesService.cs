@@ -135,7 +135,7 @@ public class SpacesService(
             await coreSpaceLinksService.Replace(
                 spaceId,
                 request.Links
-                    .Select(x => new SpaceLinkChange(x.Id, x.Url.Trim(), x.Description.Trim()))
+                    .Select(x => new SpaceLinkChange(x.Url.Trim(), x.Description.Trim()))
                     .ToList(),
                 request.AuthData.UserId,
                 cancellationToken);
@@ -224,8 +224,8 @@ public record UpdateSpaceRequest
     public string? Description { get; set; }
 
     /// <summary>
-    /// The space's links, the whole list: links with an id are kept and changed, links without one added, the others
-    /// removed. Null leaves the links as they are; an empty list removes them all.
+    /// The space's links, the whole list in order: it replaces the saved one. Null leaves the links as they are; an
+    /// empty list removes them all.
     /// </summary>
     [MaxLength(Constraints.MaxSpaceLinksPerSpace)]
     public List<SpaceLinkRequest>? Links { get; set; }
@@ -233,9 +233,6 @@ public record UpdateSpaceRequest
 
 public record SpaceLinkRequest
 {
-    /// <summary>The link's id, from <c>GET /api/spaces/{key}/about</c>; null for a new link.</summary>
-    public long? Id { get; init; }
-
     [Required]
     [Url]
     [MaxLength(Constraints.MaxSpaceLinkUrlLength)]
