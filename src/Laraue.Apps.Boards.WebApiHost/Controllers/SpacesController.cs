@@ -11,8 +11,7 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/spaces")]
 public class SpacesController(
     ISpacesService spacesService,
-    IEpicsService epicsService,
-    ISpaceAboutService spaceAboutService)
+    IEpicsService epicsService)
     : ControllerBase
 {
     [HttpPost]
@@ -117,9 +116,12 @@ public class SpacesController(
         string key,
         CancellationToken cancellationToken = default)
     {
-        return spaceAboutService.Get(
-            key,
-            HttpContext.User.GetOrganizationAuthData(),
+        return spacesService.GetAbout(
+            new GetSpaceRequest
+            {
+                Key = key,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
             cancellationToken);
     }
 }

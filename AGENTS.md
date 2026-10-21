@@ -536,7 +536,7 @@ any attachment id (issue or comment) and checks **no permission**, like REST's u
 ids are unguessable UUIDv7s learned only from readable data. An id stays usable after access is lost.
 
 **Space description and links** (BRD-312, `Space.Description`, `SpaceLink`, `ICoreSpaceLinksService`,
-`SpaceAboutService`): a space's markdown overview and its links to things outside Boards (repositories, docs, designs),
+`SpacesService.GetAbout`): a space's markdown overview and its links to things outside Boards (repositories, docs, designs),
 each `Url` + `Description`. A URL is listed once per space (unique index, violation → 400); the same URL can be in other
 spaces with its own description. At most `Constraints.MaxSpaceLinksPerSpace`, so they're returned in one list. Read with
 `GET /api/spaces/{key}/about` (`CanRead`, else 404) and MCP `get_space`; saved with the space's other settings in

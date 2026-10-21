@@ -5,6 +5,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -15,6 +16,14 @@ public interface ISpacesService
         CancellationToken cancellationToken);
     
     Task<SpaceDetailsDto> GetSpace(
+        GetSpaceRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What a space is about (BRD-312): its description and links, for the space page. Needs read access - a space the
+    /// caller can't read is a 404, like a missing one. They're changed with the other settings in <see cref="Update"/>.
+    /// </summary>
+    Task<SpaceAboutDto> GetAbout(
         GetSpaceRequest request,
         CancellationToken cancellationToken);
     
@@ -78,6 +87,44 @@ public class SpacesService(
             CanDelete = spaceAccessLevel.CanDeleteSpace,
             CanUpdate = spaceAccessLevel.CanUpdateSpace,
             CanCreateEpics = spaceAccessLevel.CanCreateEpic,
+        };
+    }
+
+    public async Task<SpaceAboutDto> GetAbout(GetSpaceRequest request, CancellationToken cancellationToken)
+    {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.Key,
+            cancellationToken);
+
+        var accessLevels = await accessService
+            .GetAccessLevelsBySpaceId(request.AuthData, spaceId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", request.Key))
+            .EnsureOrThrowNotFound(
+                a => a.CanRead,
+                string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", request.Key));
+
+        var description = await context.Spaces
+            .Where(x => x.Id == spaceId)
+            .Select(x => x.Description)
+            .FirstAsync(cancellationToken);
+
+        var links = await context.SpaceLinks
+            .Where(x => x.SpaceId == spaceId)
+            .OrderBy(x => x.Id)
+            .Select(x => new SpaceLinkDto
+            {
+                Id = x.Id,
+                Url = x.Url,
+                Description = x.Description,
+            })
+            .ToArrayAsync(cancellationToken);
+
+        return new SpaceAboutDto
+        {
+            Description = description,
+            Links = links,
+            CanEdit = accessLevels.CanUpdateSpace,
         };
     }
 
@@ -274,6 +321,27 @@ public record SpaceDetailsDto
     public required bool CanCreateEpics { get; set; }
     public required bool CanUpdate { get; set; }
     public required bool CanDelete { get; set; }
+}
+
+public record SpaceAboutDto
+{
+    /// <summary>Markdown, or null when the space has none.</summary>
+    public string? Description { get; init; }
+
+    public required SpaceLinkDto[] Links { get; init; }
+
+    /// <summary>Whether the caller may change the description and links.</summary>
+    public required bool CanEdit { get; init; }
+}
+
+public record SpaceLinkDto
+{
+    public required long Id { get; init; }
+
+    public required string Url { get; init; }
+
+    /// <summary>Markdown: what the link is and when it matters.</summary>
+    public required string Description { get; init; }
 }
 
 public record GetSpaceMembersRequest

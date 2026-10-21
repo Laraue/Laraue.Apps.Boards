@@ -55,7 +55,6 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IMovementService, MovementService>()
                 .AddScoped<IApiKeysService, ApiKeysService>()
                 .AddScoped<IAgentSignInService, AgentSignInService>()
-                .AddScoped<ISpaceAboutService, SpaceAboutService>()
                 .AddScoped<IAgentRunsService, AgentRunsService>()
                 .AddScoped<IUserFeedbackService, UserFeedbackService>();
 
