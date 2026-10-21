@@ -1,9 +1,9 @@
 using System.Net;
 using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -19,9 +19,7 @@ public class SpaceAboutControllerTests(WebApiTestHost host) : IClassFixture<WebA
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
 
-        var about = await _controller
-            .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.GetAbout("ABC", CancellationToken.None));
+        var about = await GetAboutAsync(organization.Id, ownerId, "ABC");
 
         Assert.Null(about.Description);
         Assert.Empty(about.Links);
@@ -29,7 +27,7 @@ public class SpaceAboutControllerTests(WebApiTestHost host) : IClassFixture<WebA
     }
 
     [Fact]
-    public async Task GetAbout_ShouldReturnDescriptionAndLinks_WhenEditorSetThem()
+    public async Task Update_ShouldSaveDescriptionAndLinks_WhenEditorSavesSettings()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -39,22 +37,168 @@ public class SpaceAboutControllerTests(WebApiTestHost host) : IClassFixture<WebA
             .AddUser(readerId, builder => builder
                 .SetGlobalAccessLevel(x => x.CanRead = true)));
 
-        await AsOwner(organization.Id, ownerId)
-            .Execute(x => x.UpdateDescription(
-                "ABC",
-                new UpdateSpaceDescriptionRequest { Description = "  The **Boards** tracker.  " },
-                CancellationToken.None));
-        var backend = await CreateLinkAsync(organization.Id, ownerId, "ABC", "https://github.com/Laraue/Laraue.Apps.Boards", "Backend");
-        var web = await CreateLinkAsync(organization.Id, ownerId, "ABC", "https://github.com/Laraue/laraue-boards", "Web app");
+        await UpdateAsync(
+            organization.Id,
+            ownerId,
+            "ABC",
+            "  The **Boards** tracker.  ",
+            [Link("https://github.com/Laraue/Laraue.Apps.Boards", "Backend"), Link("https://github.com/Laraue/laraue-boards", "Web app")]);
 
-        var about = await _controller
-            .WithOrganizationAuthorization(organization.Id, readerId)
-            .Execute(x => x.GetAbout("ABC", CancellationToken.None));
-
+        var about = await GetAboutAsync(organization.Id, readerId, "ABC");
         Assert.Equal("The **Boards** tracker.", about.Description);
-        Assert.Equal([backend.Id, web.Id], about.Links.Select(x => x.Id));
-        Assert.Equal("Web app", about.Links[1].Description);
+        Assert.Equal(["Backend", "Web app"], about.Links.Select(x => x.Description));
         Assert.False(about.CanEdit);
+    }
+
+    [Fact]
+    public async Task Update_ShouldKeepChangeAddAndRemoveLinks_WhenGivenTheWholeList()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
+        await UpdateAsync(organization.Id, ownerId, "ABC", null, [Link("https://example.com/a", "A"), Link("https://example.com/b", "B"), Link("https://example.com/c", "C")]);
+        var saved = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
+
+        await UpdateAsync(
+            organization.Id,
+            ownerId,
+            "ABC",
+            null,
+            [
+                Link("https://example.com/a", "A", saved[0].Id),
+                Link("https://example.com/b2", "B changed", saved[1].Id),
+                Link("https://example.com/d", "D"),
+            ]);
+
+        var links = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
+        Assert.Equal(["https://example.com/a", "https://example.com/b2", "https://example.com/d"], links.Select(x => x.Url));
+        Assert.Equal(saved[0].Id, links[0].Id);
+        Assert.Equal(saved[1].Id, links[1].Id);
+    }
+
+    [Fact]
+    public async Task Update_ShouldSwapUrlsBetweenLinks_WhenTwoLinksExchangeThem()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
+        await UpdateAsync(organization.Id, ownerId, "ABC", null, [Link("https://example.com/a", "A"), Link("https://example.com/b", "B")]);
+        var saved = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
+
+        await UpdateAsync(
+            organization.Id,
+            ownerId,
+            "ABC",
+            null,
+            [Link("https://example.com/b", "A", saved[0].Id), Link("https://example.com/a", "B", saved[1].Id)]);
+
+        var links = (await GetAboutAsync(organization.Id, ownerId, "ABC")).Links;
+        Assert.Equal(["https://example.com/b", "https://example.com/a"], links.Select(x => x.Url));
+    }
+
+    [Fact]
+    public async Task Update_ShouldLeaveLinksAndDescription_WhenTheyAreOmitted()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
+        await UpdateAsync(organization.Id, ownerId, "ABC", "About", [Link("https://example.com/a", "A")]);
+
+        await UpdateAsync(organization.Id, ownerId, "ABC", description: null, links: null);
+
+        var about = await GetAboutAsync(organization.Id, ownerId, "ABC");
+        Assert.Equal("About", about.Description);
+        Assert.Single(about.Links);
+    }
+
+    [Fact]
+    public async Task Update_ShouldChangeNothing_WhenALinkUrlIsListedTwice()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
+        await UpdateAsync(organization.Id, ownerId, "ABC", "Before", [Link("https://example.com/a", "A")]);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateAsync(
+            organization.Id,
+            ownerId,
+            "ABC",
+            "After",
+            [Link("https://example.com/x", "X"), Link("https://example.com/x", "X again")],
+            name: "Renamed space"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+        var about = await GetAboutAsync(organization.Id, ownerId, "ABC");
+        Assert.Equal("Before", about.Description);
+        Assert.Equal("https://example.com/a", Assert.Single(about.Links).Url);
+        var space = await testScope.Database.Spaces.AsNoTracking().SingleAsync(x => x.OrganizationId == organization.Id && x.Key == "ABC");
+        Assert.NotEqual("Renamed space", space.Name);
+    }
+
+    [Fact]
+    public async Task Update_ShouldReturnBadRequest_WhenALinkIdBelongsToAnotherSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, "ABC")
+            .AddSpace(ownerId, "XYZ"));
+        await UpdateAsync(organization.Id, ownerId, "XYZ", null, [Link("https://example.com/x", "X")]);
+        var otherLink = Assert.Single((await GetAboutAsync(organization.Id, ownerId, "XYZ")).Links);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateAsync(
+            organization.Id,
+            ownerId,
+            "ABC",
+            null,
+            [Link("https://example.com/x", "Taken over", otherLink.Id)]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ShouldAddSameUrlWithOwnDescription_WhenItIsInAnotherSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, "ABC")
+            .AddSpace(ownerId, "XYZ"));
+        await UpdateAsync(organization.Id, ownerId, "ABC", null, [Link("https://github.com/Laraue/ui-kit", "The code we change")]);
+
+        await UpdateAsync(organization.Id, ownerId, "XYZ", null, [Link("https://github.com/Laraue/ui-kit", "The UI kit we use")]);
+
+        var about = await GetAboutAsync(organization.Id, ownerId, "XYZ");
+        Assert.Equal("The UI kit we use", Assert.Single(about.Links).Description);
+    }
+
+    [Fact]
+    public async Task Update_ShouldReturnBadRequest_WhenALinkUrlIsNotAUrl()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => UpdateAsync(organization.Id, ownerId, "ABC", null, [Link("not a url", "Docs")]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ShouldReturnBadRequest_WhenThereAreTooManyLinks()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
+        var links = Enumerable.Range(0, Constraints.MaxSpaceLinksPerSpace + 1)
+            .Select(i => Link($"https://example.com/{i}", "Link"))
+            .ToList();
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => UpdateAsync(organization.Id, ownerId, "ABC", null, links));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
     }
 
     [Fact]
@@ -67,164 +211,43 @@ public class SpaceAboutControllerTests(WebApiTestHost host) : IClassFixture<WebA
             .AddSpace(ownerId, "ABC")
             .AddUser(strangerId));
 
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
-            .WithOrganizationAuthorization(organization.Id, strangerId)
-            .Execute(x => x.GetAbout("ABC", CancellationToken.None)));
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => GetAboutAsync(organization.Id, strangerId, "ABC"));
 
         Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
     }
 
-    [Fact]
-    public async Task CreateLink_ShouldReturnForbidden_WhenCallerCanOnlyReadSpace()
+    private static SpaceLinkRequest Link(string url, string description, long? id = null)
     {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var readerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddSpace(ownerId, "ABC")
-            .AddUser(readerId, builder => builder
-                .SetGlobalAccessLevel(x => x.CanRead = true)));
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => CreateLinkAsync(organization.Id, readerId, "ABC", "https://example.com/docs", "Docs"));
-
-        Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
+        return new SpaceLinkRequest { Id = id, Url = url, Description = description };
     }
 
-    [Fact]
-    public async Task CreateLink_ShouldReturnBadRequest_WhenUrlIsAlreadyALinkOfTheSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
-        await CreateLinkAsync(organization.Id, ownerId, "ABC", "https://example.com/docs", "Docs");
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => CreateLinkAsync(organization.Id, ownerId, "ABC", "https://example.com/docs", "The same docs"));
-
-        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
-    }
-
-    [Fact]
-    public async Task CreateLink_ShouldAddSameUrlWithOwnDescription_WhenItIsInAnotherSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddSpace(ownerId, "ABC")
-            .AddSpace(ownerId, "XYZ"));
-        await CreateLinkAsync(organization.Id, ownerId, "ABC", "https://github.com/Laraue/ui-kit", "The code we change");
-
-        await CreateLinkAsync(organization.Id, ownerId, "XYZ", "https://github.com/Laraue/ui-kit", "The UI kit we use");
-
-        var about = await AsOwner(organization.Id, ownerId)
-            .Execute(x => x.GetAbout("XYZ", CancellationToken.None));
-        Assert.Equal("The UI kit we use", Assert.Single(about.Links).Description);
-    }
-
-    [Fact]
-    public async Task CreateLink_ShouldReturnBadRequest_WhenUrlIsNotAUrl()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => CreateLinkAsync(organization.Id, ownerId, "ABC", "not a url", "Docs"));
-
-        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
-    }
-
-    [Fact]
-    public async Task CreateLink_ShouldReturnBadRequest_WhenSpaceHasMaximumNumberOfLinks()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
-        var spaceId = organization.Spaces!.Single(x => x.Key == "ABC").Id;
-        testScope.Database.SpaceLinks.AddRange(Enumerable.Range(0, Constraints.MaxSpaceLinksPerSpace)
-            .Select(i => new SpaceLink
-            {
-                SpaceId = spaceId,
-                Url = $"https://example.com/{i}",
-                Description = "Link",
-                CreatedAt = DateTime.UtcNow,
-                CreatedByUserId = ownerId,
-            }));
-        await testScope.Database.SaveChangesAsync();
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => CreateLinkAsync(organization.Id, ownerId, "ABC", "https://example.com/one-more", "Docs"));
-
-        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
-    }
-
-    [Fact]
-    public async Task UpdateLink_ShouldChangeUrlAndDescription_WhenLinkBelongsToSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
-        var link = await CreateLinkAsync(organization.Id, ownerId, "ABC", "https://example.com/old", "Old");
-
-        await AsOwner(organization.Id, ownerId)
-            .Execute(x => x.UpdateLink(
-                "ABC",
-                link.Id,
-                new SpaceLinkRequest { Url = "https://example.com/new", Description = "New" },
-                CancellationToken.None));
-
-        var about = await AsOwner(organization.Id, ownerId)
-            .Execute(x => x.GetAbout("ABC", CancellationToken.None));
-        var updated = Assert.Single(about.Links);
-        Assert.Equal("https://example.com/new", updated.Url);
-        Assert.Equal("New", updated.Description);
-    }
-
-    [Fact]
-    public async Task DeleteLink_ShouldReturnNotFound_WhenLinkBelongsToAnotherSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddSpace(ownerId, "ABC")
-            .AddSpace(ownerId, "XYZ"));
-        var link = await CreateLinkAsync(organization.Id, ownerId, "ABC", "https://example.com/docs", "Docs");
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => AsOwner(organization.Id, ownerId)
-            .Execute(x => x.DeleteLink("XYZ", link.Id, CancellationToken.None)));
-
-        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
-    }
-
-    [Fact]
-    public async Task DeleteLink_ShouldRemoveLink_WhenLinkBelongsToSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddSpace(ownerId, "ABC"));
-        var link = await CreateLinkAsync(organization.Id, ownerId, "ABC", "https://example.com/docs", "Docs");
-
-        await AsOwner(organization.Id, ownerId)
-            .Execute(x => x.DeleteLink("ABC", link.Id, CancellationToken.None));
-
-        var about = await AsOwner(organization.Id, ownerId)
-            .Execute(x => x.GetAbout("ABC", CancellationToken.None));
-        Assert.Empty(about.Links);
-    }
-
-    private Proxy<SpacesController> AsOwner(long organizationId, Guid userId)
-    {
-        return _controller.WithOrganizationAuthorization(organizationId, userId);
-    }
-
-    private Task<SpaceLinkDto> CreateLinkAsync(long organizationId, Guid userId, string spaceKey, string url, string description)
+    private Task<SpaceAboutDto> GetAboutAsync(long organizationId, Guid userId, string spaceKey)
     {
         return _controller
             .WithOrganizationAuthorization(organizationId, userId)
-            .Execute(x => x.CreateLink(
+            .Execute(x => x.GetAbout(spaceKey, CancellationToken.None));
+    }
+
+    private Task UpdateAsync(
+        long organizationId,
+        Guid userId,
+        string spaceKey,
+        string? description,
+        List<SpaceLinkRequest>? links,
+        string name = "Space name")
+    {
+        return _controller
+            .WithOrganizationAuthorization(organizationId, userId)
+            .Execute(x => x.Update(
                 spaceKey,
-                new SpaceLinkRequest { Url = url, Description = description },
+                new UpdateSpaceRequest
+                {
+                    Name = name,
+                    Color = "#ffffff",
+                    NewKey = spaceKey,
+                    Description = description,
+                    Links = links,
+                },
                 CancellationToken.None));
     }
 }

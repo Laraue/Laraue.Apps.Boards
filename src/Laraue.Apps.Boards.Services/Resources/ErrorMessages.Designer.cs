@@ -81,6 +81,12 @@ namespace Laraue.Apps.Boards.Services.Resources {
             }
         }
         
+        internal static string SpaceLinkNotFound {
+            get {
+                return ResourceManager.GetString("SpaceLinkNotFound", resourceCulture);
+            }
+        }
+        
         internal static string SpaceLinksLimitReached {
             get {
                 return ResourceManager.GetString("SpaceLinksLimitReached", resourceCulture);

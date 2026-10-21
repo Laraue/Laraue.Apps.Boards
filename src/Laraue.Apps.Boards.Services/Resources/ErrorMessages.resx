@@ -36,6 +36,9 @@
     <data name="SpaceLinkUrlAlreadyAdded" xml:space="preserve">
         <value>This URL is already one of the space's links</value>
     </data>
+    <data name="SpaceLinkNotFound" xml:space="preserve">
+        <value>This link isn't one of the space's links</value>
+    </data>
     <data name="SpaceLinksLimitReached" xml:space="preserve">
         <value>A space can have at most {0} links</value>
     </data>

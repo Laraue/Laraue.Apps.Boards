@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.Exceptions.Web;
@@ -36,7 +37,9 @@ public interface ISpacesService
 
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
-    IAccessService accessService)
+    ICoreSpaceLinksService coreSpaceLinksService,
+    IAccessService accessService,
+    DatabaseContext context)
     : ISpacesService
 {
     public async Task<SpaceListDto[]> GetSpaces(
@@ -108,13 +111,37 @@ public class SpacesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.OldKey))
             .EnsureOrThrowForbidden(a => a.CanUpdateSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.OldKey));
 
+        // The settings, description and links are saved together: a failure in any of them changes nothing.
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         await coreSpacesService.Update(
             spaceId,
-            setters => setters
-                .SetProperty(x => x.Color, request.Color)
-                .SetProperty(x => x.Name, request.Name)
-                .SetProperty(x => x.Key, request.NewKey.ToUpper()),
+            setters =>
+            {
+                setters
+                    .SetProperty(x => x.Color, request.Color)
+                    .SetProperty(x => x.Name, request.Name)
+                    .SetProperty(x => x.Key, request.NewKey.ToUpper());
+                if (request.Description is not null)
+                {
+                    setters.SetProperty(x => x.Description, description);
+                }
+            },
             cancellationToken);
+
+        if (request.Links is not null)
+        {
+            await coreSpaceLinksService.Replace(
+                spaceId,
+                request.Links
+                    .Select(x => new SpaceLinkChange(x.Id, x.Url.Trim(), x.Description.Trim()))
+                    .ToList(),
+                request.AuthData.UserId,
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task Delete(DeleteSpaceRequest request, CancellationToken cancellationToken)
@@ -189,6 +216,35 @@ public record UpdateSpaceRequest
     [MaxLength(3)]
     [MinLength(3)]
     public required string NewKey { get; set; }
+
+    /// <summary>
+    /// The space's description (markdown, BRD-312): null leaves it as it is, empty clears it.
+    /// </summary>
+    [MaxLength(Constraints.MaxSpaceDescriptionLength)]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// The space's links, the whole list: links with an id are kept and changed, links without one added, the others
+    /// removed. Null leaves the links as they are; an empty list removes them all.
+    /// </summary>
+    [MaxLength(Constraints.MaxSpaceLinksPerSpace)]
+    public List<SpaceLinkRequest>? Links { get; set; }
+}
+
+public record SpaceLinkRequest
+{
+    /// <summary>The link's id, from <c>GET /api/spaces/{key}/about</c>; null for a new link.</summary>
+    public long? Id { get; init; }
+
+    [Required]
+    [Url]
+    [MaxLength(Constraints.MaxSpaceLinkUrlLength)]
+    public required string Url { get; init; }
+
+    [Required]
+    [MinLength(1)]
+    [MaxLength(Constraints.MaxSpaceLinkDescriptionLength)]
+    public required string Description { get; init; }
 }
 
 public record DeleteSpaceRequest
