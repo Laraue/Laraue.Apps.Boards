@@ -24,6 +24,21 @@ public class AgentRunsController(IAgentRunsService agentRunsService) : Controlle
             cancellationToken);
     }
 
+    /// <summary>
+    /// Sends an issue the agent worked on back to it: the comment, the move to a not started status and the new run,
+    /// in one step.
+    /// </summary>
+    [HttpPost("send-back")]
+    public Task<AgentRunDto> SendBack(
+        [FromBody] SendBackAgentRunRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return agentRunsService.SendBack(
+            request,
+            HttpContext.User.GetOrganizationAuthData(),
+            cancellationToken);
+    }
+
     [HttpPost("{id:long}/cancel")]
     public Task<bool> Cancel(
         long id,

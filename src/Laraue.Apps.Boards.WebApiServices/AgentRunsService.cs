@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
@@ -18,6 +19,17 @@ public interface IAgentRunsService
 {
     Task<AgentRunDto> Create(
         CreateAgentRunRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// "Send back to agent" (BRD-315): for an issue the agent already worked on, posts the person's comment, moves the
+    /// issue back to its board's first not started status and hands it off again - in one transaction. The new run
+    /// continues on the issue's branch and follows the assignee's comments. Allowed when
+    /// <see cref="AgentHandOffDto.CanSendBack"/> is.
+    /// </summary>
+    Task<AgentRunDto> SendBack(
+        SendBackAgentRunRequest request,
         OrganizationAuthData authData,
         CancellationToken cancellationToken);
 
@@ -43,6 +55,7 @@ public class AgentRunsService(
     DatabaseContext context,
     IAccessService accessService,
     ICoreAgentRunsService coreAgentRunsService,
+    ICoreIssuesService coreIssuesService,
     IApiKeysService apiKeysService,
     IAgentRunBoardRequirements agentRunBoardRequirements)
     : IAgentRunsService
@@ -72,6 +85,55 @@ public class AgentRunsService(
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var runId = await coreAgentRunsService.Create(issueId, authData.ToActor(), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return await context.IssueAgentRuns
+            .Where(r => r.Id == runId)
+            .SelectAgentRunDto()
+            .FirstAsync(cancellationToken);
+    }
+
+    public async Task<AgentRunDto> SendBack(
+        SendBackAgentRunRequest request,
+        OrganizationAuthData authData,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(request.IssueKey);
+
+        var issue = await accessService.GetIssueAccessByKey(authData, key, includeDeleted: false, cancellationToken);
+        EnsureCanUpdateIssue(issue?.AccessLevels, "Issue", key.ToString());
+        var issueId = issue!.IssueId;
+
+        var handOff = await GetHandOff(authData, issueId, issue.AccessLevels, cancellationToken);
+        if (!handOff.CanSendBack)
+        {
+            throw handOff.Blocker switch
+            {
+                AgentHandOffBlocker.NotAllowed => new ForbiddenException(string.Format(ErrorMessages.AgentRunHandOffOnlyAssignee, key)),
+                AgentHandOffBlocker.NoApiKey => new BadRequestException("issueKey", ErrorMessages.AgentRunNeedsApiKey),
+                _ => new BadRequestException("issueKey", ErrorMessages.AgentRunCannotSendBack),
+            };
+        }
+
+        var current = await context.ActiveIssues()
+            .Where(i => i.Id == issueId)
+            .Select(i => new { i.Status!.EpicId, i.Status.Category })
+            .FirstAsync(cancellationToken);
+        var notStartedStatusId = await context.ActiveStatuses()
+            .Where(s => s.EpicId == current.EpicId && s.Category == StatusCategory.Created)
+            .OrderBy(s => s.SortOrder)
+            .Select(s => s.Id)
+            .FirstAsync(cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var actor = authData.ToActor();
+        await coreIssuesService.AddComment(issueId, actor, request.Comment.Trim(), [], cancellationToken);
+        if (current.Category != StatusCategory.Created)
+        {
+            await coreIssuesService.UpdateIssuesStatus([issueId], notStartedStatusId, actor, comment: null, cancellationToken);
+        }
+
+        var runId = await coreAgentRunsService.Create(issueId, actor, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return await context.IssueAgentRuns
@@ -119,6 +181,7 @@ public class AgentRunsService(
                 i.Status!.Category,
                 i.Status.EpicId,
                 HasOpenRun = i.AgentRuns!.Any(r => r.State == AgentRunState.Ready || r.State == AgentRunState.Working),
+                HasRun = i.AgentRuns!.Any(),
             })
             .FirstAsync(cancellationToken);
 
@@ -138,10 +201,12 @@ public class AgentRunsService(
         if (missingCategories.Length > 0)
             return AgentHandOffDto.Blocked(AgentHandOffBlocker.BoardNotReady, missingCategories);
 
+        // From here on, an issue the agent already worked on can be sent back to it: send back moves it to a not
+        // started status itself.
         if (issue.Category != StatusCategory.Created)
-            return AgentHandOffDto.Blocked(AgentHandOffBlocker.IssueStarted);
+            return AgentHandOffDto.Blocked(AgentHandOffBlocker.IssueStarted) with { CanSendBack = issue.HasRun };
 
-        return AgentHandOffDto.Allowed;
+        return AgentHandOffDto.Allowed with { CanSendBack = issue.HasRun };
     }
 
     // 404 when the issue is missing or not readable, 403 when it's readable but the caller can't change it - see
@@ -159,6 +224,17 @@ public class AgentRunsService(
 public record CreateAgentRunRequest
 {
     public required string IssueKey { get; init; }
+}
+
+public record SendBackAgentRunRequest
+{
+    public required string IssueKey { get; init; }
+
+    /// <summary>What's wrong - posted as the assignee's comment, which the agent follows.</summary>
+    [Required]
+    [MinLength(1)]
+    [MaxLength(Constraints.MaxCommentLength)]
+    public required string Comment { get; init; }
 }
 
 /// <summary>
@@ -179,17 +255,20 @@ public record AgentRunDto
 /// <summary>
 /// Whether the caller can hand an issue to the agent now (<see cref="IAgentRunsService.GetHandOff"/>).
 /// <see cref="Blocker"/> says why not; <see cref="MissingStatusCategories"/> is the detail for
-/// <see cref="AgentHandOffBlocker.BoardNotReady"/>.
+/// <see cref="AgentHandOffBlocker.BoardNotReady"/>. <see cref="CanSendBack"/>: the agent already worked on the issue
+/// and it can be sent back to it (<see cref="IAgentRunsService.SendBack"/>), even though it's no longer not started.
 /// </summary>
 public record AgentHandOffDto
 {
     public required bool Available { get; init; }
+    public required bool CanSendBack { get; init; }
     public required AgentHandOffBlocker? Blocker { get; init; }
     public required StatusCategory[] MissingStatusCategories { get; init; }
 
     public static readonly AgentHandOffDto Allowed = new()
     {
         Available = true,
+        CanSendBack = false,
         Blocker = null,
         MissingStatusCategories = [],
     };
@@ -199,6 +278,7 @@ public record AgentHandOffDto
         return new AgentHandOffDto
         {
             Available = false,
+            CanSendBack = false,
             Blocker = blocker,
             MissingStatusCategories = missingStatusCategories ?? [],
         };

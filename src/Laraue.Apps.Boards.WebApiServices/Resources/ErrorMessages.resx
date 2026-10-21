@@ -150,4 +150,7 @@
     <data name="AgentRunNeedsApiKey" xml:space="preserve">
         <value>Create an API key for your agent runner first (Account - API keys)</value>
     </data>
+    <data name="AgentRunCannotSendBack" xml:space="preserve">
+        <value>Only an issue the agent already worked on, with no run open and a board ready for the agent, can be sent back to it</value>
+    </data>
 </root>

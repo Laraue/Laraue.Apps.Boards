@@ -308,5 +308,11 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
                 return ResourceManager.GetString("AgentRunNeedsApiKey", resourceCulture);
             }
         }
+        
+        internal static string AgentRunCannotSendBack {
+            get {
+                return ResourceManager.GetString("AgentRunCannotSendBack", resourceCulture);
+            }
+        }
     }
 }
