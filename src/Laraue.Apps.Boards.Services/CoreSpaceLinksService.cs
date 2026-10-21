@@ -76,7 +76,7 @@ public class CoreSpaceLinksService(
         var errors = new Dictionary<string, string?[]>();
         if (links.Count > Constraints.MaxSpaceLinksPerSpace)
         {
-            errors["links"] = [string.Format(ErrorMessages.SpaceLinksLimitReached, Constraints.MaxSpaceLinksPerSpace)];
+            errors[nameof(links)] = [string.Format(ErrorMessages.SpaceLinksLimitReached, Constraints.MaxSpaceLinksPerSpace)];
         }
 
         var seenUrls = new HashSet<string>(StringComparer.Ordinal);
@@ -84,7 +84,7 @@ public class CoreSpaceLinksService(
         {
             if (!seenUrls.Add(links[i].Url))
             {
-                errors[$"links[{i}].url"] = [ErrorMessages.SpaceLinkUrlAlreadyAdded];
+                errors[$"{nameof(links)}[{i}].url"] = [ErrorMessages.SpaceLinkUrlAlreadyAdded];
             }
         }
 
