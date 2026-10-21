@@ -497,6 +497,10 @@ editing/deleting a comment). Guardrails:
   or `NotAllowed`, `RunOpen`, `NoApiKey`, `BoardNotReady` (with the missing categories), `IssueStarted` - returned on
   the issue detail as `AgentHandOff` and re-checked by the endpoint. Since the issue can still move, the claim
   re-checks the board and fails the run if it no longer qualifies.
+- Send back (BRD-315, `POST /api/agent-runs/send-back`, `IAgentRunsService.SendBack`): for an issue the agent already
+  worked on, one transaction posts the assignee's comment (`ICoreIssuesService.AddComment`), moves the issue to its
+  board's first Created status and creates a new run. `AgentHandOff.CanSendBack` says when it's offered - the same checks
+  as a hand-off except the status, which send back changes itself.
 - Issue links (BRD-308): a run is `isBlocked` while a readable issue that blocks it isn't Completed (same rule as
   `excludeBlocked` and the web "blocked" mark). Blocked issues can be handed off; `list_agent_runs(excludeBlocked: true)`
   hides the run and `claim_agent_run` returns false (checked in `AgentRunMcpService` via `IIssueLinksReader`, since
