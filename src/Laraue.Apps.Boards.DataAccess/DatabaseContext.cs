@@ -50,6 +50,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<IssueAgentRun> IssueAgentRuns { get; init; }
     public DbSet<IssueLink> IssueLinks { get; init; }
     public DbSet<AgentSignInRequest> AgentSignInRequests { get; init; }
+    public DbSet<SpaceLink> SpaceLinks { get; init; }
     
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
@@ -290,6 +291,15 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .WithMany()
                 .HasForeignKey(x => x.ClaimedByApiKeyId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SpaceLink>(entity =>
+        {
+            // A URL once per space; a second one is detected by the violation itself.
+            entity
+                .HasIndex(x => new { x.SpaceId, x.Url })
+                .IsUnique()
+                .HasDatabaseName(Constraints.SpaceLinkUrlIndexName);
         });
 
         modelBuilder.Entity<AgentSignInRequest>(entity =>

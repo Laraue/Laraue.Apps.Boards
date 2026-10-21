@@ -74,5 +74,17 @@ namespace Laraue.Apps.Boards.Services.Resources {
                 return ResourceManager.GetString("IssueLockedByAgentRun", resourceCulture);
             }
         }
+        
+        internal static string SpaceLinkUrlAlreadyAdded {
+            get {
+                return ResourceManager.GetString("SpaceLinkUrlAlreadyAdded", resourceCulture);
+            }
+        }
+        
+        internal static string SpaceLinksLimitReached {
+            get {
+                return ResourceManager.GetString("SpaceLinksLimitReached", resourceCulture);
+            }
+        }
     }
 }

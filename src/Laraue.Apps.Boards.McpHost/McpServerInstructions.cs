@@ -12,6 +12,7 @@ public static class McpServerInstructions
         Laraue Boards: read and update issues in the caller's organization. Issues live in spaces
         (keyed like 'BRD'); an issue key looks like 'BRD-42'.
 
+        - get_space returns what a space is about: its description and links (repositories, docs, designs).
         - When the user mentions an issue, fetch it with get_issue instead of asking them to paste it.
           Its comments come from list_issue_comments, its change history from get_issue_history.
         - Find issues with list_issues (by space, epic, status or assignee). get_me returns your own user id,

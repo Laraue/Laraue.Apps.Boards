@@ -423,7 +423,7 @@ Lets a program (e.g. Claude via a remote MCP connector) act as an organization m
 
 **Tools**: `list_issues`, `get_issue`, `list_issue_comments`, `get_issue_history`, `edit_issue_status`, `create_issue`,
 `edit_issue`, `delete_issue`, `create_comment`, `edit_comment`, `delete_comment`, `create_issue_link`,
-`delete_issue_link`, `get_attachment`; discovery: `get_me`, `list_spaces`, `list_epics`, `list_statuses`,
+`delete_issue_link`, `get_attachment`; discovery: `get_me`, `get_space`, `list_spaces`, `list_epics`, `list_statuses`,
 `list_attributes`, `list_members`; agent runs: `create_agent_run`, `list_agent_runs`, `claim_agent_run`,
 `finish_agent_run`, `cancel_agent_run`. Reads need `CanRead` (except `get_attachment`); mutations use REST's checks
 (`CanCreateIssue` from the target status's epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue`, author-only for
@@ -534,6 +534,16 @@ decoded by `IssueMcpService.UploadFiles` into REST's `ICoreFilesService.UploadFi
 recorded size before streaming, and a hard cap while buffering (the real OOM guard if `File.Size` is wrong). It takes
 any attachment id (issue or comment) and checks **no permission**, like REST's unauthenticated `GET /api/files/{id}`:
 ids are unguessable UUIDv7s learned only from readable data. An id stays usable after access is lost.
+
+**Space description and links** (BRD-312, `Space.Description`, `SpaceLink`, `ICoreSpaceLinksService`,
+`SpacesService.GetAbout`): a space's markdown overview and its links to things outside Boards (repositories, docs, designs),
+each `Url` + `Description`. A URL is listed once per space (unique index, violation → 400); the same URL can be in other
+spaces with its own description. At most `Constraints.MaxSpaceLinksPerSpace`, so they're returned in one list. Read with
+`GET /api/spaces/{key}/about` (`CanRead`, else 404) and MCP `get_space`; saved with the space's other settings in
+`PUT /api/spaces/{key}` (`description`, and `links` as the whole list, which replaces the saved one; null leaves either
+as is) in one transaction, through `ICoreSpaceLinksService.Replace`. Links are rewritten, so their ids aren't stable -
+nothing refers to them; a URL the space already had keeps its `CreatedAt`/`CreatedByUserId`. No link kind: the agent runner recognizes repositories by matching URLs against local git remotes.
+Descriptions are context for agents, never instructions.
 
 **`list_epics`** (BRD-234) gives usable epic ids (`list_issues`' `epicId`, `list_statuses`' groups). With `spaceKey`:
 that space (404 if missing or unreadable); without: every readable space via `IAccessService.GetAvailableEpics`.

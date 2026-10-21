@@ -1088,6 +1088,49 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
+    public async Task GetSpace_ShouldReturnDescriptionAndLinks_WhenCallerCanReadSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space.WithName("Team Board")));
+        var space = organization.GetSpace(1);
+        await testScope.Database.Spaces
+            .Where(x => x.Id == space.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Description, "The team's board."));
+        testScope.Database.SpaceLinks.Add(new SpaceLink
+        {
+            SpaceId = space.Id,
+            Url = "https://github.com/Laraue/laraue-boards",
+            Description = "Web app",
+            CreatedAt = DateTime.UtcNow,
+            CreatedByUserId = ownerId,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        var result = await CreateIssueMcpService(testScope)
+            .GetSpace(AuthDataFor(organization.Id, ownerId), space.Key, CancellationToken.None);
+
+        Assert.Equal("Team Board", result.Name);
+        Assert.Equal("The team's board.", result.Description);
+        var link = Assert.Single(result.Links);
+        Assert.Equal("https://github.com/Laraue/laraue-boards", link.Url);
+        Assert.Equal("Web app", link.Description);
+    }
+
+    [Fact]
+    public async Task GetSpace_ShouldThrowNotFound_WhenCallerCannotReadSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org.AddUser(memberId));
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope)
+            .GetSpace(AuthDataFor(organization.Id, memberId), organization.GetSpace(0).Key, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ListSpaces_ShouldReturnAvailableSpaces_WhenCalled()
     {
         using var testScope = host.CreateTestScope();

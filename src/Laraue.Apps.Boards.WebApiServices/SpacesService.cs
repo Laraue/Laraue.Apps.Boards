@@ -1,9 +1,11 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.WebApiServices;
 
@@ -14,6 +16,14 @@ public interface ISpacesService
         CancellationToken cancellationToken);
     
     Task<SpaceDetailsDto> GetSpace(
+        GetSpaceRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What a space is about (BRD-312): its description and links, for the space page. Needs read access - a space the
+    /// caller can't read is a 404, like a missing one. They're changed with the other settings in <see cref="Update"/>.
+    /// </summary>
+    Task<SpaceAboutDto> GetAbout(
         GetSpaceRequest request,
         CancellationToken cancellationToken);
     
@@ -36,7 +46,9 @@ public interface ISpacesService
 
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
-    IAccessService accessService)
+    ICoreSpaceLinksService coreSpaceLinksService,
+    IAccessService accessService,
+    DatabaseContext context)
     : ISpacesService
 {
     public async Task<SpaceListDto[]> GetSpaces(
@@ -78,6 +90,44 @@ public class SpacesService(
         };
     }
 
+    public async Task<SpaceAboutDto> GetAbout(GetSpaceRequest request, CancellationToken cancellationToken)
+    {
+        var spaceId = await coreSpacesService.GetSpaceIdBySpaceKey(
+            request.AuthData.OrganizationId,
+            request.Key,
+            cancellationToken);
+
+        var accessLevels = await accessService
+            .GetAccessLevelsBySpaceId(request.AuthData, spaceId, includeDeleted: false, cancellationToken)
+            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", request.Key))
+            .EnsureOrThrowNotFound(
+                a => a.CanRead,
+                string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", request.Key));
+
+        var description = await context.Spaces
+            .Where(x => x.Id == spaceId)
+            .Select(x => x.Description)
+            .FirstAsync(cancellationToken);
+
+        var links = await context.SpaceLinks
+            .Where(x => x.SpaceId == spaceId)
+            .OrderBy(x => x.Id)
+            .Select(x => new SpaceLinkDto
+            {
+                Id = x.Id,
+                Url = x.Url,
+                Description = x.Description,
+            })
+            .ToArrayAsync(cancellationToken);
+
+        return new SpaceAboutDto
+        {
+            Description = description,
+            Links = links,
+            CanEdit = accessLevels.CanUpdateSpace,
+        };
+    }
+
     public async Task<string> Create(CreateSpaceRequest request, CancellationToken cancellationToken)
     {
         var canCreateSpaces = await accessService.CanCreateSpaces(
@@ -108,13 +158,37 @@ public class SpacesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.OldKey))
             .EnsureOrThrowForbidden(a => a.CanUpdateSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.OldKey));
 
+        // The settings, description and links are saved together: a failure in any of them changes nothing.
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         await coreSpacesService.Update(
             spaceId,
-            setters => setters
-                .SetProperty(x => x.Color, request.Color)
-                .SetProperty(x => x.Name, request.Name)
-                .SetProperty(x => x.Key, request.NewKey.ToUpper()),
+            setters =>
+            {
+                setters
+                    .SetProperty(x => x.Color, request.Color)
+                    .SetProperty(x => x.Name, request.Name)
+                    .SetProperty(x => x.Key, request.NewKey.ToUpper());
+                if (request.Description is not null)
+                {
+                    setters.SetProperty(x => x.Description, description);
+                }
+            },
             cancellationToken);
+
+        if (request.Links is not null)
+        {
+            await coreSpaceLinksService.Replace(
+                spaceId,
+                request.Links
+                    .Select(x => new SpaceLinkChange(x.Url.Trim(), x.Description.Trim()))
+                    .ToList(),
+                request.AuthData.UserId,
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task Delete(DeleteSpaceRequest request, CancellationToken cancellationToken)
@@ -189,6 +263,32 @@ public record UpdateSpaceRequest
     [MaxLength(3)]
     [MinLength(3)]
     public required string NewKey { get; set; }
+
+    /// <summary>
+    /// The space's description (markdown, BRD-312): null leaves it as it is, empty clears it.
+    /// </summary>
+    [MaxLength(Constraints.MaxSpaceDescriptionLength)]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// The space's links, the whole list in order: it replaces the saved one. Null leaves the links as they are; an
+    /// empty list removes them all.
+    /// </summary>
+    [MaxLength(Constraints.MaxSpaceLinksPerSpace)]
+    public List<SpaceLinkRequest>? Links { get; set; }
+}
+
+public record SpaceLinkRequest
+{
+    [Required]
+    [Url]
+    [MaxLength(Constraints.MaxSpaceLinkUrlLength)]
+    public required string Url { get; init; }
+
+    [Required]
+    [MinLength(1)]
+    [MaxLength(Constraints.MaxSpaceLinkDescriptionLength)]
+    public required string Description { get; init; }
 }
 
 public record DeleteSpaceRequest
@@ -221,6 +321,27 @@ public record SpaceDetailsDto
     public required bool CanCreateEpics { get; set; }
     public required bool CanUpdate { get; set; }
     public required bool CanDelete { get; set; }
+}
+
+public record SpaceAboutDto
+{
+    /// <summary>Markdown, or null when the space has none.</summary>
+    public string? Description { get; init; }
+
+    public required SpaceLinkDto[] Links { get; init; }
+
+    /// <summary>Whether the caller may change the description and links.</summary>
+    public required bool CanEdit { get; init; }
+}
+
+public record SpaceLinkDto
+{
+    public required long Id { get; init; }
+
+    public required string Url { get; init; }
+
+    /// <summary>Markdown: what the link is and when it matters.</summary>
+    public required string Description { get; init; }
 }
 
 public record GetSpaceMembersRequest

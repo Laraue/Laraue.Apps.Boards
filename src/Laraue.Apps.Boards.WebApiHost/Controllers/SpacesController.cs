@@ -9,7 +9,10 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 [ApiController]
 [Route("/api/spaces")]
-public class SpacesController(ISpacesService spacesService, IEpicsService epicsService) : ControllerBase
+public class SpacesController(
+    ISpacesService spacesService,
+    IEpicsService epicsService)
+    : ControllerBase
 {
     [HttpPost]
     public Task<string> Create(
@@ -104,6 +107,20 @@ public class SpacesController(ISpacesService spacesService, IEpicsService epicsS
             {
                 Key = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
+    [HttpGet("{key}/about")]
+    public Task<SpaceAboutDto> GetAbout(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return spacesService.GetAbout(
+            new GetSpaceRequest
+            {
+                Key = key,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
             },
             cancellationToken);
     }

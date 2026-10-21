@@ -33,4 +33,10 @@
     <data name="IssueLockedByAgentRun" xml:space="preserve">
         <value>The issue is handed to the agent and can't be edited until the run is finished or cancelled</value>
     </data>
+    <data name="SpaceLinkUrlAlreadyAdded" xml:space="preserve">
+        <value>This URL is already one of the space's links</value>
+    </data>
+    <data name="SpaceLinksLimitReached" xml:space="preserve">
+        <value>A space can have at most {0} links</value>
+    </data>
 </root>

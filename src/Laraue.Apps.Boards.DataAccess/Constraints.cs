@@ -24,6 +24,22 @@ public class Constraints
     /// </summary>
     public const string IssueLinkPairIndexName = "ux_issue_links_issue_pair";
 
+    public const int MaxSpaceDescriptionLength = 4096;
+
+    public const int MaxSpaceLinkUrlLength = 2048;
+
+    public const int MaxSpaceLinkDescriptionLength = 1024;
+
+    /// <summary>
+    /// How many links a space keeps - few enough to return them in one list, without pagination.
+    /// </summary>
+    public const int MaxSpaceLinksPerSpace = 50;
+
+    /// <summary>
+    /// The unique index allowing a URL once per space, see <see cref="Models.SpaceLink"/>.
+    /// </summary>
+    public const string SpaceLinkUrlIndexName = "ux_space_links_space_id_url";
+
     /// <summary>
     /// <c>XXXX-XXXX</c>: two groups of four, see <see cref="Models.AgentSignInRequest.UserCode"/>.
     /// </summary>

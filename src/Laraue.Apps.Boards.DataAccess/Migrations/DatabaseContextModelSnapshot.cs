@@ -1612,6 +1612,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("deleted_by_user_id");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("description");
+
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean")
                         .HasColumnName("is_default");
@@ -1670,6 +1675,52 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasName("pk_space_counters");
 
                     b.ToTable("space_counters", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.SpaceLink", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("description");
+
+                    b.Property<long>("SpaceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("space_id");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id")
+                        .HasName("pk_space_links");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_space_links_created_by_user_id");
+
+                    b.HasIndex("SpaceId", "Url")
+                        .IsUnique()
+                        .HasDatabaseName("ux_space_links_space_id_url");
+
+                    b.ToTable("space_links", (string)null);
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Status", b =>
@@ -2764,6 +2815,27 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Organization");
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.SpaceLink", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_space_links_users_created_by_user_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Space", "Space")
+                        .WithMany("Links")
+                        .HasForeignKey("SpaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_space_links_spaces_space_id");
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Space");
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Status", b =>
                 {
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
@@ -2937,6 +3009,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Space", b =>
                 {
                     b.Navigation("Epics");
+
+                    b.Navigation("Links");
 
                     b.Navigation("Users");
                 });
