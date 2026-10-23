@@ -461,7 +461,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var authData = AuthDataFor(organization.Id, ownerId, apiKey.Id);
         var mcpService = CreateIssueMcpService(testScope);
         await mcpService.EditIssue(authData, issueKey, "Fix the thing properly", "Title", null, null, null, null, CancellationToken.None);
-        await mcpService.CreateComment(authData, issueKey, "Done", CancellationToken.None);
+        await mcpService.CreateComment(authData, issueKey, "Done", null, CancellationToken.None);
 
         var history = await mcpService.GetIssueHistory(authData, issueKey, null, null, CancellationToken.None);
 
@@ -519,8 +519,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
         var authData = AuthDataFor(organization.Id, ownerId);
         var mcpService = CreateIssueMcpService(testScope);
-        await mcpService.CreateComment(authData, issueKey, "First", CancellationToken.None);
-        await mcpService.CreateComment(authData, issueKey, "Second", CancellationToken.None);
+        await mcpService.CreateComment(authData, issueKey, "First", null, CancellationToken.None);
+        await mcpService.CreateComment(authData, issueKey, "Second", null, CancellationToken.None);
 
         var firstPage = await mcpService.GetIssueHistory(authData, issueKey, null, 1, CancellationToken.None);
         var secondPage = await mcpService.GetIssueHistory(authData, issueKey, 1, 1, CancellationToken.None);
@@ -625,7 +625,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueData = organization.GetIssueData(0, 0, 0, 0);
         var mediaInfo = await testScope.Services.GetRequiredService<ICoreFilesService>().UploadFile(
-            "photo.png", "image/png", new MemoryStream(Convert.FromBase64String(SampleImageBase64())), CancellationToken.None);
+            "photo.png", AttachmentFileTypes.Png, new MemoryStream(Convert.FromBase64String(SampleImageBase64())), CancellationToken.None);
         await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
         {
             await testScope.Services.GetRequiredService<ICoreIssuesService>().AddComment(
@@ -912,7 +912,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         var commentId = await CreateIssueMcpService(testScope).CreateComment(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, "A new comment", CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "A new comment", null, CancellationToken.None);
 
         var comment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == commentId);
         Assert.Equal("A new comment", comment.Text);
@@ -932,7 +932,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var apiKey = await apiKeysService.CreateAsync(organization.Id, ownerId, "Claude MCP", CancellationToken.None);
 
         var commentId = await CreateIssueMcpService(testScope).CreateComment(
-            AuthDataFor(organization.Id, ownerId, apiKey.Id), issueData.Key, "A new comment", CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId, apiKey.Id), issueData.Key, "A new comment", null, CancellationToken.None);
 
         var log = await testScope.Database.OrganizationLogs.SingleAsyncEF(x =>
             x.EntityType == LogEntityType.Comment && x.EntityId == commentId);
@@ -950,8 +950,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
             .CreateAsync(organization.Id, ownerId, "boards-agent", CancellationToken.None);
         var service = CreateIssueMcpService(testScope);
-        await service.CreateComment(AuthDataFor(organization.Id, ownerId), issueKey, "By hand", CancellationToken.None);
-        await service.CreateComment(AuthDataFor(organization.Id, ownerId, apiKey.Id), issueKey, "By the agent", CancellationToken.None);
+        await service.CreateComment(AuthDataFor(organization.Id, ownerId), issueKey, "By hand", null, CancellationToken.None);
+        await service.CreateComment(AuthDataFor(organization.Id, ownerId, apiKey.Id), issueKey, "By the agent", null, CancellationToken.None);
 
         var page = await service.ListIssueComments(AuthDataFor(organization.Id, ownerId), issueKey, null, null, CancellationToken.None);
 
@@ -972,7 +972,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         var commentId = await CreateIssueMcpService(testScope).CreateComment(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, "A new comment", CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, "A new comment", null, CancellationToken.None);
 
         var log = await testScope.Database.OrganizationLogs.SingleAsyncEF(x =>
             x.EntityType == LogEntityType.Comment && x.EntityId == commentId);
@@ -993,7 +993,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var commentId = issueData.Issue.IssueComments!.Single().Id;
 
         await CreateIssueMcpService(testScope).EditComment(
-            AuthDataFor(organization.Id, ownerId), commentId, "Edited comment", CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), commentId, "Edited comment", null, null, CancellationToken.None);
 
         var updatedComment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.Id == commentId);
         Assert.Equal("Edited comment", updatedComment.Text);
@@ -1019,7 +1019,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var commentId = issueData.Issue.IssueComments!.Single().Id;
 
         await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).EditComment(
-            AuthDataFor(organization.Id, memberId), commentId, "Edited comment", CancellationToken.None));
+            AuthDataFor(organization.Id, memberId), commentId, "Edited comment", null, null, CancellationToken.None));
     }
 
     [Fact]
@@ -1030,7 +1030,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var organization = await testScope.InitializeOrganization(ownerId);
 
         await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).EditComment(
-            AuthDataFor(organization.Id, ownerId), commentId: 999_999, "Edited comment", CancellationToken.None));
+            AuthDataFor(organization.Id, ownerId), commentId: 999_999, "Edited comment", null, null, CancellationToken.None));
     }
 
     [Fact]
@@ -1613,7 +1613,10 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         Assert.False(hasIntegerValue);
     }
 
-    private static string SampleImageBase64() => Convert.ToBase64String([1, 2, 3, 4, 5]);
+    private static string SampleImageBase64() => Convert.ToBase64String(SampleImage);
+
+    // A PNG signature - enough for the type to be recognized by content.
+    private static readonly byte[] SampleImage = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4, 5];
 
     [Fact]
     public async Task CreateIssue_ShouldAttachFiles_WhenGiven()
@@ -1646,12 +1649,36 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
     }
 
     [Fact]
-    public async Task CreateIssue_ShouldThrow_WhenFileHasUnsupportedMimeType()
+    public async Task CreateIssue_ShouldThrow_WhenFileIsSvg()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => { });
         var statusId = organization.GetStatus(0, 0, 0).Id;
+        var svg = Convert.ToBase64String("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"u8.ToArray());
+
+        var exception = await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            "New issue content",
+            "Title",
+            statusId,
+            null,
+            null,
+            [new FileAttachment("logo.svg", "image/svg+xml", svg)], CancellationToken.None));
+
+        Assert.Contains("logo.svg", Assert.Single(exception.Errors["files"]));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenContentDoesNotMatchExtension()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        // Neither a PDF by content nor text: a renamed binary is rejected whatever it declares.
+        var notAPdf = Convert.ToBase64String(new byte[] { 0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00 });
 
         await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
             AuthDataFor(organization.Id, ownerId),
@@ -1660,7 +1687,183 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             statusId,
             null,
             null,
-            [new FileAttachment("doc.pdf", "application/pdf", SampleImageBase64())], CancellationToken.None));
+            [
+                new FileAttachment("report.pdf", "application/pdf", notAPdf),
+                new FileAttachment("notes.txt", "text/plain", notAPdf),
+            ],
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldThrow_WhenImageExceedsImageLimit()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+
+        // Under the document limit, over the image one.
+        var largeImage = new byte[AttachmentFileTypes.MaxImageSizeBytes + 1];
+        SampleImage.CopyTo(largeImage, 0);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
+            AuthDataFor(organization.Id, ownerId),
+            "New issue content",
+            "Title",
+            statusId,
+            null,
+            null,
+            [new FileAttachment("photo.png", "image/png", Convert.ToBase64String(largeImage))], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateIssue_ShouldAttachDocument_WhenFileIsMarkdown()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        // The declared content type is ignored: the extension and UTF-8 content make it Markdown.
+        var issueKey = await mcpService.CreateIssue(
+            authData,
+            "New issue content",
+            "Title",
+            statusId,
+            null,
+            null,
+            [new FileAttachment("notes.md", "application/octet-stream", Convert.ToBase64String("# Notes\nПривет"u8.ToArray()))],
+            CancellationToken.None);
+
+        var detail = await mcpService.GetIssue(authData, issueKey, CancellationToken.None);
+        var attachment = Assert.Single(detail.Attachments);
+        Assert.Equal("notes.md", attachment.FileName);
+        Assert.Equal(nameof(AttachmentType.Document), attachment.Type);
+        Assert.Equal("text/markdown", attachment.MimeType);
+    }
+
+    [Fact]
+    public async Task CreateComment_ShouldAttachFiles_WhenGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+
+        await mcpService.CreateComment(
+            authData,
+            issueKey,
+            "The dashboard",
+            [
+                new FileAttachment("dashboard.json", "application/json", Convert.ToBase64String("{\"panels\": []}"u8.ToArray())),
+                new FileAttachment("photo.png", "image/png", SampleImageBase64()),
+            ],
+            CancellationToken.None);
+
+        var comments = await mcpService.ListIssueComments(authData, issueKey, null, null, CancellationToken.None);
+        var attachments = Assert.Single(comments.Comments).Attachments;
+        Assert.Collection(
+            attachments.OrderBy(x => x.FileName),
+            json =>
+            {
+                Assert.Equal("dashboard.json", json.FileName);
+                Assert.Equal(nameof(AttachmentType.Document), json.Type);
+                Assert.Equal("application/json", json.MimeType);
+            },
+            image => Assert.Equal(nameof(AttachmentType.Image), image.Type));
+    }
+
+    [Fact]
+    public async Task EditComment_ShouldReplaceAttachment_WhenFilesAndRemoveAttachmentIdsGiven()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var commentId = await mcpService.CreateComment(
+            authData,
+            issueKey,
+            "The report",
+            [new FileAttachment("report.txt", "text/plain", Convert.ToBase64String("v1"u8.ToArray()))],
+            CancellationToken.None);
+        var comments = await mcpService.ListIssueComments(authData, issueKey, null, null, CancellationToken.None);
+        var oldAttachmentId = Assert.Single(Assert.Single(comments.Comments).Attachments).Id;
+
+        await mcpService.EditComment(
+            authData,
+            commentId,
+            "The report, updated",
+            [new FileAttachment("report-v2.txt", "text/plain", Convert.ToBase64String("v2"u8.ToArray()))],
+            [oldAttachmentId],
+            CancellationToken.None);
+
+        comments = await mcpService.ListIssueComments(authData, issueKey, null, null, CancellationToken.None);
+        var attachment = Assert.Single(Assert.Single(comments.Comments).Attachments);
+        Assert.Equal("report-v2.txt", attachment.FileName);
+    }
+
+    [Fact]
+    public async Task GetAttachment_ShouldReturnText_WhenAttachmentIsTextDocument()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var issueKey = await mcpService.CreateIssue(
+            authData,
+            "New issue content",
+            "Title",
+            statusId,
+            null,
+            null,
+            [new FileAttachment("notes.txt", "text/plain", Convert.ToBase64String("notes"u8.ToArray()))],
+            CancellationToken.None);
+        var detail = await mcpService.GetIssue(authData, issueKey, CancellationToken.None);
+        var tools = new IssueTools(mcpService, HttpContextAccessorFor(authData));
+
+        var result = await tools.GetAttachment(Assert.Single(detail.Attachments).Id, CancellationToken.None);
+
+        // The test host's fake Telegram download returns fixed bytes whatever was uploaded.
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
+        Assert.Equal(Encoding.UTF8.GetString(FakeTelegramFileHttpMessageHandler.Content), text.Text);
+    }
+
+    [Fact]
+    public async Task GetAttachment_ShouldReturnEmbeddedResource_WhenAttachmentIsPdf()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => { });
+        var statusId = organization.GetStatus(0, 0, 0).Id;
+        var mcpService = CreateIssueMcpService(testScope);
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var issueKey = await mcpService.CreateIssue(
+            authData,
+            "New issue content",
+            "Title",
+            statusId,
+            null,
+            null,
+            [new FileAttachment("spec.pdf", "application/pdf", Convert.ToBase64String("%PDF-1.7\n"u8.ToArray()))],
+            CancellationToken.None);
+        var detail = await mcpService.GetIssue(authData, issueKey, CancellationToken.None);
+        var tools = new IssueTools(mcpService, HttpContextAccessorFor(authData));
+
+        var result = await tools.GetAttachment(Assert.Single(detail.Attachments).Id, CancellationToken.None);
+
+        var resource = Assert.IsType<EmbeddedResourceBlock>(Assert.Single(result.Content));
+        var blob = Assert.IsType<BlobResourceContents>(resource.Resource);
+        Assert.Equal("application/pdf", blob.MimeType);
     }
 
     [Fact]
@@ -1689,7 +1892,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var organization = await testScope.InitializeOrganization(ownerId, org => { });
         var statusId = organization.GetStatus(0, 0, 0).Id;
 
-        var tooLarge = Convert.ToBase64String(new byte[SystemMimeTypes.MaxFileSizeBytes + 1]);
+        var tooLarge = Convert.ToBase64String(new byte[AttachmentFileTypes.MaxFileSizeBytes + 1]);
 
         await Assert.ThrowsAsync<BadRequestException>(() => CreateIssueMcpService(testScope).CreateIssue(
             AuthDataFor(organization.Id, ownerId),
@@ -1832,7 +2035,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var image = Assert.IsType<ImageContentBlock>(Assert.Single(result.Content));
         Assert.Equal("image/png", image.MimeType);
-        Assert.Equal(SampleImageBase64(), Encoding.UTF8.GetString(image.Data.Span));
+        Assert.Equal(Convert.ToBase64String(FakeTelegramFileHttpMessageHandler.Content), Encoding.UTF8.GetString(image.Data.Span));
     }
 
     [Fact]
@@ -1870,7 +2073,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             AuthDataFor(organization.Id, ownerId), issueData.Key, CancellationToken.None);
         var attachmentId = Assert.Single(detail.Attachments).Id;
 
-        // Uploads are already capped at SystemMimeTypes.MaxFileSizeBytes, so simulate a
+        // Uploads are already capped at AttachmentFileTypes.MaxFileSizeBytes, so simulate a
         // legacy/otherwise-oversized file by overwriting its recorded size directly.
         var fileId = await testScope.Database.Attachments
             .Where(x => x.Id == attachmentId)
@@ -1878,7 +2081,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .SingleAsyncEF();
         await testScope.Database.Files
             .Where(x => x.Id == fileId)
-            .ExecuteUpdateAsync(x => x.SetProperty(f => f.Size, SystemMimeTypes.MaxFileSizeBytes + 1));
+            .ExecuteUpdateAsync(x => x.SetProperty(f => f.Size, AttachmentFileTypes.MaxFileSizeBytes + 1));
 
         await Assert.ThrowsAsync<BadRequestException>(() => mcpService.GetAttachmentContent(attachmentId, CancellationToken.None));
     }

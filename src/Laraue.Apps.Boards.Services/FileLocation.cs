@@ -6,5 +6,6 @@ namespace Laraue.Apps.Boards.Services;
 /// (<c>WebApiHost.FilesController.GetFileById</c>) or reading its full content
 /// (<see cref="ICoreFilesService.GetFileContent"/>), instead of each re-deriving it independently
 /// from <see cref="DataAccess.Models.File"/>/<see cref="DataAccess.Models.TelegramFile"/>.
+/// <see cref="FileName"/> is the name it was uploaded with, if any - what a download is saved as.
 /// </summary>
-public record FileLocation(string PhysicalPath, string MimeType, string ExternalFileId);
+public record FileLocation(string PhysicalPath, string MimeType, string ExternalFileId, string? FileName);

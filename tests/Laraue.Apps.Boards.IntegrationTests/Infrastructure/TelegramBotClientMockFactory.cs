@@ -62,7 +62,25 @@ public class TelegramBotClientMockFactory
                     ]
                 };
             });
-        
+
+        botClientMock.Setup(x => x.SendRequest(It.IsAny<SendDocumentRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SendDocumentRequest request, CancellationToken _) =>
+            {
+                // Same FileUniqueId derivation as the photo mock above.
+                var fileId = Guid.NewGuid().ToString();
+
+                return new Message
+                {
+                    Document = new Document
+                    {
+                        FileId = fileId,
+                        FileUniqueId = fileId + "unique",
+                        FileName = (request.Document as InputFileStream)?.FileName,
+                        FileSize = 1000,
+                    },
+                };
+            });
+
         return botClientMock.Object;
     }
 }

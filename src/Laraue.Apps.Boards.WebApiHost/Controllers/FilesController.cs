@@ -20,11 +20,21 @@ public class FilesController(
     {
         var location = await coreFilesService.ResolveFileLocation(id, cancellationToken);
 
+        // Nothing uploaded is ever rendered as a page: the browser mustn't guess another type, and a
+        // document opened directly gets no scripts, origin or plugins.
+        Response.Headers.XContentTypeOptions = "nosniff";
+        Response.Headers.ContentSecurityPolicy = "sandbox; default-src 'none'";
+
+        // Images and videos are shown in the app; anything else (documents) is only downloaded.
+        var downloadName = IsShownInline(location.MimeType)
+            ? null
+            : location.FileName ?? "file";
+
         // Serve from local cache — seekable stream, ASP.NET Core handles ranges
         if (await fileStorage.FileExists(location.PhysicalPath, cancellationToken))
         {
             var cachedStream = await fileStorage.ReadFile(location.PhysicalPath, cancellationToken);
-            return File(cachedStream, location.MimeType, enableRangeProcessing: true);
+            return File(cachedStream, location.MimeType, downloadName, enableRangeProcessing: true);
         }
 
         // Resolve and cache the Telegram download URL (valid 60 min) — this caching is
@@ -66,6 +76,12 @@ public class FilesController(
 
         // enableRangeProcessing: false — we've already handled the range manually
         // by forwarding it to Telegram. ASP.NET Core must not try to slice again.
-        return File(stream, location.MimeType, enableRangeProcessing: false);
+        return File(stream, location.MimeType, downloadName, enableRangeProcessing: false);
+    }
+
+    private static bool IsShownInline(string mimeType)
+    {
+        return mimeType.StartsWith("video/", StringComparison.Ordinal)
+            || mimeType.StartsWith("image/", StringComparison.Ordinal) && mimeType != "image/svg+xml";
     }
 }

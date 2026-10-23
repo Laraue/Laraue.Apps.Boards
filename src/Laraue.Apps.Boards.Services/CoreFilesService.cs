@@ -16,11 +16,12 @@ public interface ICoreFilesService
     Task DownloadToLocalStorage(string fileId, string? mimeType, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Upload file and returns it internal identifiers.
+    /// Upload file and returns it internal identifiers. <paramref name="fileType"/> is the type
+    /// <see cref="AttachmentFileTypes.Detect"/> recognized - the caller validates before uploading.
     /// </summary>
     Task<MediaInfo> UploadFile(
         string fileName,
-        string contentType,
+        AttachmentFileType fileType,
         Stream stream,
         CancellationToken cancellationToken);
 
@@ -82,14 +83,18 @@ public class CoreFilesService(
 
     public Task<MediaInfo> UploadFile(
         string fileName,
-        string contentType,
+        AttachmentFileType fileType,
         Stream stream,
         CancellationToken cancellationToken)
     {
-        if (SystemMimeTypes.Images.Contains(contentType))
-            return UploadPhotoFile(fileName, contentType, stream, cancellationToken);
-        
-        throw new InvalidOperationException( $"Content type uploading {contentType} is not supported");
+        fileName = AttachmentFileTypes.SanitizeFileName(fileName, fileType);
+
+        // Telegram makes a thumbnail only for what it takes as a photo (JPEG, PNG); the rest is kept
+        // as a document, byte for byte.
+        if (fileType == AttachmentFileTypes.Jpeg || fileType == AttachmentFileTypes.Png)
+            return UploadPhotoFile(fileName, fileType.MimeType, stream, cancellationToken);
+
+        return UploadDocumentFile(fileName, fileType, stream, cancellationToken);
     }
 
     public async Task<FileContent> GetFileContent(Guid fileId, CancellationToken cancellationToken)
@@ -118,6 +123,7 @@ public class CoreFilesService(
                 x.TelegramFile!.ExternalFileUniqueId,
                 x.MimeType,
                 x.TelegramFile.ExternalFileId,
+                x.Name,
             })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException($"File: {fileId} is not found");
@@ -126,7 +132,7 @@ public class CoreFilesService(
         var extension = ExtensionUtility.GetExtension(fileData.MimeType);
         var physicalPath = ShardedPathStrategy.GetPath(fileData.ExternalFileUniqueId, extension);
 
-        return new FileLocation(physicalPath, mimeType, fileData.ExternalFileId);
+        return new FileLocation(physicalPath, mimeType, fileData.ExternalFileId, fileData.Name);
     }
 
     public async Task<string> ResolveTelegramDownloadUrl(string externalFileId, CancellationToken cancellationToken)
@@ -167,6 +173,44 @@ public class CoreFilesService(
             OriginalFileId = originalFileId,
             PreviewFileId = thumbnailFileId,
             Type = AttachmentType.Image,
+            FileName = fileName,
+        };
+    }
+
+    private async Task<MediaInfo> UploadDocumentFile(
+        string fileName,
+        AttachmentFileType fileType,
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        // Without disableContentTypeDetection Telegram may turn a GIF into an animation or a WebP
+        // into a sticker; with it the message carries the document as uploaded.
+        var message = await botClient.SendDocument(
+            options.Value.FilesChatId,
+            new InputFileStream(stream, fileName),
+            disableContentTypeDetection: true,
+            cancellationToken: cancellationToken);
+
+        var document = message.Document!;
+        var originalFileId = await UpsertDbFile(
+            new File
+            {
+                FileUniqueId = document.FileUniqueId,
+                FileName = fileName,
+                FileId = document.FileId,
+                FileSize = document.FileSize,
+                MimeType = fileType.MimeType,
+            },
+            cancellationToken);
+
+        // A GIF or WebP is small enough (MaxImageSizeBytes) to be its own preview.
+        var isImage = fileType.AttachmentType == AttachmentType.Image;
+
+        return new MediaInfo
+        {
+            OriginalFileId = originalFileId,
+            PreviewFileId = isImage ? originalFileId : null,
+            Type = fileType.AttachmentType,
             FileName = fileName,
         };
     }

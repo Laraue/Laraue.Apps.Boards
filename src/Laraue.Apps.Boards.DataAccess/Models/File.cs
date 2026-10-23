@@ -26,7 +26,7 @@ public class File
     /// <summary>
     /// The file mime type, e.g. 'image/jpeg'.
     /// </summary>
-    [MaxLength(32)]
+    [MaxLength(128)]
     public required string? MimeType { get; set; }
     
     /// <summary>

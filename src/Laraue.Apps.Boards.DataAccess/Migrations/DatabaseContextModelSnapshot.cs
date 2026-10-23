@@ -438,8 +438,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnName("id");
 
                     b.Property<string>("MimeType")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("mime_type");
 
                     b.Property<string>("Name")

@@ -114,11 +114,11 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to File '{0}': unsupported content type '{1}' - supported types are: {2}.
+        ///   Looks up a localized string similar to File '{0}': unsupported type - supported are images ({1}) and documents ({2}), recognized by their content.
         /// </summary>
-        internal static string FileUnsupportedMimeType {
+        internal static string FileUnsupportedType {
             get {
-                return ResourceManager.GetString("FileUnsupportedMimeType", resourceCulture);
+                return ResourceManager.GetString("FileUnsupportedType", resourceCulture);
             }
         }
 
@@ -141,7 +141,7 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to File '{0}': size is limited to 3MB.
+        ///   Looks up a localized string similar to File '{0}': too large - images are limited to {1}MB, documents to {2}MB.
         /// </summary>
         internal static string FileTooLarge {
             get {
@@ -150,7 +150,7 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Attachment: {0} exceeds the 3MB download limit.
+        ///   Looks up a localized string similar to Attachment: {0} exceeds the {1}MB download limit.
         /// </summary>
         internal static string AttachmentTooLargeToDownload {
             get {
