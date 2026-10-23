@@ -53,4 +53,9 @@ public enum AttachmentType
     /// The video attachment consists of preview image and original video file.
     /// </summary>
     Video,
+
+    /// <summary>
+    /// A document (pdf, docx, md...): only the original file, no preview. Downloaded, never shown inline.
+    /// </summary>
+    Document,
 }

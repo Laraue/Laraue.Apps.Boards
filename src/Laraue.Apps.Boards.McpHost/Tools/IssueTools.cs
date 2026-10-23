@@ -1,7 +1,9 @@
 ﻿using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.Exceptions.Web;
@@ -105,7 +107,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("The status to create the issue in, from list_statuses - this also determines the destination space.")] long statusId,
         [Description("User id to assign the issue to, from list_members. Must belong to the caller's organization. Omit to assign yourself.")] Guid? assigneeId = null,
         [Description("Attribute id -> plain-text value, e.g. {\"5\": \"7\"}. See list_attributes for ids/types/allowed values - for a List attribute, the value is one of its list value ids. Omit to leave every attribute unset.")] IReadOnlyDictionary<long, string>? attributes = null,
-        [Description("Files to attach, base64-encoded - each becomes an attachment on the issue. Only image/jpeg, image/jpg and image/png; max 3MB each.")] IReadOnlyList<FileAttachment>? files = null,
+        [Description("Files to attach, base64-encoded - each becomes an attachment on the issue. The type is recognized from the content, not contentType: images JPEG, PNG, WebP, GIF (max 3MB each) or documents PDF, DOCX, DOC, and UTF-8 text by fileName's extension - .md, .txt, .json (max 10MB each). SVG, HEIC and others are rejected.")] IReadOnlyList<FileAttachment>? files = null,
         CancellationToken cancellationToken = default)
     {
         return issueMcpService.CreateIssue(GetAuthData(), content, title, statusId, assigneeId, attributes, files, cancellationToken);
@@ -195,7 +197,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Downloads an attachment's original file content, by its id from get_issue's attachments (the issue's own) or list_issue_comments' attachments (a comment's). Only image attachments are supported today.")]
+    [Description("Downloads an attachment's original file content, by its id from get_issue's attachments (the issue's own) or list_issue_comments' attachments (a comment's). An image (JPEG, PNG, WebP, GIF) comes back as an image, a text document (Markdown, TXT, JSON) as its text, any other document (PDF, DOCX, DOC) as an embedded base64 resource with its mime type.")]
     public async Task<CallToolResult> GetAttachment(
         [Description("The attachment's id, from get_issue or list_issue_comments.")] Guid attachmentId,
         CancellationToken cancellationToken)
@@ -203,11 +205,22 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         var content = await issueMcpService.GetAttachmentContent(attachmentId, cancellationToken);
         await using var stream = content.Content;
 
-        var bytes = await ReadBoundedAsync(stream, SystemMimeTypes.MaxFileSizeBytes, cancellationToken);
+        var bytes = await ReadBoundedAsync(stream, AttachmentFileTypes.MaxFileSizeBytes, cancellationToken);
+
+        var fileType = AttachmentFileTypes.FindByMimeType(content.MimeType);
+        ContentBlock block = fileType switch
+        {
+            { IsText: true } => new TextContentBlock { Text = Encoding.UTF8.GetString(bytes) },
+            { AttachmentType: AttachmentType.Image } => ImageContentBlock.FromBytes(bytes, fileType.MimeType),
+            _ => new EmbeddedResourceBlock
+            {
+                Resource = BlobResourceContents.FromBytes(bytes, $"boards://attachments/{attachmentId}", content.MimeType),
+            },
+        };
 
         return new CallToolResult
         {
-            Content = [ImageContentBlock.FromBytes(bytes, content.MimeType)],
+            Content = [block],
         };
     }
 
@@ -240,19 +253,22 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     public Task<long> CreateComment(
         [Description("The issue to comment on, e.g. 'BRD-42' - a key from list_issues or get_issue.")] string issueKey,
         [Description("The comment's text, max 4096 characters. Plain text or markdown.")] [MaxLength(Constraints.MaxCommentLength)] string text,
-        CancellationToken cancellationToken)
+        [Description("Files to attach to the comment, base64-encoded - same format and types as create_issue's files, e.g. a report or config as Markdown/JSON.")] IReadOnlyList<FileAttachment>? files = null,
+        CancellationToken cancellationToken = default)
     {
-        return issueMcpService.CreateComment(GetAuthData(), issueKey, text, cancellationToken);
+        return issueMcpService.CreateComment(GetAuthData(), issueKey, text, files, cancellationToken);
     }
 
     [McpServerTool]
-    [Description("Edits a comment's text (max 4096 characters). Only the comment's own author can edit it - check canManage in list_issue_comments before calling.")]
+    [Description("Edits a comment's text (max 4096 characters) and optionally its attachments. Only the comment's own author can edit it - check canManage in list_issue_comments before calling.")]
     public Task EditComment(
         [Description("The comment's id, from list_issue_comments.")] long commentId,
         [Description("The comment's new text, replacing what's there now, max 4096 characters.")] [MaxLength(Constraints.MaxCommentLength)] string text,
-        CancellationToken cancellationToken)
+        [Description("Files to attach, base64-encoded - each becomes a new attachment, in addition to the comment's existing ones. Same format as create_issue.")] IReadOnlyList<FileAttachment>? files = null,
+        [Description("Ids of the comment's attachments to remove, from list_issue_comments. Can be combined with files to replace one attachment with another.")] IReadOnlyList<Guid>? removeAttachmentIds = null,
+        CancellationToken cancellationToken = default)
     {
-        return issueMcpService.EditComment(GetAuthData(), commentId, text, cancellationToken);
+        return issueMcpService.EditComment(GetAuthData(), commentId, text, files, removeAttachmentIds, cancellationToken);
     }
 
     [McpServerTool]

@@ -373,17 +373,16 @@ public class IssuesService(
             ? request.Title!
             : await GenerateTitle(request.AuthData, request.Content, ct);
 
-        if (FilesHasError(request.Files, out var error))
-            throw new BadRequestException(nameof(request.Files), error);
-        
+        var files = await ReadFiles(request.Files, nameof(request.Files), ct);
+
         await EnsureUserBelongsToOrganization(request.AuthData, request.AssigneeId, ct);
-        
+
         var attributeUpdateRequests = await coreIssueAttributesService.BuildSetRequests(
             request.AuthData.OrganizationId,
             request.AttributeValues,
             ct);
 
-        var uploadedFiles = await UploadFiles(request.Files, ct);
+        var uploadedFiles = await UploadFiles(files, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
@@ -416,8 +415,7 @@ public class IssuesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Issue", request.IssueKey))
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", request.IssueKey, "update"));
 
-        if (FilesHasError(request.AddFiles, out var error))
-            throw new BadRequestException(nameof(request.AddFiles), error);
+        var files = await ReadFiles(request.AddFiles, nameof(request.AddFiles), ct);
 
         // A missing title is generated from the content, like on create - an edit that cleared the title too.
         // Done before anything is uploaded or saved, so a failed generation leaves nothing behind.
@@ -432,7 +430,7 @@ public class IssuesService(
             request.AttributeValues,
             ct);
         
-        var uploadedFiles = await UploadFiles(request.AddFiles, ct);
+        var uploadedFiles = await UploadFiles(files, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
@@ -558,25 +556,67 @@ public class IssuesService(
         }
     }
 
-    private static bool FilesHasError(IEnumerable<IFormFile> files, [NotNullWhen(true)] out string? error)
+    /// <summary>
+    /// Reads the uploaded files and recognizes their types from the content (the browser's content
+    /// type isn't trusted). Every problem across all files goes into one <see cref="BadRequestException"/>
+    /// on <paramref name="fieldName"/>, before anything is uploaded.
+    /// </summary>
+    private static async Task<UploadedFormFile[]> ReadFiles(
+        IFormFile[] formFiles,
+        string fieldName,
+        CancellationToken cancellationToken)
     {
-        foreach (var file in files)
+        var errors = new List<string?>();
+        var files = new List<UploadedFormFile>();
+
+        foreach (var formFile in formFiles)
         {
-            if (file.Length > SystemMimeTypes.MaxFileSizeBytes)
+            if (formFile.Length > AttachmentFileTypes.MaxFileSizeBytes)
             {
-                error = ErrorMessages.FileSizeLimited;
-                return true;
+                errors.Add(FileTooLargeError(formFile.FileName));
+                continue;
             }
 
-            if (!SystemMimeTypes.Supported.Contains(file.ContentType))
+            using var memoryStream = new MemoryStream();
+            await formFile.CopyToAsync(memoryStream, cancellationToken);
+            var content = memoryStream.ToArray();
+
+            var fileType = AttachmentFileTypes.Detect(formFile.FileName, content);
+            if (fileType is null)
             {
-                error = string.Format(ErrorMessages.UnsupportedMimeTypes, string.Join(", ", SystemMimeTypes.Supported));
-                return true;
+                errors.Add(string.Format(
+                    ErrorMessages.UnsupportedFileType,
+                    formFile.FileName,
+                    AttachmentFileTypes.ImageNames,
+                    AttachmentFileTypes.DocumentNames));
+                continue;
             }
+
+            if (content.Length > fileType.MaxSizeBytes)
+            {
+                errors.Add(FileTooLargeError(formFile.FileName));
+                continue;
+            }
+
+            files.Add(new UploadedFormFile(formFile.FileName, fileType, content));
         }
 
-        error = null;
-        return false;
+        if (errors.Count > 0)
+            throw new BadRequestException(new Dictionary<string, string?[]>
+            {
+                [fieldName] = errors.ToArray(),
+            });
+
+        return files.ToArray();
+    }
+
+    private static string FileTooLargeError(string fileName)
+    {
+        return string.Format(
+            ErrorMessages.FileTooLarge,
+            fileName,
+            AttachmentFileTypes.MaxImageSizeMegabytes,
+            AttachmentFileTypes.MaxDocumentSizeMegabytes);
     }
 
     private async Task EnsureUserBelongsToOrganization(
@@ -787,6 +827,8 @@ public class IssuesService(
                 OriginalFileId = x.Attachment.FileId,
                 PreviewFileId = x.Attachment.PreviewFileId,
                 FileName = x.Attachment.File!.Name,
+                MimeType = x.Attachment.File.MimeType,
+                FileSize = x.Attachment.File.Size,
             })
             .ToListAsyncEF(ct);
     }
@@ -814,10 +856,8 @@ public class IssuesService(
             x => x.CanUpdateIssue,
             cancellationToken);
         
-        if (FilesHasError(request.Files, out var error))
-            throw new BadRequestException(nameof(request.Files), error);
-        
-        var uploadedFiles = await UploadFiles(request.Files, cancellationToken);
+        var files = await ReadFiles(request.Files, nameof(request.Files), cancellationToken);
+        var uploadedFiles = await UploadFiles(files, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         
@@ -850,10 +890,8 @@ public class IssuesService(
         if (comment?.OwnerId != request.AuthData.UserId)
             throw new ForbiddenException(string.Format(ErrorMessages.CommentNotAvailableToEdit, request.CommentId));
         
-        if (FilesHasError(request.AddFiles, out var error))
-            throw new BadRequestException(nameof(request.AddFiles), error);
-        
-        var uploadedFiles = await UploadFiles(request.AddFiles, cancellationToken);
+        var files = await ReadFiles(request.AddFiles, nameof(request.AddFiles), cancellationToken);
+        var uploadedFiles = await UploadFiles(files, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await issuesService.UpdateComment(
@@ -984,6 +1022,8 @@ public class IssuesService(
                         PreviewFileId = a.Attachment.PreviewFileId,
                         Type = a.Attachment.Type,
                         FileName = a.Attachment.File!.Name,
+                        MimeType = a.Attachment.File.MimeType,
+                        FileSize = a.Attachment.File.Size,
                     })
                     .ToList(),
             })
@@ -1035,22 +1075,25 @@ public class IssuesService(
         return issueId;
     }
 
-    private async Task<MediaInfo[]> UploadFiles(IFormFile[] formFiles, CancellationToken cancellationToken)
+    private async Task<MediaInfo[]> UploadFiles(UploadedFormFile[] uploadedFiles, CancellationToken cancellationToken)
     {
         var files = new List<MediaInfo>();
-        foreach (var formFile in formFiles)
+        foreach (var uploadedFile in uploadedFiles)
         {
+            using var stream = new MemoryStream(uploadedFile.Content);
             var fileData = await coreFilesService.UploadFile(
-                formFile.FileName, 
-                formFile.ContentType,
-                formFile.OpenReadStream(),
+                uploadedFile.FileName,
+                uploadedFile.FileType,
+                stream,
                 cancellationToken);
-            
+
             files.Add(fileData);
         }
-        
+
         return files.ToArray();
     }
+
+    private sealed record UploadedFormFile(string FileName, AttachmentFileType FileType, byte[] Content);
 
     private async Task<List<SearchIssueDto>> MapToSearchDtos(
         OrganizationAuthData authData,
@@ -2141,6 +2184,12 @@ public record EpicSummary
 public record AttachmentData : MediaInfo
 {
     public required Guid Id { get; init; }
+
+    /// <summary>The original file's mime type, e.g. 'application/pdf' - for a document's icon.</summary>
+    public required string? MimeType { get; init; }
+
+    /// <summary>The original file's size in bytes, when Telegram reported it.</summary>
+    public required long? FileSize { get; init; }
 }
 
 public record AddCommentRequest

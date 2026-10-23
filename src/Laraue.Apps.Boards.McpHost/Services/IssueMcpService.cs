@@ -243,11 +243,12 @@ public interface IIssueMcpService
         Guid attachmentId,
         CancellationToken cancellationToken);
 
-    /// <summary>Returns the new comment's id.</summary>
+    /// <summary>Returns the new comment's id. <paramref name="files"/> become the comment's attachments.</summary>
     Task<long> CreateComment(
         OrganizationAuthData authData,
         string issueKey,
         string text,
+        IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -255,11 +256,15 @@ public interface IIssueMcpService
     /// isn't readable, <see cref="ForbiddenException"/> if it's readable but this caller isn't
     /// its author - only the comment's own owner may edit it, same rule the REST API enforces
     /// (<c>IssuesService.UpdateIssueComment</c>), not gated by <c>CanUpdateIssue</c>.
+    /// <paramref name="files"/> are added to the comment's attachments, <paramref name="removeAttachmentIds"/>
+    /// removed from them.
     /// </summary>
     Task EditComment(
         OrganizationAuthData authData,
         long commentId,
         string text,
+        IReadOnlyList<FileAttachment>? files,
+        IReadOnlyList<Guid>? removeAttachmentIds,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -343,8 +348,9 @@ public sealed record IssueHistoryPage(IReadOnlyList<IssueHistoryEntry> Entries, 
 
 /// <summary>An issue's attachment, as returned by <see cref="IIssueMcpService.GetIssue"/> - its
 /// <see cref="Id"/> is what <see cref="IIssueMcpService.EditIssue"/>'s <c>removeAttachmentIds</c>
-/// takes to remove it.</summary>
-public sealed record IssueAttachmentSummary(Guid Id, string? FileName);
+/// takes to remove it. <see cref="Type"/> is <see cref="AttachmentType"/>'s name (Image, Video,
+/// Document), <see cref="MimeType"/>/<see cref="FileSize"/> the original file's.</summary>
+public sealed record IssueAttachmentSummary(Guid Id, string? FileName, string Type, string? MimeType, long? FileSize);
 
 /// <summary>
 /// <see cref="CanEdit"/>/<see cref="CanDelete"/> mirror the REST API's own <c>IssueDetailDto.
@@ -452,8 +458,9 @@ public sealed record AttributeListValueSummary(long Id, string Value);
 /// <summary>
 /// A file to attach, base64-encoded - the only shape an MCP tool call can practically carry a
 /// file in, since there's no multipart upload channel here the way the REST API's
-/// <c>IFormFile[]</c> gets one. <see cref="ContentType"/> must be one of
-/// <see cref="SystemMimeTypes.Supported"/> (images only, same restriction the REST API has).
+/// <c>IFormFile[]</c> gets one. The type is recognized from the content
+/// (<see cref="AttachmentFileTypes.Detect"/>, same as the REST API); <see cref="ContentType"/> is
+/// informational only.
 /// </summary>
 public sealed record FileAttachment(string FileName, string ContentType, string Base64Content);
 
@@ -622,7 +629,12 @@ public class IssueMcpService(
 
         var attachments = await context.IssueAttachments
             .Where(a => a.IssueId == issueId)
-            .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
+            .Select(a => new IssueAttachmentSummary(
+                a.AttachmentId,
+                a.Attachment!.File!.Name,
+                a.Attachment.Type.ToString(),
+                a.Attachment.File.MimeType,
+                a.Attachment.File.Size))
             .ToListAsyncEF(cancellationToken);
 
         var links = await issueLinksReader.GetLinks(
@@ -864,7 +876,12 @@ public class IssueMcpService(
                 c.CreatedAt,
                 c.UpdatedAt,
                 Attachments = c.Attachments
-                    .Select(a => new IssueAttachmentSummary(a.AttachmentId, a.Attachment!.File!.Name))
+                    .Select(a => new IssueAttachmentSummary(
+                        a.AttachmentId,
+                        a.Attachment!.File!.Name,
+                        a.Attachment.Type.ToString(),
+                        a.Attachment.File.MimeType,
+                        a.Attachment.File.Size))
                     .ToList(),
             })
             .ShortPaginateEFAsync(pagination, cancellationToken);
@@ -1354,20 +1371,10 @@ public class IssueMcpService(
             return [];
 
         var errors = new List<string?>();
-        var decoded = new List<(FileAttachment File, byte[] Bytes)>();
+        var decoded = new List<(FileAttachment File, AttachmentFileType FileType, byte[] Bytes)>();
 
         foreach (var file in files)
         {
-            if (!SystemMimeTypes.Supported.Contains(file.ContentType))
-            {
-                errors.Add(string.Format(
-                    ErrorMessages.FileUnsupportedMimeType,
-                    file.FileName,
-                    file.ContentType,
-                    string.Join(", ", SystemMimeTypes.Supported)));
-                continue;
-            }
-
             byte[] bytes;
             try
             {
@@ -1379,13 +1386,31 @@ public class IssueMcpService(
                 continue;
             }
 
-            if (bytes.Length > SystemMimeTypes.MaxFileSizeBytes)
+            if (bytes.Length > AttachmentFileTypes.MaxFileSizeBytes)
             {
-                errors.Add(string.Format(ErrorMessages.FileTooLarge, file.FileName));
+                errors.Add(FileTooLargeError(file.FileName));
                 continue;
             }
 
-            decoded.Add((file, bytes));
+            // The declared ContentType isn't trusted: the type is what the content says it is.
+            var fileType = AttachmentFileTypes.Detect(file.FileName, bytes);
+            if (fileType is null)
+            {
+                errors.Add(string.Format(
+                    ErrorMessages.FileUnsupportedType,
+                    file.FileName,
+                    AttachmentFileTypes.ImageNames,
+                    AttachmentFileTypes.DocumentNames));
+                continue;
+            }
+
+            if (bytes.Length > fileType.MaxSizeBytes)
+            {
+                errors.Add(FileTooLargeError(file.FileName));
+                continue;
+            }
+
+            decoded.Add((file, fileType, bytes));
         }
 
         if (errors.Count > 0)
@@ -1395,13 +1420,22 @@ public class IssueMcpService(
             });
 
         var uploaded = new List<MediaInfo>();
-        foreach (var (file, bytes) in decoded)
+        foreach (var (file, fileType, bytes) in decoded)
         {
             using var stream = new MemoryStream(bytes);
-            uploaded.Add(await coreFilesService.UploadFile(file.FileName, file.ContentType, stream, cancellationToken));
+            uploaded.Add(await coreFilesService.UploadFile(file.FileName, fileType, stream, cancellationToken));
         }
 
         return uploaded;
+    }
+
+    private static string FileTooLargeError(string fileName)
+    {
+        return string.Format(
+            ErrorMessages.FileTooLarge,
+            fileName,
+            AttachmentFileTypes.MaxImageSizeMegabytes,
+            AttachmentFileTypes.MaxDocumentSizeMegabytes);
     }
 
     public async Task<FileContent> GetAttachmentContent(
@@ -1415,12 +1449,14 @@ public class IssueMcpService(
             .Select(x => new { x.FileId, FileSize = x.File!.Size })
             .FirstOrThrowNotFoundEFAsync(string.Format(ErrorMessages.EntityNotFound, "Attachment", attachmentId), cancellationToken);
 
-        // Uploads are already capped at SystemMimeTypes.MaxFileSizeBytes (see UploadFiles below),
-        // but this guards against a legacy/otherwise-larger file predating that cap - reject it
-        // before ever opening a stream over it, rather than relying solely on GetAttachment's own
-        // runtime cap on the copy itself.
-        if (attachmentData.FileSize > SystemMimeTypes.MaxFileSizeBytes)
-            throw new BadRequestException(nameof(attachmentId), string.Format(ErrorMessages.AttachmentTooLargeToDownload, attachmentId));
+        // Uploads are already capped at AttachmentFileTypes.MaxFileSizeBytes (see UploadFiles above),
+        // but this guards against a file that didn't come through them (e.g. a video from Telegram) -
+        // reject it before ever opening a stream over it, rather than relying solely on
+        // GetAttachment's own runtime cap on the copy itself.
+        if (attachmentData.FileSize > AttachmentFileTypes.MaxFileSizeBytes)
+            throw new BadRequestException(
+                nameof(attachmentId),
+                string.Format(ErrorMessages.AttachmentTooLargeToDownload, attachmentId, AttachmentFileTypes.MaxDocumentSizeMegabytes));
 
         return await coreFilesService.GetFileContent(attachmentData.FileId, cancellationToken);
     }
@@ -1429,6 +1465,7 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         string issueKey,
         string text,
+        IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken)
     {
         var key = new IssueKey(issueKey);
@@ -1439,8 +1476,10 @@ public class IssueMcpService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
 
+        var uploadedFiles = await UploadFiles(files, cancellationToken);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var commentId = await coreIssuesService.AddComment(issueId, authData.ToActor(), text, [], cancellationToken);
+        var commentId = await coreIssuesService.AddComment(issueId, authData.ToActor(), text, uploadedFiles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return commentId;
@@ -1450,6 +1489,8 @@ public class IssueMcpService(
         OrganizationAuthData authData,
         long commentId,
         string text,
+        IReadOnlyList<FileAttachment>? files,
+        IReadOnlyList<Guid>? removeAttachmentIds,
         CancellationToken cancellationToken)
     {
         // Two distinct failure modes: the comment/its issue doesn't exist or isn't readable
@@ -1467,8 +1508,16 @@ public class IssueMcpService(
         if (comment.OwnerId != authData.UserId)
             throw new ForbiddenException(string.Format(ErrorMessages.EntityActionForbidden, "Comment", commentId, "edit"));
 
+        var uploadedFiles = await UploadFiles(files, cancellationToken);
+
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.UpdateComment(comment.Id, new Actor(comment.OwnerId, authData.ApiKeyId), text, [], [], cancellationToken);
+        await coreIssuesService.UpdateComment(
+            comment.Id,
+            new Actor(comment.OwnerId, authData.ApiKeyId),
+            text,
+            uploadedFiles.ToArray(),
+            removeAttachmentIds?.ToArray() ?? [],
+            cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

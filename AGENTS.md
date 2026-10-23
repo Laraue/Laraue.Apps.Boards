@@ -433,8 +433,8 @@ editing/deleting a comment). Guardrails:
   overwriting. `get_issue` returns `links` (relation from the issue's side, key, title, status category) via
   `IssueLinksReader`; `list_issues` takes `excludeBlocked` rather than returning a flag, so "ready to start" pages are
   full. An unreadable issue is a 404 on either end and left out of `links`.
-- **No attachment tool**: attach via `create_issue`/`edit_issue`'s `files`, remove via `edit_issue`'s
-  `removeAttachmentIds`.
+- **No attachment tool**: attach via `create_issue`/`edit_issue`/`create_comment`/`edit_comment`'s `files`, remove via
+  `edit_issue`/`edit_comment`'s `removeAttachmentIds`.
 - **No `spaceKey` on `create_issue`**: permission comes from `statusId`'s epic (`GetAccessLevelsByEpicId`).
 - **Ids, not names**, for whatever can't be typed unambiguously: `statusId`, attribute and list-value ids from
   `list_attributes`, `assigneeId` and the assignee filter. `list_statuses`/`list_attributes`/`list_members` exist to
@@ -532,9 +532,20 @@ SDK meter name is experimental - check dashboards when bumping `ModelContextProt
 `ICoreIssueAttributesService.BuildSetRequests` (batched validation, all errors at once). Omitted/`null` `attributes`
 leaves them untouched, `{}` clears all - check `attributes is not null`, not `.Count > 0`.
 
+**Attachment types** (BRD-259, `AttachmentFileTypes`, `Boards.Services`): the one list of what attachments accept, for
+REST and MCP. The type comes from the file's content (magic bytes; docx = a zip with `word/document.xml` and no VBA
+project), never the declared mime type; md/txt/json have no signature, so the extension decides provided the content is
+UTF-8 with no NUL bytes, and a .doc needs both the OLE signature and the extension. Images (JPEG, PNG, WebP, GIF) are
+limited to 3 MB, documents (PDF, DOCX, DOC, Markdown, TXT, JSON) to 10 MB - under the Bot API's 20 MB download limit,
+since Telegram is the storage. SVG, HEIC/AVIF and anything else are rejected. JPEG/PNG go through `sendPhoto` (Telegram
+makes the thumbnail); the rest through `sendDocument` with content-type detection off (GIF/WebP are their own preview,
+documents have none: `AttachmentType.Document`). `GET /api/files/{id}` sends `nosniff` and a sandbox CSP for every file
+and serves anything but images/videos as `Content-Disposition: attachment` with the sanitized upload name.
+
 **File attachments**: no multipart in MCP, so `files` is `FileAttachment(FileName, ContentType, Base64Content)[]`,
-decoded by `IssueMcpService.UploadFiles` into REST's `ICoreFilesService.UploadFile` (same types, 3MB
-`SystemMimeTypes.MaxFileSizeBytes`). `get_attachment` returns an `ImageContentBlock` with the 3MB cap enforced twice: the
+decoded by `IssueMcpService.UploadFiles` into REST's `ICoreFilesService.UploadFile` (same types and limits).
+`get_attachment` returns an `ImageContentBlock` for images, a `TextContentBlock` for md/txt/json and an
+`EmbeddedResourceBlock` (base64 blob) for pdf/doc/docx, with `AttachmentFileTypes.MaxFileSizeBytes` enforced twice: the
 recorded size before streaming, and a hard cap while buffering (the real OOM guard if `File.Size` is wrong). It takes
 any attachment id (issue or comment) and checks **no permission**, like REST's unauthenticated `GET /api/files/{id}`:
 ids are unguessable UUIDv7s learned only from readable data. An id stays usable after access is lost.

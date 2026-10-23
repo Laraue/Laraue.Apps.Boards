@@ -93,11 +93,11 @@
     <data name="SpaceNotExistsOrEpicCreationForbidden" xml:space="preserve">
         <value>Space is not exists: {0} or epic creation is forbidden</value>
     </data>
-    <data name="FileSizeLimited" xml:space="preserve">
-        <value>File size is limited to 3MB</value>
+    <data name="FileTooLarge" xml:space="preserve">
+        <value>File '{0}' is too large: images are limited to {1}MB, documents to {2}MB</value>
     </data>
-    <data name="UnsupportedMimeTypes" xml:space="preserve">
-        <value>Supported mime types are: {0}</value>
+    <data name="UnsupportedFileType" xml:space="preserve">
+        <value>File '{0}' is not supported - supported are images ({1}) and documents ({2})</value>
     </data>
     <data name="UserNotBelongsToOrganization" xml:space="preserve">
         <value>User: {0} does not exist or does not belong to organization</value>

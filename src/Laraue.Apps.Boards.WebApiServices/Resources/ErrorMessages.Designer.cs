@@ -207,15 +207,15 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
-        internal static string FileSizeLimited {
+        internal static string FileTooLarge {
             get {
-                return ResourceManager.GetString("FileSizeLimited", resourceCulture);
+                return ResourceManager.GetString("FileTooLarge", resourceCulture);
             }
         }
-        
-        internal static string UnsupportedMimeTypes {
+
+        internal static string UnsupportedFileType {
             get {
-                return ResourceManager.GetString("UnsupportedMimeTypes", resourceCulture);
+                return ResourceManager.GetString("UnsupportedFileType", resourceCulture);
             }
         }
         

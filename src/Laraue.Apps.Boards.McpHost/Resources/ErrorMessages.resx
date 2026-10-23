@@ -36,8 +36,8 @@
     <data name="AttributeValueInvalid" xml:space="preserve">
         <value>Attribute '{0}': value is not a valid {1}</value>
     </data>
-    <data name="FileUnsupportedMimeType" xml:space="preserve">
-        <value>File '{0}': unsupported content type '{1}' - supported types are: {2}</value>
+    <data name="FileUnsupportedType" xml:space="preserve">
+        <value>File '{0}': unsupported type - supported are images ({1}) and documents ({2}), recognized by their content</value>
     </data>
     <data name="MaxLengthExceeded" xml:space="preserve">
         <value>Must be at most {0} characters.</value>
@@ -46,10 +46,10 @@
         <value>File '{0}': content is not valid base64</value>
     </data>
     <data name="FileTooLarge" xml:space="preserve">
-        <value>File '{0}': size is limited to 3MB</value>
+        <value>File '{0}': too large - images are limited to {1}MB, documents to {2}MB</value>
     </data>
     <data name="AttachmentTooLargeToDownload" xml:space="preserve">
-        <value>Attachment: {0} exceeds the 3MB download limit</value>
+        <value>Attachment: {0} exceeds the {1}MB download limit</value>
     </data>
     <data name="UserNotBelongsToOrganization" xml:space="preserve">
         <value>User: {0} does not exist or does not belong to organization</value>

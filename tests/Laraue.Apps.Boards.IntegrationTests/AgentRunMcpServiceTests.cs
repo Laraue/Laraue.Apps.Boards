@@ -400,7 +400,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             .CreateAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
 
         var commentId = await IssueMcpServiceTests.CreateIssueMcpService(testScope)
-            .CreateComment(setup.EditorAuthData, setup.IssueKey, "Note for the agent", CancellationToken.None);
+            .CreateComment(setup.EditorAuthData, setup.IssueKey, "Note for the agent", null, CancellationToken.None);
 
         Assert.True(commentId > 0);
     }

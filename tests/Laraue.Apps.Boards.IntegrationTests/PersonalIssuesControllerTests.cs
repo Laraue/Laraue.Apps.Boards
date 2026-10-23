@@ -6,6 +6,7 @@ using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Sorting;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
+using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -864,6 +865,71 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         Assert.Equal("image.jpg", newFileChange.NewDisplayValue);
         Assert.True(Guid.TryParse(newFileChange.NewValueId, out _));
         Assert.Equal(PropertyType.Attachment, newFileChange.PropertyType);
+    }
+
+    [Fact]
+    public async Task AddComment_ShouldAttachDocument_WhenFileIsPdf()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "SP2", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Build app")))));
+        var issue = organization.GetIssueData(1, 1, 0, 0);
+
+        // The browser's content type is ignored - the content says it's a PDF.
+        var request = new AddCommentRequest
+        {
+            Text = "The spec",
+            IssueKey = issue.Key,
+            Files = [FormFileUtility.GetFormFile("spec.pdf", "%PDF-1.7\n"u8.ToArray(), "application/octet-stream")],
+        };
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.AddComment(request));
+
+        var attachment = await testScope.Database.IssueCommentsAttachments
+            .Select(x => new { x.Attachment!.Type, x.Attachment.PreviewFileId, x.Attachment.File!.MimeType, x.Attachment.File.Name })
+            .SingleAsyncEF();
+        Assert.Equal(AttachmentType.Document, attachment.Type);
+        Assert.Null(attachment.PreviewFileId);
+        Assert.Equal("application/pdf", attachment.MimeType);
+        Assert.Equal("spec.pdf", attachment.Name);
+    }
+
+    [Fact]
+    public async Task AddComment_ShouldFail_WhenFileContentIsNotSupported()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "SP2", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, issue => issue
+                            .WithContent("Build app")))));
+        var issue = organization.GetIssueData(1, 1, 0, 0);
+
+        // An executable renamed to .jpg with an image content type.
+        var request = new AddCommentRequest
+        {
+            Text = "A photo",
+            IssueKey = issue.Key,
+            Files = [FormFileUtility.GetFormFile("photo.jpg", [0x4D, 0x5A, 0x90, 0x00], "image/jpeg")],
+        };
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.AddComment(request)));
+
+        ex.HasInnerException<BadRequestException>();
+        Assert.False(await testScope.Database.IssueComments.AnyAsyncEF());
     }
 
     [Fact]
