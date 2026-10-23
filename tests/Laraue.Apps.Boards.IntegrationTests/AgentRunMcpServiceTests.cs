@@ -608,6 +608,108 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
     }
 
     [Fact]
+    public async Task StartAgentRun_ShouldCreateWorkingRunWithHistory_WhenIssueIsStartedAndLastRunFailed()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organization.Id, ownerId, "Claude Code agent", CancellationToken.None);
+        var runnerAuthData = AuthDataFor(organization.Id, ownerId, apiKey.Id);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var failedRun = await service.CreateAgentRun(runnerAuthData, issueKey, CancellationToken.None);
+        await service.ClaimAgentRun(runnerAuthData, failedRun.Id, CancellationToken.None);
+        await service.FinishAgentRun(runnerAuthData, failedRun.Id, AgentRunFinishState.Failed, "The runner was stopped", CancellationToken.None);
+        var issueMcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
+        await issueMcpService
+            .EditIssueStatus(runnerAuthData, issueKey, organization.GetStatus(1, 1, 1).Id, comment: null, CancellationToken.None);
+
+        var run = await service.StartAgentRun(runnerAuthData, issueKey, CancellationToken.None);
+
+        Assert.Equal("Working", run.State);
+        Assert.Equal("Claude Code agent", run.ClaimedByApiKey);
+        Assert.NotNull(run.ClaimedAt);
+        Assert.Equal(run.Id, (await issueMcpService.GetIssue(runnerAuthData, issueKey, CancellationToken.None)).LatestAgentRun?.Id);
+        var history = await issueMcpService
+            .GetIssueHistory(AuthDataFor(organization.Id, ownerId), issueKey, null, null, CancellationToken.None);
+        var start = history.Entries.First();
+        Assert.Equal("Claude Code agent", start.ApiKeyName);
+        Assert.Equal([$"agent run {run.Id}: none -> Working"], start.Changes);
+
+        Assert.True(await service.FinishAgentRun(runnerAuthData, run.Id, AgentRunFinishState.Done, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StartAgentRun_ShouldReject_WhenIssueAlreadyHasOpenRun()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var authData = AuthDataFor(organization.Id, ownerId);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => service.StartAgentRun(authData, issueKey, CancellationToken.None));
+
+        Assert.Equal(1, await testScope.Database.IssueAgentRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task StartAgentRun_ShouldWork_WhenBoardHasNoInProgressOrReviewStatus()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("In the backlog")));
+
+        var run = await CreateAgentRunMcpService(testScope.Services)
+            .StartAgentRun(AuthDataFor(organization.Id, ownerId), organization.GetIssueData(0, 0, 0, 0).Key, CancellationToken.None);
+
+        Assert.Equal("Working", run.State);
+    }
+
+    [Fact]
+    public async Task StartAgentRun_ShouldThrowForbidden_WhenCallerIsNotAssignee()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateAgentRunMcpService(testScope.Services)
+            .StartAgentRun(setup.EditorAuthData, setup.IssueKey, CancellationToken.None));
+        Assert.Equal(0, await testScope.Database.IssueAgentRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task StartAgentRun_ShouldThrowNotFound_WhenCallerCannotReadIssue()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddUser(memberId)
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateAgentRunMcpService(testScope.Services)
+            .StartAgentRun(AuthDataFor(organization.Id, memberId), organization.GetIssueData(1, 1, 0, 0).Key, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldThrowConflict_WhenStartedRunIsOpen()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+        await CreateAgentRunMcpService(testScope.Services)
+            .StartAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        await Assert.ThrowsAsync<IssueLockedByAgentRunException>(() => IssueMcpServiceTests.CreateIssueMcpService(testScope)
+            .EditIssue(setup.EditorAuthData, setup.IssueKey, "Do something else", "Title", null, null, null, null, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task GetIssue_ShouldReturnLatestAgentRun_WhenIssueWasHandedOff()
     {
         using var testScope = host.CreateTestScope();

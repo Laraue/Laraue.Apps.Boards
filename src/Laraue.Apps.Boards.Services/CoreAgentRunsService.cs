@@ -11,7 +11,7 @@ using Npgsql;
 namespace Laraue.Apps.Boards.Services;
 
 /// <summary>
-/// Agent runs of an issue (<see cref="IssueAgentRun"/>, BRD-305): hand-off, claim, finish, cancel. Every state
+/// Agent runs of an issue (<see cref="IssueAgentRun"/>, BRD-305): hand-off, claim, start, finish, cancel. Every state
 /// change is one conditional <c>UPDATE ... WHERE State = expected</c>, so two callers racing for the same run
 /// can't both win - the loser gets <c>false</c>. Each change is written to the issue's history, attributed to
 /// the <see cref="Actor"/> (with its API key, for a runner). No permission checks, like every core service; the
@@ -27,6 +27,18 @@ public interface ICoreAgentRunsService
     /// Returns the new run's id.
     /// </summary>
     Task<long> Create(
+        long issueId,
+        Actor actor,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a run that is already <see cref="AgentRunState.Working"/>, claimed by <paramref name="actor"/>'s API key
+    /// - a person working with the agent on the issue directly (<c>lba continue</c>, BRD-320). Unlike
+    /// <see cref="Create"/>, the issue may be in any status and its board needs no particular statuses: nobody hands
+    /// it off and no runner moves it. Throws <see cref="BadRequestException"/> when the issue already has an open run.
+    /// Returns the new run's id.
+    /// </summary>
+    Task<long> Start(
         long issueId,
         Actor actor,
         CancellationToken cancellationToken);
@@ -91,14 +103,47 @@ public class CoreAgentRunsService(
 
         var now = dateTimeProvider.UtcNow;
 
-        var run = new IssueAgentRun
-        {
-            IssueId = issueId,
-            State = AgentRunState.Ready,
-            CreatedAt = now,
-            CreatedByUserId = actor.UserId,
-        };
+        return await AddRun(
+            new IssueAgentRun
+            {
+                IssueId = issueId,
+                State = AgentRunState.Ready,
+                CreatedAt = now,
+                CreatedByUserId = actor.UserId,
+            },
+            actor,
+            cancellationToken);
+    }
 
+    public async Task<long> Start(
+        long issueId,
+        Actor actor,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        var now = dateTimeProvider.UtcNow;
+
+        return await AddRun(
+            new IssueAgentRun
+            {
+                IssueId = issueId,
+                State = AgentRunState.Working,
+                CreatedAt = now,
+                CreatedByUserId = actor.UserId,
+                ClaimedAt = now,
+                ClaimedByApiKeyId = actor.ApiKeyId,
+            },
+            actor,
+            cancellationToken);
+    }
+
+    // Saves a new open run - the open-run index refuses a second one - and records it in the history as none -> its state.
+    private async Task<long> AddRun(
+        IssueAgentRun run,
+        Actor actor,
+        CancellationToken cancellationToken)
+    {
         context.IssueAgentRuns.Add(run);
 
         try
@@ -111,7 +156,7 @@ public class CoreAgentRunsService(
             throw new BadRequestException("issueKey", ErrorMessages.AgentRunAlreadyOpen);
         }
 
-        await RecordStateChange(run.Id, null, AgentRunState.Ready, actor, now, cancellationToken);
+        await RecordStateChange(run.Id, null, run.State, actor, run.CreatedAt, cancellationToken);
 
         return run.Id;
     }

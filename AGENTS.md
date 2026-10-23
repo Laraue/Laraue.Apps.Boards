@@ -425,7 +425,7 @@ Lets a program (e.g. Claude via a remote MCP connector) act as an organization m
 `edit_issue`, `delete_issue`, `create_comment`, `edit_comment`, `delete_comment`, `create_issue_link`,
 `delete_issue_link`, `get_attachment`; discovery: `get_me`, `get_space`, `list_spaces`, `list_epics`, `list_statuses`,
 `list_attributes`, `list_members`; agent runs: `create_agent_run`, `list_agent_runs`, `claim_agent_run`,
-`finish_agent_run`, `cancel_agent_run`. Reads need `CanRead` (except `get_attachment`); mutations use REST's checks
+`start_agent_run`, `finish_agent_run`, `cancel_agent_run`. Reads need `CanRead` (except `get_attachment`); mutations use REST's checks
 (`CanCreateIssue` from the target status's epic, `CanUpdateIssue` for edits/comments, `CanDeleteIssue`, author-only for
 editing/deleting a comment). Guardrails:
 
@@ -497,6 +497,10 @@ editing/deleting a comment). Guardrails:
   or `NotAllowed`, `RunOpen`, `NoApiKey`, `BoardNotReady` (with the missing categories), `IssueStarted` - returned on
   the issue detail as `AgentHandOff` and re-checked by the endpoint. Since the issue can still move, the claim
   re-checks the board and fails the run if it no longer qualifies.
+- Started runs (BRD-320, `start_agent_run`, `ICoreAgentRunsService.Start`): `lba continue` - the person working with
+  the agent directly - opens a run already Working, claimed by the caller's key, in one step. No status or board
+  requirements and no status change (nothing is handed off), but otherwise a claim's rules: assignee only, one open run
+  (400), the issue locked, a `none -> Working` history item with the API key. It ends like any run.
 - Send back (BRD-315, `POST /api/agent-runs/send-back`, `IAgentRunsService.SendBack`): for an issue the agent already
   worked on, one transaction posts the assignee's comment (`ICoreIssuesService.AddComment`), moves the issue to its
   board's first Created status and creates a new run. `AgentHandOff.CanSendBack` says when it's offered - the same checks
