@@ -11,9 +11,17 @@ using TelegramUser = Telegram.Bot.Types.User;
 
 namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
-public class AppTelegramTestHost(IServiceCollection serviceCollection)
-    : TelegramTestHost<Guid>(serviceCollection, TelegramBotClientMockFactory.GetInstance())
+/// <param name="fileContents">
+/// What downloading a Telegram file gives, by its file id - shared with the services' fake download handler
+/// (<see cref="FakeTelegramFileContentHttpMessageHandler"/>).
+/// </param>
+public class AppTelegramTestHost(IServiceCollection serviceCollection, Dictionary<string, byte[]> fileContents)
+    : TelegramTestHost<Guid>(serviceCollection, TelegramBotClientMockFactory.GetInstance(fileContents))
 {
+    /// <summary>
+    /// What downloading a Telegram file gives, by its file id - add a document's content before sending it.
+    /// </summary>
+    public Dictionary<string, byte[]> FileContents { get; } = fileContents;
 
     protected override void BeforeFirstRequest()
     {

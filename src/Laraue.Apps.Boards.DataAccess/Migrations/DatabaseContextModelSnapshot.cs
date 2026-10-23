@@ -1868,6 +1868,15 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("sent_at");
 
+                    b.Property<string>("SkippedFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("skipped_file_name");
+
+                    b.Property<int?>("SkippedFileReason")
+                        .HasColumnType("integer")
+                        .HasColumnName("skipped_file_reason");
+
                     b.Property<long?>("TelegramMediaGroupId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_media_group_id");

@@ -76,9 +76,11 @@ public class TelegramSaveMessageService(
             SaveImageMessageTelegramRequest saveImageRequest =>
                 SaveImageEntity(saveImageRequest, cancellationToken),
             SaveTextMessageTelegramRequest saveTextRequest =>
-                SaveMessageEntity(saveTextRequest, null, cancellationToken),
+                SaveMessageEntity(saveTextRequest, null, null, cancellationToken),
             SaveVideoMessageTelegramRequest saveVideoRequest =>
                 SaveVideoEntity(saveVideoRequest, cancellationToken),
+            SaveDocumentMessageTelegramRequest saveDocumentRequest =>
+                SaveDocumentEntity(saveDocumentRequest, cancellationToken),
             _ => throw new NotImplementedException(request.GetType().Name)
         };
     }
@@ -109,8 +111,27 @@ public class TelegramSaveMessageService(
 
         var groupMessages = await groupQuery
             .OrderBy(x => x.Id)
-            .Select(x => new { x.Id, x.Text, x.AttachmentId, IssueId = x.Issue != null ? (long?)x.Issue.Id : null })
+            .Select(x => new
+            {
+                x.Id,
+                x.Text,
+                x.AttachmentId,
+                IssueId = x.Issue != null ? (long?)x.Issue.Id : null,
+                x.SkippedFileName,
+                x.SkippedFileReason,
+
+                // Photos have no file name, videos are named by their kind: only a file sent as a document
+                // gives a title.
+                DocumentName = x.Attachment != null && x.Attachment.Type != AttachmentType.Video
+                    ? x.Attachment.File!.Name
+                    : null,
+            })
             .ToListAsyncEF(cancellationToken);
+
+        var skippedFiles = groupMessages
+            .Where(x => x.SkippedFileName is not null && x.SkippedFileReason is not null)
+            .Select(x => new SkippedFile(x.SkippedFileName!, x.SkippedFileReason!.Value))
+            .ToArray();
 
         // repliedMessage.Id is always one of these rows (either the query above matched it
         // directly, or it's a member of the group it's filtered by), so this can never be empty.
@@ -165,11 +186,12 @@ public class TelegramSaveMessageService(
                 TelegramMessageId = cardMessage.Id,
                 IssueUrl = existingPreview.Url,
                 IssuePreviewText = existingPreview.Text,
+                SkippedFiles = skippedFiles,
             };
         }
 
         if (content is null && attachmentIds.Length == 0)
-            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NothingToSave };
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NothingToSave, SkippedFiles = skippedFiles };
 
         // /save is deterministic, no AI: "/save Some title" sets the title, a bare /save takes the first line of the
         // text. /aisave always has the AI rewrite the text; a title given with it is kept as it is, without one the
@@ -189,9 +211,14 @@ public class TelegramSaveMessageService(
             title = IssueTitle.FromContent(content) is { Length: > 0 } firstLine ? firstLine : null;
         }
 
-        // Nothing to take a title from (only attachments, or a text of nothing but markup): the user gives one.
+        // No text to take a title from: a document is named after its file.
+        title ??= groupMessages
+            .Select(x => IssueTitle.Normalize(x.DocumentName))
+            .FirstOrDefault(x => x.Length > 0);
+
+        // Nothing to take a title from (only photos or videos, or a text of nothing but markup): the user gives one.
         if (title is null)
-            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.TitleRequired };
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.TitleRequired, SkippedFiles = skippedFiles };
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -212,6 +239,7 @@ public class TelegramSaveMessageService(
             TelegramMessageId = cardMessage.Id,
             IssueUrl = preview.Url,
             IssuePreviewText = preview.Text,
+            SkippedFiles = skippedFiles,
         };
     }
 
@@ -412,8 +440,99 @@ public class TelegramSaveMessageService(
             Type = AttachmentType.Video,
             FileName = request.Video.FileName,
         };
-        
-        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
+
+        return await SaveMessageEntity(request, mediaInfo, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// A file sent as a document is kept in Telegram by its file id, like photos, once it's checked to be one of
+    /// <see cref="AttachmentFileTypes"/> within its size limit. Anything else is skipped: the message is saved
+    /// without it and the file is recorded as skipped, for the notice.
+    /// </summary>
+    private async Task<GetOrCreateMessageResult> SaveDocumentEntity(
+        SaveDocumentMessageTelegramRequest request,
+        CancellationToken cancellationToken)
+    {
+        var document = request.Document;
+        var check = await CheckDocumentType(document, cancellationToken);
+
+        if (check.FileType is null)
+        {
+            var skippedFile = new SkippedFile(GetSkippedFileName(document.FileName), check.SkippedReason!.Value);
+            return await SaveMessageEntity(request, null, skippedFile, cancellationToken);
+        }
+
+        var fileType = check.FileType;
+        var fileName = AttachmentFileTypes.SanitizeFileName(document.FileName, fileType);
+        var fileId = await CreateTelegramFileIfNotExists(
+            new File
+            {
+                FileId = document.FileId,
+                FileUniqueId = document.FileUniqueId,
+                FileName = fileName,
+                FileSize = document.FileSize,
+                MimeType = fileType.MimeType,
+            },
+            cancellationToken);
+
+        // A GIF or WebP (or a JPEG/PNG sent as a file) is small enough to be its own preview, as in
+        // CoreFilesService.UploadDocumentFile.
+        var mediaInfo = new MediaInfo
+        {
+            OriginalFileId = fileId,
+            PreviewFileId = fileType.AttachmentType == AttachmentType.Image ? fileId : null,
+            Type = fileType.AttachmentType,
+            FileName = fileName,
+        };
+
+        return await SaveMessageEntity(request, mediaInfo, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// The document's type by its content. A file already stored (the same document sent again, or an edit that
+    /// only changed the caption) keeps the type it was saved with, without downloading it again.
+    /// </summary>
+    private async Task<DocumentTypeCheck> CheckDocumentType(File document, CancellationToken cancellationToken)
+    {
+        var storedMimeType = await context.TelegramFiles
+            .Where(x => x.ExternalFileUniqueId == document.FileUniqueId)
+            .Select(x => x.File!.MimeType)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (AttachmentFileTypes.FindByMimeType(storedMimeType) is { } storedType)
+            return new DocumentTypeCheck(storedType, null);
+
+        if (document.FileSize > AttachmentFileTypes.MaxFileSizeBytes)
+            return new DocumentTypeCheck(null, SkippedFileReason.TooLarge);
+
+        var content = await coreFilesService.DownloadFromTelegram(
+            document.FileId,
+            AttachmentFileTypes.MaxFileSizeBytes,
+            cancellationToken);
+
+        if (content is null)
+            return new DocumentTypeCheck(null, SkippedFileReason.TooLarge);
+
+        var fileType = AttachmentFileTypes.Detect(document.FileName ?? string.Empty, content);
+        if (fileType is null)
+            return new DocumentTypeCheck(null, SkippedFileReason.UnsupportedType);
+
+        return content.Length > fileType.MaxSizeBytes
+            ? new DocumentTypeCheck(null, SkippedFileReason.TooLarge)
+            : new DocumentTypeCheck(fileType, null);
+    }
+
+    private sealed record DocumentTypeCheck(AttachmentFileType? FileType, SkippedFileReason? SkippedReason);
+
+    /// <summary>
+    /// The name to tell the user about - only shown, never stored as a file, so it just has to fit the column.
+    /// </summary>
+    private static string GetSkippedFileName(string? fileName)
+    {
+        const int maxLength = 255;
+
+        var name = string.IsNullOrWhiteSpace(fileName) ? "file" : fileName.Trim();
+        return name.Length > maxLength ? name[..maxLength] : name;
     }
 
     private async Task<Guid> CreateTelegramFileIfNotExists(File file, CancellationToken cancellationToken)
@@ -462,21 +581,56 @@ public class TelegramSaveMessageService(
             Type = AttachmentType.Image,
             FileName = originalPhoto.FileName,
         };
-        
-        return await SaveMessageEntity(request, mediaInfo, cancellationToken);
+
+        return await SaveMessageEntity(request, mediaInfo, null, cancellationToken);
     }
-        
+
     // New msg, old group
     // Old msg, old group
     // if first msg in group then update content
     private Task<GetOrCreateMessageResult> SaveMessageEntity(
         SaveMessageTelegramRequest request,
         MediaInfo? mediaInfo,
+        SkippedFile? skippedFile,
         CancellationToken cancellationToken)
     {
         return request.MediaGroupId == null
-            ? SaveSingleMessageEntity(request, mediaInfo, cancellationToken)
-            : SaveGroupMessageEntity(request, mediaInfo, cancellationToken);
+            ? SaveSingleMessageEntity(request, mediaInfo, skippedFile, cancellationToken)
+            : SaveGroupMessageEntity(request, mediaInfo, skippedFile, cancellationToken);
+    }
+
+    /// <summary>
+    /// Nothing of the message is left to make a card from: no text and no attachment, e.g. only a skipped
+    /// document.
+    /// </summary>
+    private static bool HasNothingToSave(SaveMessageTelegramRequest request, Guid? attachmentId)
+    {
+        return string.IsNullOrWhiteSpace(request.Text) && attachmentId is null;
+    }
+
+    /// <summary>
+    /// A message recorded without a card because nothing of it could be saved. Carries the skipped file, if
+    /// any, since nothing else tells the sender it was lost.
+    /// </summary>
+    private static GetOrCreateMessageResult NothingSaved(long telegramMessageId, SkippedFile? skippedFile) => new()
+    {
+        Result = null,
+        TelegramMessageId = telegramMessageId,
+        SkippedFile = skippedFile,
+    };
+
+    private Task UpdateMessageText(long telegramMessageId, string? text, SkippedFile? skippedFile, CancellationToken cancellationToken)
+    {
+        // Keep the stored text in sync with edits, even before any card exists - /save reads it later and the
+        // Bot API won't give us a second chance at it. Same for a skipped file, which /save reports.
+        return context.TelegramMessages
+            .Where(x => x.Id == telegramMessageId)
+            .ExecuteUpdateAsync(
+                u => u
+                    .SetProperty(p => p.Text, text != null ? text.Trim() : null)
+                    .SetProperty(p => p.SkippedFileName, skippedFile != null ? skippedFile.FileName : null)
+                    .SetProperty(p => p.SkippedFileReason, skippedFile != null ? skippedFile.Reason : null),
+                cancellationToken);
     }
 
     /// <summary>
@@ -485,6 +639,7 @@ public class TelegramSaveMessageService(
     private async Task<GetOrCreateMessageResult> SaveGroupMessageEntity(
         SaveMessageTelegramRequest request,
         MediaInfo? mediaInfo,
+        SkippedFile? skippedFile,
         CancellationToken cancellationToken)
     {
         // Try to find the message
@@ -513,6 +668,7 @@ public class TelegramSaveMessageService(
             .FirstOrDefaultAsyncEF(cancellationToken);
         
         LinkedChatToSaveMessage? linkedChat = null;
+        var isNewMessage = savedMessage is null;
 
         if (savedMessage is null)
         {
@@ -525,6 +681,8 @@ public class TelegramSaveMessageService(
                 TelegramMediaGroupId = groupId,
                 LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
                 Text = request.Text?.Trim(),
+                SkippedFileName = skippedFile?.FileName,
+                SkippedFileReason = skippedFile?.Reason,
                 SenderId = request.UserId,
                 SentAt = request.SentAt,
             };
@@ -534,16 +692,13 @@ public class TelegramSaveMessageService(
         }
         else
         {
-            // Keep the stored text in sync with edits, even before any card exists - /save
-            // reads it later and the Bot API won't give us a second chance at it.
-            await context.TelegramMessages
-                .Where(x => x.Id == savedMessage.Id)
-                .ExecuteUpdateAsync(u => u.SetProperty(p => p.Text, request.Text != null ? request.Text.Trim() : null), cancellationToken);
+            await UpdateMessageText(savedMessage.Id, request.Text, skippedFile, cancellationToken);
         }
 
         // Record the attachment regardless of save mode - group members can arrive well before
         // any card exists for the group, e.g. waiting for /save in BotMentionedMessages mode.
-        var attachmentId = await UpsertAttachment(savedMessage.Id, request.UserId, mediaInfo, cancellationToken);
+        var attachmentUpsert = await UpsertAttachment(savedMessage.Id, request.UserId, mediaInfo, cancellationToken);
+        var attachmentId = attachmentUpsert.AttachmentId;
 
         linkedChat ??= await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
 
@@ -558,7 +713,7 @@ public class TelegramSaveMessageService(
             // The case when first message was deleted and text added to the second
             var contentChanged = request.Text is not null;
 
-            if (contentChanged || attachmentId is not null)
+            if (contentChanged || attachmentId is not null || attachmentUpsert.RemovedCardAttachmentId is not null)
             {
                 var update = new IssueUpdateRequest();
 
@@ -570,6 +725,9 @@ public class TelegramSaveMessageService(
 
                 if (attachmentId is not null)
                     update.LinkExistingAttachment(attachmentId.Value);
+
+                if (attachmentUpsert.RemovedCardAttachmentId is { } removedAttachmentId)
+                    update.UnlinkAttachment(removedAttachmentId);
 
                 await coreIssuesService.Update(
                     firstGroupMessageData!.CardId!.Value,
@@ -589,12 +747,18 @@ public class TelegramSaveMessageService(
         if (linkedChat.SaveMode != SaveMode.EachMessage)
             return Recorded(savedMessage.Id);
 
+        // E.g. an album starting with a skipped document: a later member with something to save creates the card.
+        // Edits are synced silently, so only a new message reports the file.
+        if (HasNothingToSave(request, attachmentId))
+            return NothingSaved(savedMessage.Id, isNewMessage ? skippedFile : null);
+
         await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
 
+        // The card always belongs to the group's first message, even when an earlier one had nothing to save.
         return await CreateCard(
             request,
             linkedChat,
-            savedMessage.Id,
+            firstGroupMessageData?.Id ?? savedMessage.Id,
             attachmentId,
             Result.MainMessageUpdated,
             cancellationToken);
@@ -606,6 +770,7 @@ public class TelegramSaveMessageService(
     private async Task<GetOrCreateMessageResult> SaveSingleMessageEntity(
         SaveMessageTelegramRequest request,
         MediaInfo? mediaInfo,
+        SkippedFile? skippedFile,
         CancellationToken cancellationToken)
     {
         // Try to find the message
@@ -632,6 +797,8 @@ public class TelegramSaveMessageService(
                 ExternalChatId = request.ExternalChatId,
                 LinkedTelegramChatId = linkedChat.LinkedTelegramChatId,
                 Text = request.Text?.Trim(),
+                SkippedFileName = skippedFile?.FileName,
+                SkippedFileReason = skippedFile?.Reason,
                 SenderId = request.UserId,
                 SentAt = request.SentAt,
             };
@@ -645,16 +812,13 @@ public class TelegramSaveMessageService(
         {
             messageId = savedMessage.Id;
 
-            // Keep the stored text in sync with edits, even before any card exists - /save
-            // reads it later and the Bot API won't give us a second chance at it.
-            await context.TelegramMessages
-                .Where(x => x.Id == messageId)
-                .ExecuteUpdateAsync(u => u.SetProperty(p => p.Text, request.Text != null ? request.Text.Trim() : null), cancellationToken);
+            await UpdateMessageText(messageId, request.Text, skippedFile, cancellationToken);
         }
 
         // Record the attachment regardless of save mode - a message can exist (and be edited)
         // well before it becomes a card, e.g. waiting for /save in BotMentionedMessages mode.
-        var attachmentId = await UpsertAttachment(messageId, request.UserId, mediaInfo, cancellationToken);
+        var attachmentUpsert = await UpsertAttachment(messageId, request.UserId, mediaInfo, cancellationToken);
+        var attachmentId = attachmentUpsert.AttachmentId;
 
         linkedChat ??= await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
 
@@ -673,6 +837,9 @@ public class TelegramSaveMessageService(
             if (attachmentId is not null)
                 update.LinkExistingAttachment(attachmentId.Value);
 
+            if (attachmentUpsert.RemovedCardAttachmentId is { } removedAttachmentId)
+                update.UnlinkAttachment(removedAttachmentId);
+
             await coreIssuesService.Update(
                 savedMessage.IssueId.Value,
                 request.UserId,
@@ -690,6 +857,11 @@ public class TelegramSaveMessageService(
         // is recorded but stays card-less until the user replies with /save.
         if (linkedChat.SaveMode != SaveMode.EachMessage)
             return Recorded(messageId);
+
+        // Only a skipped document: no empty card. An edit adding something to save creates it then. Edits are
+        // synced silently, so only a new message reports the file.
+        if (HasNothingToSave(request, attachmentId))
+            return NothingSaved(messageId, savedMessage is null ? skippedFile : null);
 
         await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
 
@@ -741,10 +913,19 @@ public class TelegramSaveMessageService(
 
     private static string BuildTitle(SaveMessageTelegramRequest request, LinkedChatToSaveMessage linkedChat)
     {
+        // A document without a caption is named after its file.
+        if (request is SaveDocumentMessageTelegramRequest { Document.FileName: { } fileName }
+            && IssueTitle.FromContent(request.Text).Length == 0
+            && IssueTitle.Normalize(fileName) is { Length: > 0 } fileTitle)
+        {
+            return fileTitle;
+        }
+
         var kind = request switch
         {
             SaveImageMessageTelegramRequest => "image",
             SaveVideoMessageTelegramRequest => "video",
+            SaveDocumentMessageTelegramRequest => "file",
             _ => "message",
         };
 
@@ -783,22 +964,15 @@ public class TelegramSaveMessageService(
     /// exists for it yet. In BotMentionedMessages mode messages are recorded before any card
     /// is created, so attachment storage can't be tied to issue creation the way it used to be.
     /// </summary>
-    private async Task<Guid?> UpsertAttachment(
+    private async Task<AttachmentUpsertResult> UpsertAttachment(
         long telegramMessageId,
         Guid ownerId,
         MediaInfo? mediaInfo,
         CancellationToken cancellationToken)
     {
-        // Media info is deleted from the message
+        // Media info is deleted from the message, e.g. an edit replaced a document with one that isn't saved
         if (mediaInfo is null)
-        {
-            await context.TelegramMessages
-                .Where(x => x.Id == telegramMessageId)
-                .Select(x => x.Attachment)
-                .ExecuteDeleteAsync(cancellationToken);
-
-            return null;
-        }
+            return new AttachmentUpsertResult(null, await DetachAttachment(telegramMessageId, cancellationToken));
 
         var attachmentData = await context.TelegramMessages
             .Where(x => x.Id == telegramMessageId)
@@ -820,7 +994,7 @@ public class TelegramSaveMessageService(
                     .SetProperty(x => x.CreatedAt, dateTimeProvider.UtcNow),
                     cancellationToken);
 
-            return attachmentData.AttachmentId;
+            return new AttachmentUpsertResult(attachmentData.AttachmentId, null);
         }
 
         // Media info is created for the message
@@ -842,8 +1016,41 @@ public class TelegramSaveMessageService(
                 .SetProperty(p => p.AttachmentId, attachment.Id),
                 cancellationToken);
 
-        return attachment.Id;
+        return new AttachmentUpsertResult(attachment.Id, null);
     }
+
+    /// <summary>
+    /// Takes the message's attachment off it. One already on a card is left for the caller to unlink through the
+    /// card (so its history shows the removal) and returned; any other is deleted here.
+    /// </summary>
+    private async Task<Guid?> DetachAttachment(long telegramMessageId, CancellationToken cancellationToken)
+    {
+        var attachment = await context.TelegramMessages
+            .Where(x => x.Id == telegramMessageId)
+            .Where(x => x.AttachmentId != null)
+            .Select(x => new { Id = x.AttachmentId!.Value, IsOnCard = x.Attachment!.IssueAttachment != null })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (attachment is null)
+            return null;
+
+        await context.TelegramMessages
+            .Where(x => x.Id == telegramMessageId)
+            .ExecuteUpdateAsync(u => u.SetProperty(p => p.AttachmentId, (Guid?)null), cancellationToken);
+
+        if (attachment.IsOnCard)
+            return attachment.Id;
+
+        await context.Attachments
+            .Where(x => x.Id == attachment.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return null;
+    }
+
+    /// <param name="AttachmentId">The message's attachment, if it has one now.</param>
+    /// <param name="RemovedCardAttachmentId">An attachment the message no longer has that is still on its card.</param>
+    private sealed record AttachmentUpsertResult(Guid? AttachmentId, Guid? RemovedCardAttachmentId);
 
     private async Task<LinkedChatToSaveMessage> GetLinkedChatToSaveMessage(long externalChatId, CancellationToken cancellationToken)
     {
@@ -910,6 +1117,12 @@ public class GetOrCreateMessageResult
 {
     public required long TelegramMessageId { get; set; }
     public required Result? Result { get; set; }
+
+    /// <summary>
+    /// Set when a new message got no card because its only content was a document that wasn't saved - the
+    /// sender should hear about it, since nothing else shows the file was lost.
+    /// </summary>
+    public SkippedFile? SkippedFile { get; init; }
 }
 
 public enum Result
@@ -963,6 +1176,12 @@ public class SaveByReplyResult
     /// format. Set alongside <see cref="IssueUrl"/>.
     /// </summary>
     public string? IssuePreviewText { get; init; }
+
+    /// <summary>
+    /// Documents of the replied-to message (or its album) that weren't saved, to report with whatever the
+    /// outcome is.
+    /// </summary>
+    public IReadOnlyList<SkippedFile> SkippedFiles { get; init; } = [];
 }
 
 public enum SaveByReplyOutcome

@@ -7,8 +7,19 @@ namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 
 public class TelegramBotClientMockFactory
 {
-    public static ITelegramBotClient GetInstance()
+    /// <summary>
+    /// Ends every file's path, after its file id - see <see cref="FakeTelegramFileContentHttpMessageHandler"/>.
+    /// </summary>
+    public const string FilePathSuffix = "/path";
+
+    /// <param name="fileContents">
+    /// File contents by file id, for the sizes GetFile reports - the content itself is downloaded over HTTP
+    /// (<see cref="FakeTelegramFileContentHttpMessageHandler"/>).
+    /// </param>
+    public static ITelegramBotClient GetInstance(IReadOnlyDictionary<string, byte[]>? fileContents = null)
     {
+        fileContents ??= new Dictionary<string, byte[]>();
+
         var botClientMock = new Mock<ITelegramBotClient>();
 
         botClientMock.Setup(x => x.SendRequest(It.IsAny<GetMeRequest>(), It.IsAny<CancellationToken>()))
@@ -25,9 +36,10 @@ public class TelegramBotClientMockFactory
             {
                 FileId = request.FileId,
                 FileUniqueId = request.FileId + "unique",
-                FilePath = request.FileId + "/path",
+                FilePath = request.FileId + FilePathSuffix,
+                FileSize = fileContents.TryGetValue(request.FileId, out var content) ? content.Length : null,
             });
-        
+
         botClientMock.Setup(x => x.SendRequest(It.IsAny<SendPhotoRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((SendPhotoRequest request, CancellationToken _) =>
             {

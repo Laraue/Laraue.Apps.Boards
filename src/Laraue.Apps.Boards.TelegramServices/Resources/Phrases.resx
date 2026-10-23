@@ -176,6 +176,15 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="SaveTitleRequired" xml:space="preserve">
         <value>There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug.</value>
     </data>
+    <data name="FileSkippedUnsupportedType" xml:space="preserve">
+        <value>📎 {0} wasn't saved: this file type isn't supported.</value>
+    </data>
+    <data name="FileSkippedTooLarge" xml:space="preserve">
+        <value>📎 {0} wasn't saved: the file is too large.</value>
+    </data>
+    <data name="FileSkippedLimits" xml:space="preserve">
+        <value>Attachments can be images ({0}, up to {1} MB) and documents ({2}, up to {3} MB).</value>
+    </data>
     <data name="OpenIssueButton" xml:space="preserve">
         <value>🔗 Open issue</value>
     </data>

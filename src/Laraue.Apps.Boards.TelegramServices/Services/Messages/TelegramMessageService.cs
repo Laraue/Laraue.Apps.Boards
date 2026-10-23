@@ -71,6 +71,23 @@ public class TelegramMessageService(
             return;
         }
 
+        // Saving is silent, so a document that was the message's only content would be lost unnoticed. The chat
+        // is linked by now, so this is said in groups too.
+        if (result.SkippedFile is not null)
+        {
+            await client.SendMessage(
+                request.ExternalChatId,
+                SkippedFile.FormatNotice([result.SkippedFile]),
+                replyParameters: new ReplyParameters
+                {
+                    MessageId = request.ExternalMessageId,
+                    AllowSendingWithoutReply = true,
+                },
+                cancellationToken: cancellationToken);
+
+            return;
+        }
+
         // If message was created with that request then response,
         // otherwise it is the second, third etc. parts of message
         if (result.Result is Result.MainMessageCreated)

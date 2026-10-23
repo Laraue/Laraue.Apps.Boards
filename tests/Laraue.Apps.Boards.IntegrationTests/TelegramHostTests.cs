@@ -2753,7 +2753,520 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal(issue.Id, photoAttachment.IssueAttachment!.IssueId);
         Assert.Equal(issue.Id, videoAttachment.IssueAttachment!.IssueId);
     }
-    
+
+    private static readonly byte[] PdfContent = "%PDF-1.4\n%test document"u8.ToArray();
+    private static readonly byte[] MarkdownContent = "# Notes\n\nSome text."u8.ToArray();
+    private static readonly byte[] ExecutableContent = [0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00];
+
+    private const string UnsupportedTypeNotice = "wasn't saved: this file type isn't supported.";
+
+    /// <summary>
+    /// A document as Telegram sends it; downloading it gives <paramref name="content"/>.
+    /// </summary>
+    private static Document CreateDocument(AppTelegramTestHost host, string fileId, string fileName, byte[] content)
+    {
+        host.FileContents[fileId] = content;
+
+        return new Document
+        {
+            FileId = fileId,
+            FileUniqueId = fileId + "Unique",
+            FileName = fileName,
+            FileSize = content.Length,
+        };
+    }
+
+    private static IEnumerable<SendMessageRequest> SkippedFileNotices(AppTelegramTestHost host)
+    {
+        return host.Requests()
+            .OfType<SendMessageRequest>()
+            .Where(x => x.Text.Contains("wasn't saved"));
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldSaveDocumentAttachmentNamedAfterFile_WhenDocumentIsSupported()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Document = CreateDocument(host, "docId1", "report.pdf", PdfContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("report.pdf", issue.Title);
+        Assert.Null(issue.Content);
+
+        var attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal(AttachmentType.Document, attachment.Type);
+        Assert.Null(attachment.PreviewFileId);
+
+        // Kept in Telegram by the file id it was sent with - nothing uploaded again.
+        var telegramFile = Assert.Single(await db.TelegramFiles.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("docId1", telegramFile.ExternalFileId);
+        Assert.Equal(attachment.FileId, telegramFile.FileId);
+        Assert.Empty(host.Requests().OfType<SendDocumentRequest>());
+
+        var file = await db.Files.AsNoTracking().SingleAsync(x => x.Id == attachment.FileId);
+        Assert.Equal("report.pdf", file.Name);
+        Assert.Equal("application/pdf", file.MimeType);
+
+        Assert.Empty(SkippedFileNotices(host));
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldSaveCaptionAndDocument_WhenDocumentHasCaption()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Meeting notes",
+                Document = CreateDocument(host, "docId1", "notes.md", MarkdownContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Meeting notes", issue.Title);
+        Assert.Equal("Meeting notes", issue.Content);
+
+        var attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal(AttachmentType.Document, attachment.Type);
+        var file = await db.Files.AsNoTracking().SingleAsync(x => x.Id == attachment.FileId);
+        Assert.Equal("text/markdown", file.MimeType);
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldNotifyAndCreateNoCard_WhenUnsupportedDocumentIsTheOnlyContent()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Document = CreateDocument(host, "docId1", "setup.exe", ExecutableContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        var notice = Assert.Single(SkippedFileNotices(host));
+        Assert.Equal(1, notice.ReplyParameters!.MessageId);
+        Assert.Contains($"setup.exe {UnsupportedTypeNotice}", notice.Text);
+        Assert.Contains("documents (PDF, DOCX, DOC, Markdown, TXT, JSON, up to 10 MB)", notice.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Empty(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldNotifyTooLarge_WhenDocumentExceedsTheLimit()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Document = new Document
+                {
+                    FileId = "docId1",
+                    FileUniqueId = "docUniqueId1",
+                    FileName = "scan.pdf",
+                    FileSize = 11_000_000,
+                },
+                Chat = PrivateChat,
+            },
+        });
+
+        var notice = Assert.Single(SkippedFileNotices(host));
+        Assert.Contains("scan.pdf wasn't saved: the file is too large.", notice.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldSaveTextSilently_WhenUnsupportedDocumentHasCaption()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Installer for the client",
+                Document = CreateDocument(host, "docId1", "setup.exe", ExecutableContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        Assert.Empty(SkippedFileNotices(host));
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Installer for the client", issue.Content);
+        Assert.Empty(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldUpdateAttachmentSilently_WhenDocumentIsEdited()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Spec",
+                Document = CreateDocument(host, "docId1", "spec.pdf", PdfContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        // The document is replaced with another supported one.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Spec",
+                Document = CreateDocument(host, "docId2", "spec.md", MarkdownContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        var file = await db.Files.AsNoTracking().SingleAsync(x => x.Id == attachment.FileId);
+        Assert.Equal("spec.md", file.Name);
+        Assert.Equal("text/markdown", file.MimeType);
+
+        // Then with an unsupported one: the card keeps its text and loses the attachment, with no notice.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Spec",
+                Document = CreateDocument(host, "docId3", "spec.exe", ExecutableContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Spec", issue.Content);
+        Assert.Empty(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Empty(SkippedFileNotices(host));
+    }
+
+    [Fact]
+    public async Task HandleAlbumMessage_ShouldSaveDocuments_WhenAlbumHasDocuments()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Contract and notes",
+                MediaGroupId = "888",
+                Document = CreateDocument(host, "docId1", "contract.pdf", PdfContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 2,
+                MediaGroupId = "888",
+                Document = CreateDocument(host, "docId2", "notes.md", MarkdownContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Contract and notes", issue.Content);
+
+        var attachments = await db.Attachments
+            .AsNoTracking()
+            .Include(x => x.IssueAttachment)
+            .ToListAsyncEF();
+        Assert.Equal(2, attachments.Count);
+        Assert.All(attachments, x => Assert.Equal(AttachmentType.Document, x.Type));
+        Assert.All(attachments, x => Assert.Equal(issue.Id, x.IssueAttachment!.IssueId));
+    }
+
+    [Fact]
+    public async Task HandleAlbumMessage_ShouldCreateCardOnFirstMessage_WhenAlbumStartsWithUnsupportedDocument()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                MediaGroupId = "889",
+                Document = CreateDocument(host, "docId1", "setup.exe", ExecutableContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        // Nothing of the first message could be saved: no card yet, and the file is reported.
+        Assert.Contains(UnsupportedTypeNotice, Assert.Single(SkippedFileNotices(host)).Text);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 2,
+                MediaGroupId = "889",
+                Document = CreateDocument(host, "docId2", "readme.md", MarkdownContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 3,
+                MediaGroupId = "889",
+                Document = CreateDocument(host, "docId3", "spec.pdf", PdfContent),
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        // One card for the album, on its first message, so later members join it instead of making their own.
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        var firstMessage = await db.TelegramMessages.AsNoTracking().SingleAsync(x => x.ExternalMessageId == 1);
+        Assert.Equal(firstMessage.Id, issue.TelegramMessageId);
+        Assert.Equal("readme.md", issue.Title);
+
+        Assert.Equal(2, await db.IssueAttachments.AsNoTracking().CountAsync(x => x.IssueId == issue.Id));
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldTitleCardAfterFile_WhenRepliedMessageIsOnlyADocument()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 795, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Document = CreateDocument(host, "docId1", "report.pdf", PdfContent),
+                Chat = chat,
+            },
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            },
+        });
+
+        var reply = host.Requests().Single<SendMessageRequest>();
+        Assert.IsType<InlineKeyboardMarkup>(reply.ReplyMarkup);
+        Assert.DoesNotContain("wasn't saved", reply.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("report.pdf", issue.Title);
+        var issueAttachment = Assert.Single(await db.IssueAttachments.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal(issue.Id, issueAttachment.IssueId);
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReportSkippedDocument_WhenRepliedMessageHasUnsupportedDocument()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 796, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Caption = "New installer",
+                Document = CreateDocument(host, "docId1", "setup.exe", ExecutableContent),
+                Chat = chat,
+            },
+        });
+
+        // Nothing is said until /save - the chat saves only on request.
+        Assert.Empty(SkippedFileNotices(host));
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            },
+        });
+
+        // The card is saved with the caption, and the reply with its link says which file was left out.
+        var reply = host.Requests().Single<SendMessageRequest>();
+        Assert.IsType<InlineKeyboardMarkup>(reply.ReplyMarkup);
+        Assert.Contains($"setup\\.exe {UnsupportedTypeNotice.Replace(".", "\\.")}", reply.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("New installer", issue.Content);
+        Assert.Empty(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReportSkippedDocument_WhenItWasTheOnlyContent()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 797, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Document = CreateDocument(host, "docId1", "setup.exe", ExecutableContent),
+                Chat = chat,
+            },
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            },
+        });
+
+        var reply = host.Requests().Single<SendMessageRequest>();
+        Assert.StartsWith("There's nothing to save", reply.Text);
+        Assert.Contains($"setup.exe {UnsupportedTypeNotice}", reply.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+    }
+
     [Fact]
     public async Task InlineSearch_ShouldLookupByExactKey_WhenKeyTokenGiven()
     {

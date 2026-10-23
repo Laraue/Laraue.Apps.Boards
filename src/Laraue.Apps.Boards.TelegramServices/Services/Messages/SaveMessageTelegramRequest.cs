@@ -22,6 +22,14 @@ public class SaveImageMessageTelegramRequest : SaveMessageTelegramRequest
     public required PhotoFile[] Photos { get; set; }
 }
 
+/// <summary>
+/// A file sent as a document (not as a photo or video). Saved only if it's one of the attachment file types.
+/// </summary>
+public class SaveDocumentMessageTelegramRequest : SaveMessageTelegramRequest
+{
+    public required File Document { get; set; }
+}
+
 public class SaveVideoMessageTelegramRequest : SaveMessageTelegramRequest
 {
     public required File Video { get; set; }

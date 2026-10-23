@@ -16,6 +16,13 @@ public interface ICoreFilesService
     Task DownloadToLocalStorage(string fileId, string? mimeType, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Downloads a file from Telegram into memory, e.g. to check its type before keeping it. Returns null when
+    /// it's larger than <paramref name="maxSizeBytes"/> - checked against the size Telegram reports before
+    /// downloading and while reading.
+    /// </summary>
+    Task<byte[]?> DownloadFromTelegram(string fileId, int maxSizeBytes, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Upload file and returns it internal identifiers. <paramref name="fileType"/> is the type
     /// <see cref="AttachmentFileTypes.Detect"/> recognized - the caller validates before uploading.
     /// </summary>
@@ -81,6 +88,30 @@ public class CoreFilesService(
             cancellationToken);
     }
 
+    public async Task<byte[]?> DownloadFromTelegram(string fileId, int maxSizeBytes, CancellationToken cancellationToken)
+    {
+        var botFile = await botClient.GetFile(fileId, cancellationToken);
+        if (botFile.FileSize > maxSizeBytes)
+            return null;
+
+        // The same download as GetFileContent's, capped while reading in case the reported size is wrong.
+        var httpClient = httpClientFactory.CreateClient();
+        await using var contentStream = await httpClient.GetStreamAsync(GetTelegramDownloadUrl(botFile), cancellationToken);
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+        while ((read = await contentStream.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (buffer.Length + read > maxSizeBytes)
+                return null;
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
+    }
+
     public Task<MediaInfo> UploadFile(
         string fileName,
         AttachmentFileType fileType,
@@ -138,6 +169,12 @@ public class CoreFilesService(
     public async Task<string> ResolveTelegramDownloadUrl(string externalFileId, CancellationToken cancellationToken)
     {
         var tgFile = await botClient.GetFile(externalFileId, cancellationToken);
+
+        return GetTelegramDownloadUrl(tgFile);
+    }
+
+    private string GetTelegramDownloadUrl(TGFile tgFile)
+    {
         if (string.IsNullOrEmpty(tgFile.FilePath))
             throw new NotFoundException("Telegram file path is unavailable.");
 

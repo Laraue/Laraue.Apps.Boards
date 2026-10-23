@@ -169,6 +169,15 @@
     <data name="SaveTitleRequired" xml:space="preserve">
         <value>Нет текста, из которого можно сделать заголовок — задайте его сами: ответьте командой /save и заголовком, например: /save Исправить вход.</value>
     </data>
+    <data name="FileSkippedUnsupportedType" xml:space="preserve">
+        <value>📎 {0} не сохранён: такой тип файла не поддерживается.</value>
+    </data>
+    <data name="FileSkippedTooLarge" xml:space="preserve">
+        <value>📎 {0} не сохранён: файл слишком большой.</value>
+    </data>
+    <data name="FileSkippedLimits" xml:space="preserve">
+        <value>Вложениями могут быть изображения ({0}, до {1} МБ) и документы ({2}, до {3} МБ).</value>
+    </data>
     <data name="OpenIssueButton" xml:space="preserve">
         <value>🔗 Открыть карточку</value>
     </data>

@@ -2,6 +2,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Resources;
+using Laraue.Apps.Boards.TelegramServices.Services.Search;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -118,6 +119,11 @@ public class SaveCommandService(
             return;
         }
 
+        // Documents that weren't saved are always reported, under whatever the reply is.
+        var skippedFilesNotice = result.SkippedFiles.Count > 0
+            ? SkippedFile.FormatNotice(result.SkippedFiles)
+            : null;
+
         switch (result.Outcome)
         {
             // /save is a deliberate, visible action everyone in the chat just watched happen -
@@ -130,7 +136,9 @@ public class SaveCommandService(
                 await client.SendIssuePreviewReply(
                     message.Chat.Id,
                     repliedMessage.MessageId,
-                    result.IssuePreviewText!,
+                    skippedFilesNotice is null
+                        ? result.IssuePreviewText!
+                        : $"{result.IssuePreviewText}\n\n{SearchTextFormatter.EscapeMarkdownV2(skippedFilesNotice)}",
                     result.IssueUrl!,
                     cancellationToken);
                 break;
@@ -144,13 +152,24 @@ public class SaveCommandService(
                 break;
 
             case SaveByReplyOutcome.NothingToSave:
-                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNothingToSave, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(
+                    message,
+                    WithSkippedFilesNotice(Phrases.SaveNothingToSave, skippedFilesNotice),
+                    cancellationToken);
                 break;
 
             case SaveByReplyOutcome.TitleRequired:
-                await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveTitleRequired, cancellationToken);
+                await ephemeralReplySender.SendEphemeralNotice(
+                    message,
+                    WithSkippedFilesNotice(Phrases.SaveTitleRequired, skippedFilesNotice),
+                    cancellationToken);
                 break;
         }
+    }
+
+    private static string WithSkippedFilesNotice(string text, string? skippedFilesNotice)
+    {
+        return skippedFilesNotice is null ? text : $"{text}\n\n{skippedFilesNotice}";
     }
 
     /// <summary>
