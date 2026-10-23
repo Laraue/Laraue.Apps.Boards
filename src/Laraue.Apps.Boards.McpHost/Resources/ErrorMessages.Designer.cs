@@ -178,5 +178,11 @@ namespace Laraue.Apps.Boards.McpHost.Resources {
                 return ResourceManager.GetString("AgentRunClaimOnlyAssignee", resourceCulture);
             }
         }
+
+        internal static string AgentRunStartOnlyAssignee {
+            get {
+                return ResourceManager.GetString("AgentRunStartOnlyAssignee", resourceCulture);
+            }
+        }
     }
 }

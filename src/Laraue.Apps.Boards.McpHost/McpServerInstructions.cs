@@ -40,6 +40,8 @@ public static class McpServerInstructions
           to an InProgress status, works, and ends with finish_agent_run (Done or Failed). Anyone who can
           edit the issue can cancel_agent_run, which also unlocks it; a runner whose finish_agent_run
           returns false was cancelled and should stop. get_issue's latestAgentRun shows the current one.
+          An agent working on an issue with a person, outside a hand-off, opens a Working run with
+          start_agent_run and ends it the same way.
         - When you mention an issue to the user, link it with its url from list_issues/get_issue.
         - A failed call says why ('NotFound: ...', 'Forbidden: ...', or 'BadRequest: ...' with a line
           per invalid field) - fix the request instead of retrying it unchanged.

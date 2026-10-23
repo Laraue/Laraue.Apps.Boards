@@ -49,6 +49,15 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool]
+    [Description("Starts an agent run that is already Working, for an agent working on an issue together with a person outside a hand-off (e.g. a runner's interactive session) - so the issue shows the agent on it, and the work ends with finish_agent_run (Done or Failed) or cancel_agent_run like any run. Unlike create_agent_run, the issue may be in any status and its epic needs no particular statuses; the issue's status isn't changed. Fails when the issue already has an open run (Ready or Working). While the run is open the issue is locked: edit_issue and delete_issue fail (status changes and comments still work). Returns the run. Only the issue's assignee can start one, with canEdit (see get_issue/list_issues).")]
+    public Task<AgentRunSummary> StartAgentRun(
+        [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
+        CancellationToken cancellationToken)
+    {
+        return agentRunMcpService.StartAgentRun(GetAuthData(), issueKey, cancellationToken);
+    }
+
+    [McpServerTool]
     [Description("Finishes a Working agent run as Done or Failed. Returns true when the run was finished, false when it was no longer Working - a person cancelled it, so stop working on it. Requires canEdit on the issue.")]
     public Task<bool> FinishAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,

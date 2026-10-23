@@ -53,6 +53,16 @@ public interface IAgentRunMcpService
         long runId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Creates a run already Working for the caller's API key, whatever the issue's status - the agent working on the
+    /// issue with a person, outside a hand-off (<c>lba continue</c>). Only the assignee; fails when the issue already
+    /// has an open run.
+    /// </summary>
+    Task<AgentRunSummary> StartAgentRun(
+        OrganizationAuthData authData,
+        string issueKey,
+        CancellationToken cancellationToken);
+
     Task<bool> FinishAgentRun(
         OrganizationAuthData authData,
         long runId,
@@ -234,6 +244,37 @@ public class AgentRunMcpService(
         await transaction.CommitAsync(cancellationToken);
 
         return claimed;
+    }
+
+    public async Task<AgentRunSummary> StartAgentRun(
+        OrganizationAuthData authData,
+        string issueKey,
+        CancellationToken cancellationToken)
+    {
+        var key = new IssueKey(issueKey);
+
+        var issue = await accessService.GetIssueAccessByKey(authData, key, includeDeleted: false, cancellationToken);
+        EnsureCanUpdateIssue(issue?.AccessLevels, "Issue", key.ToString());
+        var issueId = issue!.IssueId;
+
+        // The same rule as a claim: the run is the assignee's, worked on by their key.
+        await EnsureIsAssignee(
+            issueId,
+            authData.UserId,
+            string.Format(ErrorMessages.AgentRunStartOnlyAssignee, key),
+            cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var runId = await coreAgentRunsService.Start(issueId, authData.ToActor(), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var runs = await MapRuns(
+            authData,
+            context.IssueAgentRuns
+                .Where(r => r.Id == runId),
+            cancellationToken);
+
+        return runs.Single();
     }
 
     public async Task<bool> FinishAgentRun(

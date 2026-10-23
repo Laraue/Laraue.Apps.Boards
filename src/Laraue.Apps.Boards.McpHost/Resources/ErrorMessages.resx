@@ -60,4 +60,7 @@
     <data name="AgentRunClaimOnlyAssignee" xml:space="preserve">
         <value>Agent run: {0} can be claimed only by the runner of its issue's assignee</value>
     </data>
+    <data name="AgentRunStartOnlyAssignee" xml:space="preserve">
+        <value>Issue: {0} can be worked on by the agent only for its assignee</value>
+    </data>
 </root>
