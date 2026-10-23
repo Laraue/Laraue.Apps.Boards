@@ -5,9 +5,10 @@ using Laraue.Apps.Boards.TelegramServices.Resources;
 namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
 /// <summary>
-/// A document sent to the bot that wasn't saved as an attachment, and why.
+/// A document sent to the bot that wasn't saved as an attachment, and why. <see cref="FileUniqueId"/> is set
+/// when it's just been checked, to be recorded with it.
 /// </summary>
-public sealed record SkippedFile(string FileName, SkippedFileReason Reason)
+public sealed record SkippedFile(string FileName, SkippedFileReason Reason, string? FileUniqueId = null)
 {
     /// <summary>
     /// The notice for skipped files: a line per file, then what attachments can be. Plain text.

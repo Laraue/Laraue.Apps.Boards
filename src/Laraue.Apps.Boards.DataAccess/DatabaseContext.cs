@@ -223,6 +223,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
             entity
                 .HasIndex(x => new { x.ExternalMessageId, x.ExternalChatId })
                 .IsUnique();
+
+            entity.HasIndex(x => x.SkippedFileUniqueId);
         });
         
         modelBuilder.Entity<UserOnboarding>(entity =>

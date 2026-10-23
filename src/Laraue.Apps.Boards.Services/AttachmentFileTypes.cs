@@ -92,6 +92,22 @@ public static class AttachmentFileTypes
         return All.FirstOrDefault(x => x.MimeType == mimeType);
     }
 
+    private static readonly HashSet<string> Extensions = All
+        .Select(x => x.Extension)
+        .Concat([".jpeg", ".markdown"])
+        .ToHashSet();
+
+    /// <summary>
+    /// Whether the file's name or declared mime type is one of the supported types - a cheap check before
+    /// downloading a file to <see cref="Detect"/> it. False rejects the file; true doesn't accept it, only the
+    /// content does.
+    /// </summary>
+    public static bool MayBeSupported(string? fileName, string? declaredMimeType)
+    {
+        return Extensions.Contains(Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant())
+            || FindByMimeType(declaredMimeType) is not null;
+    }
+
     /// <summary>
     /// Recognizes the file's type from its content, or returns null when it isn't a supported one.
     /// </summary>

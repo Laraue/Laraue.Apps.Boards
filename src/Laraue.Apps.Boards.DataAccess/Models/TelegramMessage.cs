@@ -42,6 +42,13 @@ public class TelegramMessage
     public SkippedFileReason? SkippedFileReason { get; set; }
 
     /// <summary>
+    /// Telegram's unique id of the document named <see cref="SkippedFileName"/>, so the same file sent again or
+    /// kept by an edit isn't downloaded and checked again.
+    /// </summary>
+    [MaxLength(64)]
+    public string? SkippedFileUniqueId { get; set; }
+
+    /// <summary>
     /// Who sent this message on Telegram. Captured once, when the message first arrives -
     /// independent of whoever later runs /save, which can be a different person entirely.
     /// </summary>

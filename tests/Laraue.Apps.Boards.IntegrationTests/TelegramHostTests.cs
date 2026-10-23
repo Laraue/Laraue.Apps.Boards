@@ -2911,6 +2911,95 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleDocumentMessage_ShouldSkipWithoutDownloading_WhenNameAndDeclaredTypeAreUnsupported()
+    {
+        using var host = GetTelegramTestHost();
+
+        var document = CreateDocument(host, "docId1", "setup.exe", ExecutableContent);
+        document.MimeType = "application/x-msdownload";
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Document = document,
+                Chat = PrivateChat,
+            },
+        });
+
+        Assert.Contains($"setup.exe {UnsupportedTypeNotice}", Assert.Single(SkippedFileNotices(host)).Text);
+        Assert.Empty(host.DownloadedFileIds);
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldNotDownloadAgain_WhenSkippedDocumentIsSentAgain()
+    {
+        using var host = GetTelegramTestHost();
+
+        // Named like a supported type, so only its content rules it out.
+        var document = CreateDocument(host, "docId1", "data.json", ExecutableContent);
+
+        foreach (var messageId in new[] { 1, 2 })
+        {
+            await host.SendUpdateAsync(new Update
+            {
+                Message = new Message
+                {
+                    From = DefaultUser,
+                    Id = messageId,
+                    Document = document,
+                    Chat = PrivateChat,
+                },
+            });
+        }
+
+        Assert.Equal(2, SkippedFileNotices(host).Count(x => x.Text.Contains($"data.json {UnsupportedTypeNotice}")));
+        Assert.Equal(["docId1"], host.DownloadedFileIds);
+    }
+
+    [Fact]
+    public async Task HandleDocumentMessage_ShouldNotDownloadAgain_WhenOnlyCaptionIsEdited()
+    {
+        using var host = GetTelegramTestHost();
+
+        var document = CreateDocument(host, "docId1", "spec.pdf", PdfContent);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Spec",
+                Document = document,
+                Chat = PrivateChat,
+            },
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Caption = "Spec v2",
+                Document = document,
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Spec v2", issue.Content);
+        Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal(["docId1"], host.DownloadedFileIds);
+    }
+
+    [Fact]
     public async Task HandleDocumentMessage_ShouldSaveTextSilently_WhenUnsupportedDocumentHasCaption()
     {
         using var host = GetTelegramTestHost();

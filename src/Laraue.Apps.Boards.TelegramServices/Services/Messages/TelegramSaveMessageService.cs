@@ -458,7 +458,10 @@ public class TelegramSaveMessageService(
 
         if (check.FileType is null)
         {
-            var skippedFile = new SkippedFile(GetSkippedFileName(document.FileName), check.SkippedReason!.Value);
+            var skippedFile = new SkippedFile(
+                GetSkippedFileName(document.FileName),
+                check.SkippedReason!.Value,
+                document.FileUniqueId);
             return await SaveMessageEntity(request, null, skippedFile, cancellationToken);
         }
 
@@ -489,8 +492,11 @@ public class TelegramSaveMessageService(
     }
 
     /// <summary>
-    /// The document's type by its content. A file already stored (the same document sent again, or an edit that
-    /// only changed the caption) keeps the type it was saved with, without downloading it again.
+    /// The document's type by its content, downloading it only when nothing cheaper decides: a file already
+    /// stored or already skipped (the same document sent again, or an edit that only changed the caption) keeps
+    /// its earlier verdict, and one whose size, name and declared type all rule it out is skipped unread. The
+    /// name and declared type can't accept a file - the sender's client sets them - so a candidate is still
+    /// downloaded once to check its content.
     /// </summary>
     private async Task<DocumentTypeCheck> CheckDocumentType(File document, CancellationToken cancellationToken)
     {
@@ -502,8 +508,19 @@ public class TelegramSaveMessageService(
         if (AttachmentFileTypes.FindByMimeType(storedMimeType) is { } storedType)
             return new DocumentTypeCheck(storedType, null);
 
+        var skippedReason = await context.TelegramMessages
+            .Where(x => x.SkippedFileUniqueId == document.FileUniqueId)
+            .Select(x => x.SkippedFileReason)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (skippedReason is not null)
+            return new DocumentTypeCheck(null, skippedReason);
+
         if (document.FileSize > AttachmentFileTypes.MaxFileSizeBytes)
             return new DocumentTypeCheck(null, SkippedFileReason.TooLarge);
+
+        if (!AttachmentFileTypes.MayBeSupported(document.FileName, document.MimeType))
+            return new DocumentTypeCheck(null, SkippedFileReason.UnsupportedType);
 
         var content = await coreFilesService.DownloadFromTelegram(
             document.FileId,
@@ -629,7 +646,8 @@ public class TelegramSaveMessageService(
                 u => u
                     .SetProperty(p => p.Text, text != null ? text.Trim() : null)
                     .SetProperty(p => p.SkippedFileName, skippedFile != null ? skippedFile.FileName : null)
-                    .SetProperty(p => p.SkippedFileReason, skippedFile != null ? skippedFile.Reason : null),
+                    .SetProperty(p => p.SkippedFileReason, skippedFile != null ? skippedFile.Reason : null)
+                    .SetProperty(p => p.SkippedFileUniqueId, skippedFile != null ? skippedFile.FileUniqueId : null),
                 cancellationToken);
     }
 
@@ -683,6 +701,7 @@ public class TelegramSaveMessageService(
                 Text = request.Text?.Trim(),
                 SkippedFileName = skippedFile?.FileName,
                 SkippedFileReason = skippedFile?.Reason,
+                SkippedFileUniqueId = skippedFile?.FileUniqueId,
                 SenderId = request.UserId,
                 SentAt = request.SentAt,
             };
@@ -799,6 +818,7 @@ public class TelegramSaveMessageService(
                 Text = request.Text?.Trim(),
                 SkippedFileName = skippedFile?.FileName,
                 SkippedFileReason = skippedFile?.Reason,
+                SkippedFileUniqueId = skippedFile?.FileUniqueId,
                 SenderId = request.UserId,
                 SentAt = request.SentAt,
             };

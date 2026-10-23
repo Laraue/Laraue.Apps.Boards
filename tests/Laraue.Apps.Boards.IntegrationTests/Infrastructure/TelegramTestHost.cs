@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using System.Collections.Concurrent;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Core.DataAccess.Linq2DB.Extensions;
@@ -15,13 +16,22 @@ namespace Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 /// What downloading a Telegram file gives, by its file id - shared with the services' fake download handler
 /// (<see cref="FakeTelegramFileContentHttpMessageHandler"/>).
 /// </param>
-public class AppTelegramTestHost(IServiceCollection serviceCollection, Dictionary<string, byte[]> fileContents)
+/// <param name="downloadedFileIds">The file ids the fake download handler was asked for, in order.</param>
+public class AppTelegramTestHost(
+    IServiceCollection serviceCollection,
+    Dictionary<string, byte[]> fileContents,
+    ConcurrentQueue<string> downloadedFileIds)
     : TelegramTestHost<Guid>(serviceCollection, TelegramBotClientMockFactory.GetInstance(fileContents))
 {
     /// <summary>
     /// What downloading a Telegram file gives, by its file id - add a document's content before sending it.
     /// </summary>
     public Dictionary<string, byte[]> FileContents { get; } = fileContents;
+
+    /// <summary>
+    /// The Telegram file ids whose content was downloaded, in order - e.g. to check a document's type.
+    /// </summary>
+    public IReadOnlyCollection<string> DownloadedFileIds => downloadedFileIds;
 
     protected override void BeforeFirstRequest()
     {

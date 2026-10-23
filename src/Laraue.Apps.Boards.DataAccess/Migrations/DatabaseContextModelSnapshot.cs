@@ -1877,6 +1877,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("skipped_file_reason");
 
+                    b.Property<string>("SkippedFileUniqueId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("skipped_file_unique_id");
+
                     b.Property<long?>("TelegramMediaGroupId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_media_group_id");
@@ -1897,6 +1902,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.HasIndex("SenderId")
                         .HasDatabaseName("ix_telegram_messages_sender_id");
+
+                    b.HasIndex("SkippedFileUniqueId")
+                        .HasDatabaseName("ix_telegram_messages_skipped_file_unique_id");
 
                     b.HasIndex("TelegramMediaGroupId")
                         .HasDatabaseName("ix_telegram_messages_telegram_media_group_id");
