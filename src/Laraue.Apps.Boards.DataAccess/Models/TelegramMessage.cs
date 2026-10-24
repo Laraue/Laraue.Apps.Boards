@@ -30,6 +30,25 @@ public class TelegramMessage
     public Attachment? Attachment { get; set; }
 
     /// <summary>
+    /// The name of a document sent with this message that wasn't saved as an attachment, set together with
+    /// <see cref="SkippedFileReason"/>. Kept so a later /save can still say which file was left out and why.
+    /// </summary>
+    [MaxLength(255)]
+    public string? SkippedFileName { get; set; }
+
+    /// <summary>
+    /// Why the document named <see cref="SkippedFileName"/> wasn't saved.
+    /// </summary>
+    public SkippedFileReason? SkippedFileReason { get; set; }
+
+    /// <summary>
+    /// Telegram's unique id of the document named <see cref="SkippedFileName"/>, so the same file sent again or
+    /// kept by an edit isn't downloaded and checked again.
+    /// </summary>
+    [MaxLength(64)]
+    public string? SkippedFileUniqueId { get; set; }
+
+    /// <summary>
     /// Who sent this message on Telegram. Captured once, when the message first arrives -
     /// independent of whoever later runs /save, which can be a different person entirely.
     /// </summary>

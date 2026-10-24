@@ -390,6 +390,24 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
             }
         }
 
+        internal static string FileSkippedUnsupportedType {
+            get {
+                return ResourceManager.GetString("FileSkippedUnsupportedType", resourceCulture);
+            }
+        }
+
+        internal static string FileSkippedTooLarge {
+            get {
+                return ResourceManager.GetString("FileSkippedTooLarge", resourceCulture);
+            }
+        }
+
+        internal static string FileSkippedLimits {
+            get {
+                return ResourceManager.GetString("FileSkippedLimits", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to 🔗 Open issue.
         /// </summary>

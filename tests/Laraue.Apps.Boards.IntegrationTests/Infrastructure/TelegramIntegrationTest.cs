@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.Services;
+﻿using System.Collections.Concurrent;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramHost;
@@ -8,6 +9,7 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Moq;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -90,7 +92,16 @@ public abstract class TelegramIntegrationTest
             .ReturnsAsync(unlimitedSubscription);
         builder.Services.AddSingleton(billingSubscriptionClientMock.Object);
 
-        return new AppTelegramTestHost(builder.Services);
+        // Telegram file downloads (e.g. a document sent to the bot, checked by its content) get what a test put
+        // in the host's FileContents instead of reaching Telegram.
+        var fileContents = new Dictionary<string, byte[]>();
+        var downloadedFileIds = new ConcurrentQueue<string>();
+        builder.Services.AddHttpClient(Options.DefaultName)
+            .ConfigurePrimaryHttpMessageHandler(() => new FakeTelegramFileContentHttpMessageHandler(
+                fileContents,
+                downloadedFileIds));
+
+        return new AppTelegramTestHost(builder.Services, fileContents, downloadedFileIds);
     }
 
     protected static User DefaultUser => new()

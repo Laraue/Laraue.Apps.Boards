@@ -543,7 +543,12 @@ UTF-8 with no NUL bytes, and a .doc needs both the OLE signature and the extensi
 limited to 3 MB, documents (PDF, DOCX, DOC, Markdown, TXT, JSON) to 10 MB - under the Bot API's 20 MB download limit,
 since Telegram is the storage. SVG, HEIC/AVIF and anything else are rejected. JPEG/PNG go through `sendPhoto` (Telegram
 makes the thumbnail); the rest through `sendDocument` with content-type detection off (GIF/WebP are their own preview,
-documents have none: `AttachmentType.Document`). `GET /api/files/{id}` sends `nosniff` and a sandbox CSP for every file
+documents have none: `AttachmentType.Document`). Telegram documents (BRD-319) aren't re-uploaded: `TelegramSaveMessageService`
+downloads the file to `Detect` it, then keeps it by its own file id. It downloads only when nothing cheaper decides: a
+file unique id already stored or skipped keeps its verdict, and `FileSize` or a name and declared type that are both
+unsupported (`AttachmentFileTypes.MayBeSupported`) skip it unread. A skipped one (type or size) is recorded on
+`TelegramMessage.SkippedFile{Name,Reason,UniqueId}` so `/save` can report it later, and in `EachMessage` mode is reported only
+when it was the message's only content (no card is made). `GET /api/files/{id}` sends `nosniff` and a sandbox CSP for every file
 and serves anything but images/videos as `Content-Disposition: attachment` with the sanitized upload name.
 
 **File attachments**: no multipart in MCP, so `files` is `FileAttachment(FileName, ContentType, Base64Content)[]`,

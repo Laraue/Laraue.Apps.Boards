@@ -22,7 +22,32 @@ public static class SaveMessageTelegramRequestFactory
             MessageType.Photo => GetPhotoRequest(message, userId, externalChatId),
             MessageType.Video => GetVideoRequest(message, userId, externalChatId),
             MessageType.Animation => GetAnimationRequest(message, userId, externalChatId),
+            MessageType.Document => GetDocumentRequest(message, userId, externalChatId),
             _ => null
+        };
+    }
+
+    private static SaveDocumentMessageTelegramRequest GetDocumentRequest(Message message, Guid userId, long externalChatId)
+    {
+        var document = message.Document!;
+
+        return new SaveDocumentMessageTelegramRequest
+        {
+            Text = message.Caption,
+            ExternalMessageId = message.MessageId,
+            UserId = userId,
+            ExternalChatId = externalChatId,
+            SentAt = message.Date,
+            From = message.From?.Username,
+            MediaGroupId = message.MediaGroupId,
+            Document = new Services_File
+            {
+                FileSize = document.FileSize,
+                FileName = document.FileName,
+                FileId = document.FileId,
+                FileUniqueId = document.FileUniqueId,
+                MimeType = document.MimeType,
+            },
         };
     }
 
