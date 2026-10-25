@@ -259,6 +259,7 @@ public class CoreIssuesService(
             cancellationToken);
 
         await TouchEpics([issueData.EpicId], request.CreatedAt, cancellationToken);
+        await context.RecalculateEpicStatuses([issueData.EpicId], cancellationToken);
 
         metrics.RecordIssueCreated(request.TelegramMessageId, actor.ApiKeyId);
 
@@ -476,6 +477,7 @@ public class CoreIssuesService(
             {
                 Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
                 x.Status.Epic.Space.OrganizationId,
+                x.Status.EpicId,
             })
             .FirstAsyncEF(cancellationToken);
 
@@ -497,6 +499,8 @@ public class CoreIssuesService(
                 .SetProperty(p => p.DeletedAt, deletedAt)
                 .SetProperty(p => p.DeletedByUserId, actor.UserId),
                 cancellationToken);
+
+        await context.RecalculateEpicStatuses([issueData.EpicId], cancellationToken);
 
         metrics.RecordIssueDeleted();
     }
@@ -787,6 +791,15 @@ public class CoreIssuesService(
                         .SetProperty(x => x.UpdatedAt, dateTimeProvider.UtcNow);
                 },
                 ct);
+
+        // A status can belong to another epic, so the epics the issues left change too.
+        await context.RecalculateEpicStatuses(
+            issuesToUpdate
+                .Select(x => x.EpicId)
+                .Append(newStatusData.EpicId)
+                .Distinct()
+                .ToArray(),
+            ct);
 
         foreach (var issue in issuesToUpdate)
         {

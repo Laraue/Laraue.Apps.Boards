@@ -22,7 +22,10 @@ public interface ICoreStatusService
     Task Delete(
         DeleteStatusRequest request,
         CancellationToken cancellationToken);
-    
+
+    /// <summary>
+    /// Updates a status and recalculates its epic's status. Requires a transaction.
+    /// </summary>
     Task Update(
         long id,
         Action<UpdateSettersBuilder<Laraue.Apps.Boards.DataAccess.Models.Status>> setters,
@@ -110,17 +113,29 @@ public class CoreStatusService(DatabaseContext context, IDateTimeProvider dateTi
                 .SetProperty(p => p.DeletedByUserId, request.DeleterId),
                 cancellationToken);
 
+        await context.RecalculateEpicStatuses([categoryData.MessageCategoryId], cancellationToken);
+
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public Task Update(
+    public async Task Update(
         long id,
         Action<UpdateSettersBuilder<Laraue.Apps.Boards.DataAccess.Models.Status>> setters,
         CancellationToken cancellationToken)
     {
-        return context.ActiveStatuses()
+        context.Database.EnsureTransactionStarted();
+
+        var epicId = await context.ActiveStatuses()
+            .Where(x => x.Id == id)
+            .Select(x => x.EpicId)
+            .FirstOrThrowNotFoundEFAsync($"Status: {id} is not found", cancellationToken);
+
+        await context.ActiveStatuses()
             .Where(x => x.Id == id)
             .ExecuteUpdateAsync(setters, cancellationToken);
+
+        // The category may have changed, which changes what every issue in the status means.
+        await context.RecalculateEpicStatuses([epicId], cancellationToken);
     }
 }
 

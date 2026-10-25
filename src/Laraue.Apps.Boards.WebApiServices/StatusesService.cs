@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.WebApiServices.Resources;
@@ -29,7 +30,8 @@ public interface IStatusesService
 
 public class StatusesService(
     ICoreStatusService statusService,
-    IAccessService accessService)
+    IAccessService accessService,
+    DatabaseContext context)
     : IStatusesService
 {
     public async Task<long> CreateStatus(
@@ -80,6 +82,8 @@ public class StatusesService(
         if (!canModify)
             throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", request.Id));
 
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
         await statusService.Update(
             request.Id,
             upd => upd
@@ -87,6 +91,8 @@ public class StatusesService(
                 .SetProperty(x => x.Name, request.Name)
                 .SetProperty(x => x.Category, request.Category),
             cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task<MessageStatusDto[]> GetStatuses(GetStatusesRequest request, CancellationToken cancellationToken)

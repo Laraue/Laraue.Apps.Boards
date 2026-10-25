@@ -161,7 +161,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists epics - of one space, or of every space the caller can read - up to 50 per page, ordered by space key - check hasNextPage for more. Each epic has its id (what list_issues' epicId filter accepts), name, spaceKey, isDefault (the space's backlog epic) and status (New, Active or Done).")]
+    [Description("Lists epics - of one space, or of every space the caller can read - up to 50 per page, ordered by space key - check hasNextPage for more. Each epic has its id (what list_issues' epicId filter accepts), name, spaceKey, isDefault (the space's backlog epic) and status, derived from its issues: New (no issues, or all of them in a Created status), Done (all of them Completed) or Active (anything else).")]
     public Task<EpicListPage> ListEpics(
         [Description("Only epics of this space, e.g. 'BRD', from list_spaces. Omit to list epics of every space.")] string? spaceKey = null,
         [Description("Zero-based page number - pass the previous result's page + 1 for the next page. Omit for the first page.")] int? page = null,
