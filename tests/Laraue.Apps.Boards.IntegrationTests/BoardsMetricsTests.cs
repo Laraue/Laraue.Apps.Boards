@@ -59,8 +59,12 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         var issueId = await CreateIssueAsync(testScope, organization, new Actor(userId));
         await CreateIssueAsync(testScope, organization, new Actor(userId));
 
-        await testScope.Services.GetRequiredService<ICoreIssuesService>()
-            .Delete(issueId, new Actor(userId), CancellationToken.None);
+        await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
+        {
+            await testScope.Services.GetRequiredService<ICoreIssuesService>()
+                .Delete(issueId, new Actor(userId), CancellationToken.None);
+            await transaction.CommitAsync();
+        }
 
         await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
         var metrics = await ScrapeAsync(host.CreateClient());

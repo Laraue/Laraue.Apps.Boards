@@ -112,6 +112,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IIssueHistoryService, IssueHistoryService>()
                 .AddSingleton<IOrganizationLogItemFactory, OrganizationLogItemFactory>()
                 .AddScoped<ICoreEpicsService, CoreEpicsService>()
+                .AddScoped<ICoreEpicStateService, CoreEpicStateService>()
                 .AddScoped<ICoreStatusService, CoreStatusService>()
                 .AddScoped<ICoreUserService, CoreUserService>()
                 .AddScoped<IMemberProfileReader, MemberProfileReader>()

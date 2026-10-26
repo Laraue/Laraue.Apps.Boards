@@ -318,7 +318,10 @@ public class TelegramSaveMessageService(
         if (!await CanDeleteIssue(issueId, userId, cancellationToken))
             return false;
 
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.Delete(issueId, userId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
         return true;
     }
 

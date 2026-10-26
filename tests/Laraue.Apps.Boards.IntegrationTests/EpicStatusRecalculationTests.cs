@@ -75,7 +75,7 @@ public class EpicStatusRecalculationTests(WebApiTestHost host) : IClassFixture<W
             .Where(x => x.Id == seeded.Organization.GetIssueData(1, 1, StatusIndexes[StatusCategory.InProgress], 0).Issue.Id)
             .ExecuteUpdateAsync(u => u.SetProperty(x => x.DeletedAt, DateTime.UtcNow));
 
-        await testScope.Database.RecalculateEpicStatuses([seeded.EpicId], CancellationToken.None);
+        await Recalculate(testScope, seeded.EpicId);
 
         Assert.Equal(EpicStatus.Done, await GetEpicStatus(testScope, seeded.EpicId));
     }
@@ -113,7 +113,7 @@ public class EpicStatusRecalculationTests(WebApiTestHost host) : IClassFixture<W
         var issueId = seeded.Organization.GetIssueData(1, 1, StatusIndexes[StatusCategory.InProgress], 0).Issue.Id;
         // The space's backlog epic, seeded empty with a single Created status; marked Done so the change shows.
         var backlogStatus = seeded.Organization.GetStatus(1, 0, 0);
-        await testScope.Database.RecalculateEpicStatuses([seeded.EpicId], CancellationToken.None);
+        await Recalculate(testScope, seeded.EpicId);
         await testScope.Database.Epics
             .Where(x => x.Id == backlogStatus.EpicId)
             .ExecuteUpdateAsync(u => u.SetProperty(x => x.Status, EpicStatus.Done));
@@ -130,10 +130,14 @@ public class EpicStatusRecalculationTests(WebApiTestHost host) : IClassFixture<W
         using var testScope = host.CreateTestScope();
         var seeded = await SeedEpic(testScope, StatusCategory.Created, StatusCategory.InProgress);
         var issueId = seeded.Organization.GetIssueData(1, 1, StatusIndexes[StatusCategory.InProgress], 0).Issue.Id;
-        await testScope.Database.RecalculateEpicStatuses([seeded.EpicId], CancellationToken.None);
+        await Recalculate(testScope, seeded.EpicId);
 
-        await testScope.Services.GetRequiredService<ICoreIssuesService>()
-            .Delete(issueId, new Actor(seeded.UserId), CancellationToken.None);
+        await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
+        {
+            await testScope.Services.GetRequiredService<ICoreIssuesService>()
+                .Delete(issueId, new Actor(seeded.UserId), CancellationToken.None);
+            await transaction.CommitAsync();
+        }
 
         Assert.Equal(EpicStatus.New, await GetEpicStatus(testScope, seeded.EpicId));
     }
@@ -144,7 +148,7 @@ public class EpicStatusRecalculationTests(WebApiTestHost host) : IClassFixture<W
         using var testScope = host.CreateTestScope();
         var seeded = await SeedEpic(testScope, StatusCategory.Created, StatusCategory.Completed);
         var createdStatusId = seeded.Organization.GetStatus(1, 1, StatusIndexes[StatusCategory.Created]).Id;
-        await testScope.Database.RecalculateEpicStatuses([seeded.EpicId], CancellationToken.None);
+        await Recalculate(testScope, seeded.EpicId);
 
         await _statusesController
             .WithOrganizationAuthorization(seeded.Organization.Id, seeded.UserId)
@@ -167,7 +171,7 @@ public class EpicStatusRecalculationTests(WebApiTestHost host) : IClassFixture<W
         using var testScope = host.CreateTestScope();
         var seeded = await SeedEpic(testScope, StatusCategory.Completed, StatusCategory.InProgress);
         var inProgressStatusId = seeded.Organization.GetStatus(1, 1, StatusIndexes[StatusCategory.InProgress]).Id;
-        await testScope.Database.RecalculateEpicStatuses([seeded.EpicId], CancellationToken.None);
+        await Recalculate(testScope, seeded.EpicId);
 
         await _statusesController
             .WithOrganizationAuthorization(seeded.Organization.Id, seeded.UserId)
@@ -199,9 +203,17 @@ public class EpicStatusRecalculationTests(WebApiTestHost host) : IClassFixture<W
         using var testScope = host.CreateTestScope();
         var seeded = await SeedEpic(testScope, issueCategories);
 
-        await testScope.Database.RecalculateEpicStatuses([seeded.EpicId], CancellationToken.None);
+        await Recalculate(testScope, seeded.EpicId);
 
         return await GetEpicStatus(testScope, seeded.EpicId);
+    }
+
+    private static async Task Recalculate(WebApiTestHostScope testScope, long epicId)
+    {
+        await using var transaction = await testScope.Database.Database.BeginTransactionAsync();
+        await testScope.Services.GetRequiredService<ICoreEpicStateService>()
+            .RecalculateStatuses([epicId], CancellationToken.None);
+        await transaction.CommitAsync();
     }
 
     private static async Task<SeededEpic> SeedEpic(

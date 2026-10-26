@@ -32,7 +32,11 @@ public interface ICoreStatusService
         CancellationToken cancellationToken);
 }
 
-public class CoreStatusService(DatabaseContext context, IDateTimeProvider dateTimeProvider) : ICoreStatusService
+public class CoreStatusService(
+    DatabaseContext context,
+    IDateTimeProvider dateTimeProvider,
+    ICoreEpicStateService epicStateService)
+    : ICoreStatusService
 {
     public async Task<long> Create(
         CreateMessageCategoryStatusRequest request,
@@ -113,7 +117,7 @@ public class CoreStatusService(DatabaseContext context, IDateTimeProvider dateTi
                 .SetProperty(p => p.DeletedByUserId, request.DeleterId),
                 cancellationToken);
 
-        await context.RecalculateEpicStatuses([categoryData.MessageCategoryId], cancellationToken);
+        await epicStateService.RecalculateStatuses([categoryData.MessageCategoryId], cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
     }
@@ -135,7 +139,7 @@ public class CoreStatusService(DatabaseContext context, IDateTimeProvider dateTi
             .ExecuteUpdateAsync(setters, cancellationToken);
 
         // The category may have changed, which changes what every issue in the status means.
-        await context.RecalculateEpicStatuses([epicId], cancellationToken);
+        await epicStateService.RecalculateStatuses([epicId], cancellationToken);
     }
 }
 

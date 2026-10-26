@@ -45,7 +45,8 @@ public interface ICoreIssuesService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Throws <see cref="IssueLockedByAgentRunException"/> while the issue has an open agent run.
+    /// Throws <see cref="IssueLockedByAgentRunException"/> while the issue has an open agent run. Requires a
+    /// transaction (the epic's status is recalculated under a lock).
     /// </summary>
     Task Delete(
         long id,
@@ -107,6 +108,7 @@ public class CoreIssuesService(
     IOrganizationLogItemFactory logItemFactory,
     ICoreIssueAttributesService issueAttributesService,
     IMemberProfileReader memberProfileReader,
+    ICoreEpicStateService epicStateService,
     BoardsMetrics metrics)
     : ICoreIssuesService
 {
@@ -258,8 +260,8 @@ public class CoreIssuesService(
             items,
             cancellationToken);
 
-        await TouchEpics([issueData.EpicId], request.CreatedAt, cancellationToken);
-        await context.RecalculateEpicStatuses([issueData.EpicId], cancellationToken);
+        await epicStateService.Touch([issueData.EpicId], request.CreatedAt, cancellationToken);
+        await epicStateService.RecalculateStatuses([issueData.EpicId], cancellationToken);
 
         metrics.RecordIssueCreated(request.TelegramMessageId, actor.ApiKeyId);
 
@@ -412,7 +414,7 @@ public class CoreIssuesService(
             cancellationToken);
 
         if (recorded)
-            await TouchEpics([issueData.EpicId], date, cancellationToken);
+            await epicStateService.Touch([issueData.EpicId], date, cancellationToken);
     }
 
     // An open run (Ready or Working) freezes the issue: the agent works from what was handed off. Checked up front,
@@ -500,7 +502,7 @@ public class CoreIssuesService(
                 .SetProperty(p => p.DeletedByUserId, actor.UserId),
                 cancellationToken);
 
-        await context.RecalculateEpicStatuses([issueData.EpicId], cancellationToken);
+        await epicStateService.RecalculateStatuses([issueData.EpicId], cancellationToken);
 
         metrics.RecordIssueDeleted();
     }
@@ -793,7 +795,7 @@ public class CoreIssuesService(
                 ct);
 
         // A status can belong to another epic, so the epics the issues left change too.
-        await context.RecalculateEpicStatuses(
+        await epicStateService.RecalculateStatuses(
             issuesToUpdate
                 .Select(x => x.EpicId)
                 .Append(newStatusData.EpicId)
@@ -1004,17 +1006,6 @@ public class CoreIssuesService(
             FileId = mediaInfo.OriginalFileId,
             Type = mediaInfo.Type,
         };
-    }
-
-    private Task<int> TouchEpics(long[] epicIds, DateTime touchedAt, CancellationToken ct)
-    {
-        return context.Epics
-            .Where(x => ((IEnumerable<long>)epicIds).Contains(x.Id))
-            .ExecuteUpdateAsync(x => x
-                .SetProperty(
-                    p => p.TouchedAt,
-                    old => old!.TouchedAt > touchedAt ? old.TouchedAt : touchedAt),
-                ct);
     }
 }
 
