@@ -345,7 +345,9 @@ public class IssuesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Issue", request.IssueKey))
             .EnsureOrThrowForbidden(a => a.CanDeleteIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", request.IssueKey, "delete"));
 
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
         await issuesService.Delete(issueId, request.AuthData.UserId, ct);
+        await transaction.CommitAsync(ct);
     }
 
     public async Task<string> Create(CreateIssueRequest request, CancellationToken ct)

@@ -59,4 +59,24 @@ public static class DatabaseExtensions
             .QueryHint(PostgreSQLHints.ForUpdate)
             .ToListAsyncLinqToDB(cancellationToken);
     }
+
+    /// <summary>
+    /// Locks the given epics (<c>SELECT ... FOR UPDATE</c>) until the transaction ends, in id order like
+    /// <see cref="LockUsers"/>.
+    /// </summary>
+    public static Task LockEpics(
+        this DatabaseContext context,
+        long[] epicIds,
+        CancellationToken cancellationToken = default)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        return context.Epics
+            .ToLinqToDB()
+            .Where(x => epicIds.Contains(x.Id))
+            .OrderBy(x => x.Id)
+            .Select(x => x.Id)
+            .QueryHint(PostgreSQLHints.ForUpdate)
+            .ToListAsyncLinqToDB(cancellationToken);
+    }
 }

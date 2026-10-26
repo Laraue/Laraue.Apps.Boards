@@ -32,6 +32,12 @@ See [README.md](README.md) for the human overview, local run and permissions mod
 sequential number; with the space key it forms the `IssueKey` shown everywhere (`UNC-24`). Every space and epic has an
 undeletable `IsDefault` one (backlog-equivalent).
 
+`Epic.Status` (New/Active/Done) is derived from the epic's active issues and never set by hand (BRD-323): New with none
+or all Created, Done with all Completed, Active otherwise. It's a stored column, so every write that can change it
+(issue create/move/delete, a status's category edit or deletion) calls `ICoreEpicStateService.RecalculateStatuses` in the
+same transaction - do the same in any new such write. It locks the epics in id order (`LockEpics`) before computing, so
+concurrent writes to one epic recalculate one after another.
+
 ## Permissions
 
 Two layers, both scoped by `OrganizationAuthData` (organization + user):

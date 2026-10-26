@@ -23,10 +23,6 @@ public interface IEpicsService
         GetEpicRequest request,
         CancellationToken cancellationToken);
 
-    Task ChangeStatus(
-        ChangeEpicStatusRequest request,
-        CancellationToken cancellationToken);
-
     Task ChangeStatusesOrder(
         ChangeStatusesOrderRequest request,
         CancellationToken cancellationToken);
@@ -80,20 +76,6 @@ public class EpicsService(
                     Status = x.Status,
                 })
                 .ToArrayAsyncLinqToDB(cancellationToken),
-            cancellationToken);
-    }
-
-    public async Task ChangeStatus(
-        ChangeEpicStatusRequest request,
-        CancellationToken cancellationToken)
-    {
-        await accessService.GetAccessLevelsByEpicId(request.AuthData, request.Id, includeDeleted: false, cancellationToken: cancellationToken)
-            .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.Id))
-            .EnsureOrThrowForbidden(a => a.CanUpdateEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.Id));
-
-        await coreEpicsService.Update(
-            request.Id,
-            upd => upd.SetProperty(x => x.Status, request.Status),
             cancellationToken);
     }
 
@@ -389,13 +371,4 @@ public record GetEpicsRequest
     /// Statuses to filter epics by. Null means no filtering.
     /// </summary>
     public EpicStatus[]? Statuses { get; set; }
-}
-
-public record ChangeEpicStatusRequest
-{
-    public OrganizationAuthData AuthData { get; set; } = new();
-
-    public long Id { get; set; }
-
-    public required EpicStatus Status { get; set; }
 }

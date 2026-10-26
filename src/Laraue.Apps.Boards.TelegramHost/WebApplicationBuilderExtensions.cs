@@ -75,6 +75,7 @@ public static class WebApplicationBuilderExtensions
             builder.Services
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()
                 .AddScoped<ICoreEpicsService, CoreEpicsService>()
+                .AddScoped<ICoreEpicStateService, CoreEpicStateService>()
                 .AddScoped<ICoreStatusService, CoreStatusService>();
 
             builder.Services
