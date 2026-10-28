@@ -232,4 +232,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="IssueLockedByAgentRun" xml:space="preserve">
         <value>This card is handed to the agent and can't be changed until the run is finished or cancelled.</value>
     </data>
+    <data name="IssuePreviewSourceFooter" xml:space="preserve">
+        <value>💬 {0} · {1} · {2:yyyy-MM-dd HH:mm} UTC</value>
+    </data>
 </root>

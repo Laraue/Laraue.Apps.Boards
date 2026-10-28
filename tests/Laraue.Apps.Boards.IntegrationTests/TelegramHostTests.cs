@@ -1395,6 +1395,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         var status = organization.GetStatus(0, 0, 0);
 
         var chat = new Chat { Id = 786, Type = ChatType.Group };
+        var sentAt = new DateTime(2026, 10, 28, 3, 50, 0, DateTimeKind.Utc);
 
         testScope.Database.Add(new LinkedTelegramChat
         {
@@ -1415,6 +1416,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 Id = 1,
                 Text = "Hello world",
                 Chat = chat,
+                Date = sentAt,
             }
         });
 
@@ -1426,12 +1428,14 @@ public class TelegramHostTests : TelegramIntegrationTest
                 Id = 2,
                 Text = "/save",
                 Chat = chat,
-                ReplyToMessage = new Message { Id = 1, Chat = chat },
+                Date = sentAt.AddMinutes(5),
+                ReplyToMessage = new Message { Id = 1, Chat = chat, Date = sentAt },
             }
         });
 
         var replyRequest = Assert.Single(host.Requests().OfType<SendMessageRequest>());
-        Assert.Contains("💬 Support chat · admin\\_user ·", replyRequest.Text);
+        // UTC, labeled - a bot can't know the reader's time zone.
+        Assert.Contains("💬 Support chat · admin\\_user · 2026\\-10\\-28 03:50 UTC_", replyRequest.Text);
     }
 
     [Fact]
