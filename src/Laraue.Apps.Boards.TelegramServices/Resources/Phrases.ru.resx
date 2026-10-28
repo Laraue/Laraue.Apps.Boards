@@ -225,4 +225,7 @@
     <data name="IssueLockedByAgentRun" xml:space="preserve">
         <value>Эта карточка передана агенту и не может быть изменена, пока запуск не завершён или не отменён.</value>
     </data>
+    <data name="IssuePreviewSourceFooter" xml:space="preserve">
+        <value>💬 {0} · {1} · {2:yyyy-MM-dd HH:mm} UTC</value>
+    </data>
 </root>
