@@ -23,6 +23,12 @@ issues ("cards"). Two surfaces:
     snippet (`ContentFragment`).
   - Search results and `/save` replies share one "issue preview card" (key · org · snippet, plus "💬 chat · sender ·
     date" for issues from Telegram): `IssuePreviewFormatter`.
+  - An issue's source (BRD-324): the web issue and MCP `get_issue` return the Telegram message it was created from
+    (`IssueSourceReader`), with a t.me link built only by `TelegramMessageUrlBuilder` from the message's own chat id
+    and `LinkedTelegramChat.Username` (set on link, refreshed from every group message by `GroupChatService`):
+    public supergroup `t.me/{username}/{id}`, private `t.me/c/{id without -100}/{id}`, none for basic groups and the
+    private chat with the bot. A basic group → supergroup upgrade (`ChatMigrationService`) moves only the link:
+    the supergroup numbers messages anew, so earlier messages keep the old chat id and get no link.
 
 See [README.md](README.md) for the human overview, local run and permissions model.
 
@@ -123,7 +129,8 @@ Solution: `Laraue.Apps.Boards.sln`.
   host service - e.g. `WebApiServices.IssuesService` uses `ICoreIssuesService` for writes and `DatabaseContext` for
   `GetIssues`. Exceptions, for a non-trivial read mapping that two hosts must share exactly: `Services.History.
   OrganizationHistoryReader` (WebApiHost history and McpHost `get_issue_history`; its DTOs `OrganizationHistoryItem`,
-  `HistoryItemChange`, `UserDetails` moved with it) and `Services.Links.IssueLinksReader`. They're named `*Reader`, do no
+  `HistoryItemChange`, `UserDetails` moved with it), `Services.Links.IssueLinksReader` and
+  `Services.Sources.IssueSourceReader`. They're named `*Reader`, do no
   permission checks, and take the ids/spaces the caller already checked (`WebApiServices.OrganizationHistoryService`,
   `IssueMcpService.GetIssueHistory`).
 - Core services never open/commit/roll back transactions - the caller owns the scope. A core method may require one

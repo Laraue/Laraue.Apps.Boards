@@ -349,6 +349,7 @@ public class GroupChatLinkService(
         await LinkToStatus(
             chatId,
             query.Message.Chat.Title,
+            query.Message.Chat.Username,
             destination.StatusId,
             userId,
             saveMode,
@@ -391,6 +392,7 @@ public class GroupChatLinkService(
     private async Task LinkToStatus(
         long externalChatId,
         string? chatTitle,
+        string? chatUsername,
         long statusId,
         Guid userId,
         SaveMode saveMode,
@@ -406,6 +408,7 @@ public class GroupChatLinkService(
         }
 
         chat.Title = chatTitle;
+        chat.Username = chatUsername;
         chat.StatusId = statusId;
         chat.OwnerId = userId;
         chat.SaveMode = saveMode;

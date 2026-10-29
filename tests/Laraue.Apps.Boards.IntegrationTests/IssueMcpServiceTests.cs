@@ -10,6 +10,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
+using Laraue.Apps.Boards.Services.Sources;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -52,6 +53,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
             new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
             new IssueLinksReader(testScope.Database),
+            new IssueSourceReader(testScope.Database, new MemberProfileReader(testScope.Database)),
             testScope.Services.GetRequiredService<ICoreIssueLinksService>(),
             new MemberProfileReader(testScope.Database),
             AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services));
