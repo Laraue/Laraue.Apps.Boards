@@ -1,5 +1,7 @@
-﻿using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
@@ -415,6 +417,46 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleLink_ShouldOfferOrganization_WhenAdminGrantedLinkChatsToMember()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId));
+
+        // The same core call the member permissions page makes (AdminOrganizationsService).
+        var scope = host.CreateScope();
+        await scope.ServiceProvider
+            .GetRequiredService<ICoreOrganizationsService>()
+            .SetUserPermissions(
+                organization.Users!.Single(x => x.UserId == memberId).Id,
+                new UserPermissions { Admin = AdminAccessLevel.LinkChats },
+                CancellationToken.None);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("Choose organization:", request.Text);
+
+        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
+        var orgButton = Assert.Single(markup.InlineKeyboard.First());
+        Assert.Equal($"/link/organization/{organization.Id}", orgButton.CallbackData);
     }
 
     // Note: HandleOrganizationSelected checks IsAllowedToLink (which requires the org to
