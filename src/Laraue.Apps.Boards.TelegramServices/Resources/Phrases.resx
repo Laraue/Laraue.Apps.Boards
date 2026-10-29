@@ -70,7 +70,7 @@ How it works:
 2. 👍 = added to your board
 3. Edit the message and I'll react with ❤ and update the card (deleting the message won't delete the card)
 
-📖 Docs: https://laraue.com/blog/documentation/laraue-boards
+📖 Docs: https://boards.laraue.com/en/documentation
 
 🔍 Search from any chat: type @msgboard_bot followed by your search, right in the message field.
 
@@ -80,7 +80,7 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
         <value>Open Message Board</value>
     </data>
     <data name="Help" xml:space="preserve">
-        <value>📖 Docs: https://laraue.com/blog/documentation/laraue-boards</value>
+        <value>📖 Docs: https://boards.laraue.com/en/documentation</value>
     </data>
     <data name="LinkChangeLink" xml:space="preserve">
         <value>Change link</value>

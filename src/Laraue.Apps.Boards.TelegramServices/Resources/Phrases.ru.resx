@@ -63,7 +63,7 @@
 2. 👍 — значит, сообщение добавлено на доску
 3. Отредактируй сообщение — я отреагирую ❤ и обновлю карточку (удаление сообщения НЕ удалит карточку)
 
-📖 Документация: https://laraue.com/ru/blog/documentation/laraue-boards
+📖 Документация: https://boards.laraue.com/ru/documentation
 
 🔍 Поиск из любого чата: напиши @msgboard_bot и свой запрос прямо в поле ввода сообщения.
 
@@ -73,7 +73,7 @@
         <value>Запустить приложение</value>
     </data>
     <data name="Help" xml:space="preserve">
-        <value>📖 Документация: https://laraue.com/ru/blog/documentation/laraue-boards</value>
+        <value>📖 Документация: https://boards.laraue.com/ru/documentation</value>
     </data>
     <data name="LinkChangeLink" xml:space="preserve">
         <value>Изменить связь</value>
