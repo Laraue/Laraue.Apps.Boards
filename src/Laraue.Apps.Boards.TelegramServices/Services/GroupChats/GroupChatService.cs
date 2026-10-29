@@ -1,4 +1,6 @@
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
+using Microsoft.EntityFrameworkCore;
 using Telegram.Bot.Types;
 
 namespace Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
@@ -19,7 +21,8 @@ public interface IGroupChatService
 public class GroupChatService(
     RequestContext requestContext,
     ITelegramMessageService telegramMessageService,
-    IChatMigrationService chatMigrationService)
+    IChatMigrationService chatMigrationService,
+    DatabaseContext context)
     : IGroupChatService
 {
     public async Task HandleGroupMessage(Message message, CancellationToken cancellationToken)
@@ -31,6 +34,8 @@ public class GroupChatService(
             await chatMigrationService.HandleChatMigrated(message.Chat.Id, newChatId, cancellationToken);
             return;
         }
+
+        await RefreshChatUsername(message.Chat, cancellationToken);
 
         // This message was produced by the user picking an inline query result.
         if (message.ViaBot is not null)
@@ -48,5 +53,21 @@ public class GroupChatService(
             request,
             notifyOnFailure: false,
             cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// A group can get, change or drop its public @username at any time, and Telegram sends no update for it -
+    /// every message carries the current one, so the stored one follows it. It decides the form of message links.
+    /// </summary>
+    private Task RefreshChatUsername(Chat chat, CancellationToken cancellationToken)
+    {
+        var username = string.IsNullOrEmpty(chat.Username) ? null : chat.Username;
+
+        return context.LinkedTelegramChats
+            .Where(x => x.ExternalChatId == chat.Id)
+            .Where(x => x.Username != username)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(x => x.Username, username),
+                cancellationToken);
     }
 }

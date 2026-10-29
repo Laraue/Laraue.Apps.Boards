@@ -8,6 +8,7 @@ using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
+using Laraue.Apps.Boards.Services.Sources;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -360,7 +361,8 @@ public sealed record IssueAttachmentSummary(Guid Id, string? FileName, string Ty
 /// <see cref="StatusCategory"/>/<see cref="StatusCategoryId"/> are what the status means, same as
 /// <see cref="StatusSummary"/>'s category. <see cref="Links"/> are the issue's links to issues the caller can
 /// read. <see cref="LatestAgentRun"/> is the issue's most recent agent run (null when it was never handed to the
-/// agent) - its state tells whether an agent is on it.
+/// agent) - its state tells whether an agent is on it. <see cref="Source"/> is the Telegram message the issue was
+/// created from, null for an issue not created from Telegram.
 /// </summary>
 public sealed record IssueDetail(
     string Key,
@@ -380,7 +382,14 @@ public sealed record IssueDetail(
     int CommentCount,
     IReadOnlyList<IssueAttachmentSummary> Attachments,
     IReadOnlyList<IssueLinkSummary> Links,
-    AgentRunSummary? LatestAgentRun);
+    AgentRunSummary? LatestAgentRun,
+    IssueSourceSummary? Source);
+
+/// <summary>
+/// The Telegram message an issue was created from. <see cref="MessageUrl"/> is a t.me link opening it, null where
+/// Telegram has none (basic groups, the private chat with the bot).
+/// </summary>
+public sealed record IssueSourceSummary(string? Chat, string? Sender, DateTime? SentAt, string? MessageUrl);
 
 /// <summary>
 /// A link of an issue, from that issue's side: "this issue [<see cref="Relation"/>] <see cref="Key"/>".
@@ -475,6 +484,7 @@ public class IssueMcpService(
     IIssueUrlBuilder issueUrlBuilder,
     IOrganizationHistoryReader historyReader,
     IIssueLinksReader issueLinksReader,
+    IIssueSourceReader issueSourceReader,
     ICoreIssueLinksService coreIssueLinksService,
     IMemberProfileReader memberProfileReader,
     IAgentRunMcpService agentRunMcpService)
@@ -650,6 +660,8 @@ public class IssueMcpService(
 
         var latestAgentRun = await agentRunMcpService.GetLatestRun(authData, issueId, cancellationToken);
 
+        var source = await issueSourceReader.GetSource(issueId, authData.OrganizationId, cancellationToken);
+
         return new IssueDetail(
             key.ToString(),
             issueUrlBuilder.Build(organization.Slug, organization.SlugPostfix, key),
@@ -676,7 +688,14 @@ public class IssueMcpService(
                     (int)x.StatusCategory,
                     x.StatusCategory.ToString()))
                 .ToList(),
-            latestAgentRun);
+            latestAgentRun,
+            source is null
+                ? null
+                : new IssueSourceSummary(
+                    source.IsPrivateChat ? "private chat with the bot" : source.ChatTitle,
+                    source.SenderName,
+                    source.SentAt,
+                    source.MessageUrl));
     }
 
     public async Task CreateIssueLink(

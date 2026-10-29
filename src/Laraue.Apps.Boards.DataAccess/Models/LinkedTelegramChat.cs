@@ -22,6 +22,13 @@ public class LinkedTelegramChat
     public string? Title { get; set; }
 
     /// <summary>
+    /// The chat's public @username (without "@"), null for a private chat. Set on link and refreshed from
+    /// incoming messages; a public supergroup's message links use it (t.me/{username}/{messageId}).
+    /// </summary>
+    [MaxLength(32)]
+    public string? Username { get; set; }
+
+    /// <summary>
     /// Status of entities that will be created through the chat. 
     /// </summary>
     public long StatusId { get; set; }

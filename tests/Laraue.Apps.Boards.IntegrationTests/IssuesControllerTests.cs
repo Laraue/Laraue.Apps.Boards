@@ -677,6 +677,58 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task GetIssue_ShouldReturnTelegramSource_WhenIssueWasCreatedFromTelegramMessage()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId)
+                .AddIssueToDefaultStatus(userId));
+
+        var telegramIssue = organization.GetIssueData(0, 0, 0, 0);
+        var webIssue = organization.GetIssueData(0, 0, 0, 1);
+        var sentAt = new DateTime(2026, 10, 20, 9, 30, 0, DateTimeKind.Utc);
+
+        var message = new TelegramMessage
+        {
+            ExternalChatId = -1007777777777,
+            ExternalMessageId = 12,
+            SenderId = userId,
+            SentAt = sentAt,
+            LinkedTelegramChat = new LinkedTelegramChat
+            {
+                ExternalChatId = -1007777777777,
+                Title = "Team",
+                Username = "team_chat",
+                StatusId = organization.GetStatus(0, 0, 0).Id,
+            },
+        };
+        testScope.Database.Add(message);
+        await testScope.Database.SaveChangesAsync();
+        await testScope.Database.Issues
+            .Where(x => x.Id == telegramIssue.Issue.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.TelegramMessageId, message.Id));
+
+        var telegramIssueDto = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssue(telegramIssue.Key));
+        var webIssueDto = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssue(webIssue.Key));
+
+        var source = telegramIssueDto!.Source;
+        Assert.NotNull(source);
+        Assert.False(source.IsPrivateChat);
+        Assert.Equal("Team", source.ChatTitle);
+        Assert.Equal(telegramIssueDto.Owner.DisplayName, source.SenderName);
+        Assert.Equal(sentAt, source.SentAt);
+        Assert.Equal("https://t.me/team_chat/12", source.MessageUrl);
+        Assert.Null(webIssueDto!.Source);
+    }
+
+    [Fact]
     public async Task User_ShouldViewIssue_WhenHasSpaceAccessToReadIssues()
     {
         using var testScope = host.CreateTestScope();

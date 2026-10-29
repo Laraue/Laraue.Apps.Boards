@@ -11,6 +11,7 @@ using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
+using Laraue.Apps.Boards.Services.Sources;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.Billing;
@@ -107,6 +108,7 @@ public class IssuesService(
     IUsageLimitService usageLimitService,
     IMemberProfileReader memberProfileReader,
     IIssueLinksReader issueLinksReader,
+    IIssueSourceReader issueSourceReader,
     IOrganizationHistoryReader organizationHistoryReader,
     IAgentRunsService agentRunsService,
     ILogger<IssuesService> logger)
@@ -807,6 +809,7 @@ public class IssuesService(
                 issueId,
                 await GetReadableSpaceIds(request.AuthData, cancellationToken),
                 cancellationToken),
+            Source = await issueSourceReader.GetSource(issueId, result.OrganizationId, cancellationToken),
         };
 
         await memberProfileReader.EnrichUsers(
@@ -2069,6 +2072,11 @@ public class IssueDetailDto
     /// Links to the issues the caller can read, each with its meaning from this issue's side.
     /// </summary>
     public required IssueLinkDto[] Links { get; set; }
+
+    /// <summary>
+    /// The Telegram message the issue was created from, null for an issue not created from Telegram.
+    /// </summary>
+    public required IssueSourceDto? Source { get; set; }
 
     /// <summary>
     /// The issue's most recent agent run, null when it was never handed to the agent.

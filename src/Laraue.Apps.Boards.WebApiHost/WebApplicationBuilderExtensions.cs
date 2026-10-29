@@ -11,6 +11,7 @@ using System.Text.Json.Serialization;
 using Telegram.Bot;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
+using Laraue.Apps.Boards.Services.Sources;
 
 namespace Laraue.Apps.Boards.WebApiHost;
 
@@ -42,6 +43,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IIssuesService, IssuesService>()
                 .AddScoped<IIssueLinksService, IssueLinksService>()
                 .AddScoped<IIssueLinksReader, IssueLinksReader>()
+                .AddScoped<IIssueSourceReader, IssueSourceReader>()
                 .AddScoped<IOrganizationHistoryService, OrganizationHistoryService>()
                 .AddScoped<IOrganizationHistoryReader, OrganizationHistoryReader>()
                 .AddScoped<IEpicsService, EpicsService>()
