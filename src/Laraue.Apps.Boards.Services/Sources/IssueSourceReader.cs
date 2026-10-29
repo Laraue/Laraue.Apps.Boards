@@ -53,7 +53,7 @@ public class IssueSourceReader(DatabaseContext context, IMemberProfileReader mem
             IsPrivateChat = isPrivateChat,
             // A private chat's "title" is the owner's username, not something to show as a chat name.
             ChatTitle = isPrivateChat ? null : message.ChatTitle,
-            SenderName = sender?.DisplayName,
+            Sender = sender,
             SentAt = message.SentAt,
             // The message's own chat id, not the link's: a message saved before its basic group became a supergroup
             // keeps the old id, and its id means nothing in the supergroup, so it gets no link.
@@ -81,9 +81,9 @@ public record IssueSourceDto
     public required string? ChatTitle { get; init; }
 
     /// <summary>
-    /// Who sent the message, as named in the issue's organization; null when unknown.
+    /// Who sent the message, as shown in the issue's organization; null when unknown.
     /// </summary>
-    public required string? SenderName { get; init; }
+    public required UserDetails? Sender { get; init; }
 
     /// <summary>
     /// When the message was sent on Telegram (UTC).
