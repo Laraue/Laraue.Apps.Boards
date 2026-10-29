@@ -114,7 +114,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to 📖 Docs: https://laraue.com/blog/documentation/laraue-boards.
+        ///   Looks up a localized string similar to 📖 Docs: https://boards.laraue.com/en/documentation.
         /// </summary>
         internal static string Help {
             get {
@@ -609,7 +609,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         ///2. 👍 = added to your board
         ///3. Edit the message and I&apos;ll react with ❤ and update the card (deleting the message won&apos;t delete the card)
         ///
-        ///📖 Docs: https://laraue.com/blog/documentation/laraue-boards
+        ///📖 Docs: https://boards.laraue.com/en/documentation
         ///
         ///🔍 Search from any chat: type @msgboard_bot followed by your search, right in the message field.
         ///
