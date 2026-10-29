@@ -12,6 +12,7 @@ using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Laraue.Apps.Boards.Services.History;
 
@@ -1361,6 +1362,43 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         
         Assert.True(participatorComment.CanModify);
         Assert.Equal("Comment 2", participatorComment.Text);
+    }
+
+    [Fact]
+    public async Task GetIssueComments_ShouldReturnEachCommentsAttachments_WhenSomeCommentsHaveFiles()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, o => o
+            .AddIssueToDefaultStatus(userId));
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        // A PNG signature is enough for the type check.
+        byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4, 5];
+        var file = await testScope.Services.GetRequiredService<ICoreFilesService>().UploadFile(
+            "photo.png",
+            AttachmentFileTypes.Png,
+            new MemoryStream(png),
+            CancellationToken.None);
+
+        var coreIssuesService = testScope.Services.GetRequiredService<ICoreIssuesService>();
+        await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
+        {
+            await coreIssuesService.AddComment(issueData.Issue.Id, userId, "See the photo", [file], CancellationToken.None);
+            await coreIssuesService.AddComment(issueData.Issue.Id, userId, "No files here", [], CancellationToken.None);
+            await transaction.CommitAsync();
+        }
+
+        var comments = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssueComments(
+                issueData.Key,
+                new GetIssueCommentsRequest { Pagination = new PaginationData { Page = 0, PerPage = 10 } }));
+
+        Assert.Collection(
+            comments!.Data,
+            withFile => Assert.Equal("photo.png", Assert.Single(withFile.Attachments).FileName),
+            withoutFile => Assert.Empty(withoutFile.Attachments));
     }
     
     [Fact]

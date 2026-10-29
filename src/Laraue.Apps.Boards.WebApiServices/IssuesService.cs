@@ -1023,26 +1023,36 @@ public class IssuesService(
                 x.UpdatedAt,
                 x.OwnerId,
                 CanModify = x.OwnerId == request.AuthData.UserId,
-                Attachments = x.Attachments
-                    .Select(a => new AttachmentData
-                    {
-                        Id = a.AttachmentId,
-                        OriginalFileId = a.Attachment!.FileId,
-                        PreviewFileId = a.Attachment.PreviewFileId,
-                        Type = a.Attachment.Type,
-                        FileName = a.Attachment.File!.Name,
-                        MimeType = a.Attachment.File.MimeType,
-                        FileSize = a.Attachment.File.Size,
-                    })
-                    .ToList(),
             })
             .ShortPaginateEFAsync(request.Pagination, ct);
 
+        var commentIds = commentsData.Data
+            .Select(x => x.Id)
+            .ToArray();
+
+        var attachments = (await context.IssueCommentsAttachments
+            .Where(a => commentIds.Contains(a.CommentId))
+            .OrderBy(a => a.AttachmentId)
+            .Select(a => new
+            {
+                a.CommentId,
+                Attachment = new AttachmentData
+                {
+                    Id = a.AttachmentId,
+                    OriginalFileId = a.Attachment!.FileId,
+                    PreviewFileId = a.Attachment.PreviewFileId,
+                    Type = a.Attachment.Type,
+                    FileName = a.Attachment.File!.Name,
+                    MimeType = a.Attachment.File.MimeType,
+                    FileSize = a.Attachment.File.Size,
+                },
+            })
+            .ToArrayAsyncEF(ct))
+            .ToLookup(x => x.CommentId, x => x.Attachment);
+
         // Written through an API key (e.g. by an agent): one query for the page.
         var apiKeys = await organizationHistoryReader.GetCommentApiKeys(
-            commentsData.Data
-                .Select(x => x.Id)
-                .ToArray(),
+            commentIds,
             ct);
 
         var result = commentsData.MapTo(item => new CommentDto
@@ -1056,7 +1066,7 @@ public class IssuesService(
             ApiKeyName = apiKeys.GetValueOrDefault(item.Id)?.Name,
             AuthorKind = apiKeys.GetValueOrDefault(item.Id)?.Agent is null ? AuthorKind.User : AuthorKind.Agent,
             Agent = apiKeys.GetValueOrDefault(item.Id)?.Agent,
-            Attachments = item.Attachments,
+            Attachments = attachments[item.Id].ToList(),
         });
 
         await memberProfileReader.EnrichUsers(
