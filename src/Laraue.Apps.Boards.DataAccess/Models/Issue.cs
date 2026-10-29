@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Laraue.Apps.Boards.DataAccess.Enums;
 
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
@@ -64,6 +65,18 @@ public class Issue
     
     public TelegramMessage? TelegramMessage { get; set; }
     public long? TelegramMessageId { get; set; }
+
+    /// <summary>
+    /// How the issue was created. Stored so lists and boards don't read history for it.
+    /// </summary>
+    public IssueCreatedVia CreatedVia { get; set; }
+
+    /// <summary>
+    /// The API key the issue was created with (<see cref="IssueCreatedVia.Mcp"/> or <see cref="IssueCreatedVia.Agent"/>),
+    /// so lists can name it without reading history. Null for other issues, or when the key was deleted.
+    /// </summary>
+    public Guid? CreatedByApiKeyId { get; set; }
+    public ApiKey? CreatedByApiKey { get; set; }
 
     /// <summary>
     /// The field used for sorting

@@ -84,6 +84,12 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
 
             entity.HasIndex(x => x.AssigneeId);
 
+            entity
+                .HasOne(x => x.CreatedByApiKey)
+                .WithMany()
+                .HasForeignKey(x => x.CreatedByApiKeyId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             entity.Property(x => x.LexoRank)
                 .HasMaxLength(34)
                 .IsFixedLength()

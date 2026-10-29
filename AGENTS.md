@@ -487,6 +487,14 @@ editing/deleting a comment). Guardrails:
 - Shaped like the OAuth device grant, but not OAuth: a general sign-in server belongs in Laraue.Apps.Identity; Boards
   only issues its organization-scoped keys.
 
+**How an issue was created and agent authors** (BRD-325): `Issue.CreatedVia` (`Web | Telegram | Mcp | Agent`) and
+`Issue.CreatedByApiKeyId` are stored on create by `CoreIssuesService` (a Telegram message wins; a key issued by agent
+sign-in - one with an `AgentSignInRequest` - is Agent, any other key Mcp) and backfilled by the `AddIssueCreatedVia`
+migration from the issue's create entry in history, so lists and boards return `createdVia`/`createdByApiKeyName` without
+reading history. Comments and history (`OrganizationHistoryReader`, `GetCommentApiKeys`) return `AuthorKind` (`User |
+Agent`) and the agent's client/machine (`AgentDetails`) next to `ApiKeyName`: actions made with an agent sign-in key read as
+the agent's, on behalf of the key's owner; keys made by hand stay `User`.
+
 **Agent runs** (BRD-305, `IssueAgentRun`, `ICoreAgentRunsService`, `AgentRunMcpService`/`AgentRunTools`, REST
 `AgentRunsController`) - handing an issue to a coding agent on the user's machine:
 

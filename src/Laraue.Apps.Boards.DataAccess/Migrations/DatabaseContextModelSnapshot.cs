@@ -479,6 +479,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<Guid?>("CreatedByApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_api_key_id");
+
+                    b.Property<int>("CreatedVia")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_via");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
@@ -532,6 +540,9 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Content"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Content"), new[] { "gin_trgm_ops" });
+
+                    b.HasIndex("CreatedByApiKeyId")
+                        .HasDatabaseName("ix_issues_created_by_api_key_id");
 
                     b.HasIndex("DeletedByUserId")
                         .HasDatabaseName("ix_issues_deleted_by_user_id");
@@ -2249,6 +2260,12 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_issues_users_assignee_id");
 
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.ApiKey", "CreatedByApiKey")
+                        .WithMany()
+                        .HasForeignKey("CreatedByApiKeyId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_issues_api_keys_created_by_api_key_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "DeletedByUser")
                         .WithMany()
                         .HasForeignKey("DeletedByUserId")
@@ -2275,6 +2292,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasConstraintName("fk_issues_telegram_messages_telegram_message_id");
 
                     b.Navigation("Assignee");
+
+                    b.Navigation("CreatedByApiKey");
 
                     b.Navigation("DeletedByUser");
 

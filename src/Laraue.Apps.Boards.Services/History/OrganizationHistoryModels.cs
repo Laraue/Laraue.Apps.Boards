@@ -10,11 +10,50 @@ public record OrganizationHistoryItem
     public required DateTime CreatedAt { get; set; }
     public required UserDetails Owner { get; set; }
     public required string? ApiKeyName { get; set; }
+
+    /// <summary>
+    /// Agent when the change was made with a key issued by agent sign-in, so it reads as the agent's on behalf of
+    /// <see cref="Owner"/>; User otherwise (in the app, or with a key made by hand).
+    /// </summary>
+    public required AuthorKind AuthorKind { get; set; }
+
+    /// <summary>
+    /// The agent's client and machine, set when <see cref="AuthorKind"/> is Agent.
+    /// </summary>
+    public required AgentDetails? Agent { get; set; }
+
     public required HistoryItemChange[] Changes { get; set; }
     public required LogEntityType EntityType { get; set; }
     public required LogAction Action { get; set; }
     public required string? IssueKey { get; set; }
     public required string? IssueTitle { get; set; }
+}
+
+/// <summary>
+/// Who an action reads as: the person, or an agent acting for them.
+/// </summary>
+public enum AuthorKind
+{
+    User,
+    Agent,
+}
+
+/// <summary>
+/// An agent signed in with agent sign-in: its own name (e.g. "Claude Code agent") and the machine it runs on.
+/// </summary>
+public record AgentDetails
+{
+    public required string ClientName { get; init; }
+    public required string MachineName { get; init; }
+}
+
+/// <summary>
+/// The API key a comment was written through, and the agent behind it when the key came from agent sign-in.
+/// </summary>
+public record CommentApiKey
+{
+    public required string Name { get; init; }
+    public required AgentDetails? Agent { get; init; }
 }
 
 [JsonDerivedType(typeof(IssueHistoryContentChange), "content")]

@@ -894,16 +894,29 @@ public class IssueMcpService(
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,
-                Attachments = c.Attachments
-                    .Select(a => new IssueAttachmentSummary(
-                        a.AttachmentId,
-                        a.Attachment!.File!.Name,
-                        a.Attachment.Type.ToString(),
-                        a.Attachment.File.MimeType,
-                        a.Attachment.File.Size))
-                    .ToList(),
             })
             .ShortPaginateEFAsync(pagination, cancellationToken);
+
+        var commentIds = result.Data
+            .Select(c => c.Id)
+            .ToArray();
+
+        var attachments = (await context.IssueCommentsAttachments
+            .Where(a => commentIds.Contains(a.CommentId))
+            .OrderBy(a => a.AttachmentId)
+            .Select(a => new
+            {
+                a.CommentId,
+                a.AttachmentId,
+                FileName = a.Attachment!.File!.Name,
+                a.Attachment.Type,
+                a.Attachment.File.MimeType,
+                a.Attachment.File.Size,
+            })
+            .ToArrayAsyncEF(cancellationToken))
+            .ToLookup(
+                a => a.CommentId,
+                a => new IssueAttachmentSummary(a.AttachmentId, a.FileName, a.Type.ToString(), a.MimeType, a.Size));
 
         await memberProfileReader.EnrichUsers(
             authData.OrganizationId,
@@ -911,21 +924,19 @@ public class IssueMcpService(
                 .Select(c => c.Author),
             cancellationToken);
 
-        var apiKeyNames = await historyReader.GetCommentApiKeyNames(
-            result.Data
-                .Select(c => c.Id)
-                .ToArray(),
+        var apiKeys = await historyReader.GetCommentApiKeys(
+            commentIds,
             cancellationToken);
 
         var comments = result.Data
             .Select(c => new IssueCommentSummary(
                 c.Id,
                 c.Author.DisplayName,
-                apiKeyNames.GetValueOrDefault(c.Id),
+                apiKeys.GetValueOrDefault(c.Id)?.Name,
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,
-                c.Attachments,
+                attachments[c.Id].ToList(),
                 c.OwnerId == authData.UserId))
             .ToList();
 

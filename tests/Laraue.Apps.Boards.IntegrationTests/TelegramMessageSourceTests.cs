@@ -1,3 +1,4 @@
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Members;
@@ -79,6 +80,23 @@ public class TelegramMessageSourceTests : TelegramIntegrationTest
         Assert.Equal(await GetDisplayName(testScope, organizationId), source.Sender?.DisplayName);
         Assert.Equal(SentAt, source.SentAt);
         Assert.Equal("https://t.me/team_chat/7", source.MessageUrl);
+    }
+
+    [Fact]
+    public async Task HandleGroupMessage_ShouldSetCreatedViaTelegram_WhenMessageBecomesIssue()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var chatId = -1009999999999;
+        await LinkChat(testScope, chatId, title: "Team");
+        await SendGroupMessage(host, new Chat { Id = chatId, Type = ChatType.Supergroup }, 7);
+
+        var issue = Assert.Single(await testScope.Database.Issues
+            .Select(x => new { x.CreatedVia, x.CreatedByApiKeyId })
+            .ToListAsyncLinqToDB());
+        Assert.Equal(IssueCreatedVia.Telegram, issue.CreatedVia);
+        Assert.Null(issue.CreatedByApiKeyId);
     }
 
     [Fact]
