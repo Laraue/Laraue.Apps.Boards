@@ -722,7 +722,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.NotNull(source);
         Assert.False(source.IsPrivateChat);
         Assert.Equal("Team", source.ChatTitle);
-        Assert.Equal(telegramIssueDto.Owner.DisplayName, source.SenderName);
+        Assert.Equal(telegramIssueDto.Owner, source.Sender);
         Assert.Equal(sentAt, source.SentAt);
         Assert.Equal("https://t.me/team_chat/12", source.MessageUrl);
         Assert.Null(webIssueDto!.Source);

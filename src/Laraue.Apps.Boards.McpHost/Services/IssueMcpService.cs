@@ -693,7 +693,7 @@ public class IssueMcpService(
                 ? null
                 : new IssueSourceSummary(
                     source.IsPrivateChat ? "private chat with the bot" : source.ChatTitle,
-                    source.SenderName,
+                    source.Sender?.DisplayName,
                     source.SentAt,
                     source.MessageUrl));
     }

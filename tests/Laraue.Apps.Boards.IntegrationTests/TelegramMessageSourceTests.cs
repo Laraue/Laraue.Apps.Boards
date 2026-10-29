@@ -76,7 +76,7 @@ public class TelegramMessageSourceTests : TelegramIntegrationTest
 
         Assert.False(source.IsPrivateChat);
         Assert.Equal("Team", source.ChatTitle);
-        Assert.Equal(await GetDisplayName(testScope, organizationId), source.SenderName);
+        Assert.Equal(await GetDisplayName(testScope, organizationId), source.Sender?.DisplayName);
         Assert.Equal(SentAt, source.SentAt);
         Assert.Equal("https://t.me/team_chat/7", source.MessageUrl);
     }
