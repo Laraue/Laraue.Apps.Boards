@@ -67,29 +67,27 @@ public class OrganizationHistoryReader(
                 (x.EntityType == LogEntityType.Comment && context.IssueComments.Any(y => y.Id == x.EntityId && y.IssueId == issueId))
                 || (x.EntityId == issueId && x.EntityType == LogEntityType.Issue))
             .OrderByDescending(x => x.Id)
-            .Select(x => new
+            .Select(x => new HistoryLogRow
             {
-                x.Id,
-                x.CreatedAt,
-                x.EntityType,
-                x.Action,
-                x.OwnerId,
-                x.ApiKey!.Name,
-                Agent = context.AgentSignInRequests
-                    .Where(r => x.ApiKeyId != null && r.ApiKeyId == x.ApiKeyId)
-                    .Select(r => new AgentDetails { ClientName = r.ClientName, MachineName = r.MachineName })
-                    .FirstOrDefault(),
-                Items = x.Items!
-                    .OrderBy(i => i.Id)
-                    .ToArray(),
+                Id = x.Id,
+                EntityId = x.EntityId,
+                CreatedAt = x.CreatedAt,
+                EntityType = x.EntityType,
+                Action = x.Action,
+                OwnerId = x.OwnerId,
+                ApiKeyId = x.ApiKeyId,
+                ApiKeyName = x.ApiKey!.Name,
             })
             .ShortPaginateEFAsync(pagination, ct);
 
         var changes = await MapHistoryChanges(
             organizationId,
-            updatesData.Data.ToDictionary(
-                x => x.Id,
-                x => x.Items),
+            await GetLogItems(updatesData.Data, ct),
+            ct);
+
+        var agents = await GetAgents(
+            updatesData.Data
+                .Select(x => x.ApiKeyId),
             ct);
 
         var issueTitle = await context.Issues
@@ -101,9 +99,9 @@ public class OrganizationHistoryReader(
         {
             CreatedAt = x.CreatedAt,
             Owner = new UserDetails { UserId = x.OwnerId },
-            ApiKeyName = x.Name,
-            AuthorKind = x.Agent is null ? AuthorKind.User : AuthorKind.Agent,
-            Agent = x.Agent,
+            ApiKeyName = x.ApiKeyName,
+            AuthorKind = GetAgent(agents, x.ApiKeyId) is null ? AuthorKind.User : AuthorKind.Agent,
+            Agent = GetAgent(agents, x.ApiKeyId),
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
@@ -145,30 +143,27 @@ public class OrganizationHistoryReader(
 
         var updatesData = await logs
             .OrderByDescending(x => x.Id)
-            .Select(x => new
+            .Select(x => new HistoryLogRow
             {
-                x.Id,
-                x.EntityId,
-                x.CreatedAt,
-                x.EntityType,
-                x.Action,
-                x.OwnerId,
-                x.ApiKey!.Name,
-                Agent = context.AgentSignInRequests
-                    .Where(r => x.ApiKeyId != null && r.ApiKeyId == x.ApiKeyId)
-                    .Select(r => new AgentDetails { ClientName = r.ClientName, MachineName = r.MachineName })
-                    .FirstOrDefault(),
-                Items = x.Items!
-                    .OrderBy(i => i.Id)
-                    .ToArray(),
+                Id = x.Id,
+                EntityId = x.EntityId,
+                CreatedAt = x.CreatedAt,
+                EntityType = x.EntityType,
+                Action = x.Action,
+                OwnerId = x.OwnerId,
+                ApiKeyId = x.ApiKeyId,
+                ApiKeyName = x.ApiKey!.Name,
             })
             .ShortPaginateEFAsync(query.Pagination, ct);
 
         var changes = await MapHistoryChanges(
             query.OrganizationId,
-            updatesData.Data.ToDictionary(
-                x => x.Id,
-                x => x.Items),
+            await GetLogItems(updatesData.Data, ct),
+            ct);
+
+        var agents = await GetAgents(
+            updatesData.Data
+                .Select(x => x.ApiKeyId),
             ct);
 
         var issueInfoByLogId = await MapIssueInfoByLogId(
@@ -179,9 +174,9 @@ public class OrganizationHistoryReader(
         {
             CreatedAt = x.CreatedAt,
             Owner = new UserDetails { UserId = x.OwnerId },
-            ApiKeyName = x.Name,
-            AuthorKind = x.Agent is null ? AuthorKind.User : AuthorKind.Agent,
-            Agent = x.Agent,
+            ApiKeyName = x.ApiKeyName,
+            AuthorKind = GetAgent(agents, x.ApiKeyId) is null ? AuthorKind.User : AuthorKind.Agent,
+            Agent = GetAgent(agents, x.ApiKeyId),
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
@@ -198,11 +193,11 @@ public class OrganizationHistoryReader(
         return result;
     }
 
-    public Task<Dictionary<long, CommentApiKey>> GetCommentApiKeys(
+    public async Task<Dictionary<long, CommentApiKey>> GetCommentApiKeys(
         IReadOnlyCollection<long> commentIds,
         CancellationToken ct)
     {
-        return context.OrganizationLogs
+        var keys = await context.OrganizationLogs
             .Where(l => l.EntityType == LogEntityType.Comment
                 && l.Action == LogAction.Create
                 && l.ApiKeyId != null
@@ -210,16 +205,96 @@ public class OrganizationHistoryReader(
             .Select(l => new
             {
                 CommentId = l.EntityId!.Value,
-                ApiKey = new CommentApiKey
-                {
-                    Name = l.ApiKey!.Name,
-                    Agent = context.AgentSignInRequests
-                        .Where(r => r.ApiKeyId == l.ApiKeyId)
-                        .Select(r => new AgentDetails { ClientName = r.ClientName, MachineName = r.MachineName })
-                        .FirstOrDefault(),
-                },
+                l.ApiKeyId,
+                l.ApiKey!.Name,
             })
-            .ToDictionaryAsyncEF(x => x.CommentId, x => x.ApiKey, ct);
+            .ToArrayAsyncEF(ct);
+
+        var agents = await GetAgents(
+            keys
+                .Select(x => x.ApiKeyId),
+            ct);
+
+        return keys.ToDictionary(
+            x => x.CommentId,
+            x => new CommentApiKey { Name = x.Name, Agent = GetAgent(agents, x.ApiKeyId) });
+    }
+
+    /// <summary>
+    /// The page's history entries without their changes - loaded by <see cref="GetLogItems"/> - and agents - by
+    /// <see cref="GetAgents"/>, so each is one flat query.
+    /// </summary>
+    private sealed record HistoryLogRow
+    {
+        public required long Id { get; init; }
+        public required long? EntityId { get; init; }
+        public required DateTime CreatedAt { get; init; }
+        public required LogEntityType EntityType { get; init; }
+        public required LogAction Action { get; init; }
+        public required Guid OwnerId { get; init; }
+        public required Guid? ApiKeyId { get; init; }
+        public required string? ApiKeyName { get; init; }
+    }
+
+    /// <summary>
+    /// The changes of each of <paramref name="logs"/>, in the order they were recorded; an entry with none gets an
+    /// empty array.
+    /// </summary>
+    private async Task<Dictionary<long, OrganizationLogItem[]>> GetLogItems(
+        IList<HistoryLogRow> logs,
+        CancellationToken ct)
+    {
+        var logIds = logs
+            .Select(x => x.Id)
+            .ToArray();
+
+        var items = await context.OrganizationLogItems
+            .Where(i => logIds.Contains(i.OrganizationLogId))
+            .OrderBy(i => i.Id)
+            .ToArrayAsyncEF(ct);
+
+        var itemsByLogId = items
+            .GroupBy(i => i.OrganizationLogId)
+            .ToDictionary(g => g.Key, g => g.ToArray());
+
+        return logIds.ToDictionary(
+            id => id,
+            id => itemsByLogId.GetValueOrDefault(id) ?? []);
+    }
+
+    /// <summary>
+    /// The agent behind each of <paramref name="apiKeyIds"/> issued by agent sign-in; other keys aren't in the result.
+    /// </summary>
+    private async Task<Dictionary<Guid, AgentDetails>> GetAgents(
+        IEnumerable<Guid?> apiKeyIds,
+        CancellationToken ct)
+    {
+        var keyIds = apiKeyIds
+            .OfType<Guid>()
+            .Distinct()
+            .ToArray();
+
+        if (keyIds.Length == 0)
+            return [];
+
+        var agents = await context.AgentSignInRequests
+            .Where(r => keyIds.Contains(r.ApiKeyId!.Value))
+            .Select(r => new
+            {
+                ApiKeyId = r.ApiKeyId!.Value,
+                Agent = new AgentDetails { ClientName = r.ClientName, MachineName = r.MachineName },
+            })
+            .ToArrayAsyncEF(ct);
+
+        // One sign-in issues one key; DistinctBy only guards the dictionary.
+        return agents
+            .DistinctBy(x => x.ApiKeyId)
+            .ToDictionary(x => x.ApiKeyId, x => x.Agent);
+    }
+
+    private static AgentDetails? GetAgent(Dictionary<Guid, AgentDetails> agents, Guid? apiKeyId)
+    {
+        return apiKeyId is { } id ? agents.GetValueOrDefault(id) : null;
     }
 
     private sealed record IssueInfo(string Key, string Title);
