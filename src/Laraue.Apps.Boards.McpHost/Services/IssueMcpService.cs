@@ -911,7 +911,7 @@ public class IssueMcpService(
                 .Select(c => c.Author),
             cancellationToken);
 
-        var apiKeyNames = await historyReader.GetCommentApiKeyNames(
+        var apiKeys = await historyReader.GetCommentApiKeys(
             result.Data
                 .Select(c => c.Id)
                 .ToArray(),
@@ -921,7 +921,7 @@ public class IssueMcpService(
             .Select(c => new IssueCommentSummary(
                 c.Id,
                 c.Author.DisplayName,
-                apiKeyNames.GetValueOrDefault(c.Id),
+                apiKeys.GetValueOrDefault(c.Id)?.Name,
                 c.Text,
                 c.CreatedAt,
                 c.UpdatedAt,

@@ -33,10 +33,10 @@ public interface IOrganizationHistoryReader
 
     /// <summary>
     /// The API key each of <paramref name="commentIds"/> was written through (e.g. an agent's), from the comment's
-    /// create entry - what the history shows as "via API key ...". One query for a page of comments; a comment
-    /// written in the app has no entry in the result.
+    /// create entry - what the history shows as "via API key ...", with the agent when the key came from agent
+    /// sign-in. One query for a page of comments; a comment written in the app has no entry in the result.
     /// </summary>
-    Task<Dictionary<long, string>> GetCommentApiKeyNames(
+    Task<Dictionary<long, CommentApiKey>> GetCommentApiKeys(
         IReadOnlyCollection<long> commentIds,
         CancellationToken ct);
 }
@@ -75,6 +75,10 @@ public class OrganizationHistoryReader(
                 x.Action,
                 x.OwnerId,
                 x.ApiKey!.Name,
+                Agent = context.AgentSignInRequests
+                    .Where(r => x.ApiKeyId != null && r.ApiKeyId == x.ApiKeyId)
+                    .Select(r => new AgentDetails { ClientName = r.ClientName, MachineName = r.MachineName })
+                    .FirstOrDefault(),
                 Items = x.Items!
                     .OrderBy(i => i.Id)
                     .ToArray(),
@@ -98,6 +102,8 @@ public class OrganizationHistoryReader(
             CreatedAt = x.CreatedAt,
             Owner = new UserDetails { UserId = x.OwnerId },
             ApiKeyName = x.Name,
+            AuthorKind = x.Agent is null ? AuthorKind.User : AuthorKind.Agent,
+            Agent = x.Agent,
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
@@ -148,6 +154,10 @@ public class OrganizationHistoryReader(
                 x.Action,
                 x.OwnerId,
                 x.ApiKey!.Name,
+                Agent = context.AgentSignInRequests
+                    .Where(r => x.ApiKeyId != null && r.ApiKeyId == x.ApiKeyId)
+                    .Select(r => new AgentDetails { ClientName = r.ClientName, MachineName = r.MachineName })
+                    .FirstOrDefault(),
                 Items = x.Items!
                     .OrderBy(i => i.Id)
                     .ToArray(),
@@ -170,6 +180,8 @@ public class OrganizationHistoryReader(
             CreatedAt = x.CreatedAt,
             Owner = new UserDetails { UserId = x.OwnerId },
             ApiKeyName = x.Name,
+            AuthorKind = x.Agent is null ? AuthorKind.User : AuthorKind.Agent,
+            Agent = x.Agent,
             Changes = changes[x.Id],
             EntityType = x.EntityType,
             Action = x.Action,
@@ -186,7 +198,7 @@ public class OrganizationHistoryReader(
         return result;
     }
 
-    public Task<Dictionary<long, string>> GetCommentApiKeyNames(
+    public Task<Dictionary<long, CommentApiKey>> GetCommentApiKeys(
         IReadOnlyCollection<long> commentIds,
         CancellationToken ct)
     {
@@ -195,8 +207,19 @@ public class OrganizationHistoryReader(
                 && l.Action == LogAction.Create
                 && l.ApiKeyId != null
                 && commentIds.Contains(l.EntityId!.Value))
-            .Select(l => new { CommentId = l.EntityId!.Value, l.ApiKey!.Name })
-            .ToDictionaryAsyncEF(x => x.CommentId, x => x.Name, ct);
+            .Select(l => new
+            {
+                CommentId = l.EntityId!.Value,
+                ApiKey = new CommentApiKey
+                {
+                    Name = l.ApiKey!.Name,
+                    Agent = context.AgentSignInRequests
+                        .Where(r => r.ApiKeyId == l.ApiKeyId)
+                        .Select(r => new AgentDetails { ClientName = r.ClientName, MachineName = r.MachineName })
+                        .FirstOrDefault(),
+                },
+            })
+            .ToDictionaryAsyncEF(x => x.CommentId, x => x.ApiKey, ct);
     }
 
     private sealed record IssueInfo(string Key, string Title);

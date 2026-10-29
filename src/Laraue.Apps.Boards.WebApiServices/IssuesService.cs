@@ -734,6 +734,8 @@ public class IssuesService(
                 SpaceKey = x.Status.Epic.Space.Key,
                 SpaceName = x.Status.Epic.Space.Name,
                 SpaceColor = x.Status.Epic.Space.Color,
+                CreatedVia = x.CreatedVia,
+                CreatedByApiKeyName = x.CreatedByApiKey != null ? x.CreatedByApiKey.Name : null,
             })
             .FirstAsyncEF(cancellationToken);
 
@@ -810,6 +812,8 @@ public class IssuesService(
                 await GetReadableSpaceIds(request.AuthData, cancellationToken),
                 cancellationToken),
             Source = await issueSourceReader.GetSource(issueId, result.OrganizationId, cancellationToken),
+            CreatedVia = result.CreatedVia,
+            CreatedByApiKeyName = result.CreatedByApiKeyName,
         };
 
         await memberProfileReader.EnrichUsers(
@@ -1035,7 +1039,7 @@ public class IssuesService(
             .ShortPaginateEFAsync(request.Pagination, ct);
 
         // Written through an API key (e.g. by an agent): one query for the page.
-        var apiKeyNames = await organizationHistoryReader.GetCommentApiKeyNames(
+        var apiKeys = await organizationHistoryReader.GetCommentApiKeys(
             commentsData.Data
                 .Select(x => x.Id)
                 .ToArray(),
@@ -1049,7 +1053,9 @@ public class IssuesService(
             UpdatedAt = item.UpdatedAt,
             CanModify = item.CanModify,
             Owner = new UserDetails { UserId = item.OwnerId },
-            ApiKeyName = apiKeyNames.GetValueOrDefault(item.Id),
+            ApiKeyName = apiKeys.GetValueOrDefault(item.Id)?.Name,
+            AuthorKind = apiKeys.GetValueOrDefault(item.Id)?.Agent is null ? AuthorKind.User : AuthorKind.Agent,
+            Agent = apiKeys.GetValueOrDefault(item.Id)?.Agent,
             Attachments = item.Attachments,
         });
 
@@ -1171,6 +1177,8 @@ public class IssuesService(
                 AssigneeInitial = element.AssigneeInitial,
                 Attributes = element.Attributes,
                 LatestAgentRun = element.LatestAgentRun,
+                CreatedVia = element.CreatedVia,
+                CreatedByApiKeyName = element.CreatedByApiKeyName,
                 CanEdit = spacesWithAllowedUpdate.Contains(element.SpaceKey),
                 IsBlocked = element.IsBlocked,
             });
@@ -1398,7 +1406,9 @@ public class IssuesService(
             AssigneeTelegramId = x.Assignee!.TelegramId,
             Number = x.IssueNumber!.Number,
             SpaceKey = x.Status.Epic!.Space!.Key,
-            SpaceId = x.Status.Epic.SpaceId
+            SpaceId = x.Status.Epic.SpaceId,
+            CreatedVia = x.CreatedVia,
+            CreatedByApiKeyName = x.CreatedByApiKey != null ? x.CreatedByApiKey.Name : null,
         });
     }
 
@@ -1419,6 +1429,8 @@ public class IssuesService(
             AssigneeColor = source.Assignee.Color,
             Key = new IssueKey(source.SpaceKey, source.Number).ToString(),
             SpaceKey = source.SpaceKey,
+            CreatedVia = source.CreatedVia,
+            CreatedByApiKeyName = source.CreatedByApiKeyName,
         };
     }
     
@@ -1818,6 +1830,8 @@ public class IssueListDtoData
     public required int Number { get; set; }
     public required string SpaceKey { get; set; }
     public required long SpaceId { get; set; }
+    public required IssueCreatedVia CreatedVia { get; set; }
+    public required string? CreatedByApiKeyName { get; set; }
 }
 
 public record IssueListDto
@@ -1835,6 +1849,16 @@ public record IssueListDto
     public required long StatusId { get; set; }
     public required string SpaceKey { get; set; }
     public List<IssueListAttributeDto> Attributes { get; set; } = [];
+
+    /// <summary>
+    /// How the issue was created: Web, Telegram, Mcp or Agent.
+    /// </summary>
+    public required IssueCreatedVia CreatedVia { get; set; }
+
+    /// <summary>
+    /// The API key it was created with, for Mcp and Agent ("{client} ({machine})" for an agent's key); null otherwise.
+    /// </summary>
+    public required string? CreatedByApiKeyName { get; set; }
 
     /// <summary>
     /// Some issue the caller can read blocks this one and isn't in a Completed status yet.
@@ -2079,6 +2103,16 @@ public class IssueDetailDto
     public required IssueSourceDto? Source { get; set; }
 
     /// <summary>
+    /// How the issue was created: Web, Telegram, Mcp or Agent.
+    /// </summary>
+    public required IssueCreatedVia CreatedVia { get; set; }
+
+    /// <summary>
+    /// The API key it was created with, for Mcp and Agent ("{client} ({machine})" for an agent's key); null otherwise.
+    /// </summary>
+    public required string? CreatedByApiKeyName { get; set; }
+
+    /// <summary>
     /// The issue's most recent agent run, null when it was never handed to the agent.
     /// </summary>
     public required AgentRunDto? LatestAgentRun { get; set; }
@@ -2104,6 +2138,17 @@ public record CommentDto
     /// The API key the comment was written through (e.g. an agent's), null when it was written in the app.
     /// </summary>
     public required string? ApiKeyName { get; set; }
+
+    /// <summary>
+    /// Agent when the comment was written with a key issued by agent sign-in, so it reads as the agent's on behalf of
+    /// <see cref="Owner"/>; User otherwise.
+    /// </summary>
+    public required AuthorKind AuthorKind { get; set; }
+
+    /// <summary>
+    /// The agent's client and machine, set when <see cref="AuthorKind"/> is Agent.
+    /// </summary>
+    public required AgentDetails? Agent { get; set; }
 }
 
 public record IssueAssigneeDetails : UserDetails
@@ -2151,6 +2196,8 @@ public class IssueDetailDtoData
     public required string SpaceKey { get; set; }
     public required string SpaceName { get; set; }
     public required string SpaceColor { get; set; }
+    public required IssueCreatedVia CreatedVia { get; set; }
+    public required string? CreatedByApiKeyName { get; set; }
 }
 
 public record BatchRequest

@@ -112,6 +112,27 @@ public class CoreIssuesService(
     BoardsMetrics metrics)
     : ICoreIssuesService
 {
+    /// <summary>
+    /// A Telegram message wins (the bot creates with the sender's user, no key); otherwise an API key means MCP, or
+    /// Agent when the key was issued by agent sign-in; no key means the web app.
+    /// </summary>
+    private async Task<IssueCreatedVia> GetCreatedVia(
+        Actor actor,
+        IssueCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.TelegramMessageId is not null)
+            return IssueCreatedVia.Telegram;
+
+        if (actor.ApiKeyId is not { } apiKeyId)
+            return IssueCreatedVia.Web;
+
+        var isAgentKey = await context.AgentSignInRequests
+            .AnyAsync(x => x.ApiKeyId == apiKeyId, cancellationToken);
+
+        return isAgentKey ? IssueCreatedVia.Agent : IssueCreatedVia.Mcp;
+    }
+
     public async Task<long> Create(
         Actor actor,
         IssueCreateRequest request,
@@ -155,6 +176,7 @@ public class CoreIssuesService(
             throw new InvalidOperationException("Lexo rank should be set here");
 
         var content = request.Content.GetValueOrDefault();
+        var createdVia = await GetCreatedVia(actor, request, cancellationToken);
         var issue = new Issue
         {
             Content = content,
@@ -164,6 +186,8 @@ public class CoreIssuesService(
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.CreatedAt,
             TelegramMessageId = request.TelegramMessageId,
+            CreatedVia = createdVia,
+            CreatedByApiKeyId = createdVia is IssueCreatedVia.Mcp or IssueCreatedVia.Agent ? actor.ApiKeyId : null,
             StatusId = request.StatusId,
             AssigneeId = assigneeId,
             LexoRank = issueLexoRank.ToString(),
