@@ -74,7 +74,6 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.Equal(organization.Id, space.OrganizationId);
         Assert.True(space.CreatedAt != default);
         Assert.True(space.UpdatedAt != default);
-        Assert.True(space.IsDefault);
         
         var epics = await testScope.Database.Epics.ToListAsyncEF();
         var epic = Assert.Single(epics);
@@ -663,7 +662,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
                 {
                     [space.Key] = new ()
                     {
-                        CanDelete = true, // Attempt to set delete permission for default space
+                        CanDelete = true, // Any space can be deleted, including the one created with the organization
                     },
                     ["GGG"] = new () // Unexists space
                     {
@@ -680,7 +679,6 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var badRequest = ex.HasInnerException<BadRequestException>();
         var exceptedErrors = new[]
         {
-            $"Space: '{space.Key}'. Attempt to add delete permission to Default space",
             "Space: 'GGG'. Entity is not found",
         };
         Assert.Equal(exceptedErrors, badRequest.Errors["direct"]);
@@ -1662,5 +1660,109 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
 
         Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
         Assert.Null((await testScope.Database.OrganizationUsers.AsNoTracking().SingleAsync(x => x.Id == otherMember.Id)).LeftAt);
+    }
+
+    [Fact]
+    public async Task GetOrganization_ShouldReturnSetupWithFirstSpace_WhenOrganizationIsNotSetUp()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Saved from Telegram"))
+            .AddSpace(ownerId, "SEC"));
+
+        var result = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetOrganization());
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Setup);
+        Assert.NotNull(result.Setup.Space);
+        Assert.Equal("DEF", result.Setup.Space.Key);
+        Assert.Equal("Default Space", result.Setup.Space.Name);
+        Assert.Equal(1, result.Setup.Space.IssueCount);
+    }
+
+    [Fact]
+    public async Task GetOrganization_ShouldReturnNoSetup_WhenUserIsNotOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddUser(memberId, b => b.SetAdminAccessLevel(AdminAccessLevel.All)));
+
+        var result = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, memberId)
+            .Execute(x => x.GetOrganization());
+
+        Assert.NotNull(result);
+        Assert.Null(result.Setup);
+    }
+
+    [Fact]
+    public async Task CompleteSetup_ShouldHideSetup_WhenCompleted()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.CompleteSetup(new CompleteOrganizationSetupRequest { DemoDataAdded = true }));
+
+        var setupCompletedAt = await testScope.Database.Organizations
+            .Where(x => x.Id == organization.Id)
+            .Select(x => x.SetupCompletedAt)
+            .SingleAsyncEF();
+        Assert.NotNull(setupCompletedAt);
+
+        var result = await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.GetOrganization());
+        Assert.NotNull(result);
+        Assert.Null(result.Setup);
+    }
+
+    [Fact]
+    public async Task CompleteSetup_ShouldFail_WhenOrganizationIsAlreadySetUp()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        await _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.CompleteSetup(new CompleteOrganizationSetupRequest()));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.CompleteSetup(new CompleteOrganizationSetupRequest())));
+
+        var badRequest = ex.HasInnerException<BadRequestException>();
+        Assert.Equal(new[] { "The organization is already set up" }, badRequest.Errors["demoDataAdded"]);
+    }
+
+    [Fact]
+    public async Task CompleteSetup_ShouldBeForbidden_WhenUserIsNotOwner()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddUser(memberId, b => b.SetAdminAccessLevel(AdminAccessLevel.All)));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
+            .WithOrganizationAuthorization(organization.Id, memberId)
+            .Execute(x => x.CompleteSetup(new CompleteOrganizationSetupRequest())));
+
+        var forbidden = ex.HasInnerException<ForbiddenException>();
+        Assert.Equal("Only the organization owner can set up the organization.", forbidden.Message);
+
+        var setupCompletedAt = await testScope.Database.Organizations
+            .Where(x => x.Id == organization.Id)
+            .Select(x => x.SetupCompletedAt)
+            .SingleAsyncEF();
+        Assert.Null(setupCompletedAt);
     }
 }

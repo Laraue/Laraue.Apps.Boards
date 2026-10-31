@@ -153,15 +153,21 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
-        internal static string SpaceDirectPermissionEntityNotFound {
+        internal static string OnlyOrganizationOwnerCanSetUp {
             get {
-                return ResourceManager.GetString("SpaceDirectPermissionEntityNotFound", resourceCulture);
+                return ResourceManager.GetString("OnlyOrganizationOwnerCanSetUp", resourceCulture);
             }
         }
         
-        internal static string SpaceDeletePermissionOnDefaultForbidden {
+        internal static string OrganizationAlreadySetUp {
             get {
-                return ResourceManager.GetString("SpaceDeletePermissionOnDefaultForbidden", resourceCulture);
+                return ResourceManager.GetString("OrganizationAlreadySetUp", resourceCulture);
+            }
+        }
+        
+        internal static string SpaceDirectPermissionEntityNotFound {
+            get {
+                return ResourceManager.GetString("SpaceDirectPermissionEntityNotFound", resourceCulture);
             }
         }
         

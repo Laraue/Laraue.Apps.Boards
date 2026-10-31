@@ -29,7 +29,6 @@ public class OrganizationInitializer(
     [
         new SpaceBuilder(ownerId, "DEF", DateTime.UtcNow)
             .WithName("Default Space")
-            .SetAsDefault()
             .AddEpic(ownerId, e => e
                 .AddStatus(s => s.WithName("New").WithCategory(StatusCategory.Created))
                 .SetAsDefault()
@@ -158,7 +157,6 @@ public class OrganizationInitializer(
                 CreatedAt = space.Timestamp,
                 UpdatedAt = space.Timestamp,
                 CreatorId = space.CreatorId,
-                IsDefault = space.IsDefault,
                 Key = space.SpaceKey,
                 Epics = index == 0 ? new List<Epic>() : new List<Epic>
                 {
@@ -532,7 +530,6 @@ public class OrganizationInitializer(
         public DateTime Timestamp { get; private set; }  = timestamp;
         public Guid CreatorId { get; private set; }  = creatorId;
         public List<EpicBuilder> Epics { get;} = new();
-        public bool IsDefault { get; private set; }
 
         public SpaceBuilder WithName(string name)
         {
@@ -548,12 +545,6 @@ public class OrganizationInitializer(
             return this;
         }
 
-        public SpaceBuilder SetAsDefault()
-        {
-            IsDefault = true;
-            return this;
-        }
-        
         public SpaceBuilder WithTimestamp(DateTime timestamp)
         {
             Timestamp = timestamp;

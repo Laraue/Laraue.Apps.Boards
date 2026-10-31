@@ -92,6 +92,11 @@ public class SaveCommandService(
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkNotLinked, cancellationToken);
             return;
         }
+        catch (LinkTargetDeletedException)
+        {
+            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkTargetDeleted, cancellationToken);
+            return;
+        }
         catch (IssueCreationForbiddenException)
         {
             await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);

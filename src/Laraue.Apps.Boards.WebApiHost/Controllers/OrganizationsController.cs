@@ -112,6 +112,20 @@ public class OrganizationsController(
     }
 
     [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
+    [HttpPost("current/setup")]
+    public Task CompleteSetup(
+        [FromBody] CompleteOrganizationSetupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return organizationsService.CompleteSetup(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
     [HttpPost("history")]
     public Task<ShortPaginatedResult<OrganizationHistoryItem>> GetOrganizationHistory(
         [FromBody] GetOrganizationHistoryRequest request,

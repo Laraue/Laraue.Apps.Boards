@@ -48,6 +48,7 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         Assert.Contains(SeriesLines(metrics, "boards_organizations_created_total"), line => line.Contains("type=\"personal\""));
         Assert.NotEmpty(SeriesLines(metrics, "boards_issues_completed_total"));
         Assert.NotEmpty(SeriesLines(metrics, "boards_issues_deleted_total"));
+        Assert.Contains(SeriesLines(metrics, "boards_organization_setups_completed_total"), line => line.Contains("demo_data=\"added\""));
     }
 
     [Fact]

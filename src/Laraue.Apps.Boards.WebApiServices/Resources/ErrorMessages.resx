@@ -63,14 +63,17 @@
     <data name="OwnerAccessCannotBeRevoked" xml:space="preserve">
         <value>Owner access can't be revoked</value>
     </data>
+    <data name="OnlyOrganizationOwnerCanSetUp" xml:space="preserve">
+        <value>Only the organization owner can set up the organization.</value>
+    </data>
+    <data name="OrganizationAlreadySetUp" xml:space="preserve">
+        <value>The organization is already set up</value>
+    </data>
     <data name="UserNotFoundInOrganization" xml:space="preserve">
         <value>User is not found in organization</value>
     </data>
     <data name="SpaceDirectPermissionEntityNotFound" xml:space="preserve">
         <value>Space: '{0}'. Entity is not found</value>
-    </data>
-    <data name="SpaceDeletePermissionOnDefaultForbidden" xml:space="preserve">
-        <value>Space: '{0}'. Attempt to add delete permission to Default space</value>
     </data>
     <data name="ListAttributeRequiresOptions" xml:space="preserve">
         <value>At least one options required for list attribute</value>

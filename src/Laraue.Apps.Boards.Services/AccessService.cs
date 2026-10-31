@@ -378,26 +378,21 @@ public class AccessService(DatabaseContext context) : IAccessService
         bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var spaceData = await GetAvailableSpaces(
+        var spaceExists = await GetAvailableSpaces(
             authData,
             q => q
                 .Where(s => s.Id == spaceId)
-                .Select(s => new { s.IsDefault })
-                .FirstOrDefaultAsyncEF(cancellationToken),
+                .AnyAsyncEF(cancellationToken),
             includeDeleted,
             cancellationToken);
         
-        if (spaceData == null)
+        if (!spaceExists)
             return null;
         
         var globalAccessLevels = await GetUserGlobalAccessLevels(authData, cancellationToken);
         var spaceAccessLevels = await GetUserSpaceAccessLevels(authData, spaceId, cancellationToken);
 
-        var result = globalAccessLevels.Merge(spaceAccessLevels);
-        if (spaceData.IsDefault)
-            result.CanDeleteSpace = false;
-        
-        return result;
+        return globalAccessLevels.Merge(spaceAccessLevels);
     }
 
     public Task<bool> CanCreateEpics(

@@ -113,6 +113,16 @@ public interface ICoreOrganizationsService
     Task DeleteAttribute(
         long attributeId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Marks the organization as set up (BRD-293). The setup window saves the space name and the demo data through
+    /// the regular endpoints first; <paramref name="demoDataAdded"/> only labels the metric. False, with nothing
+    /// changed, when it was already set up.
+    /// </summary>
+    Task<bool> CompleteSetup(
+        long organizationId,
+        bool demoDataAdded,
+        CancellationToken cancellationToken);
 }
 
 public class CoreOrganizationsService(
@@ -462,17 +472,10 @@ public class CoreOrganizationsService(
         long organizationId,
         CancellationToken cancellationToken)
     {
-        var spaces = await context.ActiveSpaces()
+        return await context.ActiveSpaces()
             .Where(x => x.OrganizationId == organizationId)
-            .ToDictionaryAsyncEF(x => x.Key, x => new { x.Name, x.Color, x.IsDefault }, cancellationToken);
-
-        return spaces
-            .Select(s => new PermittableSpace(
-                s.Key,
-                s.Value.Name,
-                s.Value.Color,
-                s.Value.IsDefault))
-            .ToArray();
+            .Select(x => new PermittableSpace(x.Key, x.Name, x.Color))
+            .ToArrayAsyncEF(cancellationToken);
     }
     
     public async Task<UserOrganizationPreferencesResponse> GetPreferences(
@@ -617,6 +620,26 @@ public class CoreOrganizationsService(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    public async Task<bool> CompleteSetup(
+        long organizationId,
+        bool demoDataAdded,
+        CancellationToken cancellationToken)
+    {
+        // Conditional, so of two concurrent calls only one sees a row updated.
+        var updatedCount = await context.ActiveOrganizations()
+            .Where(x => x.Id == organizationId && x.SetupCompletedAt == null)
+            .ExecuteUpdateAsync(
+                u => u.SetProperty(x => x.SetupCompletedAt, dateTimeProvider.UtcNow),
+                cancellationToken);
+
+        if (updatedCount == 0)
+            return false;
+
+        metrics.RecordOrganizationSetupCompleted(demoDataAdded);
+
+        return true;
+    }
+
     private static UserOrganizationPreferences GetDefaultPreferences(
         long organizationId,
         Guid userId)
@@ -759,7 +782,7 @@ public record DirectSpaceAccessLevel
     public bool CanDeleteIssues { get; set; }
 }
 
-public record PermittableSpace(string Key, string Name, string Color, bool IsDefault);
+public record PermittableSpace(string Key, string Name, string Color);
 
 public record CreateOrganizationResponse
 {

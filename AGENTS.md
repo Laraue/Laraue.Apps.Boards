@@ -35,8 +35,9 @@ See [README.md](README.md) for the human overview, local run and permissions mod
 ## Issue hierarchy
 
 `Organization` → `Space` (short `Key`, e.g. `UNC`) → `Epic` → `Status` → `Issue`. `IssueNumber` is a per-space
-sequential number; with the space key it forms the `IssueKey` shown everywhere (`UNC-24`). Every space and epic has an
-undeletable `IsDefault` one (backlog-equivalent).
+sequential number; with the space key it forms the `IssueKey` shown everywhere (`UNC-24`). Every space has an
+undeletable `IsDefault` epic (the backlog). Spaces have no default one (BRD-293): sign-up and organization creation make a
+regular "Default Space" (`DEF`), which can be renamed, moved and deleted like any other.
 
 `Epic.Status` (New/Active/Done) is derived from the epic's active issues and never set by hand (BRD-323): New with none
 or all Created, Done with all Completed, Active otherwise. It's a stored column, so every write that can change it
@@ -210,7 +211,8 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
 - **Counters are events**, recorded after the save by the host handling the event (each `AddMeter`s it):
   `boards_issues_created_total{source}` (`telegram` with a Telegram message, `mcp` with an API key, else `web`),
   `boards_issues_completed_total` (moved into a `Completed` status), `boards_organizations_created_total{type}`
-  (`organization`, or `personal` at sign-up), `boards_retros_started_total`, `boards_issues_deleted_total` (single
+  (`organization`, or `personal` at sign-up), `boards_organization_setups_completed_total{demo_data}` (`added`,
+  `skipped`), `boards_retros_started_total`, `boards_issues_deleted_total` (single
   deletes; cascaded ones only show in the gauge). Every counter records zero for each known label value at start
   (`BoardsMetrics`, `RetroMetrics`) so `increase()` sees the first event - do the same for new counters/labels.
 - **Gauges are state**, read from the database every 60 s (`BoardsStateMetrics`, WebApiServices, WebApiHost only):

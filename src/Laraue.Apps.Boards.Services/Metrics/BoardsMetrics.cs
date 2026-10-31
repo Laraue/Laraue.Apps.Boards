@@ -21,6 +21,7 @@ public sealed class BoardsMetrics
     private readonly Counter<long> _issuesCompleted;
     private readonly Counter<long> _issuesDeleted;
     private readonly Counter<long> _organizationsCreated;
+    private readonly Counter<long> _organizationSetups;
 
     public BoardsMetrics(IMeterFactory meterFactory)
     {
@@ -42,6 +43,10 @@ public sealed class BoardsMetrics
             "boards.organizations.created",
             description: "Organizations created, by type (organization, or the personal one made at sign-up).");
 
+        _organizationSetups = meter.CreateCounter<long>(
+            "boards.organization_setups.completed",
+            description: "Organization setup windows finished, by whether demo data was added (added, skipped).");
+
         // A counter series only exists after its first event, and rate()/increase() cannot see that first
         // event. Recording a zero for every known label value makes each series exist from the first scrape.
         foreach (var source in new[] { SourceWeb, SourceTelegram, SourceMcp })
@@ -55,6 +60,11 @@ public sealed class BoardsMetrics
         foreach (var type in Enum.GetValues<OrganizationType>())
         {
             _organizationsCreated.Add(0, new KeyValuePair<string, object?>("type", OrganizationTypeLabel(type)));
+        }
+
+        foreach (var demoDataAdded in new[] { true, false })
+        {
+            _organizationSetups.Add(0, new KeyValuePair<string, object?>("demo_data", DemoDataLabel(demoDataAdded)));
         }
     }
 
@@ -86,4 +96,9 @@ public sealed class BoardsMetrics
 
     public static string OrganizationTypeLabel(OrganizationType type)
         => type == OrganizationType.Personal ? "personal" : "organization";
+
+    public void RecordOrganizationSetupCompleted(bool demoDataAdded)
+        => _organizationSetups.Add(1, new KeyValuePair<string, object?>("demo_data", DemoDataLabel(demoDataAdded)));
+
+    private static string DemoDataLabel(bool demoDataAdded) => demoDataAdded ? "added" : "skipped";
 }

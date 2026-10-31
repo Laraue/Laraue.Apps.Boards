@@ -63,7 +63,6 @@ public class SpacesService(
                     Name = x.Name,
                     Color = x.Color,
                     Key = x.Key,
-                    IsDefault = x.IsDefault,
                 })
                 .ToArrayAsyncLinqToDB(cancellationToken),
             includeDeleted: false,
@@ -307,7 +306,6 @@ public record SpaceListDto
     public required string Name { get; set; }
     public required string Color { get; set; }
     public required string Key { get; set; }
-    public required bool IsDefault { get; set; }
 }
 
 public record GetSpaceRequest

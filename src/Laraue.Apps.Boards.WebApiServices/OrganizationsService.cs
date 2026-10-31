@@ -51,6 +51,14 @@ public interface IOrganizationsService
     Task UpdateMemberProfile(
         UpdateMemberProfileRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Completes the organization setup window (BRD-293) so it isn't shown again. The web app renames the space and
+    /// adds the demo data with the regular space, epic and issue endpoints first.
+    /// </summary>
+    Task CompleteSetup(
+        CompleteOrganizationSetupRequest request,
+        CancellationToken cancellationToken);
 }
 
 public class OrganizationsService(
@@ -121,6 +129,8 @@ public class OrganizationsService(
             request.AuthData.OrganizationId,
             request.AuthData.UserId,
             cancellationToken);
+
+        organization.Setup = await GetSetup(request.AuthData, cancellationToken);
 
         return organization;
     }
@@ -262,6 +272,57 @@ public class OrganizationsService(
         return result;
     }
 
+    public async Task CompleteSetup(
+        CompleteOrganizationSetupRequest request,
+        CancellationToken cancellationToken)
+    {
+        var isMember = await accessService.GetOrganizations(
+            request.AuthData.UserId,
+            organizations => organizations
+                .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
+                .AnyAsyncEF(cancellationToken));
+
+        if (!isMember)
+            throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
+
+        // The window is the creator's onboarding: an admin who joined before it was finished doesn't get it.
+        if (!await accessService.IsOrganizationOwner(request.AuthData, cancellationToken))
+            throw new ForbiddenException(ErrorMessages.OnlyOrganizationOwnerCanSetUp);
+
+        var isCompleted = await coreOrganizationsService.CompleteSetup(
+            request.AuthData.OrganizationId,
+            request.DemoDataAdded,
+            cancellationToken);
+
+        if (!isCompleted)
+            throw new BadRequestException(nameof(request.DemoDataAdded), ErrorMessages.OrganizationAlreadySetUp);
+    }
+
+    private async Task<OrganizationSetupDto?> GetSetup(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        var isSetUp = await context.ActiveOrganizations()
+            .Where(x => x.Id == authData.OrganizationId)
+            .Select(x => x.SetupCompletedAt != null)
+            .FirstAsyncEF(cancellationToken);
+
+        if (isSetUp || !await accessService.IsOrganizationOwner(authData, cancellationToken))
+            return null;
+
+        var space = await context.ActiveSpaces()
+            .Where(x => x.OrganizationId == authData.OrganizationId)
+            .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .Select(x => new OrganizationSetupSpaceDto
+            {
+                Key = x.Key,
+                Name = x.Name,
+                IssueCount = context.ActiveIssues().Count(i => i.Status!.Epic!.SpaceId == x.Id),
+            })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        return new OrganizationSetupDto { Space = space };
+    }
+
     public async Task UpdateMemberProfile(UpdateMemberProfileRequest request, CancellationToken cancellationToken)
     {
         var isMember = await accessService.GetOrganizations(
@@ -346,6 +407,12 @@ public record OrganizationDto
     /// How the current user is shown in this organization.
     /// </summary>
     public required MemberProfileDto MemberProfile { get; set; }
+
+    /// <summary>
+    /// The organization setup window to show (BRD-293); null when the organization is set up or the user isn't
+    /// its owner.
+    /// </summary>
+    public OrganizationSetupDto? Setup { get; set; }
 }
 
 /// <summary>
@@ -434,4 +501,39 @@ public record AttributeListValueDto
 {
     public required long Id { get; set; }
     public required string Name { get; set; }
+}
+
+public record CompleteOrganizationSetupRequest
+{
+    public OrganizationAuthData AuthData { get; set; }
+
+    /// <summary>
+    /// Whether the user added demo data in the window - only for the metric.
+    /// </summary>
+    public bool DemoDataAdded { get; set; }
+}
+
+/// <summary>
+/// What the setup window starts from - present on <see cref="OrganizationDto.Setup"/> only while the organization
+/// isn't set up, for its owner.
+/// </summary>
+public record OrganizationSetupDto
+{
+    /// <summary>
+    /// The space to name: the organization's oldest active one, normally the one sign-up created. Null when the
+    /// organization has no active space.
+    /// </summary>
+    public required OrganizationSetupSpaceDto? Space { get; set; }
+}
+
+public record OrganizationSetupSpaceDto
+{
+    public required string Key { get; set; }
+    public required string Name { get; set; }
+
+    /// <summary>
+    /// The space's active issues (e.g. saved from Telegram before the setup): changing the key changes their keys
+    /// and links, so the window warns when there are any.
+    /// </summary>
+    public required int IssueCount { get; set; }
 }

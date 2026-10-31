@@ -1781,6 +1781,110 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleTextMessage_ShouldReplyTargetDeleted_WhenLinkedSpaceIsDeleted()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var telegramUser = new User { Id = 1001, Username = "deleted_space_user" };
+        var userId = await testScope.CreateUser(x => x.TelegramId = telegramUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = telegramUser.Id, Type = ChatType.Private };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.EachMessage,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await testScope.Services
+            .GetRequiredService<ICoreSpacesService>()
+            .Delete(organization.GetSpace(0).Id, userId, CancellationToken.None);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = telegramUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(
+            "The space or board this chat saves cards to was deleted. Use /link to choose another one.",
+            request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
+    public async Task HandleSave_ShouldReplyTargetDeleted_WhenLinkedSpaceIsDeleted()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(ownerId);
+
+        var chat = new Chat { Id = 786, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = ownerId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await testScope.Services
+            .GetRequiredService<ICoreSpacesService>()
+            .Delete(organization.GetSpace(0).Id, ownerId, CancellationToken.None);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal(
+            "The space or board this chat saves cards to was deleted. Use /link to choose another one.",
+            request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
     public async Task HandleSave_ShouldReplyForbidden_WhenSenderLacksCreateIssuePermission()
     {
         using var host = GetTelegramTestHost();
@@ -2267,7 +2371,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Null(linkedChat.UnlinkedAt);
 
         var defaultStatus = await db.Statuses.SingleAsync(s =>
-            s.Epic!.IsDefault && s.Epic.Space!.IsDefault && s.Epic.Space.OrganizationId == userOrganization.Id);
+            s.Epic!.IsDefault && s.Epic.Space!.OrganizationId == userOrganization.Id);
         Assert.Equal(defaultStatus.Id, linkedChat.StatusId);
     }
 

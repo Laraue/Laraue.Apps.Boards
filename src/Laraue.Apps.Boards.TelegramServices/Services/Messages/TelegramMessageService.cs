@@ -33,6 +33,18 @@ public class TelegramMessageService(
 
             return;
         }
+        catch (LinkTargetDeletedException)
+        {
+            if (notifyOnFailure)
+            {
+                await client.SendMessage(
+                    request.ExternalChatId,
+                    Phrases.LinkTargetDeleted,
+                    cancellationToken: cancellationToken);
+            }
+
+            return;
+        }
         catch (IssueCreationForbiddenException)
         {
             if (notifyOnFailure)
