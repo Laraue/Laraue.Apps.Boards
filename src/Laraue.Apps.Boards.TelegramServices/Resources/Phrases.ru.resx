@@ -121,6 +121,9 @@
     <data name="LinkNotLinked" xml:space="preserve">
         <value>Этот чат ещё не связан ни с одной организацией или пространством. Используйте /link, чтобы связать его.</value>
     </data>
+    <data name="LinkTargetDeleted" xml:space="preserve">
+        <value>Пространство или доска, куда этот чат сохраняет карточки, удалены. Используйте /link, чтобы выбрать другое место.</value>
+    </data>
     <data name="IssueCreationForbidden" xml:space="preserve">
         <value>Это действие недоступно — у вас нет прав на создание карточек здесь.</value>
     </data>

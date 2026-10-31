@@ -253,6 +253,15 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to The space or board this chat saves cards to was deleted. Use /link to choose another one..
+        /// </summary>
+        internal static string LinkTargetDeleted {
+            get {
+                return ResourceManager.GetString("LinkTargetDeleted", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to This action is not available - you don&apos;t have permission to create cards here..
         /// </summary>
         internal static string IssueCreationForbidden {

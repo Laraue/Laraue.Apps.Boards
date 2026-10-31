@@ -128,6 +128,9 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkNotLinked" xml:space="preserve">
         <value>This chat is not linked to any organization or space yet. Use /link to link it.</value>
     </data>
+    <data name="LinkTargetDeleted" xml:space="preserve">
+        <value>The space or board this chat saves cards to was deleted. Use /link to choose another one.</value>
+    </data>
     <data name="IssueCreationForbidden" xml:space="preserve">
         <value>This action is not available - you don't have permission to create cards here.</value>
     </data>

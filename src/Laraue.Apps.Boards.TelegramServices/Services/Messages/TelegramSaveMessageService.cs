@@ -1087,6 +1087,7 @@ public class TelegramSaveMessageService(
                 OrganizationId = x.Status.Epic!.Space!.OrganizationId,
                 SaveMode = x.SaveMode,
                 ChatTitle = x.Title,
+                IsTargetDeleted = x.Status.DeletedAt != null,
             })
             .FirstOrDefaultAsyncEF(cancellationToken);
 
@@ -1094,8 +1095,9 @@ public class TelegramSaveMessageService(
     }
 
     /// <summary>
-    /// Guards issue creation: the chat being linked to an organization doesn't by itself grant
-    /// the person typing in it permission to create cards there.
+    /// Guards issue creation: the chat's target must still exist (deleting a space, board or status leaves the link
+    /// pointing at it), and the chat being linked to an organization doesn't by itself grant the person typing in it
+    /// permission to create cards there.
     /// </summary>
     private async Task EnsureCanCreateIssue(
         LinkedChatToSaveMessage linkedChat,
@@ -1103,6 +1105,9 @@ public class TelegramSaveMessageService(
         long externalChatId,
         CancellationToken cancellationToken)
     {
+        if (linkedChat.IsTargetDeleted)
+            throw new LinkTargetDeletedException(externalChatId);
+
         var authData = new OrganizationAuthData { OrganizationId = linkedChat.OrganizationId, UserId = userId };
         var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, linkedChat.EpicId, includeDeleted: false, cancellationToken: cancellationToken);
 
@@ -1162,6 +1167,11 @@ internal class LinkedChatToSaveMessage
     public required long OrganizationId { get; init; }
     public required SaveMode SaveMode { get; init; }
     public required string? ChatTitle { get; init; }
+
+    /// <summary>
+    /// The status (with its board or space) was soft-deleted after the chat was linked.
+    /// </summary>
+    public required bool IsTargetDeleted { get; init; }
 }
 
 public class SaveByReplyRequest
