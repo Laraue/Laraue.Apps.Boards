@@ -6,11 +6,15 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     /// <inheritdoc />
-    public partial class AddOrganizationSetupCompletedAt : Migration
+    public partial class AddOrganizationSetup : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropColumn(
+                name: "is_default",
+                table: "spaces");
+
             migrationBuilder.AddColumn<DateTime>(
                 name: "setup_completed_at",
                 table: "organizations",
@@ -28,6 +32,13 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
             migrationBuilder.DropColumn(
                 name: "setup_completed_at",
                 table: "organizations");
+
+            migrationBuilder.AddColumn<bool>(
+                name: "is_default",
+                table: "spaces",
+                type: "boolean",
+                nullable: false,
+                defaultValue: false);
         }
     }
 }

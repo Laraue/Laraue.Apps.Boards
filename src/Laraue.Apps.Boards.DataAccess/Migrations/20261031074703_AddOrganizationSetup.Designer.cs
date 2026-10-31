@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20261031062501_AddOrganizationSetupCompletedAt")]
-    partial class AddOrganizationSetupCompletedAt
+    [Migration("20261031074703_AddOrganizationSetup")]
+    partial class AddOrganizationSetup
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
