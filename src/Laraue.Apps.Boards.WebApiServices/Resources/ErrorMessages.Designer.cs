@@ -153,6 +153,12 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
+        internal static string OnlyOrganizationOwnerCanSetUp {
+            get {
+                return ResourceManager.GetString("OnlyOrganizationOwnerCanSetUp", resourceCulture);
+            }
+        }
+        
         internal static string OrganizationAlreadySetUp {
             get {
                 return ResourceManager.GetString("OrganizationAlreadySetUp", resourceCulture);

@@ -276,17 +276,18 @@ public class OrganizationsService(
         CompleteOrganizationSetupRequest request,
         CancellationToken cancellationToken)
     {
-        var canUpdateOrganization = await accessService.HasAccess(
-            request.AuthData,
-            AdminAccessLevel.UpdateOrganization,
-            cancellationToken);
+        var isMember = await accessService.GetOrganizations(
+            request.AuthData.UserId,
+            organizations => organizations
+                .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
+                .AnyAsyncEF(cancellationToken));
 
-        if (!canUpdateOrganization)
-            throw new NotFoundException(string.Format(
-                ErrorMessages.AdminAccessRequired,
-                request.AuthData.OrganizationId,
-                "Organization setup",
-                AdminAccessLevel.UpdateOrganization));
+        if (!isMember)
+            throw new NotFoundException(ErrorMessages.UserNotFoundInOrganization);
+
+        // The window is the creator's onboarding: an admin who joined before it was finished doesn't get it.
+        if (!await accessService.IsOrganizationOwner(request.AuthData, cancellationToken))
+            throw new ForbiddenException(ErrorMessages.OnlyOrganizationOwnerCanSetUp);
 
         var isCompleted = await coreOrganizationsService.CompleteSetup(
             request.AuthData.OrganizationId,
@@ -304,7 +305,7 @@ public class OrganizationsService(
             .Select(x => x.SetupCompletedAt != null)
             .FirstAsyncEF(cancellationToken);
 
-        if (isSetUp || !await accessService.HasAccess(authData, AdminAccessLevel.UpdateOrganization, cancellationToken))
+        if (isSetUp || !await accessService.IsOrganizationOwner(authData, cancellationToken))
             return null;
 
         var space = await context.ActiveSpaces()
@@ -408,8 +409,8 @@ public record OrganizationDto
     public required MemberProfileDto MemberProfile { get; set; }
 
     /// <summary>
-    /// The organization setup window to show (BRD-293); null when the organization is set up or the user can't
-    /// update it.
+    /// The organization setup window to show (BRD-293); null when the organization is set up or the user isn't
+    /// its owner.
     /// </summary>
     public OrganizationSetupDto? Setup { get; set; }
 }
@@ -514,7 +515,7 @@ public record CompleteOrganizationSetupRequest
 
 /// <summary>
 /// What the setup window starts from - present on <see cref="OrganizationDto.Setup"/> only while the organization
-/// isn't set up and the user can update it.
+/// isn't set up, for its owner.
 /// </summary>
 public record OrganizationSetupDto
 {

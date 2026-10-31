@@ -1684,12 +1684,13 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
-    public async Task GetOrganization_ShouldReturnNoSetup_WhenUserCannotUpdateOrganization()
+    public async Task GetOrganization_ShouldReturnNoSetup_WhenUserIsNotOwner()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var memberId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, o => o.AddUser(memberId));
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddUser(memberId, b => b.SetAdminAccessLevel(AdminAccessLevel.All)));
 
         var result = await _organizationsController
             .WithOrganizationAuthorization(organization.Id, memberId)
@@ -1743,18 +1744,20 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
     }
 
     [Fact]
-    public async Task CompleteSetup_ShouldFail_WhenUserCannotUpdateOrganization()
+    public async Task CompleteSetup_ShouldBeForbidden_WhenUserIsNotOwner()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var memberId = await testScope.CreateUser();
-        var organization = await testScope.InitializeOrganization(ownerId, o => o.AddUser(memberId));
+        var organization = await testScope.InitializeOrganization(ownerId, o => o
+            .AddUser(memberId, b => b.SetAdminAccessLevel(AdminAccessLevel.All)));
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _organizationsController
             .WithOrganizationAuthorization(organization.Id, memberId)
             .Execute(x => x.CompleteSetup(new CompleteOrganizationSetupRequest())));
 
-        ex.HasInnerException<NotFoundException>();
+        var forbidden = ex.HasInnerException<ForbiddenException>();
+        Assert.Equal("Only the organization owner can set up the organization.", forbidden.Message);
 
         var setupCompletedAt = await testScope.Database.Organizations
             .Where(x => x.Id == organization.Id)
