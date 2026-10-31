@@ -113,6 +113,16 @@ public interface ICoreOrganizationsService
     Task DeleteAttribute(
         long attributeId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Marks the organization as set up (BRD-293). The setup window saves the space name and the demo data through
+    /// the regular endpoints first; <paramref name="demoDataAdded"/> only labels the metric. False, with nothing
+    /// changed, when it was already set up.
+    /// </summary>
+    Task<bool> CompleteSetup(
+        long organizationId,
+        bool demoDataAdded,
+        CancellationToken cancellationToken);
 }
 
 public class CoreOrganizationsService(
@@ -608,6 +618,26 @@ public class CoreOrganizationsService(
         return context.Attributes
             .Where(x => x.Id == attributeId)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public async Task<bool> CompleteSetup(
+        long organizationId,
+        bool demoDataAdded,
+        CancellationToken cancellationToken)
+    {
+        // Conditional, so of two concurrent calls only one sees a row updated.
+        var updatedCount = await context.ActiveOrganizations()
+            .Where(x => x.Id == organizationId && x.SetupCompletedAt == null)
+            .ExecuteUpdateAsync(
+                u => u.SetProperty(x => x.SetupCompletedAt, dateTimeProvider.UtcNow),
+                cancellationToken);
+
+        if (updatedCount == 0)
+            return false;
+
+        metrics.RecordOrganizationSetupCompleted(demoDataAdded);
+
+        return true;
     }
 
     private static UserOrganizationPreferences GetDefaultPreferences(

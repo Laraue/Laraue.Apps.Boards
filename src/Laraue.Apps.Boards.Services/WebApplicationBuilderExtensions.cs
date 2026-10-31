@@ -117,7 +117,6 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreUserService, CoreUserService>()
                 .AddScoped<IMemberProfileReader, MemberProfileReader>()
                 .AddScoped<ICoreSpacesService, CoreSpacesService>()
-                .AddScoped<ICoreOrganizationSetupService, CoreOrganizationSetupService>()
                 .AddScoped<ISpaceCounterService, SpaceCounterService>()
                 .AddScoped<IIssuePeriodCountService, IssuePeriodCountService>()
                 .AddScoped<ICoreOrganizationsService, CoreOrganizationsService>()
