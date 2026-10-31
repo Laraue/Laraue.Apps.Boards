@@ -209,13 +209,10 @@ public class CoreIssuesService(
         // every read - UsageLimitService checks this on every issue creation. Counted in the period
         // Billing says the plan is in now (the rolling month of a Free plan), the same one the limit
         // is checked against.
-        if (!request.IsSample)
-        {
-            var subscription = await subscriptionClient.GetActiveSubscriptionAsync(
-                issueData.OrganizationId, actor.UserId, cancellationToken);
-            await issuePeriodCountService.Increment(
-                issueData.OrganizationId, subscription.LimitPeriodStartedAt, cancellationToken);
-        }
+        var subscription = await subscriptionClient.GetActiveSubscriptionAsync(
+            issueData.OrganizationId, actor.UserId, cancellationToken);
+        await issuePeriodCountService.Increment(
+            issueData.OrganizationId, subscription.LimitPeriodStartedAt, cancellationToken);
 
         var items = new List<OrganizationLogItem>
         {
@@ -290,8 +287,7 @@ public class CoreIssuesService(
         await epicStateService.Touch([issueData.EpicId], request.CreatedAt, cancellationToken);
         await epicStateService.RecalculateStatuses([issueData.EpicId], cancellationToken);
 
-        if (!request.IsSample)
-            metrics.RecordIssueCreated(request.TelegramMessageId, actor.ApiKeyId);
+        metrics.RecordIssueCreated(request.TelegramMessageId, actor.ApiKeyId);
 
         return issue.Id;
     }

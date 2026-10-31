@@ -278,7 +278,12 @@ public class OrganizationsService(
             .Where(x => x.OrganizationId == authData.OrganizationId)
             .OrderBy(x => x.CreatedAt)
             .ThenBy(x => x.Id)
-            .Select(x => new OrganizationSetupSpaceDto { Key = x.Key, Name = x.Name })
+            .Select(x => new OrganizationSetupSpaceDto
+            {
+                Key = x.Key,
+                Name = x.Name,
+                IssueCount = context.ActiveIssues().Count(i => i.Status!.Epic!.SpaceId == x.Id),
+            })
             .FirstOrDefaultAsyncEF(cancellationToken);
 
         return new OrganizationSetupDto { Space = space };

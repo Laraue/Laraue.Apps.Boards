@@ -45,7 +45,7 @@ public sealed class BoardsMetrics
 
         _organizationSetups = meter.CreateCounter<long>(
             "boards.organization_setups.completed",
-            description: "Organization setup windows finished, by template (empty, or the sample project).");
+            description: "Organization setup windows finished, by whether demo data was added (added, skipped).");
 
         // A counter series only exists after its first event, and rate()/increase() cannot see that first
         // event. Recording a zero for every known label value makes each series exist from the first scrape.
@@ -62,9 +62,9 @@ public sealed class BoardsMetrics
             _organizationsCreated.Add(0, new KeyValuePair<string, object?>("type", OrganizationTypeLabel(type)));
         }
 
-        foreach (var template in Enum.GetValues<OrganizationSetupTemplate>())
+        foreach (var demoDataAdded in new[] { true, false })
         {
-            _organizationSetups.Add(0, new KeyValuePair<string, object?>("template", OrganizationSetupTemplateLabel(template)));
+            _organizationSetups.Add(0, new KeyValuePair<string, object?>("demo_data", DemoDataLabel(demoDataAdded)));
         }
     }
 
@@ -97,9 +97,8 @@ public sealed class BoardsMetrics
     public static string OrganizationTypeLabel(OrganizationType type)
         => type == OrganizationType.Personal ? "personal" : "organization";
 
-    public void RecordOrganizationSetupCompleted(OrganizationSetupTemplate template)
-        => _organizationSetups.Add(1, new KeyValuePair<string, object?>("template", OrganizationSetupTemplateLabel(template)));
+    public void RecordOrganizationSetupCompleted(bool demoDataAdded)
+        => _organizationSetups.Add(1, new KeyValuePair<string, object?>("demo_data", DemoDataLabel(demoDataAdded)));
 
-    public static string OrganizationSetupTemplateLabel(OrganizationSetupTemplate template)
-        => template == OrganizationSetupTemplate.Sample ? "sample" : "empty";
+    private static string DemoDataLabel(bool demoDataAdded) => demoDataAdded ? "added" : "skipped";
 }

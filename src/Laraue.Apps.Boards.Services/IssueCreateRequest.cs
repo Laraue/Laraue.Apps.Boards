@@ -25,21 +25,10 @@ public class IssueCreateRequest(long statusId, DateTime createdAt, string title,
     internal bool IsTitleSetExplicitly { get; } = isTitleSetExplicitly;
     internal DateTime CreatedAt { get; } = createdAt;
     internal long? TelegramMessageId { get; private set; }
-    internal bool IsSample { get; private set; }
 
     public IssueCreateRequest SetTelegramMessageId(long telegramMessageId)
     {
         TelegramMessageId = telegramMessageId;
-        return this;
-    }
-
-    /// <summary>
-    /// Marks the issue as one Boards adds itself - the setup window's sample project (BRD-293), which the user
-    /// didn't write. It isn't counted toward the plan's monthly issue limit or in <c>boards_issues_created_total</c>.
-    /// </summary>
-    public IssueCreateRequest MarkAsSample()
-    {
-        IsSample = true;
         return this;
     }
 }
