@@ -2267,7 +2267,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Null(linkedChat.UnlinkedAt);
 
         var defaultStatus = await db.Statuses.SingleAsync(s =>
-            s.Epic!.IsDefault && s.Epic.Space!.IsDefault && s.Epic.Space.OrganizationId == userOrganization.Id);
+            s.Epic!.IsDefault && s.Epic.Space!.OrganizationId == userOrganization.Id);
         Assert.Equal(defaultStatus.Id, linkedChat.StatusId);
     }
 

@@ -63,7 +63,6 @@ public class OrganizationDefaults
                     CreatedAt = timestamp,
                     UpdatedAt = timestamp,
                     Key = "DEF",
-                    IsDefault = true,
                     CreatorId = userId,
                     Epics = new List<Epic> { GetNewBacklogEpicEntity(userId, timestamp) },
                 }

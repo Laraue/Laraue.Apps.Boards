@@ -1633,10 +1633,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("character varying(4096)")
                         .HasColumnName("description");
 
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_default");
-
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasMaxLength(3)

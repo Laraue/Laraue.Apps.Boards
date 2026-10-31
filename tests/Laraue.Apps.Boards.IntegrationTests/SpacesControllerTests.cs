@@ -38,7 +38,6 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
         Assert.Equal(userId, space.CreatorId);
         Assert.True(space.CreatedAt != default);
         Assert.True(space.UpdatedAt != default);
-        Assert.False(space.IsDefault);
         
         var epic = Assert.Single(space.Epics!);
         Assert.True(epic.IsDefault);
@@ -179,6 +178,23 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
 
         var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.NotNull(deletedIssue.DeletedAt);
+    }
+
+    [Fact]
+    public async Task User_ShouldSoftDeleteSpace_WhenSpaceWasCreatedWithOrganization()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var space = organization.GetSpace(0);
+
+        await _spacesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(space.Key));
+
+        var deletedSpace = await testScope.Database.Spaces.SingleAsyncEF(x => x.Id == space.Id);
+        Assert.NotNull(deletedSpace.DeletedAt);
     }
 
     [Fact]

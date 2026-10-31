@@ -462,17 +462,10 @@ public class CoreOrganizationsService(
         long organizationId,
         CancellationToken cancellationToken)
     {
-        var spaces = await context.ActiveSpaces()
+        return await context.ActiveSpaces()
             .Where(x => x.OrganizationId == organizationId)
-            .ToDictionaryAsyncEF(x => x.Key, x => new { x.Name, x.Color, x.IsDefault }, cancellationToken);
-
-        return spaces
-            .Select(s => new PermittableSpace(
-                s.Key,
-                s.Value.Name,
-                s.Value.Color,
-                s.Value.IsDefault))
-            .ToArray();
+            .Select(x => new PermittableSpace(x.Key, x.Name, x.Color))
+            .ToArrayAsyncEF(cancellationToken);
     }
     
     public async Task<UserOrganizationPreferencesResponse> GetPreferences(
@@ -759,7 +752,7 @@ public record DirectSpaceAccessLevel
     public bool CanDeleteIssues { get; set; }
 }
 
-public record PermittableSpace(string Key, string Name, string Color, bool IsDefault);
+public record PermittableSpace(string Key, string Name, string Color);
 
 public record CreateOrganizationResponse
 {

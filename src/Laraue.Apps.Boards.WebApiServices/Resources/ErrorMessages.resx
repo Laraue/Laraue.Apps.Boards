@@ -69,9 +69,6 @@
     <data name="SpaceDirectPermissionEntityNotFound" xml:space="preserve">
         <value>Space: '{0}'. Entity is not found</value>
     </data>
-    <data name="SpaceDeletePermissionOnDefaultForbidden" xml:space="preserve">
-        <value>Space: '{0}'. Attempt to add delete permission to Default space</value>
-    </data>
     <data name="ListAttributeRequiresOptions" xml:space="preserve">
         <value>At least one options required for list attribute</value>
     </data>

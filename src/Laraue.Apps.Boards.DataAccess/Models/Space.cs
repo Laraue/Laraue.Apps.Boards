@@ -52,8 +52,6 @@ public class Space
     public Guid? DeletedByUserId { get; set; }
     public User? DeletedByUser { get; set; }
 
-    public bool IsDefault { get; set; }
-    
     /// <summary>
     /// Epics linked to the space.
     /// </summary>

@@ -45,7 +45,7 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
     }
 
     [Fact]
-    public async Task User_ShouldMoveNotDefaultSpace_WhenHasMassMovePermission()
+    public async Task User_ShouldMoveAddedSpace_WhenHasMassMovePermission()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
@@ -65,23 +65,26 @@ public class MassMoveControllerTests(WebApiTestHost host) : IClassFixture<WebApi
     }
     
     [Fact]
-    public async Task User_ShouldNotMoveDefaultSpace_Always()
+    public async Task User_ShouldMoveSpaceCreatedWithOrganization_WhenHasMassMovePermission()
     {
         using var testScope = host.CreateTestScope();
         var userId = await testScope.CreateUser();
-        var personalOrganization = await testScope.InitializePersonalOrganization(
-            userId,
-            o => o.AddSpace(userId));
+        var personalOrganization = await testScope.InitializePersonalOrganization(userId);
         var organization = await testScope.InitializeOrganization(userId);
+
+        // Both organizations start with a "DEF" space; free the key in the target one.
+        await testScope.Database.Spaces
+            .Where(x => x.Id == organization.GetSpace(0).Id)
+            .ExecuteUpdateAsync(u => u.SetProperty(x => x.Key, "TGT"));
 
         var spaceToMove = personalOrganization.GetSpace(0);
 
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _controller
-            .WithOrganizationAuthorization(organization.Id, userId)
-            .Execute(x => x.MoveSpace(spaceToMove.Key, organization.Id)));
+        await _controller
+            .WithOrganizationAuthorization(personalOrganization.Id, userId)
+            .Execute(x => x.MoveSpace(spaceToMove.Key, organization.Id));
 
-        var forbidden = ex.HasInnerException<ForbiddenException>();
-        Assert.Equal("Default space cannot be moved.", forbidden.Message);
+        var resultSpace = await testScope.Database.Spaces.FirstAsyncEF(e => e.Id == spaceToMove.Id);
+        Assert.Equal(organization.Id, resultSpace.OrganizationId);
     }
     
     [Fact]

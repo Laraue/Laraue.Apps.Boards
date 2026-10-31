@@ -35,8 +35,9 @@ See [README.md](README.md) for the human overview, local run and permissions mod
 ## Issue hierarchy
 
 `Organization` → `Space` (short `Key`, e.g. `UNC`) → `Epic` → `Status` → `Issue`. `IssueNumber` is a per-space
-sequential number; with the space key it forms the `IssueKey` shown everywhere (`UNC-24`). Every space and epic has an
-undeletable `IsDefault` one (backlog-equivalent).
+sequential number; with the space key it forms the `IssueKey` shown everywhere (`UNC-24`). Every space has an
+undeletable `IsDefault` epic (the backlog). Spaces have no default one (BRD-293): sign-up and organization creation make a
+regular "Default Space" (`DEF`), which can be renamed, moved and deleted like any other.
 
 `Epic.Status` (New/Active/Done) is derived from the epic's active issues and never set by hand (BRD-323): New with none
 or all Created, Done with all Completed, Active otherwise. It's a stored column, so every write that can change it

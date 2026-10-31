@@ -187,26 +187,16 @@ public class AdminOrganizationsService(
         // Check that passed spaces belongs to organization
         if (request.UserPermissions.Direct.Count > 0)
         {
-            var permittableEntities = (await coreOrganizationsService.GetPermittableEntities(
+            var permittableSpaceKeys = (await coreOrganizationsService.GetPermittableEntities(
                 request.AuthData.OrganizationId,
                 cancellationToken))
-                .ToDictionary(
-                    x => x.Key,
-                    x => new { Self = x });
+                .Select(x => x.Key)
+                .ToHashSet();
 
-            var errors = new List<string>();
-
-            foreach (var directSpacePermission in request.UserPermissions.Direct)
-            {
-                if (!permittableEntities.TryGetValue(directSpacePermission.Key, out var space))
-                {
-                    errors.Add(string.Format(ErrorMessages.SpaceDirectPermissionEntityNotFound, directSpacePermission.Key));
-                    continue;
-                }
-
-                if (space.Self.IsDefault && directSpacePermission.Value.CanDelete)
-                    errors.Add(string.Format(ErrorMessages.SpaceDeletePermissionOnDefaultForbidden, directSpacePermission.Key));
-            }
+            var errors = request.UserPermissions.Direct.Keys
+                .Where(key => !permittableSpaceKeys.Contains(key))
+                .Select(key => string.Format(ErrorMessages.SpaceDirectPermissionEntityNotFound, key))
+                .ToList();
 
             if (errors.Count != 0)
             {

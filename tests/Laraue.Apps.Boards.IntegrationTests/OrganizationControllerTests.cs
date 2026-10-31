@@ -74,7 +74,6 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         Assert.Equal(organization.Id, space.OrganizationId);
         Assert.True(space.CreatedAt != default);
         Assert.True(space.UpdatedAt != default);
-        Assert.True(space.IsDefault);
         
         var epics = await testScope.Database.Epics.ToListAsyncEF();
         var epic = Assert.Single(epics);
@@ -663,7 +662,7 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
                 {
                     [space.Key] = new ()
                     {
-                        CanDelete = true, // Attempt to set delete permission for default space
+                        CanDelete = true, // Any space can be deleted, including the one created with the organization
                     },
                     ["GGG"] = new () // Unexists space
                     {
@@ -680,7 +679,6 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
         var badRequest = ex.HasInnerException<BadRequestException>();
         var exceptedErrors = new[]
         {
-            $"Space: '{space.Key}'. Attempt to add delete permission to Default space",
             "Space: 'GGG'. Entity is not found",
         };
         Assert.Equal(exceptedErrors, badRequest.Errors["direct"]);

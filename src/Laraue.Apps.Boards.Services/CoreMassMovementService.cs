@@ -60,11 +60,8 @@ public class CoreMovementService(
         
         var sourceData = await context.ActiveSpaces()
             .Where(x => x.Id == spaceId)
-            .Select(x => new { x.IsDefault, x.Key, x.OrganizationId })
+            .Select(x => new { x.Key, x.OrganizationId })
             .FirstOrThrowNotFoundEFAsync($"Space: {spaceId} is not found", cancellationToken);
-
-        if (sourceData.IsDefault)
-            throw new ForbiddenException("Default space cannot be moved.");
 
         // Active-only: the Space.Key unique index is itself filtered to active rows, so a
         // soft-deleted space's key is already free to reuse - this check must agree with the DB.

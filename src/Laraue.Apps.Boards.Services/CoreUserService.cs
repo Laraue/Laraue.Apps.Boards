@@ -416,7 +416,7 @@ public class CoreUserService(
     /// Whether the user has done anything in Boards - if not, one of their sign-in accounts can be moved
     /// to another user without losing anything. What sign-up created doesn't count: their personal
     /// Telegram chat (the chat whose id is their own Telegram id) and a personal organization that still has only
-    /// its default space, default board and single status, no attributes and no other members.
+    /// the one space sign-up created, its default board and single status, no attributes and no other members.
     /// Organization history only records issues and comments, so changes to that structure are
     /// checked directly.
     /// </summary>
@@ -434,8 +434,8 @@ public class CoreUserService(
                 x => x.UserId == userId && x.Organization!.OwnerId != userId, cancellationToken)
             || await context.Organizations.AnyAsync(
                 x => x.OwnerId == userId && x.Type != OrganizationType.Personal, cancellationToken)
-            || await context.Spaces.AnyAsync(
-                x => x.Organization!.OwnerId == userId && !x.IsDefault, cancellationToken)
+            || await context.Spaces.CountAsync(
+                x => x.Organization!.OwnerId == userId, cancellationToken) > 1
             || await context.Epics.AnyAsync(
                 x => x.Space!.Organization!.OwnerId == userId && !x.IsDefault, cancellationToken)
             || await context.Statuses.CountAsync(
@@ -470,15 +470,22 @@ public class CoreUserService(
                 cancellationToken);
     }
 
+    /// <summary>
+    /// The first status of the backlog in the personal organization's oldest active space - the space sign-up
+    /// created, unless the user deleted it. Null when the personal organization has no active space.
+    /// </summary>
     private Task<long?> GetPersonalOrganizationDefaultStatusIdAsync(Guid userId, CancellationToken cancellationToken)
     {
         return context.ActiveStatuses()
             .Where(x => x.Epic!.IsDefault
-                && x.Epic.Space!.IsDefault
+                && x.Epic.DeletedAt == null
+                && x.Epic.Space!.DeletedAt == null
                 && x.Epic.Space.Organization!.OwnerId == userId
                 && x.Epic.Space.Organization.Type == OrganizationType.Personal
                 && x.Epic.Space.Organization.DeletedAt == null)
-            .OrderBy(x => x.SortOrder)
+            .OrderBy(x => x.Epic!.Space!.CreatedAt)
+            .ThenBy(x => x.Epic!.SpaceId)
+            .ThenBy(x => x.SortOrder)
             .Select(x => (long?)x.Id)
             .FirstOrDefaultAsyncEF(cancellationToken);
     }

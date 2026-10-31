@@ -413,7 +413,7 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
     {
         var ownerId = await SignUpWithTelegramAsync(testScope, telegramId);
         var personal = await testScope.Database.Epics
-            .Where(x => x.Space!.Organization!.OwnerId == ownerId && x.IsDefault && x.Space.IsDefault)
+            .Where(x => x.Space!.Organization!.OwnerId == ownerId && x.IsDefault)
             .Select(x => new PersonalOrganization(ownerId, x.Space!.OrganizationId, x.SpaceId, x.Id))
             .SingleAsync();
         await modify(testScope.Database, personal);

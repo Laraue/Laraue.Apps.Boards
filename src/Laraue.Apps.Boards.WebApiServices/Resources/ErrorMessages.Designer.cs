@@ -159,12 +159,6 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
-        internal static string SpaceDeletePermissionOnDefaultForbidden {
-            get {
-                return ResourceManager.GetString("SpaceDeletePermissionOnDefaultForbidden", resourceCulture);
-            }
-        }
-        
         internal static string ListAttributeRequiresOptions {
             get {
                 return ResourceManager.GetString("ListAttributeRequiresOptions", resourceCulture);
