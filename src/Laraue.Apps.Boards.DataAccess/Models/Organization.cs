@@ -57,6 +57,13 @@ public class Organization
     public User? DeletedByUser { get; set; }
 
     /// <summary>
+    /// When the organization's setup window was finished (BRD-293): the first space named and a sample
+    /// project added or declined. Null until then - the web app shows the window to members who can
+    /// update the organization.
+    /// </summary>
+    public DateTime? SetupCompletedAt { get; set; }
+
+    /// <summary>
     /// Spaces linked to the organization.
     /// </summary>
     public IList<Space>? Spaces { get; set; }

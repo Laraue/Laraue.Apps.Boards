@@ -21,6 +21,7 @@ public sealed class BoardsMetrics
     private readonly Counter<long> _issuesCompleted;
     private readonly Counter<long> _issuesDeleted;
     private readonly Counter<long> _organizationsCreated;
+    private readonly Counter<long> _organizationSetups;
 
     public BoardsMetrics(IMeterFactory meterFactory)
     {
@@ -42,6 +43,10 @@ public sealed class BoardsMetrics
             "boards.organizations.created",
             description: "Organizations created, by type (organization, or the personal one made at sign-up).");
 
+        _organizationSetups = meter.CreateCounter<long>(
+            "boards.organization_setups.completed",
+            description: "Organization setup windows finished, by template (empty, or the sample project).");
+
         // A counter series only exists after its first event, and rate()/increase() cannot see that first
         // event. Recording a zero for every known label value makes each series exist from the first scrape.
         foreach (var source in new[] { SourceWeb, SourceTelegram, SourceMcp })
@@ -55,6 +60,11 @@ public sealed class BoardsMetrics
         foreach (var type in Enum.GetValues<OrganizationType>())
         {
             _organizationsCreated.Add(0, new KeyValuePair<string, object?>("type", OrganizationTypeLabel(type)));
+        }
+
+        foreach (var template in Enum.GetValues<OrganizationSetupTemplate>())
+        {
+            _organizationSetups.Add(0, new KeyValuePair<string, object?>("template", OrganizationSetupTemplateLabel(template)));
         }
     }
 
@@ -86,4 +96,10 @@ public sealed class BoardsMetrics
 
     public static string OrganizationTypeLabel(OrganizationType type)
         => type == OrganizationType.Personal ? "personal" : "organization";
+
+    public void RecordOrganizationSetupCompleted(OrganizationSetupTemplate template)
+        => _organizationSetups.Add(1, new KeyValuePair<string, object?>("template", OrganizationSetupTemplateLabel(template)));
+
+    public static string OrganizationSetupTemplateLabel(OrganizationSetupTemplate template)
+        => template == OrganizationSetupTemplate.Sample ? "sample" : "empty";
 }

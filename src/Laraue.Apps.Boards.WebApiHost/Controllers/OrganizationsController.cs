@@ -13,6 +13,7 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/organizations")]
 public class OrganizationsController(
     IOrganizationsService organizationsService,
+    IOrganizationSetupService organizationSetupService,
     IOrganizationHistoryService organizationHistoryService,
     IWebHostEnvironment environment) : ControllerBase
 {
@@ -104,6 +105,20 @@ public class OrganizationsController(
         CancellationToken cancellationToken = default)
     {
         return organizationsService.UpdateMemberProfile(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
+    [HttpPost("current/setup")]
+    public Task CompleteSetup(
+        [FromBody] CompleteOrganizationSetupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return organizationSetupService.Complete(
             request with
             {
                 AuthData = HttpContext.User.GetOrganizationAuthData(),

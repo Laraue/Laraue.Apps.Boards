@@ -211,7 +211,8 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
 - **Counters are events**, recorded after the save by the host handling the event (each `AddMeter`s it):
   `boards_issues_created_total{source}` (`telegram` with a Telegram message, `mcp` with an API key, else `web`),
   `boards_issues_completed_total` (moved into a `Completed` status), `boards_organizations_created_total{type}`
-  (`organization`, or `personal` at sign-up), `boards_retros_started_total`, `boards_issues_deleted_total` (single
+  (`organization`, or `personal` at sign-up), `boards_organization_setups_completed_total{template}` (`empty`, `sample`;
+  sample issues aren't counted as created), `boards_retros_started_total`, `boards_issues_deleted_total` (single
   deletes; cascaded ones only show in the gauge). Every counter records zero for each known label value at start
   (`BoardsMetrics`, `RetroMetrics`) so `increase()` sees the first event - do the same for new counters/labels.
 - **Gauges are state**, read from the database every 60 s (`BoardsStateMetrics`, WebApiServices, WebApiHost only):

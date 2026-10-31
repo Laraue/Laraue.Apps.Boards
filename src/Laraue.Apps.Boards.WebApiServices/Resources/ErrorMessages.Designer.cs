@@ -153,6 +153,12 @@ namespace Laraue.Apps.Boards.WebApiServices.Resources {
             }
         }
         
+        internal static string OrganizationAlreadySetUp {
+            get {
+                return ResourceManager.GetString("OrganizationAlreadySetUp", resourceCulture);
+            }
+        }
+        
         internal static string SpaceDirectPermissionEntityNotFound {
             get {
                 return ResourceManager.GetString("SpaceDirectPermissionEntityNotFound", resourceCulture);

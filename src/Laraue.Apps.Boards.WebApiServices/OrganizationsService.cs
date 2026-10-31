@@ -122,6 +122,8 @@ public class OrganizationsService(
             request.AuthData.UserId,
             cancellationToken);
 
+        organization.Setup = await GetSetup(request.AuthData, cancellationToken);
+
         return organization;
     }
 
@@ -262,6 +264,26 @@ public class OrganizationsService(
         return result;
     }
 
+    private async Task<OrganizationSetupDto?> GetSetup(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        var isSetUp = await context.ActiveOrganizations()
+            .Where(x => x.Id == authData.OrganizationId)
+            .Select(x => x.SetupCompletedAt != null)
+            .FirstAsyncEF(cancellationToken);
+
+        if (isSetUp || !await accessService.HasAccess(authData, AdminAccessLevel.UpdateOrganization, cancellationToken))
+            return null;
+
+        var space = await context.ActiveSpaces()
+            .Where(x => x.OrganizationId == authData.OrganizationId)
+            .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .Select(x => new OrganizationSetupSpaceDto { Key = x.Key, Name = x.Name })
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        return new OrganizationSetupDto { Space = space };
+    }
+
     public async Task UpdateMemberProfile(UpdateMemberProfileRequest request, CancellationToken cancellationToken)
     {
         var isMember = await accessService.GetOrganizations(
@@ -346,6 +368,12 @@ public record OrganizationDto
     /// How the current user is shown in this organization.
     /// </summary>
     public required MemberProfileDto MemberProfile { get; set; }
+
+    /// <summary>
+    /// The organization setup window to show (BRD-293); null when the organization is set up or the user can't
+    /// update it.
+    /// </summary>
+    public OrganizationSetupDto? Setup { get; set; }
 }
 
 /// <summary>
