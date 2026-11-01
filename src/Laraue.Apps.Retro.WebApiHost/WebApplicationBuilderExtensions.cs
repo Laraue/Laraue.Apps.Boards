@@ -42,9 +42,16 @@ public static class WebApplicationBuilderExtensions
             builder.Services
                 .AddControllers()
                 .AddJsonOptions(options =>
-                    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+                {
+                    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                    // Numbers only as numbers, so OpenAPI describes them as numbers, not "integer | string".
+                    options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+                });
             builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
-                options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+            {
+                options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+            });
 
             builder.Services
                 .AddSignalR()

@@ -122,6 +122,8 @@ public class OrganizationsService(
                         Initials = x.Initials,
                         Color = x.Color,
                     },
+                    // Set below, for the owner of an organization that isn't set up.
+                    Setup = null,
                 })
                 .FirstOrThrowNotFoundEFAsync($"Organization: {request.AuthData.OrganizationId} is not found", cancellationToken));
 
@@ -412,7 +414,7 @@ public record OrganizationDto
     /// The organization setup window to show (BRD-293); null when the organization is set up or the user isn't
     /// its owner.
     /// </summary>
-    public OrganizationSetupDto? Setup { get; set; }
+    public required OrganizationSetupDto? Setup { get; set; }
 }
 
 /// <summary>

@@ -122,8 +122,8 @@ public record ApiKeyDto
     public required string Name { get; set; }
     public required string KeyPrefix { get; set; }
     public required DateTime CreatedAt { get; set; }
-    public DateTime? LastUsedAt { get; set; }
-    public DateTime? RevokedAt { get; set; }
+    public required DateTime? LastUsedAt { get; set; }
+    public required DateTime? RevokedAt { get; set; }
 }
 
 public record RevokeApiKeyRequest : ApiKeyRequest

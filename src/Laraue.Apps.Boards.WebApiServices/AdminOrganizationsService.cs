@@ -398,6 +398,8 @@ public class AdminOrganizationsService(
             FinishedAt = item.FinishedAt,
             Delta = item.Delta,
             Error = item.Error,
+            // Enriched with the owner's name afterwards.
+            OwnerDisplayName = null,
         });
 
         await memberProfileReader.EnrichUsers(
@@ -493,7 +495,7 @@ public record GetOrganizationJoinCodeRequest
 
 public record OrganizationMember
 {
-    public long OrganizationUserId { get; set; }
+    public required long OrganizationUserId { get; set; }
     public required Guid UserId { get; set; }
     public required string DisplayName { get; set; }
     public required string Initials { get; set; }
@@ -577,7 +579,7 @@ public sealed record AdminBillingTransaction : IEnrichableUser
     /// <summary>
     /// The owner's name in the organization, filled by <see cref="IMemberProfileReader"/>.
     /// </summary>
-    public string? OwnerDisplayName { get; set; }
+    public required string? OwnerDisplayName { get; set; }
 
     Guid IEnrichableUser.UserId => OwnerUserId;
     string IEnrichableUser.DisplayName { set => OwnerDisplayName = value; }
@@ -587,7 +589,7 @@ public sealed record AdminBillingTransaction : IEnrichableUser
     public required TokenTransactionStatus Status { get; init; }
     public required TokenTransactionReason Reason { get; init; }
     public required DateTime CreatedAt { get; init; }
-    public DateTime? FinishedAt { get; init; }
+    public required DateTime? FinishedAt { get; init; }
     public required long Delta { get; init; }
-    public string? Error { get; init; }
+    public required string? Error { get; init; }
 }

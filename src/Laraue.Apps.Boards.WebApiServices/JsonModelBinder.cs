@@ -18,6 +18,8 @@ public class JsonModelBinder : IModelBinder
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
+        // As the API's own JSON options: numbers only as numbers.
+        NumberHandling = JsonNumberHandling.Strict,
     };
  
     public Task BindModelAsync(ModelBindingContext bindingContext)

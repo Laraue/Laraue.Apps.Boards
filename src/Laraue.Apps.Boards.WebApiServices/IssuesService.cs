@@ -1443,6 +1443,10 @@ public class IssuesService(
             SpaceKey = source.SpaceKey,
             CreatedVia = source.CreatedVia,
             CreatedByApiKeyName = source.CreatedByApiKeyName,
+            // Filled in afterwards, for the whole page at once.
+            Attributes = [],
+            IsBlocked = false,
+            LatestAgentRun = null,
         };
     }
     
@@ -1853,14 +1857,14 @@ public record IssueListDto
     public required string Assignee { get; set; }
     public required Guid AssigneeId { get; set; }
     public required string Key { get; set; }
-    public string? AssigneeInitial { get; set; }
+    public required string? AssigneeInitial { get; set; }
     public required string AssigneeColor { get; set; }
     public required string Title { get; set; }
     public required string? Content { get; set; }
     public required long EpicId { get; set; }
     public required long StatusId { get; set; }
     public required string SpaceKey { get; set; }
-    public List<IssueListAttributeDto> Attributes { get; set; } = [];
+    public required List<IssueListAttributeDto> Attributes { get; set; }
 
     /// <summary>
     /// How the issue was created: Web, Telegram, Mcp or Agent.
@@ -1875,12 +1879,12 @@ public record IssueListDto
     /// <summary>
     /// Some issue the caller can read blocks this one and isn't in a Completed status yet.
     /// </summary>
-    public bool IsBlocked { get; set; }
+    public required bool IsBlocked { get; set; }
 
     /// <summary>
     /// The issue's most recent agent run, null when it was never handed to the agent.
     /// </summary>
-    public IssueAgentRunShortDto? LatestAgentRun { get; set; }
+    public required IssueAgentRunShortDto? LatestAgentRun { get; set; }
 }
 
 public record IssueAgentRunShortDto

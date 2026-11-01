@@ -324,7 +324,7 @@ public record SpaceDetailsDto
 public record SpaceAboutDto
 {
     /// <summary>Markdown, or null when the space has none.</summary>
-    public string? Description { get; init; }
+    public required string? Description { get; init; }
 
     public required SpaceLinkDto[] Links { get; init; }
 
