@@ -726,6 +726,7 @@ public class IssuesService(
                 StatusName = x.Status!.Epic!.IsDefault ? null : x.Status!.Name,
                 TelegramId = x.Owner!.TelegramId,
                 CategoryColor = x.Status.Epic.Color,
+                CategoryIsDefault = x.Status.Epic.IsDefault,
                 StatusColor = x.Status!.Epic!.IsDefault ? null : x.Status.Color,
                 StatusCategory = x.Status!.Category,
                 OrganizationId = x.Status.Epic.Space!.OrganizationId,
@@ -796,6 +797,7 @@ public class IssuesService(
             StatusId = result.StatusId,
             StatusName = result.StatusName,
             EpicColor = result.CategoryColor,
+            EpicIsDefault = result.CategoryIsDefault,
             StatusColor = result.StatusColor,
             StatusCategory = result.StatusCategory,
             CanEdit = issueAccessLevels.CanUpdateIssue,
@@ -2090,6 +2092,10 @@ public class IssueDetailDto
     public required long EpicId { get; set; }
     public required string? EpicName { get; set; }
     public required string? EpicColor { get; set; }
+    /// <summary>
+    /// True when the issue sits in its space's backlog (the default epic).
+    /// </summary>
+    public required bool EpicIsDefault { get; set; }
     public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
@@ -2196,6 +2202,7 @@ public class IssueDetailDtoData
     public required long CategoryId { get; set; }
     public required string? CategoryName { get; set; }
     public required string? CategoryColor { get; set; }
+    public required bool CategoryIsDefault { get; set; }
     public required long StatusId { get; set; }
     public required string? StatusName { get; set; }
     public required string? StatusColor { get; set; }
