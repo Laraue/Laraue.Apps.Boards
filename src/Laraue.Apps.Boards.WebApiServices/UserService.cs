@@ -49,6 +49,8 @@ public class UserService(
                 {
                     TelegramId = x.TelegramId,
                     HasGoogleAccount = x.GoogleSubject != null,
+                    // Set below, from the global user.
+                    Initials = null,
                     Palette = Palette.Colors
                 },
             })
@@ -161,14 +163,14 @@ public class UserService(
 
 public class UserDto
 {
-    public long? TelegramId { get; set; }
-    public bool HasGoogleAccount { get; set; }
+    public required long? TelegramId { get; set; }
+    public required bool HasGoogleAccount { get; set; }
 
     /// <summary>
     /// The initials from the user's global profile; null when the profile couldn't be read. How the user
     /// is shown in an organization is that organization's <c>memberProfile</c>.
     /// </summary>
-    public string? Initials { get; set; }
+    public required string? Initials { get; set; }
 
     public required string[] Palette { get; set; }
 }
@@ -181,10 +183,10 @@ public class UserProfileDto
     /// <summary>
     /// The Telegram username the user signed up with; not editable.
     /// </summary>
-    public string? UserName { get; set; }
+    public required string? UserName { get; set; }
 
-    public string? GivenName { get; set; }
-    public string? FamilyName { get; set; }
+    public required string? GivenName { get; set; }
+    public required string? FamilyName { get; set; }
     public required string DisplayName { get; set; }
 
     /// <summary>

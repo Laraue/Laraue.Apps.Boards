@@ -53,7 +53,7 @@ public abstract record BillingSummary
     /// <summary>
     /// Null means unlimited - nothing to show.
     /// </summary>
-    public LimitUsage? IssuesPerMonth { get; init; }
+    public required LimitUsage? IssuesPerMonth { get; init; }
 
     /// <summary>
     /// The tokens left in the plan (<see cref="LimitUsage.Remaining"/> is the plan's own tokens only).
@@ -63,35 +63,35 @@ public abstract record BillingSummary
     /// <summary>
     /// Tokens bought in packs, on top of the plan: spent after the plan's own.
     /// </summary>
-    public long PurchasedTokensCount { get; init; }
+    public required long PurchasedTokensCount { get; init; }
 
     /// <summary>
     /// When the purchased tokens that expire first run out. Null when there are none.
     /// </summary>
-    public DateTime? PurchasedTokensExpireAt { get; init; }
+    public required DateTime? PurchasedTokensExpireAt { get; init; }
 
     /// <summary>
     /// How many of the purchased tokens expire at <see cref="PurchasedTokensExpireAt"/>.
     /// </summary>
-    public long PurchasedTokensExpiringCount { get; init; }
+    public required long PurchasedTokensExpiringCount { get; init; }
 
     /// <summary>
     /// When the current period of the plan ends. Null when it has no end.
     /// </summary>
-    public DateTime? PeriodEndsAt { get; init; }
+    public required DateTime? PeriodEndsAt { get; init; }
 
     /// <summary>
     /// True when the plan's allowance starts over at <see cref="PeriodEndsAt"/> (a Free plan), false
     /// when the plan ends then (a paid one).
     /// </summary>
-    public bool PeriodResets { get; init; }
+    public required bool PeriodResets { get; init; }
 
     /// <summary>
     /// When the count of <see cref="IssuesPerMonth"/> starts over: the end of the rolling month of a Free
     /// plan, the start of the next calendar month for a paid one (whose limits are counted per calendar
     /// month, unlike its own period). Null when there is no issue limit.
     /// </summary>
-    public DateTime? IssuesResetAt { get; init; }
+    public required DateTime? IssuesResetAt { get; init; }
 }
 
 public sealed record PersonalBillingSummary : BillingSummary
@@ -99,7 +99,7 @@ public sealed record PersonalBillingSummary : BillingSummary
     /// <summary>
     /// Null means the plan doesn't cap it.
     /// </summary>
-    public LimitUsage? FreeTeamOrganizations { get; init; }
+    public required LimitUsage? FreeTeamOrganizations { get; init; }
 }
 
 public sealed record TeamBillingSummary : BillingSummary;
@@ -110,9 +110,9 @@ public sealed record BillingTransaction
     public required TokenTransactionStatus Status { get; init; }
     public required TokenTransactionReason Reason { get; init; }
     public required DateTime CreatedAt { get; init; }
-    public DateTime? FinishedAt { get; init; }
+    public required DateTime? FinishedAt { get; init; }
     public required long Delta { get; init; }
-    public string? Error { get; init; }
+    public required string? Error { get; init; }
 }
 
 public sealed record CreateCheckoutRequest

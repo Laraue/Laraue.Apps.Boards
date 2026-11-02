@@ -65,5 +65,5 @@ public record SetOnboardingStatusRequest
 
 public record GetOnboardingStatusResponse
 {
-    public OnboardingStatus? Status { get; init; }
+    public required OnboardingStatus? Status { get; init; }
 }

@@ -262,12 +262,12 @@ public record EpicDto
 {
     public required string Name { get; set; }
     public required string? Color { get; set; }
-    public StatusDto[] Statuses { get; set; } = [];
+    public required StatusDto[] Statuses { get; set; }
     public required bool CanCreateIssues { get; set; }
     public required bool CanDeleteIssues { get; set; }
     public required bool CanUpdateIssues { get; set; }
-    public bool CanUpdate { get; set; }
-    public bool CanDelete { get; set; }
+    public required bool CanUpdate { get; set; }
+    public required bool CanDelete { get; set; }
     public required EpicStatus Status { get; set; }
 }
 
