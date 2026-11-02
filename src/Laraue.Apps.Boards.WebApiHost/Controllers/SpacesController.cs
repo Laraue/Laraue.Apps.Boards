@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.WebApiServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +12,8 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/spaces")]
 public class SpacesController(
     ISpacesService spacesService,
-    IEpicsService epicsService)
+    IEpicsService epicsService,
+    IAttributeSettingsService attributeSettingsService)
     : ControllerBase
 {
     [HttpPost]
@@ -118,6 +120,63 @@ public class SpacesController(
     {
         return spacesService.GetAbout(
             new GetSpaceRequest
+            {
+                Key = key,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpGet("{key}/attribute-settings")]
+    public Task<AttributeSettingsDto> GetAttributeSettings(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.GetForSpace(
+            new SpaceAttributeSettingsRequest
+            {
+                Key = key,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpPost("{key}/attribute-settings/override")]
+    public Task<AttributeSettingsDto> OverrideAttributeSettings(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.OverrideSpace(
+            new SpaceAttributeSettingsRequest
+            {
+                Key = key,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpPut("{key}/attribute-settings")]
+    public Task<AttributeSettingsDto> UpdateAttributeSettings(
+        string key,
+        [FromBody] UpdateSpaceAttributeSettingsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.UpdateSpace(
+            request with
+            {
+                Key = key,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpDelete("{key}/attribute-settings")]
+    public Task<AttributeSettingsDto> ResetAttributeSettings(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.ResetSpace(
+            new SpaceAttributeSettingsRequest
             {
                 Key = key,
                 AuthData = HttpContext.User.GetOrganizationAuthData(),

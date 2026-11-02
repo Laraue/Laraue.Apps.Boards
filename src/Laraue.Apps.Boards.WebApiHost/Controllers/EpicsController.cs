@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +10,9 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 [ApiController]
 [Route("/api/epics")]
-public class EpicsController(IEpicsService categoriesService)
+public class EpicsController(
+    IEpicsService categoriesService,
+    IAttributeSettingsService attributeSettingsService)
     : ControllerBase
 {
     [HttpGet("{id}")]
@@ -95,4 +98,61 @@ public class EpicsController(IEpicsService categoriesService)
             },
             cancellationToken);
     }
-}   
+
+    [HttpGet("{id:long}/attribute-settings")]
+    public Task<AttributeSettingsDto> GetAttributeSettings(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.GetForEpic(
+            new EpicAttributeSettingsRequest
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpPost("{id:long}/attribute-settings/override")]
+    public Task<AttributeSettingsDto> OverrideAttributeSettings(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.OverrideEpic(
+            new EpicAttributeSettingsRequest
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpPut("{id:long}/attribute-settings")]
+    public Task<AttributeSettingsDto> UpdateAttributeSettings(
+        long id,
+        [FromBody] UpdateEpicAttributeSettingsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.UpdateEpic(
+            request with
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpDelete("{id:long}/attribute-settings")]
+    public Task<AttributeSettingsDto> ResetAttributeSettings(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.ResetEpic(
+            new EpicAttributeSettingsRequest
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+}
