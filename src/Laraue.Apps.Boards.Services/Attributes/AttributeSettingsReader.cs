@@ -28,6 +28,15 @@ public interface IAttributeSettingsReader
     Task<Dictionary<long, AttributeSettingsDto>> GetForEpics(
         IReadOnlyCollection<long> epicIds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The attributes switched off in <paramref name="target"/> that any of <paramref name="issueIds"/> has a value
+    /// for - what a move under those settings keeps or drops.
+    /// </summary>
+    Task<AttributeSettingDto[]> GetUnusedWithValues(
+        IReadOnlyCollection<long> issueIds,
+        AttributeSettingsDto target,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -173,6 +182,47 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
                     ? Combine(AttributeSettingsSource.Space, defaults, spaceSettings[x.SpaceId])
                     : Combine(AttributeSettingsSource.Organization, defaults, overrides: null);
             });
+    }
+
+    public async Task<AttributeSettingDto[]> GetUnusedWithValues(
+        IReadOnlyCollection<long> issueIds,
+        AttributeSettingsDto target,
+        CancellationToken cancellationToken)
+    {
+        var unused = target.Attributes
+            .Where(x => !x.IsEnabled)
+            .ToArray();
+        if (unused.Length == 0 || issueIds.Count == 0)
+            return [];
+
+        var unusedIds = unused
+            .Select(x => x.AttributeId)
+            .ToArray();
+        var withValues = (await context.IssueAttributeTextValues
+                .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
+                .Select(x => x.AttributeId)
+                .Concat(context.IssueAttributeListValues
+                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeIntegerValues
+                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeDecimalValues
+                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeDateValues
+                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeDateTimeValues
+                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
+                    .Select(x => x.AttributeId))
+                .Distinct()
+                .ToArrayAsync(cancellationToken))
+            .ToHashSet();
+
+        return unused
+            .Where(x => withValues.Contains(x.AttributeId))
+            .ToArray();
     }
 
     /// <param name="ownerId">The space's id for <see cref="AttributeSettingsSource.Space"/>, the epic's for

@@ -20,4 +20,15 @@ public interface IScalarAttributeUpdater
         Dictionary<long, string> attributeNameById,
         SetIssueAttributeRequest[] attributeRequests,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes the issue's values of <paramref name="attributeIds"/> that are of this updater's type, returning a
+    /// history item for each.
+    /// </summary>
+    Task<OrganizationLogItem[]> Drop(
+        DatabaseContext context,
+        long issueId,
+        Dictionary<long, string> attributeNameById,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken);
 }

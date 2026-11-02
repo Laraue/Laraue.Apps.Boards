@@ -304,7 +304,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
     private static Task CompleteBlocker(WebApiTestHostScope testScope, BlockedIssueSetup setup)
     {
         return IssueMcpServiceTests.CreateIssueMcpService(testScope)
-            .EditIssueStatus(setup.AuthData, setup.BlockerKey, setup.DoneStatusId, comment: null, CancellationToken.None);
+            .EditIssueStatus(setup.AuthData, setup.BlockerKey, setup.DoneStatusId, comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
     }
 
     [Fact]
@@ -454,7 +454,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var authData = AuthDataFor(organization.Id, ownerId);
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         await IssueMcpServiceTests.CreateIssueMcpService(testScope)
-            .EditIssueStatus(authData, issueKey, organization.GetStatus(1, 1, 1).Id, comment: null, CancellationToken.None);
+            .EditIssueStatus(authData, issueKey, organization.GetStatus(1, 1, 1).Id, comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
 
         await Assert.ThrowsAsync<BadRequestException>(() => CreateAgentRunMcpService(testScope.Services)
             .CreateAgentRun(authData, issueKey, CancellationToken.None));
@@ -474,7 +474,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
 
         // Status changes stay allowed while the issue is handed off - here, to the default space's backlog.
         await IssueMcpServiceTests.CreateIssueMcpService(testScope)
-            .EditIssueStatus(authData, issueKey, organization.GetStatus(0, 0, 0).Id, comment: null, CancellationToken.None);
+            .EditIssueStatus(authData, issueKey, organization.GetStatus(0, 0, 0).Id, comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
 
         Assert.False(await service.ClaimAgentRun(authData, run.Id, CancellationToken.None));
 
@@ -624,7 +624,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         await service.FinishAgentRun(runnerAuthData, failedRun.Id, AgentRunFinishState.Failed, "The runner was stopped", CancellationToken.None);
         var issueMcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
         await issueMcpService
-            .EditIssueStatus(runnerAuthData, issueKey, organization.GetStatus(1, 1, 1).Id, comment: null, CancellationToken.None);
+            .EditIssueStatus(runnerAuthData, issueKey, organization.GetStatus(1, 1, 1).Id, comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
 
         var run = await service.StartAgentRun(runnerAuthData, issueKey, CancellationToken.None);
 

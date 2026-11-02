@@ -38,6 +38,16 @@ public interface ICoreIssueAttributesService
         long organizationId,
         AttributeValue[] attributeValues,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes the issue's values of <paramref name="attributeIds"/> - e.g. those not used in the epic it moved to
+    /// (BRD-179) - and returns the resulting history log items.
+    /// </summary>
+    Task<OrganizationLogItem[]> DropValues(
+        long issueId,
+        long organizationId,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken);
 }
 
 public class CoreIssueAttributesService(
@@ -239,6 +249,32 @@ public class CoreIssueAttributesService(
         return requests.ToArray();
     }
 
+    public async Task<OrganizationLogItem[]> DropValues(
+        long issueId,
+        long organizationId,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+        if (attributeIds.Count == 0)
+            return [];
+
+        var attributeNameById = await context.Attributes
+            .Where(x => x.OrganizationId == organizationId)
+            .ToDictionaryAsyncEF(x => x.Id, x => x.Name, cancellationToken);
+
+        var changes = new List<OrganizationLogItem>();
+        foreach (var updater in scalarAttributeUpdaters)
+        {
+            changes.AddRange(
+                await updater.Drop(context, issueId, attributeNameById, attributeIds, cancellationToken));
+        }
+
+        changes.AddRange(await DropListValues(issueId, attributeNameById, attributeIds, cancellationToken));
+
+        return changes.ToArray();
+    }
+
     private async Task EnsureEnabledInEpic(
         long issueId,
         SetIssueAttributeRequest[] attributeRequests,
@@ -393,38 +429,45 @@ public class CoreIssueAttributesService(
         var toDelete = oldAttributeById.Keys
             .Except(attributeRequests.Select(x => x.Id))
             .ToArray();
-
         if (toDelete.Length != 0)
-        {
-            var deletableValues = await context.IssueAttributeListValues
-                .Where(x => x.IssueId == issueId)
-                .Where(x => ((IEnumerable<long>)toDelete).Contains(x.AttributeId))
-                .Select(x => new
-                {
-                    x.Id,
-                    x.AttributeId,
-                    AttributeListValueName = x.AttributeListValue!.Value,
-                    x.AttributeListValueId,
-                })
-                .ToDictionaryAsyncEF(x => x.Id, cancellationToken);
-
-            foreach (var deletableValue in deletableValues)
-            {
-                changes.Add(new OrganizationLogItem
-                {
-                    OldDisplayValue = deletableValue.Value.AttributeListValueName,
-                    PropertyType = PropertyType.Attribute,
-                    OldValueId = deletableValue.Value.AttributeListValueId.ToString(),
-                    PropertyName = attributeNameById[deletableValue.Key],
-                    ParentId = deletableValue.Value.AttributeId.ToString(),
-                });
-            }
-
-            await context.IssueAttributeListValues
-                .Where(x => deletableValues.Select(v => v.Key).Contains(x.Id))
-                .ExecuteDeleteAsync(cancellationToken);
-        }
+            changes.AddRange(await DropListValues(issueId, attributeNameById, toDelete, cancellationToken));
 
         return changes.ToArray();
+    }
+
+    private async Task<OrganizationLogItem[]> DropListValues(
+        long issueId,
+        Dictionary<long, string> attributeNameById,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken)
+    {
+        var deletableValues = await context.IssueAttributeListValues
+            .Where(x => x.IssueId == issueId)
+            .Where(x => attributeIds.Contains(x.AttributeId))
+            .Select(x => new
+            {
+                x.AttributeId,
+                AttributeListValueName = x.AttributeListValue!.Value,
+                x.AttributeListValueId,
+            })
+            .ToArrayAsyncEF(cancellationToken);
+        if (deletableValues.Length == 0)
+            return [];
+
+        await context.IssueAttributeListValues
+            .Where(x => x.IssueId == issueId)
+            .Where(x => attributeIds.Contains(x.AttributeId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return deletableValues
+            .Select(x => new OrganizationLogItem
+            {
+                OldDisplayValue = x.AttributeListValueName,
+                PropertyType = PropertyType.Attribute,
+                OldValueId = x.AttributeListValueId.ToString(),
+                PropertyName = attributeNameById[x.AttributeId],
+                ParentId = x.AttributeId.ToString(),
+            })
+            .ToArray();
     }
 }

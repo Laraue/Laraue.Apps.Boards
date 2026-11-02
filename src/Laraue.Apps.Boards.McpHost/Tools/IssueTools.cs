@@ -94,9 +94,16 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The target status's id, from list_statuses. Can belong to a different epic than the issue's current one.")] long statusId,
         [Description("A comment to post on the issue as part of this status change, e.g. explaining why, max 4096 characters. Omit to move the status with no comment.")] [MaxLength(Constraints.MaxCommentLength)] string? comment = null,
+        [Description("When the status is in another epic: true removes the issue's values of attributes that epic doesn't use (list_attributes with its epicId); false (default) keeps them - they stay on the issue but can't be set anew there.")] bool dropUnusedAttributeValues = false,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.EditIssueStatus(GetAuthData(), issueKey, statusId, comment, cancellationToken);
+        return issueMcpService.EditIssueStatus(
+            GetAuthData(),
+            issueKey,
+            statusId,
+            comment,
+            dropUnusedAttributeValues,
+            cancellationToken);
     }
 
     [McpServerTool]

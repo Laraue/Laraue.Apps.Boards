@@ -102,6 +102,7 @@ public interface IIssueMcpService
         string issueKey,
         long statusId,
         string? comment,
+        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -953,6 +954,7 @@ public class IssueMcpService(
         string issueKey,
         long statusId,
         string? comment,
+        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken)
     {
         var key = new IssueKey(issueKey);
@@ -968,7 +970,13 @@ public class IssueMcpService(
             throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", statusId));
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await coreIssuesService.UpdateIssuesStatus([issueId], statusId, authData.ToActor(), comment, cancellationToken);
+        await coreIssuesService.UpdateIssuesStatus(
+            [issueId],
+            statusId,
+            authData.ToActor(),
+            comment,
+            dropUnusedAttributeValues,
+            cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
