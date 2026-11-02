@@ -51,4 +51,7 @@
     <data name="AttributeSettingDuplicated" xml:space="preserve">
         <value>The attribute is listed more than once</value>
     </data>
+    <data name="AttributeOrderIncomplete" xml:space="preserve">
+        <value>The order must list every attribute of the organization once</value>
+    </data>
 </root>

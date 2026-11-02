@@ -110,5 +110,11 @@ namespace Laraue.Apps.Boards.Services.Resources {
                 return ResourceManager.GetString("AttributeSettingDuplicated", resourceCulture);
             }
         }
+        
+        internal static string AttributeOrderIncomplete {
+            get {
+                return ResourceManager.GetString("AttributeOrderIncomplete", resourceCulture);
+            }
+        }
     }
 }

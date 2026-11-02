@@ -72,6 +72,10 @@ public interface IAdminOrganizationsService
         DeleteAttributeRequest request,
         CancellationToken cancellationToken);
 
+    Task ReorderAttributes(
+        ReorderAttributesRequest request,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// The organization's full token spend ledger, optionally narrowed to one member -
     /// distinct from <c>BillingController.GetTransactions</c>, which only ever shows the
@@ -321,6 +325,8 @@ public class AdminOrganizationsService(
             request.Color,
             request.Type,
             request.ListValues?.Select(x => x.Name).ToArray(),
+            request.IsEnabled,
+            request.ShowOnCard,
             cancellationToken);
     }
 
@@ -345,6 +351,25 @@ public class AdminOrganizationsService(
                     Name = x.Name,
                     Id = x.Id,
                 }).ToArray(),
+            request.IsEnabled,
+            request.ShowOnCard,
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task ReorderAttributes(ReorderAttributesRequest request, CancellationToken cancellationToken)
+    {
+        await EnsureAdminAccess(
+            request.AuthData,
+            AdminAccessLevel.ManageAttributes,
+            "Reordering organization attributes",
+            cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await coreOrganizationsService.ReorderAttributes(
+            request.AuthData.OrganizationId,
+            request.AttributeIds,
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -523,6 +548,16 @@ public record CreateAttributeRequest
     public required AttributeType Type { get; set; }
 
     public NewAttributeListValueDto[]? ListValues { get; set; }
+
+    /// <summary>
+    /// Whether spaces and epics that follow the organization's attribute settings use the attribute (BRD-179).
+    /// </summary>
+    public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether spaces and epics that follow the organization's attribute settings show its value on cards.
+    /// </summary>
+    public bool ShowOnCard { get; set; } = true;
 }
 
 public record UpdateAttributeRequest
@@ -539,6 +574,24 @@ public record UpdateAttributeRequest
     public required string Color { get; set; }
 
     public required UpdateAttributeListValueDto[]? ListValues { get; set; }
+
+    /// <inheritdoc cref="CreateAttributeRequest.IsEnabled"/>
+    /// <remarks>Left as it is when not sent.</remarks>
+    public bool? IsEnabled { get; set; }
+
+    /// <inheritdoc cref="CreateAttributeRequest.ShowOnCard"/>
+    /// <remarks>Left as it is when not sent.</remarks>
+    public bool? ShowOnCard { get; set; }
+}
+
+public record ReorderAttributesRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+
+    /// <summary>
+    /// Every attribute of the organization, in the new order.
+    /// </summary>
+    public required long[] AttributeIds { get; set; }
 }
 
 public record DeleteAttributeRequest

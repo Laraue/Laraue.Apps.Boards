@@ -188,6 +188,19 @@ public class AdminOrganizationsController(IAdminOrganizationsService adminOrgani
             cancellationToken);
     }
 
+    [HttpPost("attributes/reorder")]
+    public Task ReorderAttributes(
+        [FromBody] ReorderAttributesRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return adminOrganizationsService.ReorderAttributes(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
     [HttpPost("billing/transactions")]
     public Task<ShortPaginatedResult<AdminBillingTransaction>> GetBillingTransactions(
         [FromBody] GetAdminBillingTransactionsRequest request,
