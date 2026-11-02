@@ -66,8 +66,7 @@ where a.id = o.id";
                     epic_id = table.Column<long>(type: "bigint", nullable: false),
                     attribute_id = table.Column<long>(type: "bigint", nullable: false),
                     is_enabled = table.Column<bool>(type: "boolean", nullable: false),
-                    show_on_card = table.Column<bool>(type: "boolean", nullable: false),
-                    sort_order = table.Column<int>(type: "integer", nullable: false)
+                    show_on_card = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -93,8 +92,7 @@ where a.id = o.id";
                     space_id = table.Column<long>(type: "bigint", nullable: false),
                     attribute_id = table.Column<long>(type: "bigint", nullable: false),
                     is_enabled = table.Column<bool>(type: "boolean", nullable: false),
-                    show_on_card = table.Column<bool>(type: "boolean", nullable: false),
-                    sort_order = table.Column<int>(type: "integer", nullable: false)
+                    show_on_card = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {

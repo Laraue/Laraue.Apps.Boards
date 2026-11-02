@@ -18,7 +18,4 @@ public class SpaceAttributeSetting
 
     /// <inheritdoc cref="Models.Attribute.ShowOnCard"/>
     public bool ShowOnCard { get; set; }
-
-    /// <inheritdoc cref="Models.Attribute.SortOrder"/>
-    public int SortOrder { get; set; }
 }

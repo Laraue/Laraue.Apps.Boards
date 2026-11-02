@@ -464,10 +464,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("show_on_card");
 
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("sort_order");
-
                     b.HasKey("EpicId", "AttributeId")
                         .HasName("pk_epic_attribute_settings");
 
@@ -1742,10 +1738,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Property<bool>("ShowOnCard")
                         .HasColumnType("boolean")
                         .HasColumnName("show_on_card");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("sort_order");
 
                     b.HasKey("SpaceId", "AttributeId")
                         .HasName("pk_space_attribute_settings");

@@ -8,7 +8,8 @@ namespace Laraue.Apps.Boards.Services.Attributes;
 
 /// <summary>
 /// A space's or an epic's own attribute settings (BRD-179). Overriding copies the settings the space or epic follows
-/// at that moment; from then on changes above it don't reach it, until it's reset. No permission checks, like every
+/// at that moment; from then on changes above it don't reach it, until it's reset. The order of attributes is the
+/// organization's everywhere, so it's not part of these settings. No permission checks, like every
 /// core service: the caller checks that the person may update the space or epic. Every method needs a transaction
 /// opened by the caller.
 /// </summary>
@@ -56,7 +57,7 @@ public interface ICoreAttributeSettingsService
     Task ResetEpic(long epicId, CancellationToken cancellationToken);
 }
 
-public sealed record AttributeSettingChange(long AttributeId, bool IsEnabled, bool ShowOnCard, int SortOrder);
+public sealed record AttributeSettingChange(long AttributeId, bool IsEnabled, bool ShowOnCard);
 
 public class CoreAttributeSettingsService(
     DatabaseContext context,
@@ -80,7 +81,6 @@ public class CoreAttributeSettingsService(
                 AttributeId = x.AttributeId,
                 IsEnabled = x.IsEnabled,
                 ShowOnCard = x.ShowOnCard,
-                SortOrder = x.SortOrder,
             }));
         await context.SaveChangesAsync(cancellationToken);
 
@@ -107,7 +107,6 @@ public class CoreAttributeSettingsService(
                 AttributeId = x.AttributeId,
                 IsEnabled = x.IsEnabled,
                 ShowOnCard = x.ShowOnCard,
-                SortOrder = x.SortOrder,
             }));
         await context.SaveChangesAsync(cancellationToken);
 
@@ -142,7 +141,6 @@ public class CoreAttributeSettingsService(
                 AttributeId = x.AttributeId,
                 IsEnabled = x.IsEnabled,
                 ShowOnCard = x.ShowOnCard,
-                SortOrder = x.SortOrder,
             }));
         await context.SaveChangesAsync(cancellationToken);
     }
@@ -175,7 +173,6 @@ public class CoreAttributeSettingsService(
                 AttributeId = x.AttributeId,
                 IsEnabled = x.IsEnabled,
                 ShowOnCard = x.ShowOnCard,
-                SortOrder = x.SortOrder,
             }));
         await context.SaveChangesAsync(cancellationToken);
     }

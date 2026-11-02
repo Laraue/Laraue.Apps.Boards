@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20261102071548_AddAttributeSettings")]
+    [Migration("20261102073249_AddAttributeSettings")]
     partial class AddAttributeSettings
     {
         /// <inheritdoc />
@@ -466,10 +466,6 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                     b.Property<bool>("ShowOnCard")
                         .HasColumnType("boolean")
                         .HasColumnName("show_on_card");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("sort_order");
 
                     b.HasKey("EpicId", "AttributeId")
                         .HasName("pk_epic_attribute_settings");
@@ -1745,10 +1741,6 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                     b.Property<bool>("ShowOnCard")
                         .HasColumnType("boolean")
                         .HasColumnName("show_on_card");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("sort_order");
 
                     b.HasKey("SpaceId", "AttributeId")
                         .HasName("pk_space_attribute_settings");

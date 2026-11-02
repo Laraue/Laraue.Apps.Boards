@@ -37,7 +37,7 @@ public sealed record AttributeSettingsDto
     public required AttributeSettingsSource Source { get; init; }
 
     /// <summary>
-    /// Every attribute of the organization, ordered as in the settings in effect; attributes new to them come last.
+    /// Every attribute of the organization, in the organization's order.
     /// </summary>
     public required AttributeSettingDto[] Attributes { get; init; }
 }
@@ -50,7 +50,6 @@ public sealed record AttributeSettingDto
     public required AttributeType Type { get; init; }
     public required bool IsEnabled { get; init; }
     public required bool ShowOnCard { get; init; }
-    public required int SortOrder { get; init; }
 
     /// <summary>
     /// The attribute was added to the organization after the space or epic overrode the settings, so they don't
@@ -110,6 +109,8 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
     {
         var defaults = await context.Attributes
             .Where(x => x.OrganizationId == organizationId)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Id)
             .Select(x => new AttributeSettingDto
             {
                 AttributeId = x.Id,
@@ -118,7 +119,6 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
                 Type = x.AttributeType,
                 IsEnabled = x.IsEnabled,
                 ShowOnCard = x.ShowOnCard,
-                SortOrder = x.SortOrder,
                 IsNew = false,
             })
             .ToArrayAsync(cancellationToken);
@@ -129,13 +129,13 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
                 .Where(x => x.SpaceId == ownerId)
                 .ToDictionaryAsync(
                     x => x.AttributeId,
-                    x => new OverriddenSetting(x.IsEnabled, x.ShowOnCard, x.SortOrder),
+                    x => new OverriddenSetting(x.IsEnabled, x.ShowOnCard),
                     cancellationToken),
             AttributeSettingsSource.Epic => await context.EpicAttributeSettings
                 .Where(x => x.EpicId == ownerId)
                 .ToDictionaryAsync(
                     x => x.AttributeId,
-                    x => new OverriddenSetting(x.IsEnabled, x.ShowOnCard, x.SortOrder),
+                    x => new OverriddenSetting(x.IsEnabled, x.ShowOnCard),
                     cancellationToken),
             _ => null,
         };
@@ -144,25 +144,16 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
             ? defaults
             : defaults
                 .Select(x => overrides.TryGetValue(x.AttributeId, out var setting)
-                    ? x with
-                    {
-                        IsEnabled = setting.IsEnabled,
-                        ShowOnCard = setting.ShowOnCard,
-                        SortOrder = setting.SortOrder,
-                    }
+                    ? x with { IsEnabled = setting.IsEnabled, ShowOnCard = setting.ShowOnCard }
                     : x with { IsEnabled = false, ShowOnCard = false, IsNew = true })
                 .ToArray();
 
         return new AttributeSettingsDto
         {
             Source = source,
-            Attributes = attributes
-                .OrderBy(x => x.IsNew)
-                .ThenBy(x => x.SortOrder)
-                .ThenBy(x => x.AttributeId)
-                .ToArray(),
+            Attributes = attributes,
         };
     }
 
-    private sealed record OverriddenSetting(bool IsEnabled, bool ShowOnCard, int SortOrder);
+    private sealed record OverriddenSetting(bool IsEnabled, bool ShowOnCard);
 }

@@ -32,7 +32,7 @@ public class Attribute
     public bool ShowOnCard { get; set; }
 
     /// <summary>
-    /// Position of the attribute among the organization's attributes - in forms and on cards.
+    /// Position of the attribute among the organization's attributes - in forms and on cards, in every space and epic.
     /// </summary>
     public int SortOrder { get; set; }
     
