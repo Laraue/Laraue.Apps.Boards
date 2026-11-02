@@ -54,6 +54,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     
     public DbSet<Attribute> Attributes { get; set; }
     public DbSet<AttributeListValue> AttributeListValues { get; set; }
+    public DbSet<SpaceAttributeSetting> SpaceAttributeSettings { get; init; }
+    public DbSet<EpicAttributeSetting> EpicAttributeSettings { get; init; }
     public DbSet<IssueAttributeListValue> IssueAttributeListValues { get; set; }
     public DbSet<IssueAttributeTextValue> IssueAttributeTextValues { get; set; }
     public DbSet<IssueAttributeIntegerValue> IssueAttributeIntegerValues { get; set; }
@@ -132,6 +134,18 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .IsUnique();
         });
         
+        modelBuilder.Entity<SpaceAttributeSetting>(entity =>
+        {
+            entity.HasKey(x => new { x.SpaceId, x.AttributeId });
+            entity.HasIndex(x => x.AttributeId);
+        });
+
+        modelBuilder.Entity<EpicAttributeSetting>(entity =>
+        {
+            entity.HasKey(x => new { x.EpicId, x.AttributeId });
+            entity.HasIndex(x => x.AttributeId);
+        });
+
         modelBuilder.Entity<IssueAttributeTextValue>(entity =>
         {
             entity.HasKey(x => new { x.IssueId, x.AttributeId, });

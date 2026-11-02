@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Billing.Internal.Contracts;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Identity.Internal.Contracts;
@@ -108,6 +109,8 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreIssuesService, CoreIssuesService>()
                 .AddScoped<ICoreIssueLinksService, CoreIssueLinksService>()
                 .AddScoped<ICoreIssueAttributesService, CoreIssueAttributesService>()
+                .AddScoped<IAttributeSettingsReader, AttributeSettingsReader>()
+                .AddScoped<ICoreAttributeSettingsService, CoreAttributeSettingsService>()
                 .AddAttributeUpdaters()
                 .AddScoped<IIssueHistoryService, IssueHistoryService>()
                 .AddSingleton<IOrganizationLogItemFactory, OrganizationLogItemFactory>()

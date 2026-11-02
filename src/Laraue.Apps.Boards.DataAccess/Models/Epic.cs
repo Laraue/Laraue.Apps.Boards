@@ -53,5 +53,12 @@ public class Epic
 
     public EpicStatus Status { get; set; }
 
+    /// <summary>
+    /// Whether the epic has its own attribute settings (<see cref="EpicAttributeSetting"/>) instead of its space's
+    /// (or the organization's, when the space has none). Never set for the <see cref="IsDefault"/> epic: the backlog
+    /// always follows its space (BRD-179).
+    /// </summary>
+    public bool HasAttributeOverride { get; set; }
+
     public IList<Status>? Statuses { get; set; }
 }

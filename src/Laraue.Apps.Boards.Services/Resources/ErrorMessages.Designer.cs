@@ -86,5 +86,29 @@ namespace Laraue.Apps.Boards.Services.Resources {
                 return ResourceManager.GetString("SpaceLinksLimitReached", resourceCulture);
             }
         }
+        
+        internal static string AttributeSettingsNotOverridden {
+            get {
+                return ResourceManager.GetString("AttributeSettingsNotOverridden", resourceCulture);
+            }
+        }
+        
+        internal static string BacklogAttributeSettingsFollowSpace {
+            get {
+                return ResourceManager.GetString("BacklogAttributeSettingsFollowSpace", resourceCulture);
+            }
+        }
+        
+        internal static string AttributeNotFound {
+            get {
+                return ResourceManager.GetString("AttributeNotFound", resourceCulture);
+            }
+        }
+        
+        internal static string AttributeSettingDuplicated {
+            get {
+                return ResourceManager.GetString("AttributeSettingDuplicated", resourceCulture);
+            }
+        }
     }
 }

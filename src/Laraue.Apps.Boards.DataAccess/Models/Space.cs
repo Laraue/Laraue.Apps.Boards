@@ -59,4 +59,10 @@ public class Space
     public IList<DirectSpacePermission>? Users { get; set; }
 
     public IList<SpaceLink>? Links { get; set; }
+
+    /// <summary>
+    /// Whether the space has its own attribute settings (<see cref="SpaceAttributeSetting"/>) instead of the
+    /// organization's defaults on <see cref="Attribute"/> (BRD-179).
+    /// </summary>
+    public bool HasAttributeOverride { get; set; }
 }
