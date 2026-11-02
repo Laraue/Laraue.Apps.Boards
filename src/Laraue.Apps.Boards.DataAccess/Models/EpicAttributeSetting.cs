@@ -1,9 +1,10 @@
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
 /// <summary>
-/// How one attribute is used in a epic that overrides the attribute settings
-/// (<see cref="Epic.HasAttributeOverride"/>). An attribute without a row in such a epic is off there - e.g. one
-/// added to the organization after the override was made (BRD-179).
+/// How one attribute is used in an epic with its own attribute settings, instead of its space's or the organization's
+/// (BRD-179). An epic has its own settings when it has any of these rows; an attribute without a row there is off - one
+/// added to the organization after the settings were last saved. The backlog (<see cref="Epic.IsDefault"/>) never has
+/// any: it always follows its space.
 /// </summary>
 public class EpicAttributeSetting
 {

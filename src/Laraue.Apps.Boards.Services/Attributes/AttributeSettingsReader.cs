@@ -52,8 +52,8 @@ public sealed record AttributeSettingDto
     public required bool ShowOnCard { get; init; }
 
     /// <summary>
-    /// The attribute was added to the organization after the space or epic overrode the settings, so they don't
-    /// mention it: it's off there until someone turns it on.
+    /// The attribute was added to the organization after the space's or epic's own settings were last saved, so they
+    /// don't mention it: it's off there until someone turns it on.
     /// </summary>
     public required bool IsNew { get; init; }
 }
@@ -64,12 +64,16 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
     {
         var space = await context.Spaces
             .Where(x => x.Id == spaceId)
-            .Select(x => new { x.OrganizationId, x.HasAttributeOverride })
+            .Select(x => new
+            {
+                x.OrganizationId,
+                HasOwnSettings = context.SpaceAttributeSettings.Any(s => s.SpaceId == x.Id),
+            })
             .FirstAsync(cancellationToken);
 
         return await Get(
             space.OrganizationId,
-            space.HasAttributeOverride ? AttributeSettingsSource.Space : AttributeSettingsSource.Organization,
+            space.HasOwnSettings ? AttributeSettingsSource.Space : AttributeSettingsSource.Organization,
             spaceId,
             cancellationToken);
     }
@@ -82,8 +86,8 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
             {
                 x.Space!.OrganizationId,
                 x.SpaceId,
-                EpicOverrides = x.HasAttributeOverride && !x.IsDefault,
-                SpaceOverrides = x.Space.HasAttributeOverride,
+                EpicOverrides = !x.IsDefault && context.EpicAttributeSettings.Any(s => s.EpicId == x.Id),
+                SpaceOverrides = context.SpaceAttributeSettings.Any(s => s.SpaceId == x.SpaceId),
             })
             .FirstAsync(cancellationToken);
 

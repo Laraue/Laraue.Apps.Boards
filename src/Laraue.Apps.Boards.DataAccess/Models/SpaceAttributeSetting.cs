@@ -1,9 +1,9 @@
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
 /// <summary>
-/// How one attribute is used in a space that overrides the attribute settings
-/// (<see cref="Space.HasAttributeOverride"/>). An attribute without a row in such a space is off there - e.g. one
-/// added to the organization after the override was made (BRD-179).
+/// How one attribute is used in a space with its own attribute settings, instead of the organization's defaults on
+/// <see cref="Attribute"/> (BRD-179). A space has its own settings when it has any of these rows; an attribute without
+/// a row there is off - one added to the organization after the settings were last saved.
 /// </summary>
 public class SpaceAttributeSetting
 {

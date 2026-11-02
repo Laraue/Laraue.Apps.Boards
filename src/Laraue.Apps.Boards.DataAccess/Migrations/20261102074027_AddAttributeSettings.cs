@@ -23,20 +23,6 @@ where a.id = o.id";
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<bool>(
-                name: "has_attribute_override",
-                table: "spaces",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "has_attribute_override",
-                table: "epics",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<bool>(
                 name: "is_enabled",
                 table: "attributes",
                 type: "boolean",
@@ -130,14 +116,6 @@ where a.id = o.id";
 
             migrationBuilder.DropTable(
                 name: "space_attribute_settings");
-
-            migrationBuilder.DropColumn(
-                name: "has_attribute_override",
-                table: "spaces");
-
-            migrationBuilder.DropColumn(
-                name: "has_attribute_override",
-                table: "epics");
 
             migrationBuilder.DropColumn(
                 name: "is_enabled",

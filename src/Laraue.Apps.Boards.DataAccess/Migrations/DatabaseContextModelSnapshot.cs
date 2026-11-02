@@ -397,10 +397,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("deleted_by_user_id");
 
-                    b.Property<bool>("HasAttributeOverride")
-                        .HasColumnType("boolean")
-                        .HasColumnName("has_attribute_override");
-
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean")
                         .HasColumnName("is_default");
@@ -1679,10 +1675,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasMaxLength(4096)
                         .HasColumnType("character varying(4096)")
                         .HasColumnName("description");
-
-                    b.Property<bool>("HasAttributeOverride")
-                        .HasColumnType("boolean")
-                        .HasColumnName("has_attribute_override");
 
                     b.Property<string>("Key")
                         .IsRequired()

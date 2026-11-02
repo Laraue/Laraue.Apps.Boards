@@ -16,20 +16,21 @@ namespace Laraue.Apps.Boards.Services.Attributes;
 public interface ICoreAttributeSettingsService
 {
     /// <summary>
-    /// Gives the space its own settings, copied from the organization's defaults. Does nothing when it already has them.
+    /// Gives the space its own settings, copied from the organization's defaults. Does nothing when it already has them,
+    /// or when the organization has no attributes - there's nothing to set yet.
     /// </summary>
     Task OverrideSpace(long spaceId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Gives the epic its own settings, copied from what it follows now - its space's or the organization's. Does
-    /// nothing when it already has them; <see cref="BadRequestException"/> for the backlog, which always follows its
-    /// space.
+    /// nothing when it already has them, or when the organization has no attributes; <see cref="BadRequestException"/>
+    /// for the backlog, which always follows its space.
     /// </summary>
     Task OverrideEpic(long epicId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Makes <paramref name="settings"/> the space's settings: attributes left out are off there and shown as new.
-    /// <see cref="BadRequestException"/>
+    /// Makes <paramref name="settings"/> the space's settings, saving every attribute of the organization: those left
+    /// out are off. <see cref="BadRequestException"/>
     /// when the space doesn't override the settings, or an attribute isn't the organization's or is listed twice.
     /// </summary>
     Task UpdateSpace(
@@ -83,8 +84,6 @@ public class CoreAttributeSettingsService(
                 ShowOnCard = x.ShowOnCard,
             }));
         await context.SaveChangesAsync(cancellationToken);
-
-        await SetSpaceOverride(spaceId, true, cancellationToken);
     }
 
     public async Task OverrideEpic(long epicId, CancellationToken cancellationToken)
@@ -98,9 +97,8 @@ public class CoreAttributeSettingsService(
             return;
         }
 
-        // Attributes new to the space's settings stay without a row: still new to the epic's.
+        // Attributes new to the space's settings are copied as they are - off.
         context.EpicAttributeSettings.AddRange(current.Attributes
-            .Where(x => !x.IsNew)
             .Select(x => new EpicAttributeSetting
             {
                 EpicId = epicId,
@@ -109,8 +107,6 @@ public class CoreAttributeSettingsService(
                 ShowOnCard = x.ShowOnCard,
             }));
         await context.SaveChangesAsync(cancellationToken);
-
-        await SetEpicOverride(epicId, true, cancellationToken);
     }
 
     public async Task UpdateSpace(
@@ -122,19 +118,23 @@ public class CoreAttributeSettingsService(
 
         var space = await context.Spaces
             .Where(x => x.Id == spaceId)
-            .Select(x => new { x.OrganizationId, x.HasAttributeOverride })
+            .Select(x => new
+            {
+                x.OrganizationId,
+                HasOwnSettings = context.SpaceAttributeSettings.Any(s => s.SpaceId == x.Id),
+            })
             .FirstAsync(cancellationToken);
-        if (!space.HasAttributeOverride)
+        if (!space.HasOwnSettings)
         {
             throw new BadRequestException(nameof(spaceId), ErrorMessages.AttributeSettingsNotOverridden);
         }
 
-        await Validate(space.OrganizationId, settings, cancellationToken);
+        var all = await Complete(space.OrganizationId, settings, cancellationToken);
 
         await context.SpaceAttributeSettings
             .Where(x => x.SpaceId == spaceId)
             .ExecuteDeleteAsync(cancellationToken);
-        context.SpaceAttributeSettings.AddRange(settings
+        context.SpaceAttributeSettings.AddRange(all
             .Select(x => new SpaceAttributeSetting
             {
                 SpaceId = spaceId,
@@ -154,19 +154,23 @@ public class CoreAttributeSettingsService(
 
         var epic = await context.Epics
             .Where(x => x.Id == epicId)
-            .Select(x => new { x.Space!.OrganizationId, x.HasAttributeOverride })
+            .Select(x => new
+            {
+                x.Space!.OrganizationId,
+                HasOwnSettings = context.EpicAttributeSettings.Any(s => s.EpicId == x.Id),
+            })
             .FirstAsync(cancellationToken);
-        if (!epic.HasAttributeOverride)
+        if (!epic.HasOwnSettings)
         {
             throw new BadRequestException(nameof(epicId), ErrorMessages.AttributeSettingsNotOverridden);
         }
 
-        await Validate(epic.OrganizationId, settings, cancellationToken);
+        var all = await Complete(epic.OrganizationId, settings, cancellationToken);
 
         await context.EpicAttributeSettings
             .Where(x => x.EpicId == epicId)
             .ExecuteDeleteAsync(cancellationToken);
-        context.EpicAttributeSettings.AddRange(settings
+        context.EpicAttributeSettings.AddRange(all
             .Select(x => new EpicAttributeSetting
             {
                 EpicId = epicId,
@@ -177,24 +181,22 @@ public class CoreAttributeSettingsService(
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task ResetSpace(long spaceId, CancellationToken cancellationToken)
+    public Task ResetSpace(long spaceId, CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
 
-        await context.SpaceAttributeSettings
+        return context.SpaceAttributeSettings
             .Where(x => x.SpaceId == spaceId)
             .ExecuteDeleteAsync(cancellationToken);
-        await SetSpaceOverride(spaceId, false, cancellationToken);
     }
 
-    public async Task ResetEpic(long epicId, CancellationToken cancellationToken)
+    public Task ResetEpic(long epicId, CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
 
-        await context.EpicAttributeSettings
+        return context.EpicAttributeSettings
             .Where(x => x.EpicId == epicId)
             .ExecuteDeleteAsync(cancellationToken);
-        await SetEpicOverride(epicId, false, cancellationToken);
     }
 
     private async Task EnsureNotDefault(long epicId, CancellationToken cancellationToken)
@@ -209,25 +211,28 @@ public class CoreAttributeSettingsService(
         }
     }
 
-    private async Task Validate(
+    /// <summary>
+    /// Validates <paramref name="settings"/> and adds every other attribute of the organization as off - so the saved
+    /// settings mention all of them, and a space or epic with its own settings always has rows while the organization
+    /// has attributes.
+    /// </summary>
+    private async Task<AttributeSettingChange[]> Complete(
         long organizationId,
         IReadOnlyList<AttributeSettingChange> settings,
         CancellationToken cancellationToken)
     {
-        var attributeIds = settings
-            .Select(x => x.AttributeId)
-            .ToArray();
         var organizationAttributeIds = await context.Attributes
-            .Where(x => x.OrganizationId == organizationId && attributeIds.Contains(x.Id))
+            .Where(x => x.OrganizationId == organizationId)
             .Select(x => x.Id)
-            .ToHashSetAsync(cancellationToken);
+            .ToArrayAsync(cancellationToken);
+        var known = organizationAttributeIds.ToHashSet();
 
         var errors = new Dictionary<string, string?[]>();
         var seen = new HashSet<long>();
         for (var i = 0; i < settings.Count; i++)
         {
             var attributeId = settings[i].AttributeId;
-            if (!organizationAttributeIds.Contains(attributeId))
+            if (!known.Contains(attributeId))
             {
                 errors[$"{nameof(settings)}[{i}].attributeId"] = [ErrorMessages.AttributeNotFound];
             }
@@ -241,23 +246,11 @@ public class CoreAttributeSettingsService(
         {
             throw new BadRequestException(errors);
         }
-    }
 
-    private Task SetSpaceOverride(long spaceId, bool value, CancellationToken cancellationToken)
-    {
-        return context.Spaces
-            .Where(x => x.Id == spaceId)
-            .ExecuteUpdateAsync(
-                x => x.SetProperty(p => p.HasAttributeOverride, value),
-                cancellationToken);
-    }
-
-    private Task SetEpicOverride(long epicId, bool value, CancellationToken cancellationToken)
-    {
-        return context.Epics
-            .Where(x => x.Id == epicId)
-            .ExecuteUpdateAsync(
-                x => x.SetProperty(p => p.HasAttributeOverride, value),
-                cancellationToken);
+        return settings
+            .Concat(organizationAttributeIds
+                .Where(x => !seen.Contains(x))
+                .Select(x => new AttributeSettingChange(x, IsEnabled: false, ShowOnCard: false)))
+            .ToArray();
     }
 }

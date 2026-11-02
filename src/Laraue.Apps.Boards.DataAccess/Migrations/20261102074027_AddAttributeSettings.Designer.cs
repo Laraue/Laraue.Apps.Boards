@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20261102073249_AddAttributeSettings")]
+    [Migration("20261102074027_AddAttributeSettings")]
     partial class AddAttributeSettings
     {
         /// <inheritdoc />
@@ -399,10 +399,6 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                     b.Property<Guid?>("DeletedByUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("deleted_by_user_id");
-
-                    b.Property<bool>("HasAttributeOverride")
-                        .HasColumnType("boolean")
-                        .HasColumnName("has_attribute_override");
 
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean")
@@ -1682,10 +1678,6 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                         .HasMaxLength(4096)
                         .HasColumnType("character varying(4096)")
                         .HasColumnName("description");
-
-                    b.Property<bool>("HasAttributeOverride")
-                        .HasColumnType("boolean")
-                        .HasColumnName("has_attribute_override");
 
                     b.Property<string>("Key")
                         .IsRequired()
