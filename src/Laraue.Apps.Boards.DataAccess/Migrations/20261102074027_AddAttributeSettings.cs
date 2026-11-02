@@ -9,9 +9,10 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
     {
         /// <summary>
         /// Existing attributes stay enabled and shown on cards (true defaults above); their order within the
-        /// organization follows creation, as the attribute list does today.
+        /// organization follows creation, as the attribute list does today. Public for the test that runs it on seeded
+        /// data.
         /// </summary>
-        private const string BackfillSortOrderSql = @"
+        public const string BackfillSortOrderSql = @"
 update attributes a
 set sort_order = o.sort_order
 from (
