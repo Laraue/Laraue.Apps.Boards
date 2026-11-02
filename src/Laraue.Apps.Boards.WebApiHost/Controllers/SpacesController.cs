@@ -127,6 +127,20 @@ public class SpacesController(
             cancellationToken);
     }
 
+    [HttpGet("{key}/attributes")]
+    public Task<AttributeDto[]> GetAttributes(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.GetUsedInSpace(
+            new SpaceAttributeSettingsRequest
+            {
+                Key = key,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
     [HttpGet("{key}/attribute-settings")]
     public Task<AttributeSettingsDto> GetAttributeSettings(
         string key,

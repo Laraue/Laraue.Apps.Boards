@@ -1,6 +1,7 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -13,7 +14,9 @@ public interface ICoreIssueAttributesService
     /// <summary>
     /// Applies attribute value changes (of any <see cref="AttributeType"/>) to an issue and
     /// returns the resulting history log items. Values omitted from <paramref name="attributeRequests"/>
-    /// but currently set on the issue are removed.
+    /// but currently set on the issue are removed. An attribute switched off in the issue's epic (BRD-179)
+    /// can't get a value: one the issue already has can be changed or removed - <see cref="BadRequestException"/>
+    /// otherwise.
     /// </summary>
     Task<OrganizationLogItem[]> UpdateAttributes(
         long issueId,
@@ -39,7 +42,8 @@ public interface ICoreIssueAttributesService
 
 public class CoreIssueAttributesService(
     DatabaseContext context,
-    IEnumerable<IScalarAttributeUpdater> scalarAttributeUpdaters)
+    IEnumerable<IScalarAttributeUpdater> scalarAttributeUpdaters,
+    IAttributeSettingsReader attributeSettingsReader)
     : ICoreIssueAttributesService
 {
     public async Task<OrganizationLogItem[]> UpdateAttributes(
@@ -49,6 +53,7 @@ public class CoreIssueAttributesService(
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+        await EnsureEnabledInEpic(issueId, attributeRequests, cancellationToken);
 
         var changes = new List<OrganizationLogItem>();
 
@@ -232,6 +237,64 @@ public class CoreIssueAttributesService(
             });
 
         return requests.ToArray();
+    }
+
+    private async Task EnsureEnabledInEpic(
+        long issueId,
+        SetIssueAttributeRequest[] attributeRequests,
+        CancellationToken cancellationToken)
+    {
+        if (attributeRequests.Length == 0)
+            return;
+
+        var epicId = await context.Issues
+            .Where(x => x.Id == issueId)
+            .Select(x => x.Status!.EpicId)
+            .FirstAsyncEF(cancellationToken);
+        var settings = await attributeSettingsReader.GetForEpic(epicId, cancellationToken);
+        var disabledAttributeIds = settings.Attributes
+            .Where(x => !x.IsEnabled)
+            .Select(x => x.AttributeId)
+            .ToHashSet();
+
+        var requestedDisabled = attributeRequests
+            .Select(x => x.Id)
+            .Where(disabledAttributeIds.Contains)
+            .Distinct()
+            .ToArray();
+        if (requestedDisabled.Length == 0)
+            return;
+
+        var existingAttributeIds = (await context.IssueAttributeTextValues
+                .Where(x => x.IssueId == issueId)
+                .Select(x => x.AttributeId)
+                .Concat(context.IssueAttributeListValues
+                    .Where(x => x.IssueId == issueId)
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeIntegerValues
+                    .Where(x => x.IssueId == issueId)
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeDecimalValues
+                    .Where(x => x.IssueId == issueId)
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeDateValues
+                    .Where(x => x.IssueId == issueId)
+                    .Select(x => x.AttributeId))
+                .Concat(context.IssueAttributeDateTimeValues
+                    .Where(x => x.IssueId == issueId)
+                    .Select(x => x.AttributeId))
+                .ToArrayAsync(cancellationToken))
+            .ToHashSet();
+
+        var errors = requestedDisabled
+            .Where(x => !existingAttributeIds.Contains(x))
+            .Select(x => (string?)$"Attribute: {x} is not used in the issue's epic")
+            .ToArray();
+        if (errors.Length > 0)
+            throw new BadRequestException(new Dictionary<string, string?[]>
+            {
+                ["attributeValues"] = errors,
+            });
     }
 
     private async Task<OrganizationLogItem[]> UpdateListAttributes(

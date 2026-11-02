@@ -501,12 +501,14 @@ public record AttributeDto
     public required AttributeType Type { get; set; }
 
     /// <summary>
-    /// The organization's default: whether spaces and epics following the organization's settings use it (BRD-179).
+    /// Whether the attribute is used (BRD-179): in the organization's list, its default for spaces and epics following
+    /// the organization's settings; in a space's or an epic's list, as in effect there.
     /// </summary>
     public required bool IsEnabled { get; set; }
 
     /// <summary>
-    /// The organization's default: whether spaces and epics following the organization's settings show it on cards.
+    /// Whether the attribute's value is shown on cards - the organization's default or as in effect in a space or epic,
+    /// like <see cref="IsEnabled"/>.
     /// </summary>
     public required bool ShowOnCard { get; set; }
 

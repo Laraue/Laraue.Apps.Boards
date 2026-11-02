@@ -20,6 +20,14 @@ public interface IAttributeSettingsReader
     /// The settings issues of the epic follow.
     /// </summary>
     Task<AttributeSettingsDto> GetForEpic(long epicId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <see cref="GetForEpic"/> for several epics at once - e.g. the epics of the issues on a page. Epics that don't
+    /// exist are left out.
+    /// </summary>
+    Task<Dictionary<long, AttributeSettingsDto>> GetForEpics(
+        IReadOnlyCollection<long> epicIds,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -98,6 +106,75 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
             cancellationToken);
     }
 
+    public async Task<Dictionary<long, AttributeSettingsDto>> GetForEpics(
+        IReadOnlyCollection<long> epicIds,
+        CancellationToken cancellationToken)
+    {
+        var epics = await context.Epics
+            .Where(x => epicIds.Contains(x.Id))
+            .Select(x => new
+            {
+                x.Id,
+                x.SpaceId,
+                x.Space!.OrganizationId,
+                EpicOverrides = !x.IsDefault && context.EpicAttributeSettings.Any(s => s.EpicId == x.Id),
+                SpaceOverrides = context.SpaceAttributeSettings.Any(s => s.SpaceId == x.SpaceId),
+            })
+            .ToArrayAsync(cancellationToken);
+
+        var organizationIds = epics
+            .Select(x => x.OrganizationId)
+            .Distinct()
+            .ToArray();
+        var defaultsByOrganization = new Dictionary<long, AttributeSettingDto[]>();
+        foreach (var organizationId in organizationIds)
+        {
+            defaultsByOrganization[organizationId] = await GetDefaults(organizationId, cancellationToken);
+        }
+
+        var overridingEpicIds = epics
+            .Where(x => x.EpicOverrides)
+            .Select(x => x.Id)
+            .ToArray();
+        var epicSettings = (await context.EpicAttributeSettings
+                .Where(x => overridingEpicIds.Contains(x.EpicId))
+                .Select(x => new { OwnerId = x.EpicId, x.AttributeId, x.IsEnabled, x.ShowOnCard })
+                .ToArrayAsync(cancellationToken))
+            .GroupBy(x => x.OwnerId)
+            .ToDictionary(
+                x => x.Key,
+                x => x.ToDictionary(y => y.AttributeId, y => new OverriddenSetting(y.IsEnabled, y.ShowOnCard)));
+
+        var overridingSpaceIds = epics
+            .Where(x => !x.EpicOverrides && x.SpaceOverrides)
+            .Select(x => x.SpaceId)
+            .Distinct()
+            .ToArray();
+        var spaceSettings = (await context.SpaceAttributeSettings
+                .Where(x => overridingSpaceIds.Contains(x.SpaceId))
+                .Select(x => new { OwnerId = x.SpaceId, x.AttributeId, x.IsEnabled, x.ShowOnCard })
+                .ToArrayAsync(cancellationToken))
+            .GroupBy(x => x.OwnerId)
+            .ToDictionary(
+                x => x.Key,
+                x => x.ToDictionary(y => y.AttributeId, y => new OverriddenSetting(y.IsEnabled, y.ShowOnCard)));
+
+        return epics.ToDictionary(
+            x => x.Id,
+            x =>
+            {
+                var defaults = defaultsByOrganization[x.OrganizationId];
+                if (x.EpicOverrides)
+                {
+                    return Combine(AttributeSettingsSource.Epic, defaults, epicSettings[x.Id]);
+                }
+
+                return x.SpaceOverrides
+                    ? Combine(AttributeSettingsSource.Space, defaults, spaceSettings[x.SpaceId])
+                    : Combine(AttributeSettingsSource.Organization, defaults, overrides: null);
+            });
+    }
+
     /// <param name="ownerId">The space's id for <see cref="AttributeSettingsSource.Space"/>, the epic's for
     /// <see cref="AttributeSettingsSource.Epic"/>; unused for the organization.</param>
     private async Task<AttributeSettingsDto> Get(
@@ -106,20 +183,7 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
         long ownerId,
         CancellationToken cancellationToken)
     {
-        var defaults = await context.Attributes
-            .Where(x => x.OrganizationId == organizationId)
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Id)
-            .Select(x => new AttributeSettingDto
-            {
-                AttributeId = x.Id,
-                Name = x.Name,
-                Color = x.Color,
-                Type = x.AttributeType,
-                IsEnabled = x.IsEnabled,
-                ShowOnCard = x.ShowOnCard,
-            })
-            .ToArrayAsync(cancellationToken);
+        var defaults = await GetDefaults(organizationId, cancellationToken);
 
         var overrides = source switch
         {
@@ -138,18 +202,44 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
             _ => null,
         };
 
-        var attributes = overrides is null
-            ? defaults
-            : defaults
-                .Select(x => overrides.TryGetValue(x.AttributeId, out var setting)
-                    ? x with { IsEnabled = setting.IsEnabled, ShowOnCard = setting.ShowOnCard }
-                    : x with { IsEnabled = false, ShowOnCard = false })
-                .ToArray();
+        return Combine(source, defaults, overrides);
+    }
 
+    private Task<AttributeSettingDto[]> GetDefaults(long organizationId, CancellationToken cancellationToken)
+    {
+        return context.Attributes
+            .Where(x => x.OrganizationId == organizationId)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Id)
+            .Select(x => new AttributeSettingDto
+            {
+                AttributeId = x.Id,
+                Name = x.Name,
+                Color = x.Color,
+                Type = x.AttributeType,
+                IsEnabled = x.IsEnabled,
+                ShowOnCard = x.ShowOnCard,
+            })
+            .ToArrayAsync(cancellationToken);
+    }
+
+    /// <param name="overrides">The space's or epic's own settings by attribute id; null when it follows the
+    /// organization.</param>
+    private static AttributeSettingsDto Combine(
+        AttributeSettingsSource source,
+        AttributeSettingDto[] defaults,
+        Dictionary<long, OverriddenSetting>? overrides)
+    {
         return new AttributeSettingsDto
         {
             Source = source,
-            Attributes = attributes,
+            Attributes = overrides is null
+                ? defaults
+                : defaults
+                    .Select(x => overrides.TryGetValue(x.AttributeId, out var setting)
+                        ? x with { IsEnabled = setting.IsEnabled, ShowOnCard = setting.ShowOnCard }
+                        : x with { IsEnabled = false, ShowOnCard = false })
+                    .ToArray(),
         };
     }
 

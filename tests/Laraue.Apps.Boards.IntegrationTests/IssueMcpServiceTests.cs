@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
@@ -56,7 +57,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             new IssueSourceReader(testScope.Database, new MemberProfileReader(testScope.Database)),
             testScope.Services.GetRequiredService<ICoreIssueLinksService>(),
             new MemberProfileReader(testScope.Database),
-            AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services));
+            AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services),
+            testScope.Services.GetRequiredService<IAttributeSettingsReader>());
     }
 
     internal static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
@@ -1370,7 +1372,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .AddListAttribute("Priority", ["Low", "High"]));
 
         var result = await CreateIssueMcpService(testScope)
-            .ListAttributes(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+            .ListAttributes(AuthDataFor(organization.Id, ownerId), spaceKey: null, epicId: null, CancellationToken.None);
 
         var summaryAttribute = organization.GetAttribute(0);
         var priorityAttribute = organization.GetAttribute(1);

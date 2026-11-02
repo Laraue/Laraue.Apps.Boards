@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.AttributeRequests;
 using Laraue.Apps.Boards.Services.History;
@@ -210,13 +211,16 @@ public interface IIssueMcpService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Lists every custom attribute defined for the caller's organization (attributes are
-    /// org-wide, not scoped to a space/epic) - the ids/types a caller can pass to
-    /// <see cref="CreateIssue"/>/<see cref="EditIssue"/>'s <c>attributes</c> map, and for
-    /// list-typed attributes, the allowed values (each with its own id, to pass as the value).
+    /// Lists the custom attributes of the caller's organization, in its order - the ids/types a caller can pass to
+    /// <see cref="CreateIssue"/>/<see cref="EditIssue"/>'s <c>attributes</c> map, and for list-typed attributes, the
+    /// allowed values (each with its own id, to pass as the value). With <paramref name="epicId"/> (or else
+    /// <paramref name="spaceKey"/>), only those used in that epic (space) (BRD-179): an issue there can't get a value
+    /// for the others.
     /// </summary>
     Task<IReadOnlyList<AttributeSummary>> ListAttributes(
         OrganizationAuthData authData,
+        string? spaceKey,
+        long? epicId,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -487,7 +491,8 @@ public class IssueMcpService(
     IIssueSourceReader issueSourceReader,
     ICoreIssueLinksService coreIssueLinksService,
     IMemberProfileReader memberProfileReader,
-    IAgentRunMcpService agentRunMcpService)
+    IAgentRunMcpService agentRunMcpService,
+    IAttributeSettingsReader attributeSettingsReader)
     : IIssueMcpService
 {
     private const int MaxResults = 50;
@@ -1229,11 +1234,38 @@ public class IssueMcpService(
 
     public async Task<IReadOnlyList<AttributeSummary>> ListAttributes(
         OrganizationAuthData authData,
+        string? spaceKey,
+        long? epicId,
         CancellationToken cancellationToken)
     {
-        return await context.Attributes
-            .Where(a => a.OrganizationId == authData.OrganizationId)
-            .OrderBy(a => a.Id)
+        long[]? usedAttributeIds = null;
+        if (epicId is not null)
+        {
+            await accessService.GetAccessLevelsByEpicId(authData, epicId.Value, includeDeleted: false, cancellationToken)
+                .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Epic", epicId))
+                .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Epic", epicId));
+            usedAttributeIds = GetEnabledIds(await attributeSettingsReader.GetForEpic(epicId.Value, cancellationToken));
+        }
+        else if (spaceKey is not null)
+        {
+            var spaceId = await coreSpacesService
+                .GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
+            await accessService.GetAccessLevelsBySpaceId(authData, spaceId, includeDeleted: false, cancellationToken)
+                .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
+                .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey));
+            usedAttributeIds = GetEnabledIds(await attributeSettingsReader.GetForSpace(spaceId, cancellationToken));
+        }
+
+        var query = context.Attributes
+            .Where(a => a.OrganizationId == authData.OrganizationId);
+        if (usedAttributeIds is not null)
+        {
+            query = query.Where(a => usedAttributeIds.Contains(a.Id));
+        }
+
+        return await query
+            .OrderBy(a => a.SortOrder)
+            .ThenBy(a => a.Id)
             .Select(a => new AttributeSummary(
                 a.Id,
                 a.Name,
@@ -1242,6 +1274,14 @@ public class IssueMcpService(
                     ? a.AttributeListValues!.Select(v => new AttributeListValueSummary(v.Id, v.Value)).ToList()
                     : null))
             .ToListAsyncEF(cancellationToken);
+    }
+
+    private static long[] GetEnabledIds(AttributeSettingsDto settings)
+    {
+        return settings.Attributes
+            .Where(x => x.IsEnabled)
+            .Select(x => x.AttributeId)
+            .ToArray();
     }
 
     public async Task<IReadOnlyList<MemberSummary>> ListMembers(

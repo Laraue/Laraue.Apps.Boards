@@ -393,8 +393,6 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
             org
                 .AddListAttribute("Type", ["Bug", "Feature"])
                 .AddTextAttribute("Priority")
-                // The first seeded space gets no backlog; the one under test is the second.
-                .AddSpace(ownerId, "ONE")
                 .AddSpace(ownerId, SpaceKey, space => space
                     .AddEpic(ownerId, epic => epic.WithName("Sprint")));
             configure?.Invoke(org);

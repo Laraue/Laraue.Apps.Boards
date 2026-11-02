@@ -99,6 +99,20 @@ public class EpicsController(
             cancellationToken);
     }
 
+    [HttpGet("{id:long}/attributes")]
+    public Task<AttributeDto[]> GetAttributes(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.GetUsedInEpic(
+            new EpicAttributeSettingsRequest
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
     [HttpGet("{id:long}/attribute-settings")]
     public Task<AttributeSettingsDto> GetAttributeSettings(
         long id,
