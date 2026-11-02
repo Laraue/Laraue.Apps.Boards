@@ -37,7 +37,8 @@ public sealed record AttributeSettingsDto
     public required AttributeSettingsSource Source { get; init; }
 
     /// <summary>
-    /// Every attribute of the organization, in the organization's order.
+    /// Every attribute of the organization, in the organization's order. In a space or epic with its own settings, an
+    /// attribute they don't mention (added to the organization after they were last saved) is off.
     /// </summary>
     public required AttributeSettingDto[] Attributes { get; init; }
 }
@@ -50,12 +51,6 @@ public sealed record AttributeSettingDto
     public required AttributeType Type { get; init; }
     public required bool IsEnabled { get; init; }
     public required bool ShowOnCard { get; init; }
-
-    /// <summary>
-    /// The attribute was added to the organization after the space's or epic's own settings were last saved, so they
-    /// don't mention it: it's off there until someone turns it on.
-    /// </summary>
-    public required bool IsNew { get; init; }
 }
 
 public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettingsReader
@@ -123,7 +118,6 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
                 Type = x.AttributeType,
                 IsEnabled = x.IsEnabled,
                 ShowOnCard = x.ShowOnCard,
-                IsNew = false,
             })
             .ToArrayAsync(cancellationToken);
 
@@ -149,7 +143,7 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
             : defaults
                 .Select(x => overrides.TryGetValue(x.AttributeId, out var setting)
                     ? x with { IsEnabled = setting.IsEnabled, ShowOnCard = setting.ShowOnCard }
-                    : x with { IsEnabled = false, ShowOnCard = false, IsNew = true })
+                    : x with { IsEnabled = false, ShowOnCard = false })
                 .ToArray();
 
         return new AttributeSettingsDto

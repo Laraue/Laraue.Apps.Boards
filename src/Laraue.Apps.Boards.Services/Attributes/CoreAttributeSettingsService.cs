@@ -97,7 +97,6 @@ public class CoreAttributeSettingsService(
             return;
         }
 
-        // Attributes new to the space's settings are copied as they are - off.
         context.EpicAttributeSettings.AddRange(current.Attributes
             .Select(x => new EpicAttributeSetting
             {
