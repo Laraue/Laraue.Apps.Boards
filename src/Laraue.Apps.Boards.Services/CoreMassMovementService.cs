@@ -353,24 +353,7 @@ public class CoreMovementService(
         long[] epicIds,
         CancellationToken cancellationToken)
     {
-        await context.IssueAttributeTextValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .ExecuteDeleteAsync(cancellationToken);
-        await context.IssueAttributeListValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .ExecuteDeleteAsync(cancellationToken);
-        await context.IssueAttributeIntegerValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .ExecuteDeleteAsync(cancellationToken);
-        await context.IssueAttributeDecimalValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .ExecuteDeleteAsync(cancellationToken);
-        await context.IssueAttributeDateValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .ExecuteDeleteAsync(cancellationToken);
-        await context.IssueAttributeDateTimeValues
-            .Where(x => issueIds.Contains(x.IssueId))
-            .ExecuteDeleteAsync(cancellationToken);
+        await context.DeleteIssueAttributeValues(issueIds, cancellationToken);
         await context.EpicAttributeSettings
             .Where(x => epicIds.Contains(x.EpicId))
             .ExecuteDeleteAsync(cancellationToken);

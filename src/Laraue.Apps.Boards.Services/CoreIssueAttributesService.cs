@@ -301,24 +301,9 @@ public class CoreIssueAttributesService(
         if (requestedDisabled.Length == 0)
             return;
 
-        var existingAttributeIds = (await context.IssueAttributeTextValues
+        var existingAttributeIds = (await context.IssueAttributeValueKeys()
                 .Where(x => x.IssueId == issueId)
                 .Select(x => x.AttributeId)
-                .Concat(context.IssueAttributeListValues
-                    .Where(x => x.IssueId == issueId)
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeIntegerValues
-                    .Where(x => x.IssueId == issueId)
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeDecimalValues
-                    .Where(x => x.IssueId == issueId)
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeDateValues
-                    .Where(x => x.IssueId == issueId)
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeDateTimeValues
-                    .Where(x => x.IssueId == issueId)
-                    .Select(x => x.AttributeId))
                 .ToArrayAsync(cancellationToken))
             .ToHashSet();
 

@@ -231,24 +231,9 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
         var unusedIds = unused
             .Select(x => x.AttributeId)
             .ToArray();
-        var withValues = (await context.IssueAttributeTextValues
+        var withValues = (await context.IssueAttributeValueKeys()
                 .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
                 .Select(x => x.AttributeId)
-                .Concat(context.IssueAttributeListValues
-                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeIntegerValues
-                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeDecimalValues
-                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeDateValues
-                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
-                    .Select(x => x.AttributeId))
-                .Concat(context.IssueAttributeDateTimeValues
-                    .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
-                    .Select(x => x.AttributeId))
                 .Distinct()
                 .ToArrayAsync(cancellationToken))
             .ToHashSet();

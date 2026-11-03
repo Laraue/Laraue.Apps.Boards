@@ -1231,7 +1231,7 @@ public class IssuesService(
     {
         var ids = issueIds as long[] ?? issueIds.ToArray();
 
-        var dbResult = await GetScalarAttributeDisplayValues(ids, cancellationToken);
+        var dbResult = await GetAttributeValueRows(ids, cancellationToken);
 
         return dbResult
             .GroupBy(x => x.IssueId)
@@ -1243,13 +1243,14 @@ public class IssuesService(
     }
 
     /// <summary>
-    /// Loads every attribute value (of any <see cref="AttributeType"/>) for the given issues as a
-    /// flat, opaque display string per (issue, attribute) pair. Each type is queried against its
-    /// own table (see <see cref="Laraue.Apps.Boards.DataAccess.Models.IIssueAttributeScalarValue{TValue}"/>)
-    /// and formatted client-side rather than via a single SQL UNION, since not every provider
-    /// reliably translates e.g. <c>decimal</c>/<c>DateTime</c> ToString() to SQL.
+    /// Loads every attribute value (of any <see cref="AttributeType"/>) for the given issues, per (issue, attribute)
+    /// pair: <see cref="AttributeValueRow.Value"/> as forms take it (a list value's id), and
+    /// <see cref="AttributeValueRow.DisplayValue"/> as cards show it (a list value's text). Each type is queried
+    /// against its own table (see <see cref="Laraue.Apps.Boards.DataAccess.Models.IIssueAttributeScalarValue{TValue}"/>)
+    /// and formatted client-side rather than via a single SQL UNION, since not every provider reliably translates e.g.
+    /// <c>decimal</c>/<c>DateTime</c> ToString() to SQL.
     /// </summary>
-    private async Task<(long IssueId, long AttributeId, string Value)[]> GetScalarAttributeDisplayValues(
+    private async Task<AttributeValueRow[]> GetAttributeValueRows(
         long[] issueIds,
         CancellationToken cancellationToken)
     {
@@ -1260,7 +1261,7 @@ public class IssuesService(
 
         var listValues = await context.IssueAttributeListValues
             .Where(x => issueIds.Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.AttributeListValueId })
+            .Select(x => new { x.IssueId, x.AttributeId, x.AttributeListValueId, Name = x.AttributeListValue!.Value })
             .ToArrayAsyncEF(cancellationToken);
 
         var integerValues = await context.IssueAttributeIntegerValues
@@ -1284,13 +1285,23 @@ public class IssuesService(
             .ToArrayAsyncEF(cancellationToken);
 
         return textValues
-            .Select(x => (x.IssueId, x.AttributeId, x.Value))
-            .Concat(listValues.Select(x => (x.IssueId, x.AttributeId, Value: x.AttributeListValueId.ToString())))
-            .Concat(integerValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString(CultureInfo.InvariantCulture))))
-            .Concat(decimalValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("0.####", CultureInfo.InvariantCulture))))
-            .Concat(dateValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("O"))))
-            .Concat(dateTimeValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("O"))))
+            .Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value))
+            .Concat(listValues.Select(x => new AttributeValueRow(
+                x.IssueId,
+                x.AttributeId,
+                x.AttributeListValueId.ToString(),
+                x.Name)))
+            .Concat(integerValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString(CultureInfo.InvariantCulture))))
+            .Concat(decimalValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString("0.####", CultureInfo.InvariantCulture))))
+            .Concat(dateValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString("O"))))
+            .Concat(dateTimeValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString("O"))))
             .ToArray();
+    }
+
+    private sealed record AttributeValueRow(long IssueId, long AttributeId, string Value, string DisplayValue)
+    {
+        public static AttributeValueRow Of(long issueId, long attributeId, string value) =>
+            new(issueId, attributeId, value, value);
     }
 
     /// <summary>
@@ -1404,44 +1415,9 @@ public class IssuesService(
     {
         var ids = elements.Select(x => x.Id).ToArray();
 
-        var textValues = await context.IssueAttributeTextValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var listValues = await context.IssueAttributeListValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.AttributeListValue!.Value })
-            .ToArrayAsyncEF(ct);
-
-        var integerValues = await context.IssueAttributeIntegerValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var decimalValues = await context.IssueAttributeDecimalValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var dateValues = await context.IssueAttributeDateValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var dateTimeValues = await context.IssueAttributeDateTimeValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var valuesByIssue = textValues
-            .Concat(listValues)
-            .Concat(integerValues.Select(x => new { x.IssueId, x.AttributeId, Value = x.Value.ToString(CultureInfo.InvariantCulture) }))
-            .Concat(decimalValues.Select(x => new { x.IssueId, x.AttributeId, Value = x.Value.ToString("0.####", CultureInfo.InvariantCulture) }))
-            .Concat(dateValues.Select(x => new { x.IssueId, x.AttributeId, Value = x.Value.ToString("O") }))
-            .Concat(dateTimeValues.Select(x => new { x.IssueId, x.AttributeId, Value = x.Value.ToString("O") }))
+        var valuesByIssue = (await GetAttributeValueRows(ids, ct))
             .GroupBy(x => x.IssueId)
-            .ToDictionary(x => x.Key, x => x.ToDictionary(y => y.AttributeId, y => y.Value));
+            .ToDictionary(x => x.Key, x => x.ToDictionary(y => y.AttributeId, y => y.DisplayValue));
 
         if (valuesByIssue.Count == 0)
         {
