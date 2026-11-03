@@ -130,7 +130,13 @@ public class AgentRunsService(
         await coreIssuesService.AddComment(issueId, actor, request.Comment.Trim(), [], cancellationToken);
         if (current.Category != StatusCategory.Created)
         {
-            await coreIssuesService.UpdateIssuesStatus([issueId], notStartedStatusId, actor, comment: null, cancellationToken);
+            await coreIssuesService.UpdateIssuesStatus(
+                [issueId],
+                notStartedStatusId,
+                actor,
+                comment: null,
+                dropUnusedAttributeValues: false,
+                cancellationToken);
         }
 
         var runId = await coreAgentRunsService.Create(issueId, actor, cancellationToken);

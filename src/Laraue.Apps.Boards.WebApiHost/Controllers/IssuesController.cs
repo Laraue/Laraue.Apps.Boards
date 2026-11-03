@@ -201,6 +201,19 @@ public class IssuesController(
             cancellationToken);
     }
     
+    [HttpPost("status/unused-attributes")]
+    public Task<UnusedAttributeDto[]> GetUnusedAttributesForStatus(
+        [FromBody] GetUnusedAttributesForStatusRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return issuesService.GetUnusedAttributesForStatus(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
     [HttpPost("status")]
     public Task<Dictionary<string, string>> UpdateStatus(
         [FromBody] UpdateIssuesStatusRequest request,

@@ -131,13 +131,17 @@ public class OrganizationInitializer(
         organization.Spaces = new List<Space>(); // Add all children manually
         
         organization.Attributes = new List<Attribute>();
-        foreach (var attribute in _attributes)
+        for (var i = 0; i < _attributes.Count; i++)
         {
+            var attribute = _attributes[i];
             organization.Attributes!.Add(new Attribute
             {
                 AttributeType = attribute.AttributeType,
                 Color = attribute.Color,
                 Name = attribute.Name,
+                IsEnabled = true,
+                ShowOnCard = true,
+                SortOrder = i,
                 AttributeListValues = attribute is ListTestAttribute listTestAttribute
                     ? listTestAttribute.PossibleValues
                         .Select(x => new AttributeListValue { Value = x })

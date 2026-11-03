@@ -96,7 +96,7 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
         {
             await testScope.Services.GetRequiredService<ICoreIssuesService>()
-                .UpdateIssuesStatus([issueId], doneStatus.Id, new Actor(userId), comment: null, CancellationToken.None);
+                .UpdateIssuesStatus([issueId], doneStatus.Id, new Actor(userId), comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
             await transaction.CommitAsync();
         }
 

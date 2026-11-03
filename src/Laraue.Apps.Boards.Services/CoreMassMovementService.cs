@@ -1,6 +1,8 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services.Attributes;
+using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -15,8 +17,9 @@ public interface ICoreMovementService
 {
     /// <summary>
     /// Move space to the new organization. Links between its issues and the issues left behind are removed
-    /// (as <paramref name="actor"/>), since a link never crosses organizations; the same goes for the moves
-    /// below whenever they change the organization.
+    /// (as <paramref name="actor"/>), since a link never crosses organizations; so are the issues' attribute
+    /// values and the space's and epics' own attribute settings, since attributes belong to the organization
+    /// (BRD-179). The same goes for the moves below whenever they change the organization.
     /// </summary>
     Task MoveSpace(
         long spaceId,
@@ -25,21 +28,25 @@ public interface ICoreMovementService
         CancellationToken cancellationToken);
     
     /// <summary>
-    /// Move space epics to the new space of any organization.
+    /// Move space epics to the new space of any organization. Within the organization, an epic without its own
+    /// attribute settings starts following the new space's; with <paramref name="dropUnusedAttributeValues"/>, its
+    /// issues lose their values of attributes switched off there, recorded in their history (BRD-179).
     /// </summary>
     Task MoveSpaceEpics(
         long spaceId,
         long newSpaceId,
         Actor actor,
+        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken);
     
     /// <summary>
-    /// Move epic to the new space of any organization.
+    /// Move epic to the new space of any organization - attribute values as in <see cref="MoveSpaceEpics"/>.
     /// </summary>
     Task MoveEpic(
         long epicId,
         long newSpaceId,
         Actor actor,
+        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken);
 }
 
@@ -47,7 +54,10 @@ public class CoreMovementService(
     DatabaseContext context,
     IIssueNumbersService issueNumbersService,
     ICoreIssuesService issuesService,
-    ICoreIssueLinksService issueLinksService)
+    ICoreIssueLinksService issueLinksService,
+    ICoreIssueAttributesService issueAttributesService,
+    IAttributeSettingsReader attributeSettingsReader,
+    IDateTimeProvider dateTimeProvider)
     : ICoreMovementService
 {
     public async Task MoveSpace(
@@ -92,10 +102,21 @@ public class CoreMovementService(
         await MoveLogs(affectedIssueIds, newOrganizationId, cancellationToken);
 
         if (sourceData.OrganizationId != newOrganizationId)
+        {
             await issueLinksService.RemoveCrossOrganizationLinks(
                 sourceData.OrganizationId,
                 actor,
                 cancellationToken);
+
+            var epicIds = await context.Epics
+                .Where(x => x.SpaceId == spaceId)
+                .Select(x => x.Id)
+                .ToArrayAsyncEF(cancellationToken);
+            await RemoveAttributeData(affectedIssueIds, epicIds, cancellationToken);
+            await context.SpaceAttributeSettings
+                .Where(x => x.SpaceId == spaceId)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
 
         if (lastIssueInNewOrganization.HasValue)
         {
@@ -116,6 +137,7 @@ public class CoreMovementService(
         long spaceId,
         long newSpaceId,
         Actor actor,
+        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
@@ -164,6 +186,11 @@ public class CoreMovementService(
                 organizationIdBySpaceId[spaceId],
                 actor,
                 cancellationToken);
+            await RemoveAttributeData(affectedIssueIds, epicsIdsToUpdate, cancellationToken);
+        }
+        else if (dropUnusedAttributeValues)
+        {
+            await DropUnusedAttributeValues(epicsIdsToUpdate, newOrganizationId, actor, cancellationToken);
         }
 
         if (lastIssueInNewOrganization.HasValue)
@@ -185,6 +212,7 @@ public class CoreMovementService(
         long epicId,
         long newSpaceId,
         Actor actor,
+        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
@@ -239,6 +267,11 @@ public class CoreMovementService(
                 oldOrganizationId,
                 actor,
                 cancellationToken);
+            await RemoveAttributeData(affectedIssueIds, [epicId], cancellationToken);
+        }
+        else if (dropUnusedAttributeValues)
+        {
+            await DropUnusedAttributeValues([epicId], newOrganizationId, actor, cancellationToken);
         }
 
         if (lastIssueInNewOrganization.HasValue)
@@ -254,6 +287,88 @@ public class CoreMovementService(
                 OrderTargetType.After,
                 cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// For epics that follow their (new) space's attribute settings, removes their issues' values of attributes
+    /// switched off there, with a history entry per issue that lost any. Epics with their own settings keep theirs,
+    /// so nothing changes for their issues.
+    /// </summary>
+    private async Task DropUnusedAttributeValues(
+        long[] epicIds,
+        long organizationId,
+        Actor actor,
+        CancellationToken cancellationToken)
+    {
+        var settingsByEpicId = await attributeSettingsReader.GetForEpics(epicIds, cancellationToken);
+
+        // An epic with its own settings keeps them in the new space. The others follow the new space, so
+        // they usually share one set of unused attributes: one drop per distinct set, not per epic or issue.
+        var unusedByEpicId = settingsByEpicId
+            .Where(x => x.Value.Source != AttributeSettingsSource.Epic)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Value.Attributes
+                    .Where(y => !y.IsEnabled)
+                    .Select(y => y.AttributeId)
+                    .Order()
+                    .ToArray());
+        var followingEpicIds = unusedByEpicId
+            .Where(x => x.Value.Length > 0)
+            .Select(x => x.Key)
+            .ToArray();
+        if (followingEpicIds.Length == 0)
+            return;
+
+        var issues = await context.Issues
+            .Where(x => followingEpicIds.Contains(x.Status!.EpicId))
+            .Select(x => new { x.Id, x.Status!.EpicId })
+            .ToArrayAsyncEF(cancellationToken);
+        // Arrays compare by reference, so the sets are grouped by their text.
+        var issueGroups = issues.GroupBy(x => string.Join(',', unusedByEpicId[x.EpicId]));
+
+        foreach (var group in issueGroups)
+        {
+            var droppedByIssueId = await issueAttributesService.DropValues(
+                group
+                    .Select(x => x.Id)
+                    .ToArray(),
+                organizationId,
+                unusedByEpicId[group.First().EpicId],
+                cancellationToken);
+
+            foreach (var (issueId, items) in droppedByIssueId)
+            {
+                context.OrganizationLogs.Add(new OrganizationLog
+                {
+                    CreatedAt = dateTimeProvider.UtcNow,
+                    EntityId = issueId,
+                    EntityType = LogEntityType.Issue,
+                    Action = LogAction.Update,
+                    OrganizationId = organizationId,
+                    OwnerId = actor.UserId,
+                    ApiKeyId = actor.ApiKeyId,
+                    Items = items.ToList(),
+                });
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Removes what ties the moved issues and epics to the old organization's attributes: the issues' values and
+    /// the epics' own attribute settings.
+    /// </summary>
+    private async Task RemoveAttributeData(
+        long[] issueIds,
+        long[] epicIds,
+        CancellationToken cancellationToken)
+    {
+        await issueAttributesService.DeleteAllValues(issueIds, cancellationToken);
+        await context.EpicAttributeSettings
+            .Where(x => epicIds.Contains(x.EpicId))
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     private async Task MoveLogs(

@@ -52,6 +52,32 @@ public class MovementController(IMovementService service) : ControllerBase
             cancellationToken);
     }
     
+    [HttpPost("move-space-epics/unused-attributes")]
+    public Task<UnusedAttributeDto[]> GetUnusedAttributesForSpaceEpicsMove(
+        [FromBody] MoveSpaceEpicsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return service.GetUnusedAttributesForSpaceEpicsMove(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
+    [HttpPost("move-epic/unused-attributes")]
+    public Task<UnusedAttributeDto[]> GetUnusedAttributesForEpicMove(
+        [FromBody] MoveEpicRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return service.GetUnusedAttributesForEpicMove(
+            request with
+            {
+                AuthData = HttpContext.User.GetOrganizationAuthData()
+            },
+            cancellationToken);
+    }
+
     [HttpGet("organization/{id:long}/spaces")]
     public Task<DestinationSpace[]> GetDestinationSpaces(
         long id,

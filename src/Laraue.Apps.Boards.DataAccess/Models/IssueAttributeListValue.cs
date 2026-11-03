@@ -1,6 +1,6 @@
 ﻿namespace Laraue.Apps.Boards.DataAccess.Models;
 
-public class IssueAttributeListValue
+public class IssueAttributeListValue : IIssueAttributeValue
 {
     public long Id { get; set; }
     

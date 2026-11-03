@@ -22,7 +22,8 @@ public static class McpServerInstructions
           filter works across epics whatever their statuses are named.
         - Tools take ids, not names: space keys from list_spaces, epic ids from list_epics, status ids
           from list_statuses, attribute ids and allowed values from list_attributes, user ids from
-          list_members.
+          list_members. An epic may use only some attributes: list_attributes with its epicId lists
+          those an issue there can be given.
         - Before changing something, check the permission flags you already have: canCreateIssue
           (list_spaces), canEdit/canDelete (list_issues, get_issue), canManage (list_issue_comments).
         - Every issue has a title, and create_issue/edit_issue both require one (a short one-line summary) -

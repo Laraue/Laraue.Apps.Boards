@@ -8,6 +8,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
@@ -85,6 +86,14 @@ public interface IIssuesService
         UpdateIssuesStatusRequest request,
         CancellationToken ct);
 
+    /// <summary>
+    /// The attributes the issues have values for that the status's epic doesn't use (BRD-179) - what moving them
+    /// there would keep or drop. Empty when nothing is affected, so the move needs no question.
+    /// </summary>
+    Task<UnusedAttributeDto[]> GetUnusedAttributesForStatus(
+        GetUnusedAttributesForStatusRequest request,
+        CancellationToken ct);
+
     Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
         GetIssueCommentsRequest request,
         CancellationToken ct);
@@ -111,6 +120,7 @@ public class IssuesService(
     IIssueSourceReader issueSourceReader,
     IOrganizationHistoryReader organizationHistoryReader,
     IAgentRunsService agentRunsService,
+    IAttributeSettingsReader attributeSettingsReader,
     ILogger<IssuesService> logger)
     : IIssuesService
 {
@@ -741,31 +751,7 @@ public class IssuesService(
             .FirstAsyncEF(cancellationToken);
 
 
-        var attributeValues = await context.Attributes
-            .Where(x => x.OrganizationId == result.OrganizationId)
-            .Select(x => new DetailIssueAttributeDto
-            {
-                Id = x.Id,
-                Type = x.AttributeType,
-                Name = x.Name,
-                ListValues = x.AttributeListValues!
-                    .Select(v => new IssueAttributeListValueDto
-                    {
-                        Name = v.Value,
-                        Id = v.Id,
-                    })
-                    .ToArray(),
-                Value = string.Empty, // Fills via mapping
-                Color = x.Color,
-            })
-            .ToArrayAsyncEF(cancellationToken);
-
-        var attributeValuesResult = await GetIssueAttributeValues(issueId, cancellationToken);
-        foreach (var attributeValue in attributeValues)
-        {
-            if (attributeValuesResult.TryGetValue(attributeValue.Id, out var value))
-                attributeValue.Value = value;
-        }
+        var attributeValues = await GetDetailAttributes(issueId, result.CategoryId, cancellationToken);
 
         var media = await GetAttachments(result.Id, cancellationToken);
 
@@ -964,6 +950,45 @@ public class IssuesService(
         await transaction.CommitAsync(ct);
     }
 
+    public async Task<UnusedAttributeDto[]> GetUnusedAttributesForStatus(
+        GetUnusedAttributesForStatusRequest request,
+        CancellationToken ct)
+    {
+        var issueIds = new List<long>();
+        foreach (var issueKey in request.IssueKeys)
+        {
+            issueIds.Add(await GetIssueIdIfAccessible(
+                request.AuthData,
+                new IssueKey(issueKey),
+                x => x.CanUpdateIssue,
+                ct));
+        }
+
+        if (!await accessService.CanMoveToStatus(request.AuthData, request.StatusId, ct))
+            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", request.StatusId));
+
+        var targetEpicId = await context.Statuses
+            .Where(x => x.Id == request.StatusId)
+            .Select(x => x.EpicId)
+            .FirstAsyncEF(ct);
+
+        // Issues already in that epic don't move between epics, so keep everything they have.
+        var movingIssueIds = await context.Issues
+            .Where(x => ((IEnumerable<long>)issueIds).Contains(x.Id))
+            .Where(x => x.Status!.EpicId != targetEpicId)
+            .Select(x => x.Id)
+            .ToArrayAsyncEF(ct);
+
+        var unused = await attributeSettingsReader.GetUnusedWithValues(
+            movingIssueIds,
+            await attributeSettingsReader.GetForEpic(targetEpicId, ct),
+            ct);
+
+        return unused
+            .Select(x => new UnusedAttributeDto { Id = x.AttributeId, Name = x.Name })
+            .ToArray();
+    }
+
     public async Task<Dictionary<string, string>> UpdateIssuesStatus(UpdateIssuesStatusRequest request, CancellationToken ct)
     {
         // Check that can move Issues
@@ -994,6 +1019,7 @@ public class IssuesService(
             request.StatusId,
             request.AuthData.UserId,
             request.Comment,
+            request.DropUnusedAttributeValues,
             ct);
         await transaction.CommitAsync(ct);
 
@@ -1205,7 +1231,7 @@ public class IssuesService(
     {
         var ids = issueIds as long[] ?? issueIds.ToArray();
 
-        var dbResult = await GetScalarAttributeDisplayValues(ids, cancellationToken);
+        var dbResult = await GetAttributeValueRows(ids, cancellationToken);
 
         return dbResult
             .GroupBy(x => x.IssueId)
@@ -1217,13 +1243,14 @@ public class IssuesService(
     }
 
     /// <summary>
-    /// Loads every attribute value (of any <see cref="AttributeType"/>) for the given issues as a
-    /// flat, opaque display string per (issue, attribute) pair. Each type is queried against its
-    /// own table (see <see cref="Laraue.Apps.Boards.DataAccess.Models.IIssueAttributeScalarValue{TValue}"/>)
-    /// and formatted client-side rather than via a single SQL UNION, since not every provider
-    /// reliably translates e.g. <c>decimal</c>/<c>DateTime</c> ToString() to SQL.
+    /// Loads every attribute value (of any <see cref="AttributeType"/>) for the given issues, per (issue, attribute)
+    /// pair: <see cref="AttributeValueRow.Value"/> as forms take it (a list value's id), and
+    /// <see cref="AttributeValueRow.DisplayValue"/> as cards show it (a list value's text). Each type is queried
+    /// against its own table (see <see cref="Laraue.Apps.Boards.DataAccess.Models.IIssueAttributeScalarValue{TValue}"/>)
+    /// and formatted client-side rather than via a single SQL UNION, since not every provider reliably translates e.g.
+    /// <c>decimal</c>/<c>DateTime</c> ToString() to SQL.
     /// </summary>
-    private async Task<(long IssueId, long AttributeId, string Value)[]> GetScalarAttributeDisplayValues(
+    private async Task<AttributeValueRow[]> GetAttributeValueRows(
         long[] issueIds,
         CancellationToken cancellationToken)
     {
@@ -1234,7 +1261,7 @@ public class IssuesService(
 
         var listValues = await context.IssueAttributeListValues
             .Where(x => issueIds.Contains(x.IssueId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.AttributeListValueId })
+            .Select(x => new { x.IssueId, x.AttributeId, x.AttributeListValueId, Name = x.AttributeListValue!.Value })
             .ToArrayAsyncEF(cancellationToken);
 
         var integerValues = await context.IssueAttributeIntegerValues
@@ -1258,12 +1285,67 @@ public class IssuesService(
             .ToArrayAsyncEF(cancellationToken);
 
         return textValues
-            .Select(x => (x.IssueId, x.AttributeId, x.Value))
-            .Concat(listValues.Select(x => (x.IssueId, x.AttributeId, Value: x.AttributeListValueId.ToString())))
-            .Concat(integerValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString(CultureInfo.InvariantCulture))))
-            .Concat(decimalValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("0.####", CultureInfo.InvariantCulture))))
-            .Concat(dateValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("O"))))
-            .Concat(dateTimeValues.Select(x => (x.IssueId, x.AttributeId, Value: x.Value.ToString("O"))))
+            .Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value))
+            .Concat(listValues.Select(x => new AttributeValueRow(
+                x.IssueId,
+                x.AttributeId,
+                x.AttributeListValueId.ToString(),
+                x.Name)))
+            .Concat(integerValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString(CultureInfo.InvariantCulture))))
+            .Concat(decimalValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString("0.####", CultureInfo.InvariantCulture))))
+            .Concat(dateValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString("O"))))
+            .Concat(dateTimeValues.Select(x => AttributeValueRow.Of(x.IssueId, x.AttributeId, x.Value.ToString("O"))))
+            .ToArray();
+    }
+
+    private sealed record AttributeValueRow(long IssueId, long AttributeId, string Value, string DisplayValue)
+    {
+        public static AttributeValueRow Of(long issueId, long attributeId, string value) =>
+            new(issueId, attributeId, value, value);
+    }
+
+    /// <summary>
+    /// The attributes the issue page shows (BRD-179): those enabled in the issue's epic, in the organization's order,
+    /// plus those switched off there that the issue still has a value for - marked inactive, to change or clear.
+    /// </summary>
+    private async Task<DetailIssueAttributeDto[]> GetDetailAttributes(
+        long issueId,
+        long epicId,
+        CancellationToken cancellationToken)
+    {
+        var settings = await attributeSettingsReader.GetForEpic(epicId, cancellationToken);
+        var values = await GetIssueAttributeValues(issueId, cancellationToken);
+
+        var shown = settings.Attributes
+            .Where(x => x.IsEnabled || values.ContainsKey(x.AttributeId))
+            .ToArray();
+        var listAttributeIds = shown
+            .Where(x => x.Type == AttributeType.List)
+            .Select(x => x.AttributeId)
+            .ToArray();
+        var listValuesByAttributeId = (await context.AttributeListValues
+                .Where(x => ((IEnumerable<long>)listAttributeIds).Contains(x.AttributeId))
+                .OrderBy(x => x.Id)
+                .Select(x => new { x.AttributeId, x.Id, x.Value })
+                .ToArrayAsyncEF(cancellationToken))
+            .GroupBy(x => x.AttributeId)
+            .ToDictionary(
+                x => x.Key,
+                x => x
+                    .Select(v => new IssueAttributeListValueDto { Id = v.Id, Name = v.Value })
+                    .ToArray());
+
+        return shown
+            .Select(x => new DetailIssueAttributeDto
+            {
+                Id = x.AttributeId,
+                Type = x.Type,
+                Name = x.Name,
+                Color = x.Color,
+                Value = values.GetValueOrDefault(x.AttributeId, string.Empty),
+                ListValues = listValuesByAttributeId.GetValueOrDefault(x.AttributeId, []),
+                IsInactive = !x.IsEnabled,
+            })
             .ToArray();
     }
 
@@ -1325,59 +1407,57 @@ public class IssuesService(
             ct);
     }
 
+    /// <summary>
+    /// The values shown on the issues' cards: of the attributes enabled and shown on cards in each issue's epic
+    /// (BRD-179), in the organization's order.
+    /// </summary>
     private async Task EnrichAttributes(IList<IssueListDto> elements, CancellationToken ct)
     {
         var ids = elements.Select(x => x.Id).ToArray();
 
-        var textValues = await context.IssueAttributeTextValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var listValues = await context.IssueAttributeListValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.Attribute!.Color, x.IssueId, x.AttributeListValue!.Value })
-            .ToArrayAsyncEF(ct);
-
-        var integerValues = await context.IssueAttributeIntegerValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var decimalValues = await context.IssueAttributeDecimalValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var dateValues = await context.IssueAttributeDateValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var dateTimeValues = await context.IssueAttributeDateTimeValues
-            .Where(x => ((IEnumerable<long>)ids).Contains(x.IssueId))
-            .Select(x => new { x.Attribute!.Color, x.IssueId, x.Value })
-            .ToArrayAsyncEF(ct);
-
-        var all = textValues
-            .Union(listValues)
-            .Union(integerValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString(CultureInfo.InvariantCulture) }))
-            .Union(decimalValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString("0.####", CultureInfo.InvariantCulture) }))
-            .Union(dateValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString("O") }))
-            .Union(dateTimeValues.Select(x => new { x.Color, x.IssueId, Value = x.Value.ToString("O") }))
+        var valuesByIssue = (await GetAttributeValueRows(ids, ct))
             .GroupBy(x => x.IssueId)
-            .ToDictionary(x => x.Key);
+            .ToDictionary(x => x.Key, x => x.ToDictionary(y => y.AttributeId, y => y.DisplayValue));
+
+        if (valuesByIssue.Count == 0)
+        {
+            return;
+        }
+
+        var issueIdsWithValues = valuesByIssue.Keys.ToArray();
+        var epicIdByIssueId = (await context.Issues
+                .Where(x => ((IEnumerable<long>)issueIdsWithValues).Contains(x.Id))
+                .Select(x => new { x.Id, x.Status!.EpicId })
+                .ToArrayAsyncEF(ct))
+            .ToDictionary(x => x.Id, x => x.EpicId);
+
+        var settingsByEpicId = await attributeSettingsReader.GetForEpics(
+            epicIdByIssueId.Values
+                .Distinct()
+                .ToArray(),
+            ct);
 
         foreach (var element in elements)
         {
-            if (all.TryGetValue(element.Id, out var attributes))
+            if (!valuesByIssue.TryGetValue(element.Id, out var values)
+                || !epicIdByIssueId.TryGetValue(element.Id, out var epicId)
+                || !settingsByEpicId.TryGetValue(epicId, out var settings))
             {
-                foreach (var attribute in attributes)
+                continue;
+            }
+
+            foreach (var setting in settings.Attributes)
+            {
+                if (setting is { IsEnabled: true, ShowOnCard: true }
+                    && values.TryGetValue(setting.AttributeId, out var value))
                 {
                     element.Attributes.Add(new IssueListAttributeDto
                     {
-                        Value = attribute.Value,
-                        Color = attribute.Color,
+                        AttributeId = setting.AttributeId,
+                        Name = setting.Name,
+                        Type = setting.Type,
+                        Value = value,
+                        Color = setting.Color,
                     });
                 }
             }
@@ -1895,6 +1975,13 @@ public record IssueAgentRunShortDto
 
 public record IssueListAttributeDto
 {
+    public required long AttributeId { get; set; }
+    public required string Name { get; set; }
+
+    /// <summary>
+    /// How to read <see cref="Value"/>: dates and date-times come in ISO 8601.
+    /// </summary>
+    public required AttributeType Type { get; set; }
     public required string Value { get; set; }
     public required string Color { get; set; }
 }
@@ -2184,6 +2271,12 @@ public record DetailIssueAttributeDto
     public required string Value { get; set; }
     public required string Color { get; set; }
     public required IssueAttributeListValueDto[] ListValues { get; set; }
+
+    /// <summary>
+    /// The attribute is switched off in the issue's epic, but the issue still has a value for it (e.g. from before a
+    /// move): it can be changed or cleared, not set anew.
+    /// </summary>
+    public required bool IsInactive { get; set; }
 }
 
 public record IssueAttributeListValueDto
@@ -2315,12 +2408,31 @@ public record ChangesIssuesOrderRequest
     public required OrderTargetType TargetType { get; set; }
 }
 
+public record GetUnusedAttributesForStatusRequest
+{
+    public OrganizationAuthData AuthData { get; set; } = new();
+    public required string[] IssueKeys { get; set; } = [];
+    public required long StatusId { get; set; }
+}
+
+public record UnusedAttributeDto
+{
+    public required long Id { get; set; }
+    public required string Name { get; set; }
+}
+
 public record UpdateIssuesStatusRequest
 {
     public OrganizationAuthData AuthData { get; set; }
     public required string[] IssueKeys { get; set; } = [];
     public required long StatusId { get; set; }
     public string? Comment { get; set; }
+
+    /// <summary>
+    /// For issues moving to another epic: true removes their values of attributes that epic doesn't use (BRD-179),
+    /// false keeps them. See <c>POST /api/issues/status/unused-attributes</c> for which those are.
+    /// </summary>
+    public bool DropUnusedAttributeValues { get; set; }
 }
 
 public record GetIssueCommentsRequest : IPaginatedRequest

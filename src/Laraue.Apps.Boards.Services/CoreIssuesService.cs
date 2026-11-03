@@ -1,5 +1,6 @@
 ﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
@@ -86,13 +87,16 @@ public interface ICoreIssuesService
     /// Moves issues to a new status. <paramref name="comment"/>, when given, is posted as a new
     /// comment on every issue actually moved (not on one already at <paramref name="newStatusId"/>)
     /// - the same effect as calling <see cref="AddComment"/> once per moved issue, batched here so
-    /// callers get transition-with-comment in one round trip.
+    /// callers get transition-with-comment in one round trip. With <paramref name="dropUnusedAttributeValues"/>,
+    /// an issue moving to another epic loses its values of attributes switched off there (BRD-179), recorded in the
+    /// same history entry; otherwise it keeps them.
     /// </summary>
     Task<Dictionary<string, string>> UpdateIssuesStatus(
         long[] issueIds,
         long newStatusId,
         Actor actor,
         string? comment,
+        bool dropUnusedAttributeValues,
         CancellationToken ct);
 }
 
@@ -109,6 +113,7 @@ public class CoreIssuesService(
     ICoreIssueAttributesService issueAttributesService,
     IMemberProfileReader memberProfileReader,
     ICoreEpicStateService epicStateService,
+    IAttributeSettingsReader attributeSettingsReader,
     BoardsMetrics metrics)
     : ICoreIssuesService
 {
@@ -763,6 +768,7 @@ public class CoreIssuesService(
         long newStatusId,
         Actor actor,
         string? comment,
+        bool dropUnusedAttributeValues,
         CancellationToken ct)
     {
         context.Database.EnsureTransactionStarted();
@@ -827,6 +833,24 @@ public class CoreIssuesService(
                 .ToArray(),
             ct);
 
+        Dictionary<long, OrganizationLogItem[]> droppedByIssueId = [];
+        var issueIdsChangingEpic = issuesToUpdate
+            .Where(x => x.EpicId != newStatusData.EpicId)
+            .Select(x => x.Id)
+            .ToArray();
+        if (dropUnusedAttributeValues && issueIdsChangingEpic.Length > 0)
+        {
+            var unusedAttributeIds = (await attributeSettingsReader.GetForEpic(newStatusData.EpicId, ct)).Attributes
+                .Where(x => !x.IsEnabled)
+                .Select(x => x.AttributeId)
+                .ToArray();
+            droppedByIssueId = await issueAttributesService.DropValues(
+                issueIdsChangingEpic,
+                newStatusData.OrganizationId,
+                unusedAttributeIds,
+                ct);
+        }
+
         foreach (var issue in issuesToUpdate)
         {
             var logEntry = new OrganizationLog
@@ -866,6 +890,11 @@ public class CoreIssuesService(
                     logItemFactory.StatusChanged(
                         new IdName<long>(issue.StatusId, issue.StatusName),
                         new IdName<long>(newStatusId, newStatusData.StatusName)));
+            }
+
+            if (droppedByIssueId.TryGetValue(issue.Id, out var droppedItems))
+            {
+                logEntry.Items.AddRange(droppedItems);
             }
 
             context.OrganizationLogs.Add(logEntry);

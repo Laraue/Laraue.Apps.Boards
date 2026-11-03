@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Core.DataAccess.Contracts;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +10,9 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Authorize(AuthenticationSchemes = AuthSchemas.Organization)]
 [ApiController]
 [Route("/api/epics")]
-public class EpicsController(IEpicsService categoriesService)
+public class EpicsController(
+    IEpicsService categoriesService,
+    IAttributeSettingsService attributeSettingsService)
     : ControllerBase
 {
     [HttpGet("{id}")]
@@ -95,4 +98,32 @@ public class EpicsController(IEpicsService categoriesService)
             },
             cancellationToken);
     }
-}   
+
+    [HttpGet("{id:long}/attributes")]
+    public Task<AttributeDto[]> GetAttributes(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.GetUsedInEpic(
+            new EpicAttributeSettingsRequest
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+
+    [HttpGet("{id:long}/attribute-settings")]
+    public Task<AttributeSettingsViewDto> GetAttributeSettings(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return attributeSettingsService.GetForEpic(
+            new EpicAttributeSettingsRequest
+            {
+                Id = id,
+                AuthData = HttpContext.User.GetOrganizationAuthData(),
+            },
+            cancellationToken);
+    }
+}

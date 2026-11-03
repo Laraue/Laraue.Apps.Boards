@@ -51,6 +51,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IUserService, UserService>()
                 .AddScoped<IUserOnboardingService, UserOnboardingService>()
                 .AddScoped<ISpacesService, SpacesService>()
+                .AddScoped<IAttributeSettingsService, AttributeSettingsService>()
                 .AddScoped<IOrganizationsService, OrganizationsService>()
                 .AddScoped<IAdminOrganizationsService, AdminOrganizationsService>()
                 .AddScoped<IBillingService, BillingService>()

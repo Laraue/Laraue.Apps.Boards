@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.Metrics;
 using Laraue.Apps.Boards.Services.Identity;
 using Laraue.Apps.Boards.Services.Members;
+using Laraue.Apps.Boards.Services.Resources;
 using Laraue.Apps.Identity.Internal.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -95,19 +96,38 @@ public interface ICoreOrganizationsService
         string color,
         CancellationToken cancellationToken);
     
+    /// <summary>
+    /// Creates an attribute, last in the organization's order.
+    /// </summary>
     Task<long> CreateAttribute(
         long organizationId,
         string name,
         string color,
         AttributeType attributeType,
         string[]? listValues,
+        bool isEnabled,
+        bool showOnCard,
         CancellationToken cancellationToken);
     
+    /// <summary>
+    /// Updates an attribute; <paramref name="isEnabled"/> and <paramref name="showOnCard"/> stay as they are when null.
+    /// </summary>
     Task UpdateAttribute(
         long attributeId,
         string name,
         string color,
         UpdateAttributeListValueRequest[]? listValues,
+        bool? isEnabled,
+        bool? showOnCard,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Puts the organization's attributes in the order of <paramref name="attributeIds"/>, which must list each of them
+    /// once - <see cref="BadRequestException"/> otherwise. Needs a transaction opened by the caller.
+    /// </summary>
+    Task ReorderAttributes(
+        long organizationId,
+        IReadOnlyList<long> attributeIds,
         CancellationToken cancellationToken);
     
     Task DeleteAttribute(
@@ -523,14 +543,23 @@ public class CoreOrganizationsService(
         string color,
         AttributeType attributeType,
         string[]? listValues,
+        bool isEnabled,
+        bool showOnCard,
         CancellationToken cancellationToken)
     {
+        var lastSortOrder = await context.Attributes
+            .Where(x => x.OrganizationId == organizationId)
+            .MaxAsync(x => (int?)x.SortOrder, cancellationToken);
+
         var attribute = new Attribute
         {
             Name = name,
             AttributeType = attributeType,
             Color = color,
             OrganizationId = organizationId,
+            IsEnabled = isEnabled,
+            ShowOnCard = showOnCard,
+            SortOrder = lastSortOrder + 1 ?? 0,
             AttributeListValues = listValues?
                 .Select(x => new AttributeListValue
                 {
@@ -550,16 +579,30 @@ public class CoreOrganizationsService(
         string name,
         string color,
         UpdateAttributeListValueRequest[]? listValues,
+        bool? isEnabled,
+        bool? showOnCard,
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
         
         var updatedCount = await context.Attributes
             .Where(x => x.Id == attributeId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.Name, name)
-                .SetProperty(x => x.Color, color),
-            cancellationToken);
+            .ExecuteUpdateAsync(
+                setters =>
+                {
+                    setters
+                        .SetProperty(x => x.Name, name)
+                        .SetProperty(x => x.Color, color);
+                    if (isEnabled.HasValue)
+                    {
+                        setters.SetProperty(x => x.IsEnabled, isEnabled.Value);
+                    }
+                    if (showOnCard.HasValue)
+                    {
+                        setters.SetProperty(x => x.ShowOnCard, showOnCard.Value);
+                    }
+                },
+                cancellationToken);
 
         if (updatedCount == 0)
             return;
@@ -610,6 +653,31 @@ public class CoreOrganizationsService(
                 .Where(x => ((IEnumerable<long>)toDelete).Contains(x.Id))
                 .ExecuteDeleteAsync(cancellationToken);
         
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task ReorderAttributes(
+        long organizationId,
+        IReadOnlyList<long> attributeIds,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        var attributes = await context.Attributes
+            .Where(x => x.OrganizationId == organizationId)
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+
+        if (attributeIds.Count != attributes.Count
+            || !attributeIds.ToHashSet().SetEquals(attributes.Keys))
+        {
+            throw new BadRequestException(nameof(attributeIds), ErrorMessages.AttributeOrderIncomplete);
+        }
+
+        for (var i = 0; i < attributeIds.Count; i++)
+        {
+            attributes[attributeIds[i]].SortOrder = i;
+        }
+
         await context.SaveChangesAsync(cancellationToken);
     }
 

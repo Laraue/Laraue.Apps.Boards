@@ -2,6 +2,7 @@
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -47,6 +48,7 @@ public interface ISpacesService
 public class SpacesService(
     ICoreSpacesService coreSpacesService,
     ICoreSpaceLinksService coreSpaceLinksService,
+    ICoreAttributeSettingsService coreAttributeSettingsService,
     IAccessService accessService,
     DatabaseContext context)
     : ISpacesService
@@ -157,7 +159,8 @@ public class SpacesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.OldKey))
             .EnsureOrThrowForbidden(a => a.CanUpdateSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.OldKey));
 
-        // The settings, description and links are saved together: a failure in any of them changes nothing.
+        // The settings, description, links and attribute settings are saved together: a failure in any of them
+        // changes nothing.
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
@@ -184,6 +187,14 @@ public class SpacesService(
                     .Select(x => new SpaceLinkChange(x.Url.Trim(), x.Description.Trim()))
                     .ToList(),
                 request.AuthData.UserId,
+                cancellationToken);
+        }
+
+        if (request.AttributeSettings is not null)
+        {
+            await coreAttributeSettingsService.SaveSpace(
+                spaceId,
+                request.AttributeSettings.ToChanges(),
                 cancellationToken);
         }
 
@@ -275,6 +286,11 @@ public record UpdateSpaceRequest
     /// </summary>
     [MaxLength(Constraints.MaxSpaceLinksPerSpace)]
     public List<SpaceLinkRequest>? Links { get; set; }
+
+    /// <summary>
+    /// The space's attribute settings (BRD-179); null leaves them as they are.
+    /// </summary>
+    public AttributeSettingsUpdate? AttributeSettings { get; set; }
 }
 
 public record SpaceLinkRequest

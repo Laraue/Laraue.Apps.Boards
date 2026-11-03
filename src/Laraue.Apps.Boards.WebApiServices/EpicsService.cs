@@ -1,8 +1,10 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.EFCore.Extensions;
@@ -45,7 +47,10 @@ public interface IEpicsService
 }
 
 public class EpicsService(
+    DatabaseContext context,
     ICoreEpicsService coreEpicsService,
+    ICoreStatusService coreStatusService,
+    ICoreAttributeSettingsService coreAttributeSettingsService,
     IAccessService accessService,
     ICoreSpacesService coreSpacesService)
     : IEpicsService
@@ -121,6 +126,7 @@ public class EpicsService(
             CanDelete = accessLevels.CanDeleteEpic,
             CanUpdate = accessLevels.CanUpdateEpic,
             Status = epicData.Status,
+            IsDefault = epicData.IsDefault,
         };
         
         return result;
@@ -222,12 +228,37 @@ public class EpicsService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Epic", request.Id))
             .EnsureOrThrowForbidden(a => a.CanUpdateEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.Id));
 
+        // The name, color, columns and attribute settings are saved together: a failure in any of them changes
+        // nothing.
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
         await coreEpicsService.Update(
             request.Id,
             upd => upd
                 .SetProperty(x => x.Color, request.Color)
                 .SetProperty(x => x.Name, request.Name),
             cancellationToken);
+
+        if (request.Columns is not null)
+        {
+            await coreStatusService.ReplaceForEpic(
+                request.Id,
+                request.Columns
+                    .Select(x => new EpicStatusChange(x.Id, x.Name, x.Color, x.Category))
+                    .ToArray(),
+                request.AuthData.UserId,
+                cancellationToken);
+        }
+
+        if (request.AttributeSettings is not null)
+        {
+            await coreAttributeSettingsService.SaveEpic(
+                request.Id,
+                request.AttributeSettings.ToChanges(),
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task Delete(DeleteEpicRequest request, CancellationToken cancellationToken)
@@ -269,6 +300,11 @@ public record EpicDto
     public required bool CanUpdate { get; set; }
     public required bool CanDelete { get; set; }
     public required EpicStatus Status { get; set; }
+
+    /// <summary>
+    /// The space's backlog: it can't be deleted and always follows its space's attribute settings (BRD-179).
+    /// </summary>
+    public required bool IsDefault { get; set; }
 }
 
 public class StatusDto
@@ -353,6 +389,33 @@ public record UpdateEpicRequest
     
     [MaxLength(7)]
     public required string Color { get; set; }
+
+    /// <summary>
+    /// The board's columns in order: one with an id is kept and updated, one without is added, and the others are
+    /// deleted with their issues. Null leaves the columns as they are.
+    /// </summary>
+    public UpdateEpicColumn[]? Columns { get; set; }
+
+    /// <summary>
+    /// The board's attribute settings (BRD-179); null leaves them as they are.
+    /// </summary>
+    public AttributeSettingsUpdate? AttributeSettings { get; set; }
+}
+
+public record UpdateEpicColumn
+{
+    /// <summary>
+    /// The column's status id; null for a new column.
+    /// </summary>
+    public long? Id { get; set; }
+
+    [MaxLength(128)]
+    public required string Name { get; set; }
+
+    [MaxLength(7)]
+    public string? Color { get; set; }
+
+    public required StatusCategory Category { get; set; }
 }
 
 public record DeleteEpicRequest

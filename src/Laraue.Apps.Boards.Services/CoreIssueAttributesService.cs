@@ -1,6 +1,7 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services.AttributeRequests;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.AttributeUpdaters;
 using Laraue.Core.Exceptions.Web;
 using LinqToDB.EntityFrameworkCore;
@@ -13,7 +14,9 @@ public interface ICoreIssueAttributesService
     /// <summary>
     /// Applies attribute value changes (of any <see cref="AttributeType"/>) to an issue and
     /// returns the resulting history log items. Values omitted from <paramref name="attributeRequests"/>
-    /// but currently set on the issue are removed.
+    /// but currently set on the issue are removed. An attribute switched off in the issue's epic (BRD-179)
+    /// can't get a value: one the issue already has can be changed or removed - <see cref="BadRequestException"/>
+    /// otherwise.
     /// </summary>
     Task<OrganizationLogItem[]> UpdateAttributes(
         long issueId,
@@ -35,11 +38,29 @@ public interface ICoreIssueAttributesService
         long organizationId,
         AttributeValue[] attributeValues,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes the issues' values of <paramref name="attributeIds"/> - e.g. those not used in the epic they moved to
+    /// (BRD-179) - and returns the resulting history log items by issue id; an issue that lost nothing isn't there.
+    /// </summary>
+    Task<Dictionary<long, OrganizationLogItem[]>> DropValues(
+        IReadOnlyCollection<long> issueIds,
+        long organizationId,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes every attribute value of <paramref name="issueIds"/>, with no history - e.g. when they move to
+    /// another organization, whose attributes they don't have.
+    /// </summary>
+    Task DeleteAllValues(IReadOnlyCollection<long> issueIds, CancellationToken cancellationToken);
 }
 
 public class CoreIssueAttributesService(
     DatabaseContext context,
-    IEnumerable<IScalarAttributeUpdater> scalarAttributeUpdaters)
+    IEnumerable<IScalarAttributeUpdater> scalarAttributeUpdaters,
+    IAttributeSettingsReader attributeSettingsReader,
+    IIssueAttributeValuesReader issueAttributeValuesReader)
     : ICoreIssueAttributesService
 {
     public async Task<OrganizationLogItem[]> UpdateAttributes(
@@ -49,6 +70,7 @@ public class CoreIssueAttributesService(
         CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
+        await EnsureEnabledInEpic(issueId, attributeRequests, cancellationToken);
 
         var changes = new List<OrganizationLogItem>();
 
@@ -234,6 +256,105 @@ public class CoreIssueAttributesService(
         return requests.ToArray();
     }
 
+    public async Task<Dictionary<long, OrganizationLogItem[]>> DropValues(
+        IReadOnlyCollection<long> issueIds,
+        long organizationId,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+        if (issueIds.Count == 0 || attributeIds.Count == 0)
+            return [];
+
+        var attributeNameById = await context.Attributes
+            .Where(x => x.OrganizationId == organizationId)
+            .ToDictionaryAsyncEF(x => x.Id, x => x.Name, cancellationToken);
+
+        var dropped = new List<DroppedAttributeValue>();
+        foreach (var updater in scalarAttributeUpdaters)
+        {
+            dropped.AddRange(
+                await updater.Drop(context, issueIds, attributeNameById, attributeIds, cancellationToken));
+        }
+
+        dropped.AddRange(await DropListValues(issueIds, attributeNameById, attributeIds, cancellationToken));
+
+        return dropped
+            .GroupBy(x => x.IssueId)
+            .ToDictionary(
+                x => x.Key,
+                x => x
+                    .Select(y => y.LogItem)
+                    .ToArray());
+    }
+
+    public async Task DeleteAllValues(IReadOnlyCollection<long> issueIds, CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+        if (issueIds.Count == 0)
+            return;
+
+        await DeleteAll(context.IssueAttributeTextValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeListValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeIntegerValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeDecimalValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeDateValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeDateTimeValues, issueIds, cancellationToken);
+    }
+
+    private static Task<int> DeleteAll<TValue>(
+        IQueryable<TValue> values,
+        IReadOnlyCollection<long> issueIds,
+        CancellationToken cancellationToken)
+        where TValue : class, IIssueAttributeValue
+    {
+        return values
+            .Where(x => issueIds.Contains(x.IssueId))
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private async Task EnsureEnabledInEpic(
+        long issueId,
+        SetIssueAttributeRequest[] attributeRequests,
+        CancellationToken cancellationToken)
+    {
+        if (attributeRequests.Length == 0)
+            return;
+
+        var epicId = await context.Issues
+            .Where(x => x.Id == issueId)
+            .Select(x => x.Status!.EpicId)
+            .FirstAsyncEF(cancellationToken);
+        var settings = await attributeSettingsReader.GetForEpic(epicId, cancellationToken);
+        var disabledAttributeIds = settings.Attributes
+            .Where(x => !x.IsEnabled)
+            .Select(x => x.AttributeId)
+            .ToHashSet();
+
+        var requestedDisabled = attributeRequests
+            .Select(x => x.Id)
+            .Where(disabledAttributeIds.Contains)
+            .Distinct()
+            .ToArray();
+        if (requestedDisabled.Length == 0)
+            return;
+
+        var existingAttributeIds = await issueAttributeValuesReader.GetAttributeIdsWithValues(
+            [issueId],
+            requestedDisabled,
+            cancellationToken);
+
+        var errors = requestedDisabled
+            .Where(x => !existingAttributeIds.Contains(x))
+            .Select(x => (string?)$"Attribute: {x} is not used in the issue's epic")
+            .ToArray();
+        if (errors.Length > 0)
+            throw new BadRequestException(new Dictionary<string, string?[]>
+            {
+                ["attributeValues"] = errors,
+            });
+    }
+
     private async Task<OrganizationLogItem[]> UpdateListAttributes(
         long issueId,
         Dictionary<long, string> attributeNameById,
@@ -330,38 +451,52 @@ public class CoreIssueAttributesService(
         var toDelete = oldAttributeById.Keys
             .Except(attributeRequests.Select(x => x.Id))
             .ToArray();
-
         if (toDelete.Length != 0)
         {
-            var deletableValues = await context.IssueAttributeListValues
-                .Where(x => x.IssueId == issueId)
-                .Where(x => ((IEnumerable<long>)toDelete).Contains(x.AttributeId))
-                .Select(x => new
-                {
-                    x.Id,
-                    x.AttributeId,
-                    AttributeListValueName = x.AttributeListValue!.Value,
-                    x.AttributeListValueId,
-                })
-                .ToDictionaryAsyncEF(x => x.Id, cancellationToken);
-
-            foreach (var deletableValue in deletableValues)
-            {
-                changes.Add(new OrganizationLogItem
-                {
-                    OldDisplayValue = deletableValue.Value.AttributeListValueName,
-                    PropertyType = PropertyType.Attribute,
-                    OldValueId = deletableValue.Value.AttributeListValueId.ToString(),
-                    PropertyName = attributeNameById[deletableValue.Key],
-                    ParentId = deletableValue.Value.AttributeId.ToString(),
-                });
-            }
-
-            await context.IssueAttributeListValues
-                .Where(x => deletableValues.Select(v => v.Key).Contains(x.Id))
-                .ExecuteDeleteAsync(cancellationToken);
+            changes.AddRange(
+                (await DropListValues([issueId], attributeNameById, toDelete, cancellationToken))
+                    .Select(x => x.LogItem));
         }
 
         return changes.ToArray();
+    }
+
+    private async Task<DroppedAttributeValue[]> DropListValues(
+        IReadOnlyCollection<long> issueIds,
+        Dictionary<long, string> attributeNameById,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken)
+    {
+        var deletableValues = await context.IssueAttributeListValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => attributeIds.Contains(x.AttributeId))
+            .Select(x => new
+            {
+                x.IssueId,
+                x.AttributeId,
+                AttributeListValueName = x.AttributeListValue!.Value,
+                x.AttributeListValueId,
+            })
+            .ToArrayAsyncEF(cancellationToken);
+        if (deletableValues.Length == 0)
+            return [];
+
+        await context.IssueAttributeListValues
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => attributeIds.Contains(x.AttributeId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return deletableValues
+            .Select(x => new DroppedAttributeValue(
+                x.IssueId,
+                new OrganizationLogItem
+                {
+                    OldDisplayValue = x.AttributeListValueName,
+                    PropertyType = PropertyType.Attribute,
+                    OldValueId = x.AttributeListValueId.ToString(),
+                    PropertyName = attributeNameById[x.AttributeId],
+                    ParentId = x.AttributeId.ToString(),
+                }))
+            .ToArray();
     }
 }

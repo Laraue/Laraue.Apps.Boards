@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.McpHost.Tools;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
@@ -56,7 +57,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             new IssueSourceReader(testScope.Database, new MemberProfileReader(testScope.Database)),
             testScope.Services.GetRequiredService<ICoreIssueLinksService>(),
             new MemberProfileReader(testScope.Database),
-            AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services));
+            AgentRunMcpServiceTests.CreateAgentRunMcpService(testScope.Services),
+            testScope.Services.GetRequiredService<IAttributeSettingsReader>());
     }
 
     internal static OrganizationAuthData AuthDataFor(long organizationId, Guid userId, Guid? apiKeyId = null)
@@ -667,7 +669,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var targetStatus = organization.GetStatus(1, 1, 1);
 
         await CreateIssueMcpService(testScope).EditIssueStatus(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, targetStatus.Id, comment: null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, targetStatus.Id, comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
 
         var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal(targetStatus.Id, updatedIssue.StatusId);
@@ -691,7 +693,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var apiKey = await apiKeysService.CreateAsync(organization.Id, ownerId, "Claude MCP", CancellationToken.None);
 
         await CreateIssueMcpService(testScope).EditIssueStatus(
-            AuthDataFor(organization.Id, ownerId, apiKey.Id), issueData.Key, targetStatus.Id, comment: null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId, apiKey.Id), issueData.Key, targetStatus.Id, comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
 
         var log = await testScope.Database.OrganizationLogs.SingleAsyncEF(x =>
             x.EntityType == LogEntityType.Issue && x.EntityId == issueData.Issue.Id);
@@ -715,7 +717,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var targetStatusId = organization.GetStatus(1, 1, 1).Id;
 
         await Assert.ThrowsAsync<ForbiddenException>(() => CreateIssueMcpService(testScope).EditIssueStatus(
-            AuthDataFor(organization.Id, memberId), issueData.Key, targetStatusId, comment: null, CancellationToken.None));
+            AuthDataFor(organization.Id, memberId), issueData.Key, targetStatusId, comment: null, dropUnusedAttributeValues: false, CancellationToken.None));
     }
 
     [Fact]
@@ -737,7 +739,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var otherEpicStatus = organization.GetStatus(1, 2, 1);
 
         await CreateIssueMcpService(testScope).EditIssueStatus(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, otherEpicStatus.Id, comment: null, CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, otherEpicStatus.Id, comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
 
         var updatedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.Equal(otherEpicStatus.Id, updatedIssue.StatusId);
@@ -758,7 +760,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var targetStatus = organization.GetStatus(1, 1, 1);
 
         await CreateIssueMcpService(testScope).EditIssueStatus(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, targetStatus.Id, "Moving this along", CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, targetStatus.Id, "Moving this along", dropUnusedAttributeValues: false, CancellationToken.None);
 
         var comment = await testScope.Database.IssueComments.SingleAsyncEF(x => x.IssueId == issueData.Issue.Id);
         Assert.Equal("Moving this along", comment.Text);
@@ -777,7 +779,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var currentStatusId = issueData.Issue.StatusId;
 
         await CreateIssueMcpService(testScope).EditIssueStatus(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, currentStatusId, "Should not land", CancellationToken.None);
+            AuthDataFor(organization.Id, ownerId), issueData.Key, currentStatusId, "Should not land", dropUnusedAttributeValues: false, CancellationToken.None);
 
         Assert.False(await testScope.Database.IssueComments.AnyAsyncEF(x => x.IssueId == issueData.Issue.Id));
     }
@@ -793,7 +795,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var issueData = organization.GetIssueData(0, 0, 0, 0);
 
         await Assert.ThrowsAsync<NotFoundException>(() => CreateIssueMcpService(testScope).EditIssueStatus(
-            AuthDataFor(organization.Id, ownerId), issueData.Key, statusId: 999_999, comment: null, CancellationToken.None));
+            AuthDataFor(organization.Id, ownerId), issueData.Key, statusId: 999_999, comment: null, dropUnusedAttributeValues: false, CancellationToken.None));
     }
 
     [Fact]
@@ -1370,7 +1372,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .AddListAttribute("Priority", ["Low", "High"]));
 
         var result = await CreateIssueMcpService(testScope)
-            .ListAttributes(AuthDataFor(organization.Id, ownerId), CancellationToken.None);
+            .ListAttributes(AuthDataFor(organization.Id, ownerId), epicId: null, CancellationToken.None);
 
         var summaryAttribute = organization.GetAttribute(0);
         var priorityAttribute = organization.GetAttribute(1);

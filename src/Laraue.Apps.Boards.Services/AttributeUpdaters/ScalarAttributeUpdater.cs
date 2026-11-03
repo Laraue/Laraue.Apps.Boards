@@ -80,27 +80,51 @@ public abstract class ScalarAttributeUpdater<TEntity, TValue, TRequest> : IScala
         }
 
         // Drop old
-        var toDelete = oldAttributes
-            .ExceptBy(requests.Select(x => x.Id), x => x.Key)
+        var toDelete = oldAttributes.Keys
+            .Except(requests.Select(x => x.Id))
             .ToArray();
-
         if (toDelete.Length != 0)
-            await dbSet
-                .Where(x => x.IssueId == issueId)
-                .Where(x => toDelete.Select(y => y.Key).Contains(x.AttributeId))
-                .ExecuteDeleteAsync(cancellationToken);
-
-        foreach (var deletable in toDelete)
         {
-            changes.Add(new OrganizationLogItem
-            {
-                OldDisplayValue = FormatValue(deletable.Value.Value),
-                PropertyType = PropertyType.Attribute,
-                PropertyName = attributeNameById[deletable.Key],
-                ParentId = deletable.Value.AttributeId.ToString(),
-            });
+            changes.AddRange(
+                (await Drop(context, [issueId], attributeNameById, toDelete, cancellationToken))
+                    .Select(x => x.LogItem));
         }
 
         return changes.ToArray();
+    }
+
+    public async Task<DroppedAttributeValue[]> Drop(
+        DatabaseContext context,
+        IReadOnlyCollection<long> issueIds,
+        Dictionary<long, string> attributeNameById,
+        IReadOnlyCollection<long> attributeIds,
+        CancellationToken cancellationToken)
+    {
+        var dbSet = context.Set<TEntity>();
+
+        var deletable = await dbSet
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => attributeIds.Contains(x.AttributeId))
+            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
+            .ToArrayAsyncEF(cancellationToken);
+        if (deletable.Length == 0)
+            return [];
+
+        await dbSet
+            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => attributeIds.Contains(x.AttributeId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return deletable
+            .Select(x => new DroppedAttributeValue(
+                x.IssueId,
+                new OrganizationLogItem
+                {
+                    OldDisplayValue = FormatValue(x.Value),
+                    PropertyType = PropertyType.Attribute,
+                    PropertyName = attributeNameById[x.AttributeId],
+                    ParentId = x.AttributeId.ToString(),
+                }))
+            .ToArray();
     }
 }

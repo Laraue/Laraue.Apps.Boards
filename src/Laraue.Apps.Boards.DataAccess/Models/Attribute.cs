@@ -19,6 +19,22 @@ public class Attribute
     public required string Color { get; set; }
     
     public required AttributeType AttributeType { get; set; }
+
+    /// <summary>
+    /// Whether the attribute is used in spaces and epics that don't override the attribute settings (BRD-179).
+    /// </summary>
+    public bool IsEnabled { get; set; }
+
+    /// <summary>
+    /// Whether the attribute's value is shown on issue cards in spaces and epics that don't override the attribute
+    /// settings.
+    /// </summary>
+    public bool ShowOnCard { get; set; }
+
+    /// <summary>
+    /// Position of the attribute among the organization's attributes - in forms and on cards, in every space and epic.
+    /// </summary>
+    public int SortOrder { get; set; }
     
     public List<AttributeListValue>? AttributeListValues { get; set; }
 }

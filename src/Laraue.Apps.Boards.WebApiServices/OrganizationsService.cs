@@ -254,12 +254,16 @@ public class OrganizationsService(
     {
         var result = await context.Attributes
             .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Id)
             .Select(x => new AttributeDto
             {
                 Type = x.AttributeType,
                 Color = x.Color,
                 Name = x.Name,
                 Id = x.Id,
+                IsEnabled = x.IsEnabled,
+                ShowOnCard = x.ShowOnCard,
                 ListValues = x.AttributeListValues!
                     .Select(v => new AttributeListValueDto
                     {
@@ -268,7 +272,6 @@ public class OrganizationsService(
                     })
                     .ToArray(),
             })
-            .OrderBy(x => x.Id)
             .ToArrayAsync(cancellationToken);
 
         return result;
@@ -496,6 +499,19 @@ public record AttributeDto
     public required string Name { get; set; }
     public required string Color { get; set; }
     public required AttributeType Type { get; set; }
+
+    /// <summary>
+    /// Whether the attribute is used (BRD-179): in the organization's list, its default for spaces and epics following
+    /// the organization's settings; in a space's or an epic's list, as in effect there.
+    /// </summary>
+    public required bool IsEnabled { get; set; }
+
+    /// <summary>
+    /// Whether the attribute's value is shown on cards - the organization's default or as in effect in a space or epic,
+    /// like <see cref="IsEnabled"/>.
+    /// </summary>
+    public required bool ShowOnCard { get; set; }
+
     public required AttributeListValueDto[] ListValues { get; set; }
 }
 

@@ -94,9 +94,16 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The target status's id, from list_statuses. Can belong to a different epic than the issue's current one.")] long statusId,
         [Description("A comment to post on the issue as part of this status change, e.g. explaining why, max 4096 characters. Omit to move the status with no comment.")] [MaxLength(Constraints.MaxCommentLength)] string? comment = null,
+        [Description("When the status is in another epic: true removes the issue's values of attributes that epic doesn't use (list_attributes with its epicId); false (default) keeps them - they stay on the issue but can't be set anew there.")] bool dropUnusedAttributeValues = false,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.EditIssueStatus(GetAuthData(), issueKey, statusId, comment, cancellationToken);
+        return issueMcpService.EditIssueStatus(
+            GetAuthData(),
+            issueKey,
+            statusId,
+            comment,
+            dropUnusedAttributeValues,
+            cancellationToken);
     }
 
     [McpServerTool]
@@ -181,10 +188,12 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists the caller's organization's custom issue attributes - id, name, type, and (for List-typed ones) allowed values with their own ids. What create_issue/edit_issue's attributes map accepts, keyed by id.")]
-    public Task<IReadOnlyList<AttributeSummary>> ListAttributes(CancellationToken cancellationToken)
+    [Description("Lists the caller's organization's custom issue attributes - id, name, type, and (for List-typed ones) allowed values with their own ids. What create_issue/edit_issue's attributes map accepts, keyed by id. An epic can use only some of them: pass its id to list just those - an issue there can't get a value for the others.")]
+    public Task<IReadOnlyList<AttributeSummary>> ListAttributes(
+        [Description("Only attributes used in this epic - the epicId of the status from list_statuses, of an issue from get_issue, or from list_epics (a space's backlog is its isDefault epic). Omit to list every attribute of the organization.")] long? epicId = null,
+        CancellationToken cancellationToken = default)
     {
-        return issueMcpService.ListAttributes(GetAuthData(), cancellationToken);
+        return issueMcpService.ListAttributes(GetAuthData(), epicId, cancellationToken);
     }
 
     [McpServerTool]

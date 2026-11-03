@@ -243,6 +243,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("character varying(7)")
                         .HasColumnName("color");
 
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -252,6 +256,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Property<long>("OrganizationId")
                         .HasColumnType("bigint")
                         .HasColumnName("organization_id");
+
+                    b.Property<bool>("ShowOnCard")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_on_card");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
 
                     b.HasKey("Id")
                         .HasName("pk_attributes");
@@ -428,6 +440,33 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasDatabaseName("ix_epics_user_id");
 
                     b.ToTable("epics", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.EpicAttributeSetting", b =>
+                {
+                    b.Property<long>("EpicId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("epic_id");
+
+                    b.Property<long>("AttributeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("attribute_id");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<bool>("ShowOnCard")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_on_card");
+
+                    b.HasKey("EpicId", "AttributeId")
+                        .HasName("pk_epic_attribute_settings");
+
+                    b.HasIndex("AttributeId")
+                        .HasDatabaseName("ix_epic_attribute_settings_attribute_id");
+
+                    b.ToTable("epic_attribute_settings", (string)null);
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.File", b =>
@@ -1674,6 +1713,33 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("spaces", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.SpaceAttributeSetting", b =>
+                {
+                    b.Property<long>("SpaceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("space_id");
+
+                    b.Property<long>("AttributeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("attribute_id");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<bool>("ShowOnCard")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_on_card");
+
+                    b.HasKey("SpaceId", "AttributeId")
+                        .HasName("pk_space_attribute_settings");
+
+                    b.HasIndex("AttributeId")
+                        .HasDatabaseName("ix_space_attribute_settings_attribute_id");
+
+                    b.ToTable("space_attribute_settings", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.SpaceCounter", b =>
                 {
                     b.Property<long>("SpaceId")
@@ -2249,6 +2315,27 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Space");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.EpicAttributeSetting", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Attribute", "Attribute")
+                        .WithMany()
+                        .HasForeignKey("AttributeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_epic_attribute_settings_attributes_attribute_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Epic", "Epic")
+                        .WithMany()
+                        .HasForeignKey("EpicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_epic_attribute_settings_epics_epic_id");
+
+                    b.Navigation("Attribute");
+
+                    b.Navigation("Epic");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Issue", b =>
@@ -2854,6 +2941,27 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("DeletedByUser");
 
                     b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.SpaceAttributeSetting", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Attribute", "Attribute")
+                        .WithMany()
+                        .HasForeignKey("AttributeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_space_attribute_settings_attributes_attribute_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Space", "Space")
+                        .WithMany()
+                        .HasForeignKey("SpaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_space_attribute_settings_spaces_space_id");
+
+                    b.Navigation("Attribute");
+
+                    b.Navigation("Space");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.SpaceLink", b =>
