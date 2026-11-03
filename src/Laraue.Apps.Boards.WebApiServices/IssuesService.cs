@@ -1479,6 +1479,7 @@ public class IssuesService(
                     {
                         AttributeId = setting.AttributeId,
                         Name = setting.Name,
+                        Type = setting.Type,
                         Value = value,
                         Color = setting.Color,
                     });
@@ -2000,6 +2001,11 @@ public record IssueListAttributeDto
 {
     public required long AttributeId { get; set; }
     public required string Name { get; set; }
+
+    /// <summary>
+    /// How to read <see cref="Value"/>: dates and date-times come in ISO 8601.
+    /// </summary>
+    public required AttributeType Type { get; set; }
     public required string Value { get; set; }
     public required string Color { get; set; }
 }

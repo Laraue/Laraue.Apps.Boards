@@ -10,11 +10,11 @@ using Microsoft.EntityFrameworkCore;
 namespace Laraue.Apps.Boards.IntegrationTests;
 
 /// <summary>
-/// Which attributes a space or an epic uses and shows on cards (BRD-179): the organization's defaults, a space's own
-/// settings, an epic's own settings.
+/// Which attributes a space or an epic uses and shows on cards (BRD-179): the organization's defaults, or a space's
+/// or an epic's own settings, saved with the rest of its settings.
 /// </summary>
 [Collection("IntegrationTest")]
-public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
+public class AttributeSettingsSaveTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
 {
     private readonly Proxy<SpacesController> _spacesController = host.Controller<SpacesController>();
     private readonly Proxy<EpicsController> _epicsController = host.Controller<EpicsController>();
@@ -37,112 +37,108 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
     }
 
     [Fact]
-    public async Task OverrideSpaceSettings_ShouldCopyOrganizationDefaultsAndKeepThem_WhenDefaultsChangeLater()
+    public async Task UpdateSpace_ShouldSaveOwnSettingsAndKeepThem_WhenOrganizationDefaultsChangeLater()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
-        await SetOrganizationDefaultsAsync(testScope, organization, "Priority", isEnabled: true, showOnCard: false);
 
-        var overridden = await OverrideSpaceSettingsAsync(organization.Id, ownerId);
+        await UpdateSpaceAsync(
+            organization.Id,
+            ownerId,
+            Own(Setting(organization, "Type", true, false), Setting(organization, "Priority", true, true)));
         await SetOrganizationDefaultsAsync(testScope, organization, "Type", isEnabled: false, showOnCard: false);
 
-        Assert.Equal(AttributeSettingsSource.Space, overridden.Source);
         var settings = await GetSpaceSettingsAsync(organization.Id, ownerId);
         Assert.Equal(AttributeSettingsSource.Space, settings.Source);
         Assert.Equal(
-            [("Type", true, true), ("Priority", true, false)],
+            [("Type", true, false), ("Priority", true, true)],
             settings.Attributes.Select(x => (x.Name, x.IsEnabled, x.ShowOnCard)));
     }
 
     [Fact]
-    public async Task UpdateSpaceSettings_ShouldSaveThemAndTurnOffAttributesLeftOut_WhenSpaceHasOwnSettings()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
-
-        var settings = await UpdateSpaceSettingsAsync(
-            organization.Id,
-            ownerId,
-            [Setting(AttributeId(organization, "Type"), isEnabled: true, showOnCard: false)]);
-
-        Assert.Equal(
-            [("Type", true, false), ("Priority", false, false)],
-            settings.Attributes.Select(x => (x.Name, x.IsEnabled, x.ShowOnCard)));
-    }
-
-    [Fact]
-    public async Task UpdateSpaceSettings_ShouldReturnBadRequest_WhenSpaceFollowsOrganization()
+    public async Task UpdateSpace_ShouldTurnOffAttributesLeftOut_WhenSavingOwnSettings()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
 
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateSpaceSettingsAsync(
-            organization.Id,
-            ownerId,
-            [Setting(AttributeId(organization, "Type"), isEnabled: false, showOnCard: false)]));
+        await UpdateSpaceAsync(organization.Id, ownerId, Own(Setting(organization, "Type", true, true)));
 
-        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
-    }
-
-    [Fact]
-    public async Task UpdateSpaceSettings_ShouldReturnBadRequestAndChangeNothing_WhenAttributeIsFromAnotherOrganization()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        var otherOrganization = await testScope.InitializeOrganization(ownerId, org => org
-            .AddTextAttribute("Foreign"));
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateSpaceSettingsAsync(
-            organization.Id,
-            ownerId,
-            [
-                Setting(AttributeId(organization, "Type"), isEnabled: false, showOnCard: false),
-                Setting(otherOrganization.GetAttribute(0).Id, isEnabled: true, showOnCard: true),
-            ]));
-
-        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
         var settings = await GetSpaceSettingsAsync(organization.Id, ownerId);
-        Assert.True(settings.Attributes.Single(x => x.Name == "Type").IsEnabled);
+        Assert.Equal(
+            [("Type", true, true), ("Priority", false, false)],
+            settings.Attributes.Select(x => (x.Name, x.IsEnabled, x.ShowOnCard)));
     }
 
     [Fact]
-    public async Task UpdateSpaceSettings_ShouldReturnBadRequest_WhenAttributeIsListedTwice()
+    public async Task UpdateSpace_ShouldReturnBadRequestAndChangeNothing_WhenAttributeIsFromAnotherOrganization()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
-        var typeId = AttributeId(organization, "Type");
+        var otherOrganization = await testScope.InitializeOrganization(ownerId, org => org.AddTextAttribute("Foreign"));
+        var foreign = new AttributeSettingInput
+        {
+            AttributeId = otherOrganization.GetAttribute(0).Id,
+            IsEnabled = true,
+            ShowOnCard = true,
+        };
 
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateSpaceSettingsAsync(
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateSpaceAsync(
             organization.Id,
             ownerId,
-            [Setting(typeId, isEnabled: true, showOnCard: true), Setting(typeId, isEnabled: false, showOnCard: false)]));
+            Own(Setting(organization, "Type", false, false), foreign),
+            name: "Renamed space"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+        Assert.Equal(AttributeSettingsSource.Organization, (await GetSpaceSettingsAsync(organization.Id, ownerId)).Source);
+        var spaceId = Space(organization).Id;
+        var space = await testScope.Database.Spaces.AsNoTracking().SingleAsync(x => x.Id == spaceId);
+        Assert.NotEqual("Renamed space", space.Name);
+    }
+
+    [Fact]
+    public async Task UpdateSpace_ShouldReturnBadRequest_WhenAttributeIsListedTwice()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await InitializeAsync(testScope, ownerId);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateSpaceAsync(
+            organization.Id,
+            ownerId,
+            Own(Setting(organization, "Type", true, true), Setting(organization, "Type", false, false))));
 
         Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
     }
 
     [Fact]
-    public async Task ResetSpaceSettings_ShouldFollowOrganizationAgain_WhenSpaceHadOwnSettings()
+    public async Task UpdateSpace_ShouldFollowOrganizationAgain_WhenOwnSettingsAreDropped()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
-        await UpdateSpaceSettingsAsync(organization.Id, ownerId, []);
+        await UpdateSpaceAsync(organization.Id, ownerId, Own());
 
-        var settings = await _spacesController
-            .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.ResetAttributeSettings(SpaceKey, CancellationToken.None));
+        await UpdateSpaceAsync(organization.Id, ownerId, Inherited());
 
+        var settings = await GetSpaceSettingsAsync(organization.Id, ownerId);
         Assert.Equal(AttributeSettingsSource.Organization, settings.Source);
         Assert.All(settings.Attributes, x => Assert.True(x.IsEnabled));
+    }
+
+    [Fact]
+    public async Task UpdateSpace_ShouldKeepOwnSettings_WhenAttributeSettingsAreNotSent()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await InitializeAsync(testScope, ownerId);
+        await UpdateSpaceAsync(organization.Id, ownerId, Own(Setting(organization, "Type", true, true)));
+
+        await UpdateSpaceAsync(organization.Id, ownerId, attributeSettings: null);
+
+        Assert.Equal(AttributeSettingsSource.Space, (await GetSpaceSettingsAsync(organization.Id, ownerId)).Source);
     }
 
     [Fact]
@@ -151,7 +147,10 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
+        await UpdateSpaceAsync(
+            organization.Id,
+            ownerId,
+            Own(Setting(organization, "Type", true, true), Setting(organization, "Priority", true, true)));
 
         await _adminController
             .WithOrganizationAuthorization(organization.Id, ownerId)
@@ -159,11 +158,8 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
                 new CreateAttributeRequest { Name = "Story points", Color = "#000000", Type = AttributeType.Integer },
                 CancellationToken.None));
 
-        var settings = await GetSpaceSettingsAsync(organization.Id, ownerId);
-        var storyPoints = settings.Attributes.Last();
-        Assert.Equal("Story points", storyPoints.Name);
-        Assert.False(storyPoints.IsEnabled);
-        Assert.False(storyPoints.ShowOnCard);
+        var storyPoints = (await GetSpaceSettingsAsync(organization.Id, ownerId)).Attributes.Last();
+        Assert.Equal(("Story points", false, false), (storyPoints.Name, storyPoints.IsEnabled, storyPoints.ShowOnCard));
     }
 
     [Fact]
@@ -172,7 +168,7 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
+        await UpdateSpaceAsync(organization.Id, ownerId, Own(Setting(organization, "Type", true, true)));
         var priorityId = AttributeId(organization, "Priority");
 
         await _adminController
@@ -191,87 +187,51 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
-        await UpdateSpaceSettingsAsync(
-            organization.Id,
-            ownerId,
-            [Setting(AttributeId(organization, "Type"), isEnabled: true, showOnCard: true)]);
+        await UpdateSpaceAsync(organization.Id, ownerId, Own(Setting(organization, "Type", true, true)));
 
         var settings = await GetEpicSettingsAsync(organization.Id, ownerId, SprintId(organization));
 
         Assert.Equal(AttributeSettingsSource.Space, settings.Source);
-        Assert.Equal(
-            [("Type", true), ("Priority", false)],
-            settings.Attributes.Select(x => (x.Name, x.IsEnabled)));
+        Assert.Equal([("Type", true), ("Priority", false)], settings.Attributes.Select(x => (x.Name, x.IsEnabled)));
     }
 
     [Fact]
-    public async Task OverrideEpicSettings_ShouldCopySpaceSettingsAndKeepThem_WhenSpaceSettingsChangeLater()
+    public async Task UpdateEpic_ShouldSaveOwnSettingsAndKeepThem_WhenSpaceSettingsChangeLater()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
         var sprintId = SprintId(organization);
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
-        await UpdateSpaceSettingsAsync(
-            organization.Id,
-            ownerId,
-            [Setting(AttributeId(organization, "Type"), isEnabled: true, showOnCard: true)]);
 
-        await OverrideEpicSettingsAsync(organization.Id, ownerId, sprintId);
-        await UpdateSpaceSettingsAsync(organization.Id, ownerId, []);
+        await UpdateEpicAsync(organization.Id, ownerId, sprintId, Own(Setting(organization, "Priority", true, true)));
+        await UpdateSpaceAsync(organization.Id, ownerId, Own());
 
         var settings = await GetEpicSettingsAsync(organization.Id, ownerId, sprintId);
         Assert.Equal(AttributeSettingsSource.Epic, settings.Source);
-        Assert.Equal(
-            [("Type", true), ("Priority", false)],
-            settings.Attributes.Select(x => (x.Name, x.IsEnabled)));
-    }
-
-    [Fact]
-    public async Task UpdateEpicSettings_ShouldNotChangeSpaceSettings_WhenEpicHasOwnSettings()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        var sprintId = SprintId(organization);
-        await OverrideEpicSettingsAsync(organization.Id, ownerId, sprintId);
-        var request = new UpdateEpicAttributeSettingsRequest
-        {
-            Settings = [Setting(AttributeId(organization, "Priority"), isEnabled: true, showOnCard: true)],
-        };
-
-        var epicSettings = await _epicsController
-            .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.UpdateAttributeSettings(sprintId, request, CancellationToken.None));
-
-        Assert.Equal(
-            [("Type", false), ("Priority", true)],
-            epicSettings.Attributes.Select(x => (x.Name, x.IsEnabled)));
+        Assert.Equal([("Type", false), ("Priority", true)], settings.Attributes.Select(x => (x.Name, x.IsEnabled)));
         var spaceSettings = await GetSpaceSettingsAsync(organization.Id, ownerId);
-        Assert.Equal(AttributeSettingsSource.Organization, spaceSettings.Source);
-        Assert.All(spaceSettings.Attributes, x => Assert.True(x.IsEnabled));
+        Assert.All(spaceSettings.Attributes, x => Assert.False(x.IsEnabled));
     }
 
     [Fact]
-    public async Task ResetEpicSettings_ShouldFollowSpaceAgain_WhenEpicHadOwnSettings()
+    public async Task UpdateEpic_ShouldFollowSpaceAgain_WhenOwnSettingsAreDropped()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
         var sprintId = SprintId(organization);
-        await OverrideEpicSettingsAsync(organization.Id, ownerId, sprintId);
+        await UpdateEpicAsync(organization.Id, ownerId, sprintId, Own());
 
-        var settings = await _epicsController
-            .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.ResetAttributeSettings(sprintId, CancellationToken.None));
+        await UpdateEpicAsync(organization.Id, ownerId, sprintId, Inherited());
 
-        Assert.Equal(AttributeSettingsSource.Organization, settings.Source);
+        Assert.Equal(
+            AttributeSettingsSource.Organization,
+            (await GetEpicSettingsAsync(organization.Id, ownerId, sprintId)).Source);
         Assert.False(await testScope.Database.EpicAttributeSettings.AnyAsync(x => x.EpicId == sprintId));
     }
 
     [Fact]
-    public async Task OverrideEpicSettings_ShouldReturnBadRequest_WhenEpicIsBacklog()
+    public async Task UpdateEpic_ShouldReturnBadRequestAndChangeNothing_WhenBacklogGetsOwnSettings()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -279,10 +239,29 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
         var backlogId = Space(organization).Epics!.Single(x => x.IsDefault).Id;
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => OverrideEpicSettingsAsync(organization.Id, ownerId, backlogId));
+            () => UpdateEpicAsync(organization.Id, ownerId, backlogId, Own(), name: "Renamed backlog"));
 
         Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
         Assert.False(await testScope.Database.EpicAttributeSettings.AnyAsync(x => x.EpicId == backlogId));
+        var backlog = await testScope.Database.Epics.AsNoTracking().SingleAsync(x => x.Id == backlogId);
+        Assert.NotEqual("Renamed backlog", backlog.Name);
+    }
+
+    [Fact]
+    public async Task GetEpicSettings_ShouldIncludeSpaceSettingsAsInherited_WhenEpicHasOwnSettings()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await InitializeAsync(testScope, ownerId);
+        var sprintId = SprintId(organization);
+        await UpdateSpaceAsync(organization.Id, ownerId, Own(Setting(organization, "Type", true, true)));
+        await UpdateEpicAsync(organization.Id, ownerId, sprintId, Own());
+
+        var settings = await GetEpicSettingsAsync(organization.Id, ownerId, sprintId);
+
+        Assert.Equal(AttributeSettingsSource.Epic, settings.Source);
+        Assert.Equal(AttributeSettingsSource.Space, settings.Inherited.Source);
+        Assert.Equal([("Type", true), ("Priority", false)], settings.Inherited.Attributes.Select(x => (x.Name, x.IsEnabled)));
     }
 
     [Fact]
@@ -292,7 +271,7 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
         var backlogId = Space(organization).Epics!.Single(x => x.IsDefault).Id;
-        await OverrideSpaceSettingsAsync(organization.Id, ownerId);
+        await UpdateSpaceAsync(organization.Id, ownerId, Own());
 
         var settings = await GetEpicSettingsAsync(organization.Id, ownerId, backlogId);
 
@@ -307,14 +286,13 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
         var strangerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId, org => org.AddUser(strangerId));
 
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => GetSpaceSettingsAsync(organization.Id, strangerId));
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => GetSpaceSettingsAsync(organization.Id, strangerId));
 
         Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
     }
 
     [Fact]
-    public async Task OverrideSpaceSettings_ShouldReturnForbiddenAndChangeNothing_WhenCallerCanOnlyReadSpace()
+    public async Task UpdateSpace_ShouldReturnForbiddenAndChangeNothing_WhenCallerCanOnlyReadSpace()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -324,30 +302,14 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
                 .SetGlobalAccessLevel(x => x.CanRead = true)));
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => OverrideSpaceSettingsAsync(organization.Id, readerId));
+            () => UpdateSpaceAsync(organization.Id, readerId, Own()));
 
         Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
-        Assert.Equal(
-            AttributeSettingsSource.Organization,
-            (await GetSpaceSettingsAsync(organization.Id, readerId)).Source);
+        Assert.Equal(AttributeSettingsSource.Organization, (await GetSpaceSettingsAsync(organization.Id, readerId)).Source);
     }
 
     [Fact]
-    public async Task OverrideEpicSettings_ShouldReturnNotFound_WhenCallerCannotReadSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var strangerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId, org => org.AddUser(strangerId));
-
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => OverrideEpicSettingsAsync(organization.Id, strangerId, SprintId(organization)));
-
-        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
-    }
-
-    [Fact]
-    public async Task OverrideEpicSettings_ShouldReturnForbidden_WhenCallerCanUpdateIssuesButNotEpics()
+    public async Task UpdateEpic_ShouldReturnForbidden_WhenCallerCanUpdateIssuesButNotEpics()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -357,13 +319,13 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
                 .SetGlobalAccessLevel(x => x.CanUpdateIssues = true)));
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(
-            () => OverrideEpicSettingsAsync(organization.Id, editorId, SprintId(organization)));
+            () => UpdateEpicAsync(organization.Id, editorId, SprintId(organization), Own()));
 
         Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
     }
 
     [Fact]
-    public async Task OverrideEpicSettings_ShouldSucceed_WhenCallerCanUpdateEpics()
+    public async Task UpdateEpic_ShouldSaveOwnSettings_WhenCallerCanUpdateEpics()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -375,10 +337,11 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
                     x.CanRead = true;
                     x.CanUpdateEpics = true;
                 })));
+        var sprintId = SprintId(organization);
 
-        var settings = await OverrideEpicSettingsAsync(organization.Id, editorId, SprintId(organization));
+        await UpdateEpicAsync(organization.Id, editorId, sprintId, Own());
 
-        Assert.Equal(AttributeSettingsSource.Epic, settings.Source);
+        Assert.Equal(AttributeSettingsSource.Epic, (await GetEpicSettingsAsync(organization.Id, editorId, sprintId)).Source);
     }
 
     private const string SpaceKey = "ATR";
@@ -414,9 +377,24 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
         return organization.Attributes!.Single(x => x.Name == name).Id;
     }
 
-    private static AttributeSettingInput Setting(long attributeId, bool isEnabled, bool showOnCard)
+    private static AttributeSettingInput Setting(Organization organization, string name, bool isEnabled, bool showOnCard)
     {
-        return new AttributeSettingInput { AttributeId = attributeId, IsEnabled = isEnabled, ShowOnCard = showOnCard };
+        return new AttributeSettingInput
+        {
+            AttributeId = AttributeId(organization, name),
+            IsEnabled = isEnabled,
+            ShowOnCard = showOnCard,
+        };
+    }
+
+    private static AttributeSettingsUpdate Own(params AttributeSettingInput[] settings)
+    {
+        return new AttributeSettingsUpdate { Overridden = true, Settings = settings };
+    }
+
+    private static AttributeSettingsUpdate Inherited()
+    {
+        return new AttributeSettingsUpdate { Overridden = false };
     }
 
     private static Task SetOrganizationDefaultsAsync(
@@ -434,44 +412,48 @@ public class AttributeSettingsControllerTests(WebApiTestHost host) : IClassFixtu
                 .SetProperty(x => x.ShowOnCard, showOnCard));
     }
 
-    private Task<AttributeSettingsDto> GetSpaceSettingsAsync(long organizationId, Guid userId)
+    private Task<AttributeSettingsViewDto> GetSpaceSettingsAsync(long organizationId, Guid userId)
     {
         return _spacesController
             .WithOrganizationAuthorization(organizationId, userId)
             .Execute(x => x.GetAttributeSettings(SpaceKey, CancellationToken.None));
     }
 
-    private Task<AttributeSettingsDto> OverrideSpaceSettingsAsync(long organizationId, Guid userId)
-    {
-        return _spacesController
-            .WithOrganizationAuthorization(organizationId, userId)
-            .Execute(x => x.OverrideAttributeSettings(SpaceKey, CancellationToken.None));
-    }
-
-    private Task<AttributeSettingsDto> UpdateSpaceSettingsAsync(
-        long organizationId,
-        Guid userId,
-        AttributeSettingInput[] settings)
-    {
-        return _spacesController
-            .WithOrganizationAuthorization(organizationId, userId)
-            .Execute(x => x.UpdateAttributeSettings(
-                SpaceKey,
-                new UpdateSpaceAttributeSettingsRequest { Settings = settings },
-                CancellationToken.None));
-    }
-
-    private Task<AttributeSettingsDto> GetEpicSettingsAsync(long organizationId, Guid userId, long epicId)
+    private Task<AttributeSettingsViewDto> GetEpicSettingsAsync(long organizationId, Guid userId, long epicId)
     {
         return _epicsController
             .WithOrganizationAuthorization(organizationId, userId)
             .Execute(x => x.GetAttributeSettings(epicId, CancellationToken.None));
     }
 
-    private Task<AttributeSettingsDto> OverrideEpicSettingsAsync(long organizationId, Guid userId, long epicId)
+    private Task UpdateSpaceAsync(
+        long organizationId,
+        Guid userId,
+        AttributeSettingsUpdate? attributeSettings,
+        string name = "Space name")
     {
+        var request = new UpdateSpaceRequest
+        {
+            Name = name,
+            Color = "#ffffff",
+            NewKey = SpaceKey,
+            AttributeSettings = attributeSettings,
+        };
+        return _spacesController
+            .WithOrganizationAuthorization(organizationId, userId)
+            .Execute(x => x.Update(SpaceKey, request, CancellationToken.None));
+    }
+
+    private Task UpdateEpicAsync(
+        long organizationId,
+        Guid userId,
+        long epicId,
+        AttributeSettingsUpdate? attributeSettings,
+        string name = "Sprint")
+    {
+        var request = new UpdateEpicRequest { Name = name, Color = "#121212", AttributeSettings = attributeSettings };
         return _epicsController
             .WithOrganizationAuthorization(organizationId, userId)
-            .Execute(x => x.OverrideAttributeSettings(epicId, CancellationToken.None));
+            .Execute(x => x.Update(epicId, request, CancellationToken.None));
     }
 }

@@ -142,54 +142,11 @@ public class SpacesController(
     }
 
     [HttpGet("{key}/attribute-settings")]
-    public Task<AttributeSettingsDto> GetAttributeSettings(
+    public Task<AttributeSettingsViewDto> GetAttributeSettings(
         string key,
         CancellationToken cancellationToken = default)
     {
         return attributeSettingsService.GetForSpace(
-            new SpaceAttributeSettingsRequest
-            {
-                Key = key,
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-            },
-            cancellationToken);
-    }
-
-    [HttpPost("{key}/attribute-settings/override")]
-    public Task<AttributeSettingsDto> OverrideAttributeSettings(
-        string key,
-        CancellationToken cancellationToken = default)
-    {
-        return attributeSettingsService.OverrideSpace(
-            new SpaceAttributeSettingsRequest
-            {
-                Key = key,
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-            },
-            cancellationToken);
-    }
-
-    [HttpPut("{key}/attribute-settings")]
-    public Task<AttributeSettingsDto> UpdateAttributeSettings(
-        string key,
-        [FromBody] UpdateSpaceAttributeSettingsRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        return attributeSettingsService.UpdateSpace(
-            request with
-            {
-                Key = key,
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-            },
-            cancellationToken);
-    }
-
-    [HttpDelete("{key}/attribute-settings")]
-    public Task<AttributeSettingsDto> ResetAttributeSettings(
-        string key,
-        CancellationToken cancellationToken = default)
-    {
-        return attributeSettingsService.ResetSpace(
             new SpaceAttributeSettingsRequest
             {
                 Key = key,

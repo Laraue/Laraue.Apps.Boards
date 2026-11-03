@@ -30,7 +30,21 @@ public interface ICoreStatusService
         long id,
         Action<UpdateSettersBuilder<Laraue.Apps.Boards.DataAccess.Models.Status>> setters,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Makes <paramref name="statuses"/> the epic's statuses, in that order: one with an id is updated, one without is
+    /// added, and the epic's other statuses are soft-deleted with their issues, as <see cref="Delete"/> does.
+    /// <see cref="BadRequestException"/> when the list is empty, or an id isn't one of the epic's statuses or is
+    /// listed twice. Requires a transaction.
+    /// </summary>
+    Task ReplaceForEpic(
+        long epicId,
+        IReadOnlyList<EpicStatusChange> statuses,
+        Guid deleterId,
+        CancellationToken cancellationToken);
 }
+
+public sealed record EpicStatusChange(long? Id, string Name, string? Color, StatusCategory Category);
 
 public class CoreStatusService(
     DatabaseContext context,
@@ -139,6 +153,96 @@ public class CoreStatusService(
             .ExecuteUpdateAsync(setters, cancellationToken);
 
         // The category may have changed, which changes what every issue in the status means.
+        await epicStateService.RecalculateStatuses([epicId], cancellationToken);
+    }
+
+    public async Task ReplaceForEpic(
+        long epicId,
+        IReadOnlyList<EpicStatusChange> statuses,
+        Guid deleterId,
+        CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        var existingIds = await context.ActiveStatuses()
+            .Where(x => x.EpicId == epicId)
+            .Select(x => x.Id)
+            .ToArrayAsyncEF(cancellationToken);
+        var existing = existingIds.ToHashSet();
+
+        var errors = new Dictionary<string, string?[]>();
+        if (statuses.Count == 0)
+        {
+            errors[nameof(statuses)] = ["A board needs at least one column"];
+        }
+
+        var seen = new HashSet<long>();
+        for (var i = 0; i < statuses.Count; i++)
+        {
+            if (statuses[i].Id is not { } id)
+                continue;
+            if (!existing.Contains(id))
+                errors[$"{nameof(statuses)}[{i}].id"] = [$"Status: {id} is not one of the board's columns"];
+            else if (!seen.Add(id))
+                errors[$"{nameof(statuses)}[{i}].id"] = [$"Status: {id} is listed more than once"];
+        }
+
+        if (errors.Count > 0)
+            throw new BadRequestException(errors);
+
+        var deletedIds = existingIds
+            .Where(x => !seen.Contains(x))
+            .ToArray();
+        if (deletedIds.Length > 0)
+        {
+            var deletedAt = dateTimeProvider.UtcNow;
+
+            await context.Issues
+                .Where(x => deletedIds.Contains(x.StatusId))
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(p => p.DeletedAt, deletedAt)
+                    .SetProperty(p => p.DeletedByUserId, deleterId),
+                    cancellationToken);
+
+            await context.Statuses
+                .Where(x => deletedIds.Contains(x.Id))
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(p => p.DeletedAt, deletedAt)
+                    .SetProperty(p => p.DeletedByUserId, deleterId),
+                    cancellationToken);
+        }
+
+        for (var i = 0; i < statuses.Count; i++)
+        {
+            var status = statuses[i];
+            var sortOrder = i + 1;
+            if (status.Id is { } id)
+            {
+                await context.Statuses
+                    .Where(x => x.Id == id)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(p => p.Name, status.Name)
+                        .SetProperty(p => p.Color, status.Color ?? Palette.DefaultStatusColor)
+                        .SetProperty(p => p.Category, status.Category)
+                        .SetProperty(p => p.SortOrder, sortOrder),
+                        cancellationToken);
+            }
+            else
+            {
+                context.Statuses.Add(new Laraue.Apps.Boards.DataAccess.Models.Status
+                {
+                    Name = status.Name,
+                    EpicId = epicId,
+                    SortOrder = sortOrder,
+                    Color = status.Color ?? Palette.DefaultStatusColor,
+                    Category = status.Category,
+                });
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        // Categories may have changed and issues may have gone with a deleted status.
         await epicStateService.RecalculateStatuses([epicId], cancellationToken);
     }
 }

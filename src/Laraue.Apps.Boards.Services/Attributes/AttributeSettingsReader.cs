@@ -22,6 +22,16 @@ public interface IAttributeSettingsReader
     Task<AttributeSettingsDto> GetForEpic(long epicId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// What the space would follow without its own settings: the organization's defaults.
+    /// </summary>
+    Task<AttributeSettingsDto> GetInheritedForSpace(long spaceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What the epic would follow without its own settings: its space's.
+    /// </summary>
+    Task<AttributeSettingsDto> GetInheritedForEpic(long epicId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// <see cref="GetForEpic"/> for several epics at once - e.g. the epics of the issues on a page. Epics that don't
     /// exist are left out.
     /// </summary>
@@ -113,6 +123,29 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
             epic.SpaceOverrides ? AttributeSettingsSource.Space : AttributeSettingsSource.Organization,
             epic.SpaceId,
             cancellationToken);
+    }
+
+    public async Task<AttributeSettingsDto> GetInheritedForSpace(long spaceId, CancellationToken cancellationToken)
+    {
+        var organizationId = await context.Spaces
+            .Where(x => x.Id == spaceId)
+            .Select(x => x.OrganizationId)
+            .FirstAsync(cancellationToken);
+
+        return Combine(
+            AttributeSettingsSource.Organization,
+            await GetDefaults(organizationId, cancellationToken),
+            overrides: null);
+    }
+
+    public async Task<AttributeSettingsDto> GetInheritedForEpic(long epicId, CancellationToken cancellationToken)
+    {
+        var spaceId = await context.Epics
+            .Where(x => x.Id == epicId)
+            .Select(x => x.SpaceId)
+            .FirstAsync(cancellationToken);
+
+        return await GetForSpace(spaceId, cancellationToken);
     }
 
     public async Task<Dictionary<long, AttributeSettingsDto>> GetForEpics(

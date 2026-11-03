@@ -39,9 +39,6 @@
     <data name="SpaceLinksLimitReached" xml:space="preserve">
         <value>A space can have at most {0} links</value>
     </data>
-    <data name="AttributeSettingsNotOverridden" xml:space="preserve">
-        <value>The attribute settings are inherited here - override them first</value>
-    </data>
     <data name="BacklogAttributeSettingsFollowSpace" xml:space="preserve">
         <value>The backlog always follows its space's attribute settings</value>
     </data>

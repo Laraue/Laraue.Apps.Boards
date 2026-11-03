@@ -114,54 +114,11 @@ public class EpicsController(
     }
 
     [HttpGet("{id:long}/attribute-settings")]
-    public Task<AttributeSettingsDto> GetAttributeSettings(
+    public Task<AttributeSettingsViewDto> GetAttributeSettings(
         long id,
         CancellationToken cancellationToken = default)
     {
         return attributeSettingsService.GetForEpic(
-            new EpicAttributeSettingsRequest
-            {
-                Id = id,
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-            },
-            cancellationToken);
-    }
-
-    [HttpPost("{id:long}/attribute-settings/override")]
-    public Task<AttributeSettingsDto> OverrideAttributeSettings(
-        long id,
-        CancellationToken cancellationToken = default)
-    {
-        return attributeSettingsService.OverrideEpic(
-            new EpicAttributeSettingsRequest
-            {
-                Id = id,
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-            },
-            cancellationToken);
-    }
-
-    [HttpPut("{id:long}/attribute-settings")]
-    public Task<AttributeSettingsDto> UpdateAttributeSettings(
-        long id,
-        [FromBody] UpdateEpicAttributeSettingsRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        return attributeSettingsService.UpdateEpic(
-            request with
-            {
-                Id = id,
-                AuthData = HttpContext.User.GetOrganizationAuthData(),
-            },
-            cancellationToken);
-    }
-
-    [HttpDelete("{id:long}/attribute-settings")]
-    public Task<AttributeSettingsDto> ResetAttributeSettings(
-        long id,
-        CancellationToken cancellationToken = default)
-    {
-        return attributeSettingsService.ResetEpic(
             new EpicAttributeSettingsRequest
             {
                 Id = id,
