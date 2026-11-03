@@ -214,13 +214,12 @@ public interface IIssueMcpService
     /// <summary>
     /// Lists the custom attributes of the caller's organization, in its order - the ids/types a caller can pass to
     /// <see cref="CreateIssue"/>/<see cref="EditIssue"/>'s <c>attributes</c> map, and for list-typed attributes, the
-    /// allowed values (each with its own id, to pass as the value). With <paramref name="epicId"/> (or else
-    /// <paramref name="spaceKey"/>), only those used in that epic (space) (BRD-179): an issue there can't get a value
-    /// for the others.
+    /// allowed values (each with its own id, to pass as the value). With <paramref name="epicId"/>, only those used in
+    /// that epic (BRD-179): an issue there can't get a value for the others. A space's backlog is an epic too, following
+    /// the space's settings.
     /// </summary>
     Task<IReadOnlyList<AttributeSummary>> ListAttributes(
         OrganizationAuthData authData,
-        string? spaceKey,
         long? epicId,
         CancellationToken cancellationToken);
 
@@ -1242,7 +1241,6 @@ public class IssueMcpService(
 
     public async Task<IReadOnlyList<AttributeSummary>> ListAttributes(
         OrganizationAuthData authData,
-        string? spaceKey,
         long? epicId,
         CancellationToken cancellationToken)
     {
@@ -1253,15 +1251,6 @@ public class IssueMcpService(
                 .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Epic", epicId))
                 .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Epic", epicId));
             usedAttributeIds = GetEnabledIds(await attributeSettingsReader.GetForEpic(epicId.Value, cancellationToken));
-        }
-        else if (spaceKey is not null)
-        {
-            var spaceId = await coreSpacesService
-                .GetSpaceIdBySpaceKey(authData.OrganizationId, spaceKey, cancellationToken);
-            await accessService.GetAccessLevelsBySpaceId(authData, spaceId, includeDeleted: false, cancellationToken)
-                .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey))
-                .EnsureOrThrowNotFound(a => a.CanRead, string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Space", spaceKey));
-            usedAttributeIds = GetEnabledIds(await attributeSettingsReader.GetForSpace(spaceId, cancellationToken));
         }
 
         var query = context.Attributes

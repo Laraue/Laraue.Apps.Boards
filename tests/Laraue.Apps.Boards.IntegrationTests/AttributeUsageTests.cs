@@ -185,7 +185,7 @@ public class AttributeUsageTests(WebApiTestHost host) : IClassFixture<WebApiTest
     }
 
     [Fact]
-    public async Task McpListAttributes_ShouldListOnlyAttributesEnabledInEpic_WhenEpicIdIsGiven()
+    public async Task McpListAttributes_ShouldListOnlyAttributesUsedInEpic_WhenEpicIdIsGiven()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -194,11 +194,14 @@ public class AttributeUsageTests(WebApiTestHost host) : IClassFixture<WebApiTest
         var mcpService = IssueMcpServiceTests.CreateIssueMcpService(testScope);
         var authData = IssueMcpServiceTests.AuthDataFor(organization.Id, ownerId);
 
-        var inEpic = await mcpService.ListAttributes(authData, spaceKey: null, Sprint(organization).Id, CancellationToken.None);
-        var inSpace = await mcpService.ListAttributes(authData, SpaceKey, epicId: null, CancellationToken.None);
+        var backlogId = Space(organization).Epics!.Single(x => x.IsDefault).Id;
+
+        var inEpic = await mcpService.ListAttributes(authData, Sprint(organization).Id, CancellationToken.None);
+        // The backlog follows its space, which follows the organization here.
+        var inBacklog = await mcpService.ListAttributes(authData, backlogId, CancellationToken.None);
 
         Assert.Equal(["Type", "Note"], inEpic.Select(x => x.Name));
-        Assert.Equal(["Type", "Priority", "Note"], inSpace.Select(x => x.Name));
+        Assert.Equal(["Type", "Priority", "Note"], inBacklog.Select(x => x.Name));
     }
 
     [Fact]

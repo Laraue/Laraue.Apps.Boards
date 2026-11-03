@@ -188,13 +188,12 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Lists the caller's organization's custom issue attributes - id, name, type, and (for List-typed ones) allowed values with their own ids. What create_issue/edit_issue's attributes map accepts, keyed by id. A space or an epic can use only some of them: pass its key or id to list just those - an issue there can't get a value for the others.")]
+    [Description("Lists the caller's organization's custom issue attributes - id, name, type, and (for List-typed ones) allowed values with their own ids. What create_issue/edit_issue's attributes map accepts, keyed by id. An epic can use only some of them: pass its id to list just those - an issue there can't get a value for the others.")]
     public Task<IReadOnlyList<AttributeSummary>> ListAttributes(
-        [Description("Only attributes used in this space (and its backlog), e.g. 'BRD', from list_spaces.")] string? spaceKey = null,
-        [Description("Only attributes used in this epic, from list_epics. Wins over spaceKey.")] long? epicId = null,
+        [Description("Only attributes used in this epic - the epicId of the status from list_statuses, of an issue from get_issue, or from list_epics (a space's backlog is its isDefault epic). Omit to list every attribute of the organization.")] long? epicId = null,
         CancellationToken cancellationToken = default)
     {
-        return issueMcpService.ListAttributes(GetAuthData(), spaceKey, epicId, cancellationToken);
+        return issueMcpService.ListAttributes(GetAuthData(), epicId, cancellationToken);
     }
 
     [McpServerTool]

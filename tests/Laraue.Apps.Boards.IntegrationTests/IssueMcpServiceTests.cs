@@ -1372,7 +1372,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             .AddListAttribute("Priority", ["Low", "High"]));
 
         var result = await CreateIssueMcpService(testScope)
-            .ListAttributes(AuthDataFor(organization.Id, ownerId), spaceKey: null, epicId: null, CancellationToken.None);
+            .ListAttributes(AuthDataFor(organization.Id, ownerId), epicId: null, CancellationToken.None);
 
         var summaryAttribute = organization.GetAttribute(0);
         var priorityAttribute = organization.GetAttribute(1);
