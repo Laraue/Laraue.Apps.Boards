@@ -301,32 +301,44 @@ public class CoreMovementService(
         CancellationToken cancellationToken)
     {
         var settingsByEpicId = await attributeSettingsReader.GetForEpics(epicIds, cancellationToken);
-        foreach (var (epicId, settings) in settingsByEpicId)
+
+        // An epic with its own settings keeps them in the new space. The others follow the new space, so
+        // they usually share one set of unused attributes: one drop per distinct set, not per epic or issue.
+        var unusedByEpicId = settingsByEpicId
+            .Where(x => x.Value.Source != AttributeSettingsSource.Epic)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Value.Attributes
+                    .Where(y => !y.IsEnabled)
+                    .Select(y => y.AttributeId)
+                    .Order()
+                    .ToArray());
+        var followingEpicIds = unusedByEpicId
+            .Where(x => x.Value.Length > 0)
+            .Select(x => x.Key)
+            .ToArray();
+        if (followingEpicIds.Length == 0)
+            return;
+
+        var issues = await context.Issues
+            .Where(x => followingEpicIds.Contains(x.Status!.EpicId))
+            .Select(x => new { x.Id, x.Status!.EpicId })
+            .ToArrayAsyncEF(cancellationToken);
+        // Arrays compare by reference, so the sets are grouped by their text.
+        var issueGroups = issues.GroupBy(x => string.Join(',', unusedByEpicId[x.EpicId]));
+
+        foreach (var group in issueGroups)
         {
-            if (settings.Source == AttributeSettingsSource.Epic)
-                continue;
+            var droppedByIssueId = await issueAttributesService.DropValues(
+                group
+                    .Select(x => x.Id)
+                    .ToArray(),
+                organizationId,
+                unusedByEpicId[group.First().EpicId],
+                cancellationToken);
 
-            var unusedAttributeIds = settings.Attributes
-                .Where(x => !x.IsEnabled)
-                .Select(x => x.AttributeId)
-                .ToArray();
-            if (unusedAttributeIds.Length == 0)
-                continue;
-
-            var issueIds = await context.Issues
-                .Where(x => x.Status!.EpicId == epicId)
-                .Select(x => x.Id)
-                .ToArrayAsyncEF(cancellationToken);
-            foreach (var issueId in issueIds)
+            foreach (var (issueId, items) in droppedByIssueId)
             {
-                var items = await issueAttributesService.DropValues(
-                    issueId,
-                    organizationId,
-                    unusedAttributeIds,
-                    cancellationToken);
-                if (items.Length == 0)
-                    continue;
-
                 context.OrganizationLogs.Add(new OrganizationLog
                 {
                     CreatedAt = dateTimeProvider.UtcNow,

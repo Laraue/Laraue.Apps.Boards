@@ -663,27 +663,22 @@ public class CoreOrganizationsService(
     {
         context.Database.EnsureTransactionStarted();
 
-        var organizationAttributeIds = await context.Attributes
+        var attributes = await context.Attributes
             .Where(x => x.OrganizationId == organizationId)
-            .Select(x => x.Id)
-            .ToArrayAsync(cancellationToken);
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
 
-        if (attributeIds.Count != organizationAttributeIds.Length
-            || !attributeIds.ToHashSet().SetEquals(organizationAttributeIds))
+        if (attributeIds.Count != attributes.Count
+            || !attributeIds.ToHashSet().SetEquals(attributes.Keys))
         {
             throw new BadRequestException(nameof(attributeIds), ErrorMessages.AttributeOrderIncomplete);
         }
 
         for (var i = 0; i < attributeIds.Count; i++)
         {
-            var attributeId = attributeIds[i];
-            var sortOrder = i;
-            await context.Attributes
-                .Where(x => x.Id == attributeId)
-                .ExecuteUpdateAsync(
-                    setters => setters.SetProperty(x => x.SortOrder, sortOrder),
-                    cancellationToken);
+            attributes[attributeIds[i]].SortOrder = i;
         }
+
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public Task DeleteAttribute(long attributeId, CancellationToken cancellationToken)

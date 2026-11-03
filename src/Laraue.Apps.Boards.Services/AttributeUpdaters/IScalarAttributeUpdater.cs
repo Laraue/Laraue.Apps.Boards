@@ -22,13 +22,18 @@ public interface IScalarAttributeUpdater
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Removes the issue's values of <paramref name="attributeIds"/> that are of this updater's type, returning a
+    /// Removes the issues' values of <paramref name="attributeIds"/> that are of this updater's type, returning a
     /// history item for each.
     /// </summary>
-    Task<OrganizationLogItem[]> Drop(
+    Task<DroppedAttributeValue[]> Drop(
         DatabaseContext context,
-        long issueId,
+        IReadOnlyCollection<long> issueIds,
         Dictionary<long, string> attributeNameById,
         IReadOnlyCollection<long> attributeIds,
         CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// A history item for an attribute value removed from the issue <paramref name="IssueId"/>.
+/// </summary>
+public sealed record DroppedAttributeValue(long IssueId, OrganizationLogItem LogItem);

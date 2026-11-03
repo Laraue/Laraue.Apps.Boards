@@ -168,11 +168,15 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
             .Select(x => x.OrganizationId)
             .Distinct()
             .ToArray();
-        var defaultsByOrganization = new Dictionary<long, AttributeSettingDto[]>();
-        foreach (var organizationId in organizationIds)
-        {
-            defaultsByOrganization[organizationId] = await GetDefaults(organizationId, cancellationToken);
-        }
+        var defaultsByOrganization = (await DefaultsQuery(context.Attributes
+                    .Where(x => organizationIds.Contains(x.OrganizationId)))
+                .ToArrayAsync(cancellationToken))
+            .GroupBy(x => x.OrganizationId)
+            .ToDictionary(
+                x => x.Key,
+                x => x
+                    .Select(y => y.Setting)
+                    .ToArray());
 
         var overridingEpicIds = epics
             .Where(x => x.EpicOverrides)
@@ -273,22 +277,33 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
         return Combine(source, defaults, overrides);
     }
 
-    private Task<AttributeSettingDto[]> GetDefaults(long organizationId, CancellationToken cancellationToken)
+    private async Task<AttributeSettingDto[]> GetDefaults(long organizationId, CancellationToken cancellationToken)
     {
-        return context.Attributes
-            .Where(x => x.OrganizationId == organizationId)
+        return (await DefaultsQuery(context.Attributes
+                    .Where(x => x.OrganizationId == organizationId))
+                .ToArrayAsync(cancellationToken))
+            .Select(x => x.Setting)
+            .ToArray();
+    }
+
+    private static IQueryable<OrganizationDefault> DefaultsQuery(IQueryable<DataAccess.Models.Attribute> attributes)
+    {
+        return attributes
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.Id)
-            .Select(x => new AttributeSettingDto
+            .Select(x => new OrganizationDefault
             {
-                AttributeId = x.Id,
-                Name = x.Name,
-                Color = x.Color,
-                Type = x.AttributeType,
-                IsEnabled = x.IsEnabled,
-                ShowOnCard = x.ShowOnCard,
-            })
-            .ToArrayAsync(cancellationToken);
+                OrganizationId = x.OrganizationId,
+                Setting = new AttributeSettingDto
+                {
+                    AttributeId = x.Id,
+                    Name = x.Name,
+                    Color = x.Color,
+                    Type = x.AttributeType,
+                    IsEnabled = x.IsEnabled,
+                    ShowOnCard = x.ShowOnCard,
+                },
+            });
     }
 
     /// <param name="overrides">The space's or epic's own settings by attribute id; null when it follows the
@@ -312,4 +327,11 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
     }
 
     private sealed record OverriddenSetting(bool IsEnabled, bool ShowOnCard);
+
+    private sealed record OrganizationDefault
+    {
+        public required long OrganizationId { get; init; }
+
+        public required AttributeSettingDto Setting { get; init; }
+    }
 }

@@ -833,13 +833,22 @@ public class CoreIssuesService(
                 .ToArray(),
             ct);
 
-        long[] unusedAttributeIds = [];
-        if (dropUnusedAttributeValues && issuesToUpdate.Any(x => x.EpicId != newStatusData.EpicId))
+        Dictionary<long, OrganizationLogItem[]> droppedByIssueId = [];
+        var issueIdsChangingEpic = issuesToUpdate
+            .Where(x => x.EpicId != newStatusData.EpicId)
+            .Select(x => x.Id)
+            .ToArray();
+        if (dropUnusedAttributeValues && issueIdsChangingEpic.Length > 0)
         {
-            unusedAttributeIds = (await attributeSettingsReader.GetForEpic(newStatusData.EpicId, ct)).Attributes
+            var unusedAttributeIds = (await attributeSettingsReader.GetForEpic(newStatusData.EpicId, ct)).Attributes
                 .Where(x => !x.IsEnabled)
                 .Select(x => x.AttributeId)
                 .ToArray();
+            droppedByIssueId = await issueAttributesService.DropValues(
+                issueIdsChangingEpic,
+                newStatusData.OrganizationId,
+                unusedAttributeIds,
+                ct);
         }
 
         foreach (var issue in issuesToUpdate)
@@ -883,13 +892,9 @@ public class CoreIssuesService(
                         new IdName<long>(newStatusId, newStatusData.StatusName)));
             }
 
-            if (issue.EpicId != newStatusData.EpicId)
+            if (droppedByIssueId.TryGetValue(issue.Id, out var droppedItems))
             {
-                logEntry.Items.AddRange(await issueAttributesService.DropValues(
-                    issue.Id,
-                    issue.OrganizationId,
-                    unusedAttributeIds,
-                    ct));
+                logEntry.Items.AddRange(droppedItems);
             }
 
             context.OrganizationLogs.Add(logEntry);

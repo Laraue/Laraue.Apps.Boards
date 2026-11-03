@@ -212,20 +212,21 @@ public class CoreStatusService(
                     cancellationToken);
         }
 
+        var keptById = await context.Statuses
+            .Where(x => seen.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+
         for (var i = 0; i < statuses.Count; i++)
         {
             var status = statuses[i];
             var sortOrder = i + 1;
             if (status.Id is { } id)
             {
-                await context.Statuses
-                    .Where(x => x.Id == id)
-                    .ExecuteUpdateAsync(u => u
-                        .SetProperty(p => p.Name, status.Name)
-                        .SetProperty(p => p.Color, status.Color ?? Palette.DefaultStatusColor)
-                        .SetProperty(p => p.Category, status.Category)
-                        .SetProperty(p => p.SortOrder, sortOrder),
-                        cancellationToken);
+                var kept = keptById[id];
+                kept.Name = status.Name;
+                kept.Color = status.Color ?? Palette.DefaultStatusColor;
+                kept.Category = status.Category;
+                kept.SortOrder = sortOrder;
             }
             else
             {
