@@ -48,12 +48,19 @@ public interface ICoreIssueAttributesService
         long organizationId,
         IReadOnlyCollection<long> attributeIds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes every attribute value of <paramref name="issueIds"/>, with no history - e.g. when they move to
+    /// another organization, whose attributes they don't have.
+    /// </summary>
+    Task DeleteAllValues(IReadOnlyCollection<long> issueIds, CancellationToken cancellationToken);
 }
 
 public class CoreIssueAttributesService(
     DatabaseContext context,
     IEnumerable<IScalarAttributeUpdater> scalarAttributeUpdaters,
-    IAttributeSettingsReader attributeSettingsReader)
+    IAttributeSettingsReader attributeSettingsReader,
+    IIssueAttributeValuesReader issueAttributeValuesReader)
     : ICoreIssueAttributesService
 {
     public async Task<OrganizationLogItem[]> UpdateAttributes(
@@ -281,6 +288,31 @@ public class CoreIssueAttributesService(
                     .ToArray());
     }
 
+    public async Task DeleteAllValues(IReadOnlyCollection<long> issueIds, CancellationToken cancellationToken)
+    {
+        context.Database.EnsureTransactionStarted();
+        if (issueIds.Count == 0)
+            return;
+
+        await DeleteAll(context.IssueAttributeTextValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeListValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeIntegerValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeDecimalValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeDateValues, issueIds, cancellationToken);
+        await DeleteAll(context.IssueAttributeDateTimeValues, issueIds, cancellationToken);
+    }
+
+    private static Task<int> DeleteAll<TValue>(
+        IQueryable<TValue> values,
+        IReadOnlyCollection<long> issueIds,
+        CancellationToken cancellationToken)
+        where TValue : class, IIssueAttributeValue
+    {
+        return values
+            .Where(x => issueIds.Contains(x.IssueId))
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
     private async Task EnsureEnabledInEpic(
         long issueId,
         SetIssueAttributeRequest[] attributeRequests,
@@ -307,11 +339,10 @@ public class CoreIssueAttributesService(
         if (requestedDisabled.Length == 0)
             return;
 
-        var existingAttributeIds = (await context.IssueAttributeValueKeys()
-                .Where(x => x.IssueId == issueId)
-                .Select(x => x.AttributeId)
-                .ToArrayAsync(cancellationToken))
-            .ToHashSet();
+        var existingAttributeIds = await issueAttributeValuesReader.GetAttributeIdsWithValues(
+            [issueId],
+            requestedDisabled,
+            cancellationToken);
 
         var errors = requestedDisabled
             .Where(x => !existingAttributeIds.Contains(x))

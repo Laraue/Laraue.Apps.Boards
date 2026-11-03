@@ -110,6 +110,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreIssueLinksService, CoreIssueLinksService>()
                 .AddScoped<ICoreIssueAttributesService, CoreIssueAttributesService>()
                 .AddScoped<IAttributeSettingsReader, AttributeSettingsReader>()
+                .AddScoped<IIssueAttributeValuesReader, IssueAttributeValuesReader>()
                 .AddScoped<ICoreAttributeSettingsService, CoreAttributeSettingsService>()
                 .AddAttributeUpdaters()
                 .AddScoped<IIssueHistoryService, IssueHistoryService>()

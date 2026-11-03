@@ -365,7 +365,7 @@ public class CoreMovementService(
         long[] epicIds,
         CancellationToken cancellationToken)
     {
-        await context.DeleteIssueAttributeValues(issueIds, cancellationToken);
+        await issueAttributesService.DeleteAllValues(issueIds, cancellationToken);
         await context.EpicAttributeSettings
             .Where(x => epicIds.Contains(x.EpicId))
             .ExecuteDeleteAsync(cancellationToken);

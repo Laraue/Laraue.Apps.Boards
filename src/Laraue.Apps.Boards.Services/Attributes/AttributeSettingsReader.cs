@@ -80,7 +80,10 @@ public sealed record AttributeSettingDto
     public required bool ShowOnCard { get; init; }
 }
 
-public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettingsReader
+public class AttributeSettingsReader(
+    DatabaseContext context,
+    IIssueAttributeValuesReader issueAttributeValuesReader)
+    : IAttributeSettingsReader
 {
     public async Task<AttributeSettingsDto> GetForSpace(long spaceId, CancellationToken cancellationToken)
     {
@@ -235,12 +238,10 @@ public class AttributeSettingsReader(DatabaseContext context) : IAttributeSettin
         var unusedIds = unused
             .Select(x => x.AttributeId)
             .ToArray();
-        var withValues = (await context.IssueAttributeValueKeys()
-                .Where(x => issueIds.Contains(x.IssueId) && unusedIds.Contains(x.AttributeId))
-                .Select(x => x.AttributeId)
-                .Distinct()
-                .ToArrayAsync(cancellationToken))
-            .ToHashSet();
+        var withValues = await issueAttributeValuesReader.GetAttributeIdsWithValues(
+            issueIds,
+            unusedIds,
+            cancellationToken);
 
         return unused
             .Where(x => withValues.Contains(x.AttributeId))
