@@ -86,14 +86,6 @@ public interface IIssuesService
         UpdateIssuesStatusRequest request,
         CancellationToken ct);
 
-    /// <summary>
-    /// The attributes the issues have values for that the status's epic doesn't use (BRD-179) - what moving them
-    /// there would keep or drop. Empty when nothing is affected, so the move needs no question.
-    /// </summary>
-    Task<UnusedAttributeDto[]> GetUnusedAttributesForStatus(
-        GetUnusedAttributesForStatusRequest request,
-        CancellationToken ct);
-
     Task<ShortPaginatedResult<CommentDto>> GetIssueComments(
         GetIssueCommentsRequest request,
         CancellationToken ct);
@@ -950,45 +942,6 @@ public class IssuesService(
         await transaction.CommitAsync(ct);
     }
 
-    public async Task<UnusedAttributeDto[]> GetUnusedAttributesForStatus(
-        GetUnusedAttributesForStatusRequest request,
-        CancellationToken ct)
-    {
-        var issueIds = new List<long>();
-        foreach (var issueKey in request.IssueKeys)
-        {
-            issueIds.Add(await GetIssueIdIfAccessible(
-                request.AuthData,
-                new IssueKey(issueKey),
-                x => x.CanUpdateIssue,
-                ct));
-        }
-
-        if (!await accessService.CanMoveToStatus(request.AuthData, request.StatusId, ct))
-            throw new NotFoundException(string.Format(ErrorMessages.EntityNotFound, "Status", request.StatusId));
-
-        var targetEpicId = await context.Statuses
-            .Where(x => x.Id == request.StatusId)
-            .Select(x => x.EpicId)
-            .FirstAsyncEF(ct);
-
-        // Issues already in that epic don't move between epics, so keep everything they have.
-        var movingIssueIds = await context.Issues
-            .Where(x => ((IEnumerable<long>)issueIds).Contains(x.Id))
-            .Where(x => x.Status!.EpicId != targetEpicId)
-            .Select(x => x.Id)
-            .ToArrayAsyncEF(ct);
-
-        var unused = await attributeSettingsReader.GetUnusedWithValues(
-            movingIssueIds,
-            await attributeSettingsReader.GetForEpic(targetEpicId, ct),
-            ct);
-
-        return unused
-            .Select(x => new UnusedAttributeDto { Id = x.AttributeId, Name = x.Name })
-            .ToArray();
-    }
-
     public async Task<Dictionary<string, string>> UpdateIssuesStatus(UpdateIssuesStatusRequest request, CancellationToken ct)
     {
         // Check that can move Issues
@@ -1019,7 +972,6 @@ public class IssuesService(
             request.StatusId,
             request.AuthData.UserId,
             request.Comment,
-            request.DropUnusedAttributeValues,
             ct);
         await transaction.CommitAsync(ct);
 
@@ -2408,31 +2360,12 @@ public record ChangesIssuesOrderRequest
     public required OrderTargetType TargetType { get; set; }
 }
 
-public record GetUnusedAttributesForStatusRequest
-{
-    public OrganizationAuthData AuthData { get; set; } = new();
-    public required string[] IssueKeys { get; set; } = [];
-    public required long StatusId { get; set; }
-}
-
-public record UnusedAttributeDto
-{
-    public required long Id { get; set; }
-    public required string Name { get; set; }
-}
-
 public record UpdateIssuesStatusRequest
 {
     public OrganizationAuthData AuthData { get; set; }
     public required string[] IssueKeys { get; set; } = [];
     public required long StatusId { get; set; }
     public string? Comment { get; set; }
-
-    /// <summary>
-    /// For issues moving to another epic: true removes their values of attributes that epic doesn't use (BRD-179),
-    /// false keeps them. See <c>POST /api/issues/status/unused-attributes</c> for which those are.
-    /// </summary>
-    public bool DropUnusedAttributeValues { get; set; }
 }
 
 public record GetIssueCommentsRequest : IPaginatedRequest

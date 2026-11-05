@@ -254,7 +254,7 @@ public class EpicStatusRecalculationTests(WebApiTestHost host) : IClassFixture<W
     {
         await using var transaction = await testScope.Database.Database.BeginTransactionAsync();
         await testScope.Services.GetRequiredService<ICoreIssuesService>()
-            .UpdateIssuesStatus([issueId], statusId, new Actor(userId), comment: null, dropUnusedAttributeValues: false, CancellationToken.None);
+            .UpdateIssuesStatus([issueId], statusId, new Actor(userId), comment: null, CancellationToken.None);
         await transaction.CommitAsync();
     }
 
