@@ -2,7 +2,6 @@
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.Services;
-using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.Exceptions.Web;
@@ -23,22 +22,6 @@ public interface IMovementService
     Task MoveEpic(
         MoveEpicRequest request,
         CancellationToken cancellationToken);
-
-    /// <summary>
-    /// The attributes the space's epics' issues have values for that the new space doesn't use (BRD-179) - what
-    /// <see cref="MoveSpaceEpics"/> would keep or drop. Empty when nothing is affected, or when the move leaves the
-    /// organization: then every value is removed anyway.
-    /// </summary>
-    Task<UnusedAttributeDto[]> GetUnusedAttributesForSpaceEpicsMove(
-        MoveSpaceEpicsRequest request,
-        CancellationToken cancellationToken);
-
-    /// <summary>
-    /// <see cref="GetUnusedAttributesForSpaceEpicsMove"/> for <see cref="MoveEpic"/>.
-    /// </summary>
-    Task<UnusedAttributeDto[]> GetUnusedAttributesForEpicMove(
-        MoveEpicRequest request,
-        CancellationToken cancellationToken);
     
     Task<DestinationSpace[]> GetDestinationSpaces(
         GetDestinationSpacesRequest request,
@@ -49,8 +32,7 @@ public class MovementService(
     ICoreMovementService movementService,
     DatabaseContext context,
     IAccessService accessService,
-    ICoreSpacesService spacesService,
-    IAttributeSettingsReader attributeSettingsReader)
+    ICoreSpacesService spacesService)
     : IMovementService
 {
     public async Task MoveSpace(MoveSpaceRequest request, CancellationToken cancellationToken)
@@ -77,104 +59,13 @@ public class MovementService(
 
     public async Task MoveSpaceEpics(MoveSpaceEpicsRequest request, CancellationToken cancellationToken)
     {
-        var move = await GetSpaceEpicsMove(request, cancellationToken);
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await movementService.MoveSpaceEpics(
-            move.SourceId,
-            move.NewSpaceId,
-            request.AuthData.UserId,
-            request.DropUnusedAttributeValues,
-            cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-    }
-
-    public async Task MoveEpic(MoveEpicRequest request, CancellationToken cancellationToken)
-    {
-        var move = await GetEpicMove(request, cancellationToken);
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await movementService.MoveEpic(
-            move.SourceId,
-            move.NewSpaceId,
-            request.AuthData.UserId,
-            request.DropUnusedAttributeValues,
-            cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-    }
-
-    public async Task<UnusedAttributeDto[]> GetUnusedAttributesForSpaceEpicsMove(
-        MoveSpaceEpicsRequest request,
-        CancellationToken cancellationToken)
-    {
-        var move = await GetSpaceEpicsMove(request, cancellationToken);
-        var epicIds = await context.ActiveEpics()
-            .Where(x => x.SpaceId == move.SourceId)
-            .Where(x => !x.IsDefault)
-            .Select(x => x.Id)
-            .ToArrayAsyncEF(cancellationToken);
-
-        return await GetUnusedAttributes(
-            epicIds,
-            request.AuthData.OrganizationId,
-            request.NewOrganizationId,
-            move.NewSpaceId,
-            cancellationToken);
-    }
-
-    public async Task<UnusedAttributeDto[]> GetUnusedAttributesForEpicMove(
-        MoveEpicRequest request,
-        CancellationToken cancellationToken)
-    {
-        var move = await GetEpicMove(request, cancellationToken);
-
-        return await GetUnusedAttributes(
-            [move.SourceId],
-            request.AuthData.OrganizationId,
-            request.NewOrganizationId,
-            move.NewSpaceId,
-            cancellationToken);
-    }
-
-    private async Task<UnusedAttributeDto[]> GetUnusedAttributes(
-        long[] epicIds,
-        long organizationId,
-        long newOrganizationId,
-        long newSpaceId,
-        CancellationToken cancellationToken)
-    {
-        if (organizationId != newOrganizationId || epicIds.Length == 0)
-            return [];
-
-        var currentByEpicId = await attributeSettingsReader.GetForEpics(epicIds, cancellationToken);
-        var target = await attributeSettingsReader.GetForSpace(newSpaceId, cancellationToken);
-
-        // An epic with its own settings keeps them in the new space, so its issues lose nothing.
-        var followingEpicIds = currentByEpicId
-            .Where(x => x.Value.Source != AttributeSettingsSource.Epic)
-            .Select(x => x.Key)
-            .ToArray();
-        var issueIds = await context.Issues
-            .Where(x => followingEpicIds.Contains(x.Status!.EpicId))
-            .Select(x => x.Id)
-            .ToArrayAsyncEF(cancellationToken);
-
-        var unused = await attributeSettingsReader.GetUnusedWithValues(issueIds, target, cancellationToken);
-
-        return unused
-            .Select(x => new UnusedAttributeDto { Id = x.AttributeId, Name = x.Name })
-            .ToArray();
-    }
-
-    private async Task<Move> GetSpaceEpicsMove(MoveSpaceEpicsRequest request, CancellationToken cancellationToken)
-    {
         await HasMassMovePermissionOrThrow(request.AuthData, cancellationToken);
-
+        
         var spaceId = await spacesService.GetSpaceIdBySpaceKey(
             request.AuthData.OrganizationId,
             request.SourceSpaceKey,
             cancellationToken);
-
+        
         var newSpaceId = await spacesService.GetSpaceIdBySpaceKey(
             request.NewOrganizationId,
             request.NewSpaceKey,
@@ -187,39 +78,40 @@ public class MovementService(
             .Where(x => x.Id == spaceId)
             .Where(x => x.OrganizationId == request.AuthData.OrganizationId)
             .AnyAsyncEF(cancellationToken);
-
+        
         if (!sourceSpaceBelongsToCurrentOrganization)
             throw new ForbiddenException(string.Format(ErrorMessages.SpaceNotExistsForMove, request.SourceSpaceKey));
 
         await CanCreateEpicsOrThrow(request.AuthData.UserId, request.NewSpaceKey, newSpaceId, cancellationToken);
 
-        return new Move(spaceId, newSpaceId);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await movementService.MoveSpaceEpics(spaceId, newSpaceId, request.AuthData.UserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
-    private async Task<Move> GetEpicMove(MoveEpicRequest request, CancellationToken cancellationToken)
+    public async Task MoveEpic(MoveEpicRequest request, CancellationToken cancellationToken)
     {
         await HasMassMovePermissionOrThrow(request.AuthData, cancellationToken);
-
+        
         var sourceEpicBelongsToCurrentOrganization = await context.ActiveEpics()
             .Where(x => x.Id == request.SourceEpicId)
             .Where(x => x.Space!.OrganizationId == request.AuthData.OrganizationId)
             .AnyAsyncEF(cancellationToken);
-
+        
         if (!sourceEpicBelongsToCurrentOrganization)
             throw new ForbiddenException(string.Format(ErrorMessages.EpicNotExistsForMove, request.SourceEpicId));
-
+        
         var newSpaceId = await spacesService.GetSpaceIdBySpaceKey(
             request.NewOrganizationId,
             request.NewSpaceKey,
             cancellationToken);
-
+        
         await CanCreateEpicsOrThrow(request.AuthData.UserId, request.NewSpaceKey, newSpaceId, cancellationToken);
-
-        return new Move(request.SourceEpicId, newSpaceId);
+        
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await movementService.MoveEpic(request.SourceEpicId, newSpaceId, request.AuthData.UserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
-
-    /// <param name="SourceId">The moved space's id, or the moved epic's.</param>
-    private sealed record Move(long SourceId, long NewSpaceId);
 
     public async Task<DestinationSpace[]> GetDestinationSpaces(
         GetDestinationSpacesRequest request,
@@ -292,12 +184,6 @@ public record MoveSpaceEpicsRequest
     public required string SourceSpaceKey { get; set; }
     public required string NewSpaceKey { get; set; }
     public required long NewOrganizationId { get; set; }
-
-    /// <summary>
-    /// Within the organization: true removes the issues' values of attributes the new space doesn't use (BRD-179),
-    /// false keeps them. Moving to another organization always removes every value.
-    /// </summary>
-    public bool DropUnusedAttributeValues { get; set; }
 }
 
 public record MoveEpicRequest
@@ -306,9 +192,6 @@ public record MoveEpicRequest
     public long SourceEpicId { get; set; }
     public required string NewSpaceKey { get; set; }
     public required long NewOrganizationId { get; set; }
-
-    /// <inheritdoc cref="MoveSpaceEpicsRequest.DropUnusedAttributeValues"/>
-    public bool DropUnusedAttributeValues { get; set; }
 }
 
 public record GetDestinationSpacesRequest

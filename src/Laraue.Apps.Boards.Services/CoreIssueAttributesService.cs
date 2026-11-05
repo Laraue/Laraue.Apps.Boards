@@ -40,16 +40,6 @@ public interface ICoreIssueAttributesService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Removes the issues' values of <paramref name="attributeIds"/> - e.g. those not used in the epic they moved to
-    /// (BRD-179) - and returns the resulting history log items by issue id; an issue that lost nothing isn't there.
-    /// </summary>
-    Task<Dictionary<long, OrganizationLogItem[]>> DropValues(
-        IReadOnlyCollection<long> issueIds,
-        long organizationId,
-        IReadOnlyCollection<long> attributeIds,
-        CancellationToken cancellationToken);
-
-    /// <summary>
     /// Deletes every attribute value of <paramref name="issueIds"/>, with no history - e.g. when they move to
     /// another organization, whose attributes they don't have.
     /// </summary>
@@ -256,38 +246,6 @@ public class CoreIssueAttributesService(
         return requests.ToArray();
     }
 
-    public async Task<Dictionary<long, OrganizationLogItem[]>> DropValues(
-        IReadOnlyCollection<long> issueIds,
-        long organizationId,
-        IReadOnlyCollection<long> attributeIds,
-        CancellationToken cancellationToken)
-    {
-        context.Database.EnsureTransactionStarted();
-        if (issueIds.Count == 0 || attributeIds.Count == 0)
-            return [];
-
-        var attributeNameById = await context.Attributes
-            .Where(x => x.OrganizationId == organizationId)
-            .ToDictionaryAsyncEF(x => x.Id, x => x.Name, cancellationToken);
-
-        var dropped = new List<DroppedAttributeValue>();
-        foreach (var updater in scalarAttributeUpdaters)
-        {
-            dropped.AddRange(
-                await updater.Drop(context, issueIds, attributeNameById, attributeIds, cancellationToken));
-        }
-
-        dropped.AddRange(await DropListValues(issueIds, attributeNameById, attributeIds, cancellationToken));
-
-        return dropped
-            .GroupBy(x => x.IssueId)
-            .ToDictionary(
-                x => x.Key,
-                x => x
-                    .Select(y => y.LogItem)
-                    .ToArray());
-    }
-
     public async Task DeleteAllValues(IReadOnlyCollection<long> issueIds, CancellationToken cancellationToken)
     {
         context.Database.EnsureTransactionStarted();
@@ -454,25 +412,23 @@ public class CoreIssueAttributesService(
         if (toDelete.Length != 0)
         {
             changes.AddRange(
-                (await DropListValues([issueId], attributeNameById, toDelete, cancellationToken))
-                    .Select(x => x.LogItem));
+                await DropListValues(issueId, attributeNameById, toDelete, cancellationToken));
         }
 
         return changes.ToArray();
     }
 
-    private async Task<DroppedAttributeValue[]> DropListValues(
-        IReadOnlyCollection<long> issueIds,
+    private async Task<OrganizationLogItem[]> DropListValues(
+        long issueId,
         Dictionary<long, string> attributeNameById,
         IReadOnlyCollection<long> attributeIds,
         CancellationToken cancellationToken)
     {
         var deletableValues = await context.IssueAttributeListValues
-            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => x.IssueId == issueId)
             .Where(x => attributeIds.Contains(x.AttributeId))
             .Select(x => new
             {
-                x.IssueId,
                 x.AttributeId,
                 AttributeListValueName = x.AttributeListValue!.Value,
                 x.AttributeListValueId,
@@ -482,21 +438,19 @@ public class CoreIssueAttributesService(
             return [];
 
         await context.IssueAttributeListValues
-            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => x.IssueId == issueId)
             .Where(x => attributeIds.Contains(x.AttributeId))
             .ExecuteDeleteAsync(cancellationToken);
 
         return deletableValues
-            .Select(x => new DroppedAttributeValue(
-                x.IssueId,
-                new OrganizationLogItem
-                {
-                    OldDisplayValue = x.AttributeListValueName,
-                    PropertyType = PropertyType.Attribute,
-                    OldValueId = x.AttributeListValueId.ToString(),
-                    PropertyName = attributeNameById[x.AttributeId],
-                    ParentId = x.AttributeId.ToString(),
-                }))
+            .Select(x => new OrganizationLogItem
+            {
+                OldDisplayValue = x.AttributeListValueName,
+                PropertyType = PropertyType.Attribute,
+                OldValueId = x.AttributeListValueId.ToString(),
+                PropertyName = attributeNameById[x.AttributeId],
+                ParentId = x.AttributeId.ToString(),
+            })
             .ToArray();
     }
 }

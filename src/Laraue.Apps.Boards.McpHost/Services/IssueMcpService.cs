@@ -102,7 +102,6 @@ public interface IIssueMcpService
         string issueKey,
         long statusId,
         string? comment,
-        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -953,7 +952,6 @@ public class IssueMcpService(
         string issueKey,
         long statusId,
         string? comment,
-        bool dropUnusedAttributeValues,
         CancellationToken cancellationToken)
     {
         var key = new IssueKey(issueKey);
@@ -974,7 +972,6 @@ public class IssueMcpService(
             statusId,
             authData.ToActor(),
             comment,
-            dropUnusedAttributeValues,
             cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }

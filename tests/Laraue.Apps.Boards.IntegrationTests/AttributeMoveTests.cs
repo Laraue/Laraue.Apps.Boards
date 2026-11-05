@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Laraue.Apps.Boards.IntegrationTests;
 
 /// <summary>
-/// What happens to issues' attribute values when they move (BRD-179): kept or dropped, by the caller's choice, when
-/// the new epic or space doesn't use some attributes; always removed when they leave the organization.
+/// What happens to issues' attribute values when they move (BRD-179): all kept within the organization, also of
+/// attributes the new epic or space doesn't use; all removed when they leave the organization.
 /// </summary>
 [Collection("IntegrationTest")]
 public class AttributeMoveTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
@@ -21,78 +21,20 @@ public class AttributeMoveTests(WebApiTestHost host) : IClassFixture<WebApiTestH
     private readonly Proxy<MovementController> _movementController = host.Controller<MovementController>();
 
     [Fact]
-    public async Task UpdateStatus_ShouldDropUnusedValuesAndRecordThem_WhenIssueMovesToEpicNotUsingThemAndDropIsChosen()
+    public async Task UpdateStatus_ShouldKeepValues_WhenIssueMovesToEpicNotUsingTheirAttributes()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
         await SetEpicSettingsAsync(testScope, organization, "Next", ("Type", true), ("Priority", false));
 
-        await UpdateStatusAsync(organization, ownerId, "Next", dropUnusedAttributeValues: true);
-
-        Assert.Equal(["Type"], await GetValueNamesAsync(testScope, organization));
-        var removal = await testScope.Database.OrganizationLogs
-            .Where(x => x.EntityId == IssueId(organization) && x.EntityType == LogEntityType.Issue)
-            .SelectMany(x => x.Items!)
-            .SingleAsync(x => x.PropertyType == PropertyType.Attribute);
-        Assert.Equal(("Priority", "High", null), (removal.PropertyName, removal.OldDisplayValue, removal.NewDisplayValue));
-    }
-
-    [Fact]
-    public async Task UpdateStatus_ShouldKeepUnusedValues_WhenDropIsNotChosen()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        await SetEpicSettingsAsync(testScope, organization, "Next", ("Type", true), ("Priority", false));
-
-        await UpdateStatusAsync(organization, ownerId, "Next", dropUnusedAttributeValues: false);
+        await UpdateStatusAsync(organization, ownerId, "Next");
 
         Assert.Equal(["Priority", "Type"], await GetValueNamesAsync(testScope, organization));
     }
 
     [Fact]
-    public async Task GetUnusedAttributesForStatus_ShouldListValuesTheTargetEpicDoesNotUse_WhenIssueWouldMove()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        await SetEpicSettingsAsync(testScope, organization, "Next", ("Type", false), ("Priority", false), ("Note", false));
-        var request = new GetUnusedAttributesForStatusRequest
-        {
-            IssueKeys = [IssueKey(organization)],
-            StatusId = Epic(organization, "Next").Statuses![0].Id,
-        };
-
-        var unused = await _issuesController
-            .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.GetUnusedAttributesForStatus(request, CancellationToken.None));
-
-        // Note is unused too, but the issue has no value for it.
-        Assert.Equal(["Type", "Priority"], unused!.Select(x => x.Name));
-    }
-
-    [Fact]
-    public async Task GetUnusedAttributesForStatus_ShouldBeEmpty_WhenTargetEpicUsesEveryAttribute()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        var request = new GetUnusedAttributesForStatusRequest
-        {
-            IssueKeys = [IssueKey(organization)],
-            StatusId = Epic(organization, "Next").Statuses![0].Id,
-        };
-
-        var unused = await _issuesController
-            .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.GetUnusedAttributesForStatus(request, CancellationToken.None));
-
-        Assert.Empty(unused!);
-    }
-
-    [Fact]
-    public async Task McpEditIssueStatus_ShouldDropUnusedValues_WhenDropIsChosen()
+    public async Task McpEditIssueStatus_ShouldKeepValues_WhenIssueMovesToEpicNotUsingTheirAttributes()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
@@ -104,66 +46,22 @@ public class AttributeMoveTests(WebApiTestHost host) : IClassFixture<WebApiTestH
             IssueKey(organization),
             Epic(organization, "Next").Statuses![0].Id,
             comment: null,
-            dropUnusedAttributeValues: true,
             CancellationToken.None);
 
-        Assert.Equal(["Priority"], await GetValueNamesAsync(testScope, organization));
+        Assert.Equal(["Priority", "Type"], await GetValueNamesAsync(testScope, organization));
     }
 
     [Fact]
-    public async Task MoveEpic_ShouldDropValuesTheNewSpaceDoesNotUse_WhenEpicFollowsSpaceAndDropIsChosen()
+    public async Task MoveEpic_ShouldKeepValues_WhenNewSpaceDoesNotUseTheirAttributes()
     {
         using var testScope = host.CreateTestScope();
         var ownerId = await testScope.CreateUser();
         var organization = await InitializeAsync(testScope, ownerId);
         await SetSpaceSettingsAsync(testScope, organization, TargetSpaceKey, ("Type", true), ("Priority", false));
 
-        await MoveEpicAsync(organization, ownerId, organization.Id, dropUnusedAttributeValues: true);
-
-        Assert.Equal(["Type"], await GetValueNamesAsync(testScope, organization));
-    }
-
-    [Fact]
-    public async Task MoveEpic_ShouldKeepValues_WhenDropIsNotChosen()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        await SetSpaceSettingsAsync(testScope, organization, TargetSpaceKey, ("Type", true), ("Priority", false));
-
-        await MoveEpicAsync(organization, ownerId, organization.Id, dropUnusedAttributeValues: false);
+        await MoveEpicAsync(organization, ownerId, organization.Id);
 
         Assert.Equal(["Priority", "Type"], await GetValueNamesAsync(testScope, organization));
-    }
-
-    [Fact]
-    public async Task MoveEpic_ShouldKeepValues_WhenEpicHasOwnSettings()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        await SetEpicSettingsAsync(testScope, organization, "Sprint", ("Type", true), ("Priority", true));
-        await SetSpaceSettingsAsync(testScope, organization, TargetSpaceKey, ("Type", false), ("Priority", false));
-
-        await MoveEpicAsync(organization, ownerId, organization.Id, dropUnusedAttributeValues: true);
-
-        Assert.Equal(["Priority", "Type"], await GetValueNamesAsync(testScope, organization));
-    }
-
-    [Fact]
-    public async Task GetUnusedAttributesForEpicMove_ShouldListValuesTheNewSpaceDoesNotUse_WhenEpicFollowsSpace()
-    {
-        using var testScope = host.CreateTestScope();
-        var ownerId = await testScope.CreateUser();
-        var organization = await InitializeAsync(testScope, ownerId);
-        await SetSpaceSettingsAsync(testScope, organization, TargetSpaceKey, ("Type", false), ("Priority", true));
-        var request = MoveEpicRequest(organization, organization.Id, dropUnusedAttributeValues: false);
-
-        var unused = await _movementController
-            .WithOrganizationAuthorization(organization.Id, ownerId)
-            .Execute(x => x.GetUnusedAttributesForEpicMove(request, CancellationToken.None));
-
-        Assert.Equal(["Type"], unused!.Select(x => x.Name));
     }
 
     [Fact]
@@ -177,7 +75,7 @@ public class AttributeMoveTests(WebApiTestHost host) : IClassFixture<WebApiTestH
             .AddSpace(ownerId, TargetSpaceKey));
         await SetEpicSettingsAsync(testScope, organization, "Sprint", ("Type", true), ("Priority", true));
 
-        await MoveEpicAsync(organization, ownerId, otherOrganization.Id, dropUnusedAttributeValues: false);
+        await MoveEpicAsync(organization, ownerId, otherOrganization.Id);
 
         Assert.Empty(await GetValueNamesAsync(testScope, organization));
         var sprintId = Epic(organization, "Sprint").Id;
@@ -367,41 +265,29 @@ public class AttributeMoveTests(WebApiTestHost host) : IClassFixture<WebApiTestH
     private Task UpdateStatusAsync(
         Organization organization,
         Guid userId,
-        string epicName,
-        bool dropUnusedAttributeValues)
+        string epicName)
     {
         var request = new UpdateIssuesStatusRequest
         {
             IssueKeys = [IssueKey(organization)],
             StatusId = Epic(organization, epicName).Statuses![0].Id,
-            DropUnusedAttributeValues = dropUnusedAttributeValues,
         };
         return _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.UpdateStatus(request, CancellationToken.None));
     }
 
-    private static MoveEpicRequest MoveEpicRequest(
+    private Task MoveEpicAsync(
         Organization organization,
-        long newOrganizationId,
-        bool dropUnusedAttributeValues)
+        Guid userId,
+        long newOrganizationId)
     {
-        return new MoveEpicRequest
+        var request = new MoveEpicRequest
         {
             SourceEpicId = Epic(organization, "Sprint").Id,
             NewSpaceKey = TargetSpaceKey,
             NewOrganizationId = newOrganizationId,
-            DropUnusedAttributeValues = dropUnusedAttributeValues,
         };
-    }
-
-    private Task MoveEpicAsync(
-        Organization organization,
-        Guid userId,
-        long newOrganizationId,
-        bool dropUnusedAttributeValues)
-    {
-        var request = MoveEpicRequest(organization, newOrganizationId, dropUnusedAttributeValues);
         return _movementController
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.MoveEpic(request, CancellationToken.None));

@@ -86,16 +86,15 @@ public abstract class ScalarAttributeUpdater<TEntity, TValue, TRequest> : IScala
         if (toDelete.Length != 0)
         {
             changes.AddRange(
-                (await Drop(context, [issueId], attributeNameById, toDelete, cancellationToken))
-                    .Select(x => x.LogItem));
+                await Drop(context, issueId, attributeNameById, toDelete, cancellationToken));
         }
 
         return changes.ToArray();
     }
 
-    public async Task<DroppedAttributeValue[]> Drop(
+    public async Task<OrganizationLogItem[]> Drop(
         DatabaseContext context,
-        IReadOnlyCollection<long> issueIds,
+        long issueId,
         Dictionary<long, string> attributeNameById,
         IReadOnlyCollection<long> attributeIds,
         CancellationToken cancellationToken)
@@ -103,28 +102,26 @@ public abstract class ScalarAttributeUpdater<TEntity, TValue, TRequest> : IScala
         var dbSet = context.Set<TEntity>();
 
         var deletable = await dbSet
-            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => x.IssueId == issueId)
             .Where(x => attributeIds.Contains(x.AttributeId))
-            .Select(x => new { x.IssueId, x.AttributeId, x.Value })
+            .Select(x => new { x.AttributeId, x.Value })
             .ToArrayAsyncEF(cancellationToken);
         if (deletable.Length == 0)
             return [];
 
         await dbSet
-            .Where(x => issueIds.Contains(x.IssueId))
+            .Where(x => x.IssueId == issueId)
             .Where(x => attributeIds.Contains(x.AttributeId))
             .ExecuteDeleteAsync(cancellationToken);
 
         return deletable
-            .Select(x => new DroppedAttributeValue(
-                x.IssueId,
-                new OrganizationLogItem
-                {
-                    OldDisplayValue = FormatValue(x.Value),
-                    PropertyType = PropertyType.Attribute,
-                    PropertyName = attributeNameById[x.AttributeId],
-                    ParentId = x.AttributeId.ToString(),
-                }))
+            .Select(x => new OrganizationLogItem
+            {
+                OldDisplayValue = FormatValue(x.Value),
+                PropertyType = PropertyType.Attribute,
+                PropertyName = attributeNameById[x.AttributeId],
+                ParentId = x.AttributeId.ToString(),
+            })
             .ToArray();
     }
 }

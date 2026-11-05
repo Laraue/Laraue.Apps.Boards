@@ -135,7 +135,6 @@ public class AgentRunsService(
                 notStartedStatusId,
                 actor,
                 comment: null,
-                dropUnusedAttributeValues: false,
                 cancellationToken);
         }
 
