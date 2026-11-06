@@ -20,8 +20,7 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     file_id = table.Column<Guid>(type: "uuid", nullable: false),
                     external_file_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    reference_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    url = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false)
+                    reference_id = table.Column<Guid>(type: "uuid", nullable: true)
                 },
                 constraints: table =>
                 {

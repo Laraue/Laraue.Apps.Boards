@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
 /// <summary>
@@ -17,7 +15,7 @@ public class StorageFile
     public File? File { get; set; }
 
     /// <summary>
-    /// The file's id in Storage. Not unique: Storage returns the same file for the same content uploaded again in an
+    /// The file's id in Storage; its public URL is <c>StorageOptions.PublicBaseUrl</c> plus this id. Not unique: Storage returns the same file for the same content uploaded again in an
     /// organization, each upload with a reference of its own.
     /// </summary>
     public Guid ExternalFileId { get; set; }
@@ -28,10 +26,4 @@ public class StorageFile
     /// original.
     /// </summary>
     public Guid? ReferenceId { get; set; }
-
-    /// <summary>
-    /// The file's public URL (<c>https://storage.laraue.com/&lt;id&gt;</c>), what <c>/api/files/{id}</c> redirects to.
-    /// </summary>
-    [MaxLength(512)]
-    public required string Url { get; set; }
 }

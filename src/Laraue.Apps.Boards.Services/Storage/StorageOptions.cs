@@ -14,4 +14,14 @@ public class StorageOptions
     [Required]
     [Url]
     public required string GrpcUrl { get; set; }
+
+    /// <summary>
+    /// Where clients download files: Storage's public host, <c>https://storage.laraue.com</c>. A file's URL is this plus
+    /// its Storage id (<see cref="GetFileUrl"/>), the same URL Storage itself returns.
+    /// </summary>
+    [Required]
+    [Url]
+    public required string PublicBaseUrl { get; set; }
+
+    public string GetFileUrl(Guid storageFileId) => $"{PublicBaseUrl.TrimEnd('/')}/{storageFileId}";
 }

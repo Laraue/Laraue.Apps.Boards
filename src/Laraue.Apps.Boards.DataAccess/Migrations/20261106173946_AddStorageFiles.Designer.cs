@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Laraue.Apps.Boards.DataAccess.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20261106163037_AddStorageFiles")]
+    [Migration("20261106173946_AddStorageFiles")]
     partial class AddStorageFiles
     {
         /// <inheritdoc />
@@ -1881,12 +1881,6 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                     b.Property<Guid?>("ReferenceId")
                         .HasColumnType("uuid")
                         .HasColumnName("reference_id");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("url");
 
                     b.HasKey("Id")
                         .HasName("pk_storage_files");
