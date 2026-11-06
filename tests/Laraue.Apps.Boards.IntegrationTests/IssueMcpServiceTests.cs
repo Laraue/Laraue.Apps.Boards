@@ -1,4 +1,5 @@
-﻿using System.Security.Claims;
+﻿using Laraue.Apps.Boards.Services.Storage;
+using System.Security.Claims;
 using System.Text;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess.Enums;
@@ -50,6 +51,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
             testScope.Services.GetRequiredService<ICoreSpacesService>(),
             testScope.Services.GetRequiredService<ICoreIssueAttributesService>(),
             testScope.Services.GetRequiredService<ICoreFilesService>(),
+            testScope.Services.GetRequiredService<IStorageFilesService>(),
+            testScope.Services.GetRequiredService<IStorageReferenceOutbox>(),
             testScope.Services.GetRequiredService<IDateTimeProvider>(),
             new IssueUrlBuilder(Options.Create(new WebAppOptions { Url = WebAppUrl })),
             new OrganizationHistoryReader(testScope.Database, new MemberProfileReader(testScope.Database)),
@@ -628,8 +631,8 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueData = organization.GetIssueData(0, 0, 0, 0);
-        var mediaInfo = await testScope.Services.GetRequiredService<ICoreFilesService>().UploadFile(
-            "photo.png", AttachmentFileTypes.Png, new MemoryStream(Convert.FromBase64String(SampleImageBase64())), CancellationToken.None);
+        var mediaInfo = await testScope.Services.GetRequiredService<IStorageFilesService>().Upload(
+            organization.Id, "photo.png", AttachmentFileTypes.Png, Convert.FromBase64String(SampleImageBase64()), CancellationToken.None);
         await using (var transaction = await testScope.Database.Database.BeginTransactionAsync())
         {
             await testScope.Services.GetRequiredService<ICoreIssuesService>().AddComment(
@@ -1837,9 +1840,9 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var result = await tools.GetAttachment(Assert.Single(detail.Attachments).Id, CancellationToken.None);
 
-        // The test host's fake Telegram download returns fixed bytes whatever was uploaded.
+        // Read back from Storage (the test host's fake keeps what was uploaded).
         var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
-        Assert.Equal(Encoding.UTF8.GetString(FakeTelegramFileHttpMessageHandler.Content), text.Text);
+        Assert.Equal("notes", text.Text);
     }
 
     [Fact]
@@ -2039,7 +2042,7 @@ public class IssueMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApiTes
 
         var image = Assert.IsType<ImageContentBlock>(Assert.Single(result.Content));
         Assert.Equal("image/png", image.MimeType);
-        Assert.Equal(Convert.ToBase64String(FakeTelegramFileHttpMessageHandler.Content), Encoding.UTF8.GetString(image.Data.Span));
+        Assert.Equal(SampleImageBase64(), Encoding.UTF8.GetString(image.Data.Span));
     }
 
     [Fact]

@@ -129,6 +129,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreOrganizationsService, CoreOrganizationsService>()
                 .AddScoped<ICoreMovementService, CoreMovementService>()
                 .AddScoped<ICoreFilesService, CoreFilesService>()
+                .AddScoped<Storage.IStorageReferenceOutbox, Storage.StorageReferenceOutbox>()
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
                 .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
@@ -286,6 +287,23 @@ public static class WebApplicationBuilderExtensions
                     o.Address = new Uri(storageOptions.GrpcUrl);
                 })
                 .AddInterceptor(() => new StorageServiceIdInterceptor(StorageServiceId.LaraueBoards));
+
+            builder.Services
+                .AddSingleton<Storage.IStorageFileUrlBuilder, Storage.StorageFileUrlBuilder>()
+                .AddScoped<Storage.IStorageFilesService, Storage.StorageFilesService>()
+                .AddHttpClient(Storage.StorageFilesService.HttpClientName);
+
+            if (builder.Configuration.GetValue<bool>("MockExternalServices"))
+            {
+                builder.Services
+                    .AddSingleton<Storage.FakeStorageServiceClient>()
+                    .AddSingleton<StorageService.StorageServiceClient>(
+                        sp => sp.GetRequiredService<Storage.FakeStorageServiceClient>());
+                builder.Services
+                    .AddHttpClient(Storage.StorageFilesService.HttpClientName)
+                    .ConfigurePrimaryHttpMessageHandler(
+                        sp => new Storage.FakeStorageHttpHandler(sp.GetRequiredService<Storage.FakeStorageServiceClient>()));
+            }
 
             return builder;
         }

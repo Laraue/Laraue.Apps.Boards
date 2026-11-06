@@ -15,7 +15,7 @@ public class StorageFile
     public File? File { get; set; }
 
     /// <summary>
-    /// The file's id in Storage; its public URL is <c>StorageOptions.PublicBaseUrl</c> plus this id. Not unique: Storage returns the same file for the same content uploaded again in an
+    /// The file's id in Storage; its public URL is built from it (<c>IStorageFileUrlBuilder</c>). Not unique: Storage returns the same file for the same content uploaded again in an
     /// organization, each upload with a reference of its own.
     /// </summary>
     public Guid ExternalFileId { get; set; }

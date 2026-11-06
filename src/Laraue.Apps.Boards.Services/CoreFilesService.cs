@@ -23,16 +23,6 @@ public interface ICoreFilesService
     Task<byte[]?> DownloadFromTelegram(string fileId, int maxSizeBytes, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Upload file and returns it internal identifiers. <paramref name="fileType"/> is the type
-    /// <see cref="AttachmentFileTypes.Detect"/> recognized - the caller validates before uploading.
-    /// </summary>
-    Task<MediaInfo> UploadFile(
-        string fileName,
-        AttachmentFileType fileType,
-        Stream stream,
-        CancellationToken cancellationToken);
-
-    /// <summary>
     /// Opens a stream over a previously uploaded file's content - from local storage if already
     /// cached there, else a live download from Telegram (the same two-path lookup
     /// <c>WebApiHost.FilesController.GetFileById</c> uses, minus its HTTP Range/streaming
@@ -112,22 +102,6 @@ public class CoreFilesService(
         return buffer.ToArray();
     }
 
-    public Task<MediaInfo> UploadFile(
-        string fileName,
-        AttachmentFileType fileType,
-        Stream stream,
-        CancellationToken cancellationToken)
-    {
-        fileName = AttachmentFileTypes.SanitizeFileName(fileName, fileType);
-
-        // Telegram makes a thumbnail only for what it takes as a photo (JPEG, PNG); the rest is kept
-        // as a document, byte for byte.
-        if (fileType == AttachmentFileTypes.Jpeg || fileType == AttachmentFileTypes.Png)
-            return UploadPhotoFile(fileName, fileType.MimeType, stream, cancellationToken);
-
-        return UploadDocumentFile(fileName, fileType, stream, cancellationToken);
-    }
-
     public async Task<FileContent> GetFileContent(Guid fileId, CancellationToken cancellationToken)
     {
         var location = await ResolveFileLocation(fileId, cancellationToken);
@@ -181,118 +155,6 @@ public class CoreFilesService(
         return $"https://api.telegram.org/file/bot{options.Value.Token}/{tgFile.FilePath}";
     }
 
-    private async Task<MediaInfo> UploadPhotoFile(
-        string fileName,
-        string contentType,
-        Stream stream,
-        CancellationToken cancellationToken)
-    {
-        // Upload file to telegram
-        var message = await botClient.SendPhoto(
-            options.Value.FilesChatId,
-            new InputFileStream(stream, fileName),
-            cancellationToken: cancellationToken);
-
-        var thumbnailPhoto = message.Photo![0];
-        var thumbnail = ToFile(thumbnailPhoto, fileName, contentType);
-        var originalPhoto = message.Photo![^1];
-        var original = ToFile(originalPhoto, fileName, contentType);
-        
-        // store preview to the local storage
-        await DownloadToLocalStorage(thumbnail.FileId, contentType, cancellationToken);
-        
-        // store file identifiers to DB
-        var thumbnailFileId = await UpsertDbFile(thumbnail, cancellationToken);
-        var originalFileId = await UpsertDbFile(original, cancellationToken);
-
-        return new MediaInfo
-        {
-            OriginalFileId = originalFileId,
-            PreviewFileId = thumbnailFileId,
-            Type = AttachmentType.Image,
-            FileName = fileName,
-        };
-    }
-
-    private async Task<MediaInfo> UploadDocumentFile(
-        string fileName,
-        AttachmentFileType fileType,
-        Stream stream,
-        CancellationToken cancellationToken)
-    {
-        // Without disableContentTypeDetection Telegram may turn a GIF into an animation or a WebP
-        // into a sticker; with it the message carries the document as uploaded.
-        var message = await botClient.SendDocument(
-            options.Value.FilesChatId,
-            new InputFileStream(stream, fileName),
-            disableContentTypeDetection: true,
-            cancellationToken: cancellationToken);
-
-        var document = message.Document!;
-        var originalFileId = await UpsertDbFile(
-            new File
-            {
-                FileUniqueId = document.FileUniqueId,
-                FileName = fileName,
-                FileId = document.FileId,
-                FileSize = document.FileSize,
-                MimeType = fileType.MimeType,
-            },
-            cancellationToken);
-
-        // A GIF or WebP is small enough (MaxImageSizeBytes) to be its own preview.
-        var isImage = fileType.AttachmentType == AttachmentType.Image;
-
-        return new MediaInfo
-        {
-            OriginalFileId = originalFileId,
-            PreviewFileId = isImage ? originalFileId : null,
-            Type = fileType.AttachmentType,
-            FileName = fileName,
-        };
-    }
-
-    private async Task<Guid> UpsertDbFile(
-        File file,
-        CancellationToken cancellationToken)
-    {
-        var oldFileData = await context.TelegramFiles
-            .Where(x => x.ExternalFileUniqueId == file.FileUniqueId)
-            .Select(x => new { x.FileId })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (oldFileData is not null)
-            return oldFileData.FileId;
-        
-        var telegramFile = new TelegramFile
-        {
-            ExternalFileId = file.FileId,
-            ExternalFileUniqueId = file.FileUniqueId,
-            File = new DataAccess.Models.File
-            {
-                Name = file.FileName,
-                Size = file.FileSize,
-                MimeType = file.MimeType,
-            }
-        };
-            
-        context.Add(telegramFile);
-        await context.SaveChangesAsync(cancellationToken);
-
-        return telegramFile.FileId; // TODO - check is that work actually
-    }
-
-    private static File ToFile(PhotoSize photoSize, string fileName, string contentType)
-    {
-        return new File
-        {
-            FileUniqueId = photoSize.FileUniqueId,
-            FileName = fileName,
-            FileId = photoSize.FileId,
-            FileSize = photoSize.FileSize,
-            MimeType = contentType,
-        };
-    }
 }
 
 public class PhotoFile : File

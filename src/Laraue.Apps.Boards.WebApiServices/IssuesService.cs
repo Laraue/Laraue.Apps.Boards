@@ -8,6 +8,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Extensions;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Storage;
 using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.History;
@@ -101,7 +102,8 @@ public class IssuesService(
     ICoreIssueAttributesService coreIssueAttributesService,
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
-    ICoreFilesService coreFilesService,
+    IStorageFilesService storageFilesService,
+    IStorageReferenceOutbox storageReferenceOutbox,
     ICoreSpacesService coreSpacesService,
     IAiContentSummarizer aiContentSummarizer,
     IBillingTokenClient billingTokenClient,
@@ -388,7 +390,7 @@ public class IssuesService(
             request.AttributeValues,
             ct);
 
-        var uploadedFiles = await UploadFiles(files, ct);
+        var uploadedFiles = await UploadFiles(request.AuthData.OrganizationId, files, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
@@ -400,6 +402,7 @@ public class IssuesService(
 
         var id = await issuesService.Create(request.AuthData.UserId, issueCreate, ct);
 
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, ct);
         await transaction.CommitAsync(ct);
 
         var issueKey = await context.ActiveIssues()
@@ -436,7 +439,7 @@ public class IssuesService(
             request.AttributeValues,
             ct);
         
-        var uploadedFiles = await UploadFiles(files, ct);
+        var uploadedFiles = await UploadFiles(request.AuthData.OrganizationId, files, ct);
         
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         
@@ -454,6 +457,7 @@ public class IssuesService(
             issueUpdate,
             ct);
 
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, ct);
         await transaction.CommitAsync(ct);
     }
 
@@ -846,7 +850,7 @@ public class IssuesService(
             cancellationToken);
         
         var files = await ReadFiles(request.Files, nameof(request.Files), cancellationToken);
-        var uploadedFiles = await UploadFiles(files, cancellationToken);
+        var uploadedFiles = await UploadFiles(request.AuthData.OrganizationId, files, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         
@@ -857,6 +861,7 @@ public class IssuesService(
             uploadedFiles,
             cancellationToken);
         
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         
         return commentId;
@@ -880,7 +885,7 @@ public class IssuesService(
             throw new ForbiddenException(string.Format(ErrorMessages.CommentNotAvailableToEdit, request.CommentId));
         
         var files = await ReadFiles(request.AddFiles, nameof(request.AddFiles), cancellationToken);
-        var uploadedFiles = await UploadFiles(files, cancellationToken);
+        var uploadedFiles = await UploadFiles(request.AuthData.OrganizationId, files, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await issuesService.UpdateComment(
@@ -891,6 +896,7 @@ public class IssuesService(
             request.RemoveAttachmentIds,
             cancellationToken);
 
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -1076,19 +1082,24 @@ public class IssuesService(
         return issueId;
     }
 
-    private async Task<MediaInfo[]> UploadFiles(UploadedFormFile[] uploadedFiles, CancellationToken cancellationToken)
+    /// <summary>
+    /// Uploads to Laraue.Apps.Storage for the organization. The references stay pending until the caller queues their
+    /// confirm with the saved attachments (<see cref="IStorageReferenceOutbox.QueueConfirm"/>).
+    /// </summary>
+    private async Task<MediaInfo[]> UploadFiles(
+        long organizationId,
+        UploadedFormFile[] uploadedFiles,
+        CancellationToken cancellationToken)
     {
         var files = new List<MediaInfo>();
         foreach (var uploadedFile in uploadedFiles)
         {
-            using var stream = new MemoryStream(uploadedFile.Content);
-            var fileData = await coreFilesService.UploadFile(
+            files.Add(await storageFilesService.Upload(
+                organizationId,
                 uploadedFile.FileName,
                 uploadedFile.FileType,
-                stream,
-                cancellationToken);
-
-            files.Add(fileData);
+                uploadedFile.Content,
+                cancellationToken));
         }
 
         return files.ToArray();

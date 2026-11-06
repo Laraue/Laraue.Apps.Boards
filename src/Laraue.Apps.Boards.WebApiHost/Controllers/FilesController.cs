@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Storage;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -8,6 +9,7 @@ namespace Laraue.Apps.Boards.WebApiHost.Controllers;
 [Route("/api/files")]
 public class FilesController(
     ICoreFilesService coreFilesService,
+    IStorageFilesService storageFilesService,
     IFileStorage fileStorage,
     IHttpClientFactory httpClientFactory,
     IMemoryCache memoryCache)
@@ -18,6 +20,16 @@ public class FilesController(
         Guid id,
         CancellationToken cancellationToken)
     {
+        // Uploads since BRD-339: Storage's public host serves them (cached by Cloudflare). A file's URL never changes,
+        // so the browser may keep the redirect for a day too.
+        var storageUrl = await storageFilesService.FindUrl(id, cancellationToken);
+        if (storageUrl is not null)
+        {
+            Response.Headers.CacheControl = "public, max-age=86400";
+            return Redirect(storageUrl);
+        }
+
+        // Older uploads and files from Telegram messages: from Telegram (BRD-342).
         var location = await coreFilesService.ResolveFileLocation(id, cancellationToken);
 
         // Nothing uploaded is ever rendered as a page: the browser mustn't guess another type, and a
