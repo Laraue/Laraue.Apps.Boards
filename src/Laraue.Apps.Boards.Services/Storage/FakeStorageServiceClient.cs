@@ -8,7 +8,8 @@ namespace Laraue.Apps.Boards.Services.Storage;
 /// <summary>
 /// Stands in for the real gRPC-backed <see cref="StorageService.StorageServiceClient"/> in tests and local runs
 /// without a live Laraue.Apps.Storage ("MockExternalServices", see <c>AddStorageClient</c>): keeps files and
-/// references in memory. An image gets a "preview" that is a copy of itself. <see cref="Files"/> and
+/// references in memory. An image gets a "preview" that is a copy of itself. Usage is the size of an owner's files and
+/// a <c>quota_bytes</c> is enforced like Storage does it (no deduplication here). <see cref="Files"/> and
 /// <see cref="References"/> show what was stored; <see cref="FakeStorageHttpHandler"/> serves the files' URLs.
 /// </summary>
 public class FakeStorageServiceClient : StorageService.StorageServiceClient
@@ -31,7 +32,27 @@ public class FakeStorageServiceClient : StorageService.StorageServiceClient
         DateTime? deadline = null,
         CancellationToken cancellationToken = default)
     {
-        var original = Store(request.FileName, request.ContentType, request.Content.ToByteArray());
+        var ownerId = request.Owner.OrganizationId;
+        var content = request.Content.ToByteArray();
+        var isImage = request.ContentType.StartsWith("image/", StringComparison.Ordinal);
+
+        // The preview is a copy of the original, so an image takes twice its size.
+        var requiredBytes = isImage ? 2L * content.Length : content.Length;
+        var usageBytes = GetUsage(ownerId);
+        if (request.HasQuotaBytes && usageBytes + requiredBytes > request.QuotaBytes)
+        {
+            return Reply(new UploadFileResponse
+            {
+                QuotaExceeded = new QuotaExceeded
+                {
+                    OwnerUsageBytes = usageBytes,
+                    QuotaBytes = request.QuotaBytes,
+                    RequiredBytes = requiredBytes,
+                },
+            });
+        }
+
+        var original = Store(ownerId, request.FileName, request.ContentType, content);
         var referenceId = Guid.CreateVersion7();
         References[referenceId] = new FakeReference(original.Id, Confirmed: false);
 
@@ -41,11 +62,13 @@ public class FakeStorageServiceClient : StorageService.StorageServiceClient
             ReferenceId = referenceId.ToString(),
         };
 
-        if (request.ContentType.StartsWith("image/", StringComparison.Ordinal))
+        if (isImage)
         {
-            var preview = Store(Path.ChangeExtension(request.FileName, ".webp"), "image/webp", original.Content);
+            var preview = Store(ownerId, Path.ChangeExtension(request.FileName, ".webp"), "image/webp", original.Content);
             uploaded.Preview = ToContract(preview);
         }
+
+        uploaded.OwnerUsageBytes = GetUsage(ownerId);
 
         return Reply(new UploadFileResponse { Uploaded = uploaded });
     }
@@ -81,6 +104,19 @@ public class FakeStorageServiceClient : StorageService.StorageServiceClient
         return Reply(new DeleteReferenceResponse { FileDeleted = deleted });
     }
 
+    public override AsyncUnaryCall<GetUsageResponse> GetUsageAsync(
+        GetUsageRequest request,
+        Metadata? headers = null,
+        DateTime? deadline = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Reply(new GetUsageResponse { UsageBytes = GetUsage(request.Owner.OrganizationId) });
+    }
+
+    private long GetUsage(long organizationId) => Files.Values
+        .Where(x => x.OrganizationId == organizationId)
+        .Sum(x => (long)x.Content.Length);
+
     private void ThrowIfFailureIsSet()
     {
         var failure = NextReferenceCallFailure;
@@ -89,9 +125,9 @@ public class FakeStorageServiceClient : StorageService.StorageServiceClient
             throw failure;
     }
 
-    private FakeStoredFile Store(string fileName, string contentType, byte[] content)
+    private FakeStoredFile Store(long organizationId, string fileName, string contentType, byte[] content)
     {
-        var file = new FakeStoredFile(Guid.CreateVersion7(), fileName, contentType, content);
+        var file = new FakeStoredFile(Guid.CreateVersion7(), organizationId, fileName, contentType, content);
         Files[file.Id] = file;
         return file;
     }
@@ -112,7 +148,7 @@ public class FakeStorageServiceClient : StorageService.StorageServiceClient
         () => { });
 }
 
-public sealed record FakeStoredFile(Guid Id, string FileName, string ContentType, byte[] Content);
+public sealed record FakeStoredFile(Guid Id, long OrganizationId, string FileName, string ContentType, byte[] Content);
 
 public sealed record FakeReference(Guid FileId, bool Confirmed);
 

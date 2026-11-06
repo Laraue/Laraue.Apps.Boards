@@ -13,6 +13,7 @@ public class FakeBillingPaymentClient : IBillingPaymentClient
         BillingItemKind kind,
         Guid itemId,
         string currencyCode,
+        BillingStorageCheckout? storage,
         CancellationToken cancellationToken)
     {
         var paymentId = Guid.NewGuid();

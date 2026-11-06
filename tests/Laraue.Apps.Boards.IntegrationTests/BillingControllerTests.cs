@@ -47,6 +47,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                 IsPersonal = true,
                 LimitIssuesPerMonth = 100,
                 LimitFreeTeamOrganizationsCount = 3,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 2_500_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             });
@@ -110,6 +111,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
             {
                 Code = "personal_free",
                 IsPersonal = true,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 25_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             });
@@ -148,6 +150,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
             {
                 Code = "personal_free",
                 IsPersonal = true,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 25_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
                 PeriodEndsAt = periodEndsAt,
@@ -199,6 +202,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                 Code = "personal_free",
                 IsPersonal = true,
                 LimitIssuesPerMonth = 100,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 25_000,
                 LimitPeriodStartedAt = currentPeriod,
             });
@@ -231,6 +235,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                 Code = "personal_free",
                 IsPersonal = true,
                 LimitIssuesPerMonth = 500,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 25_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc),
                 PeriodEndsAt = periodEndsAt,
@@ -261,6 +266,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                 Code = "Plus",
                 IsPersonal = true,
                 LimitIssuesPerMonth = 50_000,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 300_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
                 // The paid period ends mid-month, which is not when the issue count starts over.
@@ -291,6 +297,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
             {
                 Code = "unlimited",
                 IsPersonal = true,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 25_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             });
@@ -319,6 +326,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                 Code = "team_free",
                 IsPersonal = false,
                 LimitIssuesPerMonth = null,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 2_500_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             });
@@ -404,6 +412,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                 BillingItemKind.Subscription,
                 itemId,
                 "RUB",
+                It.IsAny<BillingStorageCheckout?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BillingCheckout(paymentId, "https://pay.example/checkout"));
 
@@ -449,6 +458,7 @@ public class BillingControllerTests(WebApiTestHost host) : IClassFixture<WebApiT
                 It.IsAny<BillingItemKind>(),
                 It.IsAny<Guid>(),
                 It.IsAny<string>(),
+                It.IsAny<BillingStorageCheckout?>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }

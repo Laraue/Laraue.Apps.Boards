@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Billing;
+using Laraue.Apps.Boards.Services.Storage;
 using Laraue.Core.DataAccess.Contracts;
 using Laraue.Core.DataAccess.Extensions;
 using Laraue.Apps.Boards.WebApiServices.Resources;
@@ -92,6 +93,30 @@ public abstract record BillingSummary
     /// month, unlike its own period). Null when there is no issue limit.
     /// </summary>
     public required DateTime? IssuesResetAt { get; init; }
+
+    /// <summary>
+    /// The organization's file storage (BRD-340): what its uploads take and what its plan gives.
+    /// </summary>
+    public required StorageUsage Storage { get; init; }
+}
+
+/// <summary>
+/// An organization's file storage. Over the quota is possible (a paid plan that ended leaves the files in place):
+/// new uploads are refused until enough is deleted.
+/// </summary>
+public sealed record StorageUsage
+{
+    public required long UsedBytes { get; init; }
+
+    /// <summary>
+    /// The plan's storage plus the storage add-on's.
+    /// </summary>
+    public required long QuotaBytes { get; init; }
+
+    /// <summary>
+    /// The storage add-on the plan has, as Billing's tariffs endpoint lists it. Null for none.
+    /// </summary>
+    public required Guid? StorageAddonId { get; init; }
 }
 
 public sealed record PersonalBillingSummary : BillingSummary
@@ -133,16 +158,39 @@ public sealed record CreateCheckoutRequest
     [Required]
     [StringLength(3, MinimumLength = 3)]
     public required string CurrencyCode { get; init; }
+
+    /// <summary>
+    /// A storage add-on bought with the tariff, as Billing's tariffs endpoint lists it (BRD-341). Null for none:
+    /// paying for the tariff without one removes the add-on the plan has.
+    /// </summary>
+    public Guid? StorageAddonId { get; init; }
 }
 
+/// <summary>
+/// A started payment, or a refusal: <see cref="StorageOverLimit"/> is set (and nothing else) when the tariff and
+/// add-on would give less storage than the organization already uses.
+/// </summary>
 public sealed record CheckoutDto
 {
-    public required Guid PaymentId { get; init; }
+    public required Guid? PaymentId { get; init; }
 
     /// <summary>
     /// The address to send the customer to in order to pay.
     /// </summary>
-    public required string Url { get; init; }
+    public required string? Url { get; init; }
+
+    public required StorageOverLimit? StorageOverLimit { get; init; }
+}
+
+/// <summary>
+/// How much the organization uses, how much the chosen tariff and add-on would give, and how much has to be deleted
+/// first.
+/// </summary>
+public sealed record StorageOverLimit
+{
+    public required long UsedBytes { get; init; }
+    public required long QuotaBytes { get; init; }
+    public required long ExcessBytes { get; init; }
 }
 
 public sealed record TariffName
@@ -192,6 +240,7 @@ public class BillingService(
     IUsageLimitService usageLimitService,
     IBillingPaymentClient paymentClient,
     IAccessService accessService,
+    IStorageQuotaService storageQuotaService,
     ILogger<BillingService> logger) : IBillingService
 {
     public async Task<CheckoutDto> CreateCheckout(
@@ -209,28 +258,63 @@ public class BillingService(
             throw new ForbiddenException(ErrorMessages.OnlyOrganizationOwnerCanPay);
         }
 
+        // A tariff is checked against the storage already used, so nobody moves to less than they have.
+        BillingStorageCheckout? storage = null;
+        if (request.Kind == BillingItemKind.Subscription || request.StorageAddonId is not null)
+        {
+            var usedBytes = await storageQuotaService.GetUsageBytes(authData.OrganizationId, cancellationToken);
+            storage = new BillingStorageCheckout(request.StorageAddonId, usedBytes);
+        }
+
         logger.LogInformation(
-            "Starting a payment: {Kind} {ItemId} in {CurrencyCode} for organization {OrganizationId} by owner {UserId}",
+            "Starting a payment: {Kind} {ItemId} with storage add-on {StorageAddonId} in {CurrencyCode} for organization {OrganizationId} by owner {UserId}, storage used {UsedBytes}",
             request.Kind,
             request.ItemId,
+            request.StorageAddonId,
             request.CurrencyCode,
             authData.OrganizationId,
-            authData.UserId);
-
-        var checkout = await paymentClient.CreateCheckoutAsync(
-            authData.OrganizationId,
             authData.UserId,
-            request.Kind,
-            request.ItemId,
-            request.CurrencyCode.ToUpperInvariant(),
-            cancellationToken);
+            storage?.UsageBytes);
+
+        BillingCheckout checkout;
+        try
+        {
+            checkout = await paymentClient.CreateCheckoutAsync(
+                authData.OrganizationId,
+                authData.UserId,
+                request.Kind,
+                request.ItemId,
+                request.CurrencyCode.ToUpperInvariant(),
+                storage,
+                cancellationToken);
+        }
+        catch (StorageOverLimitException ex)
+        {
+            logger.LogInformation(
+                "Payment for organization {OrganizationId} refused: {UsedBytes} bytes used, the checkout gives {QuotaBytes}",
+                authData.OrganizationId,
+                ex.UsageBytes,
+                ex.QuotaBytes);
+
+            return new CheckoutDto
+            {
+                PaymentId = null,
+                Url = null,
+                StorageOverLimit = new StorageOverLimit
+                {
+                    UsedBytes = ex.UsageBytes,
+                    QuotaBytes = ex.QuotaBytes,
+                    ExcessBytes = ex.UsageBytes - ex.QuotaBytes,
+                },
+            };
+        }
 
         logger.LogInformation(
             "Payment {PaymentId} started for organization {OrganizationId}",
             checkout.PaymentId,
             authData.OrganizationId);
 
-        return new CheckoutDto { PaymentId = checkout.PaymentId, Url = checkout.Url };
+        return new CheckoutDto { PaymentId = checkout.PaymentId, Url = checkout.Url, StorageOverLimit = null };
     }
 
     public async Task<TariffName> GetTariffName(OrganizationAuthData authData, CancellationToken cancellationToken)
@@ -250,6 +334,13 @@ public class BillingService(
             authData.OrganizationId, authData.UserId, cancellationToken);
 
         var canPay = await accessService.IsOrganizationOwner(authData, cancellationToken);
+
+        var storage = new StorageUsage
+        {
+            UsedBytes = await storageQuotaService.GetUsageBytes(authData.OrganizationId, cancellationToken),
+            QuotaBytes = subscription.StorageQuotaBytes,
+            StorageAddonId = subscription.StorageAddonId,
+        };
 
         LimitUsage? issuesPerMonth = null;
         if (subscription.LimitIssuesPerMonth is { } issuesLimit)
@@ -301,6 +392,7 @@ public class BillingService(
                 PeriodEndsAt = subscription.PeriodEndsAt,
                 PeriodResets = subscription.PeriodResets,
                 IssuesResetAt = issuesResetAt,
+                Storage = storage,
             };
         }
 
@@ -330,6 +422,7 @@ public class BillingService(
             PeriodEndsAt = subscription.PeriodEndsAt,
             PeriodResets = subscription.PeriodResets,
             IssuesResetAt = issuesResetAt,
+            Storage = storage,
             FreeTeamOrganizations = freeTeamOrganizations,
         };
     }

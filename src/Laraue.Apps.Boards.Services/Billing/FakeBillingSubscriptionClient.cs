@@ -15,6 +15,7 @@ public class FakeBillingSubscriptionClient(DatabaseContext context) : IBillingSu
 {
     private const string FakeTariffCode = "Free (local mock)";
     private const long FakeIncludedTokensCount = 2_500_000;
+    private const long FakeStorageQuotaBytes = 10L * 1024 * 1024 * 1024;
 
     public async Task<ActiveSubscriptionInfo> GetActiveSubscriptionAsync(
         long organizationId,
@@ -53,5 +54,6 @@ public class FakeBillingSubscriptionClient(DatabaseContext context) : IBillingSu
         LimitIssuesPerMonth = null,
         LimitFreeTeamOrganizationsCount = null,
         IncludedTokensCount = FakeIncludedTokensCount,
+        StorageQuotaBytes = FakeStorageQuotaBytes,
     };
 }
