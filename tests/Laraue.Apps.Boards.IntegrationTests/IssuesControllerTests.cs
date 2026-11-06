@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess.Enums;
+﻿using Laraue.Apps.Boards.Services.Storage;
+using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
@@ -1375,10 +1376,11 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         // A PNG signature is enough for the type check.
         byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4, 5];
-        var file = await testScope.Services.GetRequiredService<ICoreFilesService>().UploadFile(
+        var file = await testScope.Services.GetRequiredService<IStorageFilesService>().Upload(
+            organization.Id,
             "photo.png",
             AttachmentFileTypes.Png,
-            new MemoryStream(png),
+            png,
             CancellationToken.None);
 
         var coreIssuesService = testScope.Services.GetRequiredService<ICoreIssuesService>();

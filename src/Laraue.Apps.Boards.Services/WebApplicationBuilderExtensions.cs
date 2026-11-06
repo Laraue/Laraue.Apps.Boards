@@ -12,6 +12,9 @@ using Laraue.Apps.Boards.Services.Metrics;
 using BillingServiceId = Laraue.Apps.Billing.Internal.Contracts.ServiceId;
 using BillingServiceIdInterceptor = Laraue.Apps.Billing.Internal.Contracts.ServiceIdInterceptor;
 using FeedbackService = Laraue.Apps.Feedback.Internal.Contracts.FeedbackService;
+using StorageService = Laraue.Apps.Storage.Internal.Contracts.StorageService;
+using StorageServiceId = Laraue.Apps.Storage.Internal.Contracts.ServiceId;
+using StorageServiceIdInterceptor = Laraue.Apps.Storage.Internal.Contracts.ServiceIdInterceptor;
 using FeedbackServiceId = Laraue.Apps.Feedback.Internal.Contracts.ServiceId;
 using FeedbackServiceIdInterceptor = Laraue.Apps.Feedback.Internal.Contracts.ServiceIdInterceptor;
 using IdentityServiceId = Laraue.Apps.Identity.Internal.Contracts.ServiceId;
@@ -126,6 +129,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreOrganizationsService, CoreOrganizationsService>()
                 .AddScoped<ICoreMovementService, CoreMovementService>()
                 .AddScoped<ICoreFilesService, CoreFilesService>()
+                .AddScoped<Storage.IStorageReferenceOutbox, Storage.StorageReferenceOutbox>()
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
                 .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
@@ -258,6 +262,47 @@ public static class WebApplicationBuilderExtensions
             if (builder.Configuration.GetValue<bool>("MockExternalServices"))
             {
                 builder.Services.AddSingleton<FeedbackService.FeedbackServiceClient, FakeFeedbackServiceClient>();
+            }
+
+            return builder;
+        }
+
+        /// <summary>
+        /// Registers <see cref="StorageService.StorageServiceClient"/> (Laraue.Apps.Storage, where uploaded files are
+        /// kept) and its validated <see cref="Storage.StorageOptions"/>. Separate from <see cref="AddCoreServices"/>
+        /// because only the hosts that upload or serve uploads (WebApiHost, McpHost) talk to it - TelegramHost keeps
+        /// files from Telegram messages in Telegram and isn't required to configure it.
+        /// </summary>
+        public WebApplicationBuilder AddStorageClient()
+        {
+            builder.AddValidatedOptions<Storage.StorageOptions>(nameof(Storage.StorageOptions));
+
+            // Read off configuration directly for the same reason as BillingOptions in AddCoreServices.
+            var storageOptions = builder.Configuration.GetSection(nameof(Storage.StorageOptions)).Get<Storage.StorageOptions>()
+                ?? throw new InvalidOperationException($"Missing '{nameof(Storage.StorageOptions)}' configuration section.");
+
+            builder.Services
+                .AddLaraueGrpcClient<StorageService.StorageServiceClient>(o =>
+                {
+                    o.Address = new Uri(storageOptions.GrpcUrl);
+                })
+                .AddInterceptor(() => new StorageServiceIdInterceptor(StorageServiceId.LaraueBoards));
+
+            builder.Services
+                .AddSingleton<Storage.IStorageFileUrlBuilder, Storage.StorageFileUrlBuilder>()
+                .AddScoped<Storage.IStorageFilesService, Storage.StorageFilesService>()
+                .AddHttpClient(Storage.StorageFilesService.HttpClientName);
+
+            if (builder.Configuration.GetValue<bool>("MockExternalServices"))
+            {
+                builder.Services
+                    .AddSingleton<Storage.FakeStorageServiceClient>()
+                    .AddSingleton<StorageService.StorageServiceClient>(
+                        sp => sp.GetRequiredService<Storage.FakeStorageServiceClient>());
+                builder.Services
+                    .AddHttpClient(Storage.StorageFilesService.HttpClientName)
+                    .ConfigurePrimaryHttpMessageHandler(
+                        sp => new Storage.FakeStorageHttpHandler(sp.GetRequiredService<Storage.FakeStorageServiceClient>()));
             }
 
             return builder;

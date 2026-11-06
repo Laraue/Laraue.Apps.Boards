@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.Services.Storage;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.DataAccess.Enums;
@@ -110,7 +111,8 @@ public class CoreIssuesService(
     ICoreIssueAttributesService issueAttributesService,
     IMemberProfileReader memberProfileReader,
     ICoreEpicStateService epicStateService,
-    BoardsMetrics metrics)
+    BoardsMetrics metrics,
+    IStorageReferenceOutbox storageReferenceOutbox)
     : ICoreIssuesService
 {
     /// <summary>
@@ -675,9 +677,10 @@ public class CoreIssuesService(
                 })
                 .ToListAsyncEF(cancellationToken);
 
-            await context.Attachments
-                .Where(x => deletableAttachments.Select(a => a.AttachmentId).Contains(x.Id))
-                .ExecuteDeleteAsync(cancellationToken);
+            var removedAttachments = context.Attachments
+                .Where(x => deletableAttachments.Select(a => a.AttachmentId).Contains(x.Id));
+            await storageReferenceOutbox.QueueDelete(removedAttachments, cancellationToken);
+            await removedAttachments.ExecuteDeleteAsync(cancellationToken);
 
             foreach (var attachment in deletableAttachments)
             {
@@ -716,10 +719,11 @@ public class CoreIssuesService(
             })
             .FirstAsyncEF(cancellationToken);
 
-        await context.IssueCommentsAttachments
+        var commentAttachments = context.IssueCommentsAttachments
             .Where(x => x.CommentId == id)
-            .Select(x => x.Attachment)
-            .ExecuteDeleteAsync(cancellationToken);
+            .Select(x => x.Attachment!);
+        await storageReferenceOutbox.QueueDelete(commentAttachments, cancellationToken);
+        await commentAttachments.ExecuteDeleteAsync(cancellationToken);
 
         var deletedAt = dateTimeProvider.UtcNow;
 
@@ -1012,9 +1016,10 @@ public class CoreIssuesService(
             .Select(x => new { x.Id, x.File!.Name, x.PreviewFileId })
             .ToListAsyncEF(cancellationToken);
 
-        await context.Attachments
-            .Where(x => attachments.Select(a => a.Id).Contains(x.Id))
-            .ExecuteDeleteAsync(cancellationToken);
+        var removedAttachments = context.Attachments
+            .Where(x => attachments.Select(a => a.Id).Contains(x.Id));
+        await storageReferenceOutbox.QueueDelete(removedAttachments, cancellationToken);
+        await removedAttachments.ExecuteDeleteAsync(cancellationToken);
 
         return attachments
             .Select(x => logItemFactory.AttachmentRemoved(x.PreviewFileId, x.Name))

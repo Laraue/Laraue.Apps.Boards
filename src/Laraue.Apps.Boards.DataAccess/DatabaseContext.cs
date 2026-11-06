@@ -43,6 +43,8 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<RetroParticipant> RetroParticipants { get; init; }
     public DbSet<Status> Statuses { get; init; }
     public DbSet<TelegramFile> TelegramFiles { get; init; }
+    public DbSet<StorageFile> StorageFiles { get; init; }
+    public DbSet<StorageReferenceOperation> StorageReferenceOperations { get; init; }
     public DbSet<TelegramMessage> TelegramMessages { get; init; }
     public DbSet<TelegramMediaGroup> TelegramMediaGroups { get; init; }
     public DbSet<LinkedTelegramChat> LinkedTelegramChats { get; init; }
@@ -408,6 +410,17 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .OnDelete(DeleteBehavior.SetNull);
         });
         
+        modelBuilder.Entity<StorageFile>(builder =>
+        {
+            builder.HasIndex(x => x.FileId).IsUnique();
+        });
+
+        modelBuilder.Entity<StorageReferenceOperation>(builder =>
+        {
+            // StorageReferenceOperationsSender: the ones due now.
+            builder.HasIndex(x => x.NextAttemptAt);
+        });
+
         modelBuilder.Entity<IssueAttachment>(builder =>
         {
             builder.HasKey(x => new { x.IssueId, x.AttachmentId });

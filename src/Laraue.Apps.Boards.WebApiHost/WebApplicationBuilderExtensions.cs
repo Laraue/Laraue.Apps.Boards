@@ -24,7 +24,8 @@ public static class WebApplicationBuilderExtensions
             builder
                 .AddCoreServices()
                 .AddAiContentSummarizer()
-                .AddFeedbackClient();
+                .AddFeedbackClient()
+                .AddStorageClient();
             builder.AddValidatedOptions<AgentSignInOptions>(nameof(AgentSignInOptions));
             builder.Services.AddHttpClient();
 
@@ -38,6 +39,11 @@ public static class WebApplicationBuilderExtensions
 
             // The database-backed gauges (issues, epics, organizations, retros, active users) come from this host only.
             builder.Services.AddBoardsStateMetrics();
+
+            // Confirms and deletes queued for Laraue.Apps.Storage are sent from this host only.
+            builder.Services
+                .AddSingleton<Laraue.Apps.Boards.WebApiServices.Storage.StorageReferenceOperationsSender>()
+                .AddHostedService(sp => sp.GetRequiredService<Laraue.Apps.Boards.WebApiServices.Storage.StorageReferenceOperationsSender>());
 
             builder.Services
                 .AddScoped<IIssuesService, IssuesService>()

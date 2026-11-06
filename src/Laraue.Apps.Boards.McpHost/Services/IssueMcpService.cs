@@ -4,6 +4,7 @@ using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.McpHost.Resources;
 using Laraue.Apps.Boards.Services;
+using Laraue.Apps.Boards.Services.Storage;
 using Laraue.Apps.Boards.Services.Attributes;
 using Laraue.Apps.Boards.Services.Members;
 using Laraue.Apps.Boards.Services.AttributeRequests;
@@ -483,6 +484,8 @@ public class IssueMcpService(
     ICoreSpacesService coreSpacesService,
     ICoreIssueAttributesService coreIssueAttributesService,
     ICoreFilesService coreFilesService,
+    IStorageFilesService storageFilesService,
+    IStorageReferenceOutbox storageReferenceOutbox,
     IDateTimeProvider dateTimeProvider,
     IIssueUrlBuilder issueUrlBuilder,
     IOrganizationHistoryReader historyReader,
@@ -1003,7 +1006,7 @@ public class IssueMcpService(
             await EnsureUserBelongsToOrganization(authData.OrganizationId, assigneeId.Value, cancellationToken);
 
         var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
-        var uploadedFiles = await UploadFiles(files, cancellationToken);
+        var uploadedFiles = await UploadFiles(authData.OrganizationId, files, cancellationToken);
 
         var issueCreate = new IssueCreateRequest(statusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly: true)
             .SetContent(content)
@@ -1017,6 +1020,7 @@ public class IssueMcpService(
 
         var issueId = await coreIssuesService.Create(authData.ToActor(), issueCreate, cancellationToken);
 
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return await context.ActiveIssues()
@@ -1050,7 +1054,7 @@ public class IssueMcpService(
             await EnsureUserBelongsToOrganization(authData.OrganizationId, assigneeId.Value, cancellationToken);
 
         var attributeRequests = await ResolveAttributeRequests(authData.OrganizationId, attributes, cancellationToken);
-        var uploadedFiles = await UploadFiles(files, cancellationToken);
+        var uploadedFiles = await UploadFiles(authData.OrganizationId, files, cancellationToken);
 
         var issueUpdate = new IssueUpdateRequest()
             .SetContent(content)
@@ -1064,6 +1068,7 @@ public class IssueMcpService(
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.Update(issueId, authData.ToActor(), issueUpdate, cancellationToken);
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -1428,6 +1433,7 @@ public class IssueMcpService(
     /// <see cref="BadRequestException"/> rather than failing on the first bad file.
     /// </summary>
     private async Task<IReadOnlyList<MediaInfo>> UploadFiles(
+        long organizationId,
         IReadOnlyList<FileAttachment>? files,
         CancellationToken cancellationToken)
     {
@@ -1486,8 +1492,7 @@ public class IssueMcpService(
         var uploaded = new List<MediaInfo>();
         foreach (var (file, fileType, bytes) in decoded)
         {
-            using var stream = new MemoryStream(bytes);
-            uploaded.Add(await coreFilesService.UploadFile(file.FileName, fileType, stream, cancellationToken));
+            uploaded.Add(await storageFilesService.Upload(organizationId, file.FileName, fileType, bytes, cancellationToken));
         }
 
         return uploaded;
@@ -1522,7 +1527,9 @@ public class IssueMcpService(
                 nameof(attachmentId),
                 string.Format(ErrorMessages.AttachmentTooLargeToDownload, attachmentId, AttachmentFileTypes.MaxDocumentSizeMegabytes));
 
-        return await coreFilesService.GetFileContent(attachmentData.FileId, cancellationToken);
+        // Uploads since BRD-339 are in Storage; older ones and files from Telegram messages are read from Telegram.
+        return await storageFilesService.OpenContent(attachmentData.FileId, cancellationToken)
+            ?? await coreFilesService.GetFileContent(attachmentData.FileId, cancellationToken);
     }
 
     public async Task<long> CreateComment(
@@ -1540,10 +1547,11 @@ public class IssueMcpService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Issue", key))
             .EnsureOrThrowForbidden(a => a.CanUpdateIssue, string.Format(ErrorMessages.EntityActionForbidden, "Issue", key, "update"));
 
-        var uploadedFiles = await UploadFiles(files, cancellationToken);
+        var uploadedFiles = await UploadFiles(authData.OrganizationId, files, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var commentId = await coreIssuesService.AddComment(issueId, authData.ToActor(), text, uploadedFiles, cancellationToken);
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return commentId;
@@ -1572,7 +1580,7 @@ public class IssueMcpService(
         if (comment.OwnerId != authData.UserId)
             throw new ForbiddenException(string.Format(ErrorMessages.EntityActionForbidden, "Comment", commentId, "edit"));
 
-        var uploadedFiles = await UploadFiles(files, cancellationToken);
+        var uploadedFiles = await UploadFiles(authData.OrganizationId, files, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         await coreIssuesService.UpdateComment(
@@ -1582,6 +1590,7 @@ public class IssueMcpService(
             uploadedFiles.ToArray(),
             removeAttachmentIds?.ToArray() ?? [],
             cancellationToken);
+        await storageReferenceOutbox.QueueConfirm(uploadedFiles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

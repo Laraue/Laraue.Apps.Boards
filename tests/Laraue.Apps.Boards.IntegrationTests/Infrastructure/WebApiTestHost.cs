@@ -1,4 +1,6 @@
-﻿using Grpc.Core;
+using Laraue.Apps.Boards.Services.Storage;
+using StorageService = Laraue.Apps.Storage.Internal.Contracts.StorageService;
+using Grpc.Core;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
@@ -66,6 +68,11 @@ public class WebApiTestHost
     /// check what was sent or how a failure is reported re-<c>Setup</c> it themselves.
     /// </summary>
     public Mock<FeedbackService.FeedbackServiceClient> FeedbackClientMock { get; } = CreateDefaultFeedbackClientMock();
+
+    /// <summary>
+    /// Stands in for Laraue.Apps.Storage: uploads are kept in memory, and their public URLs are served from it.
+    /// </summary>
+    public FakeStorageServiceClient StorageClient { get; } = new();
 
     private static Mock<FeedbackService.FeedbackServiceClient> CreateDefaultFeedbackClientMock()
     {
@@ -175,6 +182,10 @@ public class WebApiTestHost
             // a real network request in tests.
             services.AddHttpClient(Options.DefaultName)
                 .ConfigurePrimaryHttpMessageHandler(() => new FakeTelegramFileHttpMessageHandler());
+
+            services.AddSingleton<StorageService.StorageServiceClient>(StorageClient);
+            services.AddHttpClient(StorageFilesService.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => new FakeStorageHttpHandler(StorageClient));
         });
 
         // The exporter serves a cached scrape for 300 ms by default; a test scraping right after another

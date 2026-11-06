@@ -11,8 +11,10 @@ public class TelegramOptions
     public required string Token { get; set; }
     
     /// <summary>
-    /// The chat to store uploaded files originals. Validated as non-zero at registration
-    /// (see <c>AddCoreServices</c>) - <c>[Required]</c> can't catch a missing <see cref="long"/>.
+    /// The chat that holds the files uploaded before BRD-339. New uploads go to Laraue.Apps.Storage, but the old ones
+    /// are still served from Telegram by their file id (BRD-342), so the chat and the bot's access to it must not be
+    /// deleted. Validated as non-zero at registration (see <c>AddCoreServices</c>) - <c>[Required]</c> can't catch a
+    /// missing <see cref="long"/>.
     /// </summary>
     public required long FilesChatId { get; set; }
 
