@@ -154,6 +154,8 @@ jobs:
         set -e
         cd /home/laraue && docker compose build ${{ matrix.image }}
         docker compose up -d --force-recreate ${{ matrix.image }}
+        docker image prune -f || true
+        docker builder prune -f --filter until=168h || true
 
     - name: Notify deploy finished
       if: success()
