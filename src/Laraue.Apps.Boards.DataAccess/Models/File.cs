@@ -3,7 +3,7 @@
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
 /// <summary>
-/// Represents one file in the system. The table doesn't contain information about how it is stored.
+/// Represents one file in the system. Where it is stored is in <see cref="TelegramFile"/> or <see cref="StorageFile"/>.
 /// </summary>
 public class File
 {
@@ -30,7 +30,13 @@ public class File
     public required string? MimeType { get; set; }
     
     /// <summary>
-    /// Link exists when the file is stored in Telegram (current version stores in Telegram only, later will use different places.)
+    /// Link exists when the file is stored in Telegram: uploads from before BRD-339 (kept in the Telegram files chat,
+    /// BRD-342) and files from Telegram messages.
     /// </summary>
     public TelegramFile? TelegramFile { get; set; }
+
+    /// <summary>
+    /// Link exists when the file is kept in Laraue.Apps.Storage: uploads since BRD-339 and their previews.
+    /// </summary>
+    public StorageFile? StorageFile { get; set; }
 }

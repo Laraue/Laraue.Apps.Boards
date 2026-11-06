@@ -1858,6 +1858,86 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("statuses", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.StorageFile", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ExternalFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("external_file_id");
+
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_id");
+
+                    b.Property<Guid?>("ReferenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reference_id");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id")
+                        .HasName("pk_storage_files");
+
+                    b.HasIndex("FileId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_storage_files_file_id");
+
+                    b.ToTable("storage_files", (string)null);
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.StorageReferenceOperation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<Guid>("ReferenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reference_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_storage_reference_operations");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("ix_storage_reference_operations_next_attempt_at");
+
+                    b.ToTable("storage_reference_operations", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramFile", b =>
                 {
                     b.Property<long>("Id")
@@ -3005,6 +3085,18 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Epic");
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.StorageFile", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.File", "File")
+                        .WithOne("StorageFile")
+                        .HasForeignKey("Laraue.Apps.Boards.DataAccess.Models.StorageFile", "FileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_storage_files_files_file_id");
+
+                    b.Navigation("File");
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.TelegramFile", b =>
                 {
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.File", "File")
@@ -3088,6 +3180,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.File", b =>
                 {
+                    b.Navigation("StorageFile");
+
                     b.Navigation("TelegramFile");
                 });
 

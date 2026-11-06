@@ -39,6 +39,7 @@ public sealed class Program
 
         builder
             .AddCoreServices()
+            .AddStorageClient()
             .AddDatabaseServices(dbConnectionStringName);
 
         builder.Services.AddScoped<IIssueMcpService, IssueMcpService>();
