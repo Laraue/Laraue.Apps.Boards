@@ -193,7 +193,8 @@ then retry.
   (that would run outside Production) - e.g. `Telegram:FilesChatId != 0`, or `TelegramNetOptions`, which has no
   annotations. Nested objects aren't validated automatically - see `AppOptions.Validate`.
 - Register an options class only in hosts that use it. Core-service options go in `AddCoreServices()`
-  (`TelegramOptions`, `FileStorageOptions`, `IdentityOptions`, `BillingOptions`); the AI summarizer is opt-in via
+  (`TelegramOptions`, `FileStorageOptions`, `IdentityOptions`, `BillingOptions`); `StorageOptions` only in the hosts
+  that call `AddStorageClient()` (WebApiHost, McpHost); the AI summarizer is opt-in via
   `AddAiContentSummarizer()` (WebApiHost, TelegramHost). `WebAppOptions` (web app URL for `IIssueUrlBuilder`) is
   registered by TelegramHost and McpHost from their `AppOptions` section, so `AppOptions:Url` is configured once.
 - The integration tests' `appsettings.json` must satisfy validation - add every new required setting there.
@@ -219,6 +220,8 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
   `boards_issues{state}` (active, completed), `boards_issues_soft_deleted`, `boards_epics{status}`,
   `boards_organizations{type}`, `boards_retros{state}` (running, finished), `boards_active_users{window}` (1d, 7d, 30d:
   distinct users with an `OrganizationLog` row - edits, not reads). Soft-deleted rows aren't counted. Query with `max()`.
+  Also in WebApiHost: `boards_storage_operations_pending` and `boards_storage_operations_oldest_age_seconds`, the
+  Storage outbox (`StorageReferenceOperationsSender`, see "Uploaded files").
 - **Telegram**: TelegramHost also exports the `Laraue.Telegram.NET` meter (`LaraueTelegramTelemetry.SourceName`):
   `telegram_requests_started_total{telegram_update_type}`, `telegram_requests_failed_total{telegram_status}`,
   `telegram_request_duration_milliseconds` - the same for every bot host, so one dashboard covers them.
@@ -338,7 +341,7 @@ sessions end only by revocation (BRD-222): each token has a `tv` claim (`AuthSer
   immediate.
 - API keys (McpHost) are validated live against the database and unaffected.
 
-## External services (Identity, Billing, Feedback) and local mocking
+## External services (Identity, Billing, Feedback, Storage) and local mocking
 
 Boards calls sibling services over gRPC:
 
@@ -390,13 +393,21 @@ Boards calls sibling services over gRPC:
   organization token, sends the global user id and sets the `organization` context key to the current organization
   (overriding the frontend's). The optional contact goes in the typed `contact` field (trimmed, blank = unset). Limits
   are Feedback's (INVALID_ARGUMENT → 400 via Laraue.Grpc.Client); other gRPC failures are 503.
+- **`Laraue.Apps.Storage`** (BRD-339) - keeps the files users upload. WebApiHost and McpHost only: `AddStorageClient()`
+  registers `StorageService.StorageServiceClient`, `StorageOptions` (`GrpcUrl`, `PublicBaseUrl`), `IStorageFilesService`
+  and `IStorageFileUrlBuilder` (`FakeStorageServiceClient` + `FakeStorageHttpHandler` when mocking, and in the integration
+  tests via `WebApiTestHost.StorageClient`). TelegramHost doesn't need it: files from Telegram messages stay in Telegram.
+  See "Uploaded files".
 
 **Running locally without them**: `AddCoreServices()` always registers the real clients (channels open lazily). With
 `"MockExternalServices": true` (both hosts' `appsettings.Development.json`, `false` elsewhere) one
 `if (mockExternalServices) { ... }` block registers `FakeUserIdentityServiceClient` (subclasses the generated client,
 mints a fresh `Guid`), `FakeBillingTokenClient`/`FakeBillingSubscriptionClient` (generous balance, unlimited plan)
-**after** them - last-registered-wins, no `if`/`else` duplication. These fakes are for running hosts only; integration
-tests use their own `Mock<...>` overrides in `WebApiTestHost`/`TelegramIntegrationTest`.
+**after** them - last-registered-wins, no `if`/`else` duplication. `AddFeedbackClient()` and `AddStorageClient()` do the
+same for their clients. The fake Storage keeps files in memory and serves them to `get_attachment`, but a redirect from
+`/api/files/{id}` goes to `StorageOptions:PublicBaseUrl`, which doesn't answer unless Laraue.Apps.Storage runs locally.
+These fakes are for running hosts only; integration tests use their own `Mock<...>` overrides in
+`WebApiTestHost`/`TelegramIntegrationTest` (Storage: the same `FakeStorageServiceClient`, `WebApiTestHost.StorageClient`).
 
 ## API keys and MCP access
 
@@ -563,19 +574,46 @@ leaves them untouched, `{}` clears all - check `attributes is not null`, not `.C
 REST and MCP. The type comes from the file's content (magic bytes; docx = a zip with `word/document.xml` and no VBA
 project), never the declared mime type; md/txt/json have no signature, so the extension decides provided the content is
 UTF-8 with no NUL bytes, and a .doc needs both the OLE signature and the extension. Images (JPEG, PNG, WebP, GIF) are
-limited to 3 MB, documents (PDF, DOCX, DOC, Markdown, TXT, JSON) to 10 MB - under the Bot API's 20 MB download limit,
-since Telegram is the storage. SVG, HEIC/AVIF and anything else are rejected. JPEG/PNG go through `sendPhoto` (Telegram
-makes the thumbnail); the rest through `sendDocument` with content-type detection off (GIF/WebP are their own preview,
-documents have none: `AttachmentType.Document`). Telegram documents (BRD-319) aren't re-uploaded: `TelegramSaveMessageService`
+limited to 3 MB, documents (PDF, DOCX, DOC, Markdown, TXT, JSON) to 10 MB (Storage itself takes up to 20 MB). SVG,
+HEIC/AVIF and anything else are rejected. Uploads go to Laraue.Apps.Storage, which makes the previews (see "Uploaded
+files"); documents have none: `AttachmentType.Document`. Telegram documents (BRD-319) aren't re-uploaded: `TelegramSaveMessageService`
 downloads the file to `Detect` it, then keeps it by its own file id. It downloads only when nothing cheaper decides: a
 file unique id already stored or skipped keeps its verdict, and `FileSize` or a name and declared type that are both
 unsupported (`AttachmentFileTypes.MayBeSupported`) skip it unread. A skipped one (type or size) is recorded on
 `TelegramMessage.SkippedFile{Name,Reason,UniqueId}` so `/save` can report it later, and in `EachMessage` mode is reported only
-when it was the message's only content (no card is made). `GET /api/files/{id}` sends `nosniff` and a sandbox CSP for every file
-and serves anything but images/videos as `Content-Disposition: attachment` with the sanitized upload name.
+when it was the message's only content (no card is made).
+
+**Uploaded files** (BRD-339, BRD-342): where a `File`'s bytes are is `File.StorageFile` or `File.TelegramFile`.
+- **Uploads** (web and MCP, issue and comment attachments) go to Laraue.Apps.Storage through
+  `IStorageFilesService.Upload`, owner = the organization the file is uploaded in. It saves a `File` + `StorageFile`
+  (Storage's file id, this upload's `ReferenceId`) for the original and, for an image, its preview (no reference: it
+  goes with the original). Storage deduplicates within an organization, so two Boards files can share a Storage id,
+  each with a reference of its own. No quota is passed yet (BRD-340).
+- **References and the outbox**: Boards and Storage have no shared transaction, so a reference starts pending and is
+  confirmed only after Boards commits. The caller adds a `StorageReferenceOperation` "confirm" row
+  (`IStorageReferenceOutbox.QueueConfirm`) in the attachment's transaction, right before `CommitAsync` - every upload path
+  must. Removing an attachment (from an issue, from a comment, or with a deleted comment; `CoreIssuesService`) adds a
+  "delete" row the same way (`QueueDelete`, before the attachments are deleted). `StorageReferenceOperationsSender`
+  (WebApiServices, WebApiHost only, one instance) sends due rows every 15 s and deletes them once Storage accepts;
+  failures are retried with a pause doubling from 10 s to 1 h (`Attempts`, `LastError`, `NextAttemptAt`). If Boards fails
+  before its commit there's no confirm row and Storage deletes the pending upload after a day; a confirm must therefore
+  get through within that day - a confirm answered `NOT_FOUND` means it didn't (logged as an error, the attachment's file
+  is gone). Gauges `boards_storage_operations_pending` / `boards_storage_operations_oldest_age_seconds` show a queue
+  that doesn't drain.
+- **Serving**: `GET /api/files/{id}` redirects a Storage file (302, `Cache-Control: public, max-age=86400`) to its public
+  URL, `IStorageFileUrlBuilder` = `StorageOptions:PublicBaseUrl` + the Storage id (`https://storage.laraue.com/<id>`,
+  Storage's public host behind Cloudflare, which sets the type, disposition, `nosniff` and the sandbox CSP). Anything else
+  - uploads from before BRD-339 (kept in the Telegram files chat, `Telegram:FilesChatId`, which must not be deleted) and
+  files from Telegram messages - is served from Telegram as before (BRD-342): from the local preview cache, else proxied
+  from Telegram's download URL with Range forwarded, with `nosniff`, a sandbox CSP and anything but images/videos as
+  `Content-Disposition: attachment` with the sanitized upload name.
+- A removed attachment's file stops being served (404) once Storage deletes it, including its preview in the history
+  timeline.
 
 **File attachments**: no multipart in MCP, so `files` is `FileAttachment(FileName, ContentType, Base64Content)[]`,
-decoded by `IssueMcpService.UploadFiles` into REST's `ICoreFilesService.UploadFile` (same types and limits).
+decoded by `IssueMcpService.UploadFiles` into the same `IStorageFilesService.Upload` REST uses (same types and limits),
+with the confirm queued the same way. `get_attachment` reads a Storage file from its public URL
+(`IStorageFilesService.OpenContent`), anything else from Telegram (`ICoreFilesService.GetFileContent`).
 `get_attachment` returns an `ImageContentBlock` for images, a `TextContentBlock` for md/txt/json and an
 `EmbeddedResourceBlock` (base64 blob) for pdf/doc/docx, with `AttachmentFileTypes.MaxFileSizeBytes` enforced twice: the
 recorded size before streaming, and a hard cap while buffering (the real OOM guard if `File.Size` is wrong). It takes
