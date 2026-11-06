@@ -51,4 +51,7 @@
     <data name="AttributeOrderIncomplete" xml:space="preserve">
         <value>The order must list every attribute of the organization once</value>
     </data>
+    <data name="StorageQuotaExceeded" xml:space="preserve">
+        <value>The organization's storage is full: {0} of {1} used, and this file needs {2}. Delete attachments, or get more storage: upgrade the plan or add storage to it on the billing page.</value>
+    </data>
 </root>

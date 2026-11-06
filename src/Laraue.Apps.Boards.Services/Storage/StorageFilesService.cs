@@ -3,6 +3,7 @@ using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Storage.Internal.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using BoardsFile = Laraue.Apps.Boards.DataAccess.Models.File;
 using StorageService = Laraue.Apps.Storage.Internal.Contracts.StorageService;
 
@@ -15,7 +16,8 @@ public interface IStorageFilesService
     /// <see cref="BoardsFile"/> and <see cref="StorageFile"/> rows, and the preview's when Storage made one.
     /// <paramref name="fileType"/> is what <see cref="AttachmentFileTypes.Detect"/> recognized - the caller validates
     /// first. The upload's reference stays pending until <see cref="Confirm"/>: if the caller never gets there,
-    /// Storage deletes the upload after a day.
+    /// Storage deletes the upload after a day. Counts toward the organization's storage quota (BRD-340): throws
+    /// <see cref="StorageQuotaExceededException"/>, with nothing stored, when the file doesn't fit.
     /// </summary>
     Task<MediaInfo> Upload(
         long organizationId,
@@ -40,8 +42,10 @@ public interface IStorageFilesService
 public class StorageFilesService(
     StorageService.StorageServiceClient storageClient,
     IStorageFileUrlBuilder urlBuilder,
+    IStorageQuotaService quotaService,
     IHttpClientFactory httpClientFactory,
-    DatabaseContext context)
+    DatabaseContext context,
+    ILogger<StorageFilesService> logger)
     : IStorageFilesService
 {
     /// <summary>
@@ -58,6 +62,9 @@ public class StorageFilesService(
     {
         fileName = AttachmentFileTypes.SanitizeFileName(fileName, fileType);
 
+        // Storage checks it under a lock on the owner, so two uploads at once can't both pass.
+        var quotaBytes = await quotaService.GetQuotaBytes(organizationId, cancellationToken);
+
         var response = await storageClient.UploadFileAsync(
             new UploadFileRequest
             {
@@ -65,10 +72,26 @@ public class StorageFilesService(
                 FileName = fileName,
                 ContentType = fileType.MimeType,
                 Content = ByteString.CopyFrom(content),
+                QuotaBytes = quotaBytes,
             },
             cancellationToken: cancellationToken);
 
-        // No quota is passed yet (BRD-340), so Storage can't refuse for space.
+        if (response.QuotaExceeded is { } exceeded)
+        {
+            logger.LogInformation(
+                "Upload of {FileName} to organization {OrganizationId} refused: {UsageBytes} of {QuotaBytes} bytes used, {RequiredBytes} needed",
+                fileName,
+                organizationId,
+                exceeded.OwnerUsageBytes,
+                exceeded.QuotaBytes,
+                exceeded.RequiredBytes);
+
+            throw new StorageQuotaExceededException(
+                exceeded.OwnerUsageBytes,
+                exceeded.QuotaBytes,
+                exceeded.RequiredBytes);
+        }
+
         var uploaded = response.Uploaded
             ?? throw new InvalidOperationException($"Storage didn't store {fileName}: {response.ResultCase}.");
 

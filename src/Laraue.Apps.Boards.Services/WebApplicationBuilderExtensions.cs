@@ -291,6 +291,7 @@ public static class WebApplicationBuilderExtensions
             builder.Services
                 .AddSingleton<Storage.IStorageFileUrlBuilder, Storage.StorageFileUrlBuilder>()
                 .AddScoped<Storage.IStorageFilesService, Storage.StorageFilesService>()
+                .AddScoped<Storage.IStorageQuotaService, Storage.StorageQuotaService>()
                 .AddHttpClient(Storage.StorageFilesService.HttpClientName);
 
             if (builder.Configuration.GetValue<bool>("MockExternalServices"))
