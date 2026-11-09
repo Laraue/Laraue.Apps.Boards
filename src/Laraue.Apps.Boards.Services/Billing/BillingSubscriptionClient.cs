@@ -84,6 +84,16 @@ public sealed record ActiveSubscriptionInfo
     /// plan ends then (a paid one).
     /// </summary>
     public bool PeriodResets { get; init; }
+
+    /// <summary>
+    /// The organization's file storage in bytes: the tariff's plus the storage add-on's (BRD-341).
+    /// </summary>
+    public required long StorageQuotaBytes { get; init; }
+
+    /// <summary>
+    /// The storage add-on the subscription has, null for none.
+    /// </summary>
+    public Guid? StorageAddonId { get; init; }
 }
 
 public class BillingSubscriptionClient(
@@ -169,6 +179,9 @@ public class BillingSubscriptionClient(
 
     private readonly record struct OrganizationBillingInfo(OrganizationType Type, Guid? BillingId);
 
+    private static Guid? ParseAddonId(string addonId) =>
+        string.IsNullOrEmpty(addonId) ? null : Guid.Parse(addonId);
+
     private static ActiveSubscriptionInfo ToInfo(ActiveSubscriptionResponse response) => response.PayloadCase switch
     {
         ActiveSubscriptionResponse.PayloadOneofCase.LaraueBoardsPersonal => new ActiveSubscriptionInfo
@@ -182,6 +195,8 @@ public class BillingSubscriptionClient(
                 ? response.LaraueBoardsPersonal.LimitFreeTeamOrganizationsCount
                 : null,
             IncludedTokensCount = response.LaraueBoardsPersonal.IncludedTokensCount,
+            StorageQuotaBytes = response.LaraueBoardsPersonal.StorageQuotaBytes,
+            StorageAddonId = ParseAddonId(response.LaraueBoardsPersonal.StorageAddonId),
             LimitPeriodStartedAt = response.LimitPeriodStartedAt.ToDateTime(),
             PeriodEndsAt = response.PeriodEndsAt?.ToDateTime(),
             PeriodResets = response.PeriodResets,
@@ -194,6 +209,8 @@ public class BillingSubscriptionClient(
                 ? response.LaraueBoardsTeam.LimitIssuesPerMonth
                 : null,
             IncludedTokensCount = response.LaraueBoardsTeam.IncludedTokensCount,
+            StorageQuotaBytes = response.LaraueBoardsTeam.StorageQuotaBytes,
+            StorageAddonId = ParseAddonId(response.LaraueBoardsTeam.StorageAddonId),
             LimitPeriodStartedAt = response.LimitPeriodStartedAt.ToDateTime(),
             PeriodEndsAt = response.PeriodEndsAt?.ToDateTime(),
             PeriodResets = response.PeriodResets,

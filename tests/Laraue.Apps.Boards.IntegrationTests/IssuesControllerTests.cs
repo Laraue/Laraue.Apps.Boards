@@ -2476,7 +2476,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 1, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 1, StorageQuotaBytes = 1L << 40, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -2522,6 +2522,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 Code = "personal_free",
                 IsPersonal = true,
                 LimitIssuesPerMonth = 1,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 25_000,
                 LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             });
@@ -2561,7 +2562,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
 
         host.BillingSubscriptionClientMock
             .Setup(x => x.GetActiveSubscriptionAsync(organization.Id, userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 2, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
+            .ReturnsAsync(new ActiveSubscriptionInfo { Code = "personal_free", IsPersonal = true, LimitIssuesPerMonth = 2, StorageQuotaBytes = 1L << 40, IncludedTokensCount = 2_500_000, LimitPeriodStartedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) });
 
         await _issuesController
             .WithOrganizationAuthorization(organization.Id, userId)
@@ -2611,6 +2612,7 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 Code = "personal_free",
                 IsPersonal = true,
                 LimitIssuesPerMonth = 1,
+                StorageQuotaBytes = 1L << 40,
                 IncludedTokensCount = 2_500_000,
                 LimitPeriodStartedAt = newPeriod,
             });

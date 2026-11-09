@@ -384,7 +384,8 @@ Boards calls sibling services over gRPC:
     `postmessage`); `/api/user/auth-via-google` and `/api/user/connected-accounts/google` both accept `Code` or
     `IdToken`. Google and Telegram sign-ins are separate users unless connected; a Google-only user has no `TelegramId`
     and no personal Telegram chat.
-- **`Laraue.Apps.Billing`** - AI token reserve/commit/cancel and subscription/limits, behind `IBillingTokenClient`/
+- **`Laraue.Apps.Billing`** - AI token reserve/commit/cancel and subscription/limits (including the storage quota),
+  behind `IBillingTokenClient`/
   `IBillingSubscriptionClient` (`Services.Billing`), which add Boards' personal-vs-team organization resolution (see
   `IBillingTokenClient`'s XML doc).
 - **`Laraue.Apps.Feedback`** (BRD-224) - stores web feedback and notifies the team in Telegram. WebApiHost only:
@@ -588,7 +589,20 @@ when it was the message's only content (no card is made).
   `IStorageFilesService.Upload`, owner = the organization the file is uploaded in. It saves a `File` + `StorageFile`
   (Storage's file id, this upload's `ReferenceId`) for the original and, for an image, its preview (no reference: it
   goes with the original). Storage deduplicates within an organization, so two Boards files can share a Storage id,
-  each with a reference of its own. No quota is passed yet (BRD-340).
+  each with a reference of its own.
+- **Quota** (BRD-340/341): every upload passes the organization's quota as `quota_bytes`; Storage checks it under a
+  lock on the owner and counts usage (originals plus previews, a duplicate adds nothing), so Boards keeps no usage
+  of its own. `IStorageQuotaService` (WebApiHost and McpHost, with `AddStorageClient()`): the quota is Billing's
+  `storage_quota_bytes` of the organization's plan (a personal organization: its owner's personal plan, whoever
+  uploads; a team organization: its own plan) - 100 MB on Free, 1 GB on paid tariffs plus a storage add-on; the
+  usage is Storage's `GetUsage`. A refused upload throws `StorageQuotaExceededException`: a 402 whose message gives
+  used, quota and the file's size and says how to get more, shown as is like the other plan limits' 402s (the web
+  app shows a 402's message); MCP callers get it as a tool error. Files from
+  Telegram and uploads served from Telegram (before BRD-339) don't count. A paid plan that ends keeps the files;
+  uploads are refused until usage is below the Free quota. `GET /api/billing/summary` returns `storage` (used,
+  quota, add-on). `POST /api/billing/checkout` takes `storageAddonId` and sends Billing the organization's usage
+  with every tariff checkout: when the tariff and add-on would give less, the answer is a 200 with
+  `storageOverLimit` (used, quota, how much to delete) and no payment.
 - **References and the outbox**: Boards and Storage have no shared transaction, so a reference starts pending and is
   confirmed only after Boards commits. The caller adds a `StorageReferenceOperation` "confirm" row
   (`IStorageReferenceOutbox.QueueConfirm`) in the attachment's transaction, right before `CommitAsync` - every upload path

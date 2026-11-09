@@ -111,5 +111,11 @@ namespace Laraue.Apps.Boards.Services.Resources {
                 return ResourceManager.GetString("AttributeOrderIncomplete", resourceCulture);
             }
         }
+        
+        internal static string StorageQuotaExceeded {
+            get {
+                return ResourceManager.GetString("StorageQuotaExceeded", resourceCulture);
+            }
+        }
     }
 }
