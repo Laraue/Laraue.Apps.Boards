@@ -596,8 +596,8 @@ when it was the message's only content (no card is made).
   `storage_quota_bytes` of the organization's plan (a personal organization: its owner's personal plan, whoever
   uploads; a team organization: its own plan) - 100 MB on Free, 1 GB on paid tariffs plus a storage add-on; the
   usage is Storage's `GetUsage`. A refused upload throws `StorageQuotaExceededException`: a 402 whose message gives
-  used, quota and the file's size and says how to get more, with `errors.storageQuota` = [used, quota, required]
-  so the web app can word it in the user's language; MCP callers get the message as a tool error. Files from
+  used, quota and the file's size and says how to get more, shown as is like the other plan limits' 402s (the web
+  app shows a 402's message); MCP callers get it as a tool error. Files from
   Telegram and uploads served from Telegram (before BRD-339) don't count. A paid plan that ends keeps the files;
   uploads are refused until usage is below the Free quota. `GET /api/billing/summary` returns `storage` (used,
   quota, add-on). `POST /api/billing/checkout` takes `storageAddonId` and sends Billing the organization's usage
