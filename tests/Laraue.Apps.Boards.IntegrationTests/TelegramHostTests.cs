@@ -2683,6 +2683,61 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
     
     [Fact]
+    public async Task HandleImageMessage_ShouldUseSizeOf320PxAsPreview_WhenTelegramSendsIt()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Photo =
+                [
+                    new PhotoSize { FileId = "fileId90", FileUniqueId = "fileUniqueId90", Width = 90, Height = 60 },
+                    new PhotoSize { FileId = "fileId320", FileUniqueId = "fileUniqueId320", Width = 320, Height = 213 },
+                    new PhotoSize { FileId = "fileId800", FileUniqueId = "fileUniqueId800", Width = 800, Height = 533 },
+                    new PhotoSize { FileId = "fileId1280", FileUniqueId = "fileUniqueId1280", Width = 1280, Height = 853 },
+                ],
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        var previewFile = await db.TelegramFiles.AsNoTracking().SingleAsyncLinqToDB(x => x.FileId == attachment.PreviewFileId);
+        var originalFile = await db.TelegramFiles.AsNoTracking().SingleAsyncLinqToDB(x => x.FileId == attachment.FileId);
+        Assert.Equal("fileUniqueId320", previewFile.ExternalFileUniqueId);
+        Assert.Equal("fileUniqueId1280", originalFile.ExternalFileUniqueId);
+    }
+
+    [Fact]
+    public async Task HandleImageMessage_ShouldUseOriginalAsPreview_WhenTelegramSendsOneSize()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Photo = [new PhotoSize { FileId = "fileId1", FileUniqueId = "fileUniqueId1", Width = 80, Height = 80 }],
+                Chat = PrivateChat,
+            },
+        });
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+
+        var attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal(attachment.FileId, attachment.PreviewFileId);
+    }
+
+    [Fact]
     public async Task HandleVideoMessage_ShouldCreateAndEditIssue_Always()
     {
         using var host = GetTelegramTestHost();
