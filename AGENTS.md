@@ -341,6 +341,17 @@ sessions end only by revocation (BRD-222): each token has a `tv` claim (`AuthSer
   immediate.
 - API keys (McpHost) are validated live against the database and unaffected.
 
+## Last seen
+
+`User.LastSeenAt` (BRD-348) is when the user last used Boards, for activity and retention metrics.
+`ICoreUserLastSeenService.Touch` sets it from every way in: `TokenVersionValidation` (each JWT request of WebApiHost
+and Retro.WebApiHost, after the version check passes), `ApiKeyAuthenticationHandler` (MCP) and `TouchUserMiddleware`
+(every Telegram update, on the way back from the pipeline, since the user is known only after authentication). It
+writes at most once an hour per user (a per-host `IMemoryCache` entry, plus a conditional update for several hosts) and
+logs instead of throwing, so it never fails a request. The `AddUserLastSeenAt` migration backfilled it from each user's
+latest `OrganizationLog` row; users who had only read stay null until next seen. A new entry point (another host, a
+new auth scheme) must call `Touch` too.
+
 ## External services (Identity, Billing, Feedback, Storage) and local mocking
 
 Boards calls sibling services over gRPC:

@@ -46,6 +46,7 @@ public static class WebApplicationBuilderExtensions
                 .AddEfCoreUpdatesQueue<DatabaseContext>()
                 .AddTelegramMiddleware<HandleExceptionsMiddleware>()
                 .AddTelegramMiddleware<AutoCallbackResponseMiddleware>()
+                .AddTelegramMiddleware<TouchUserMiddleware>()
                 .AddTelegramMiddleware<HandlePrivateMessagesMiddleware>()
                 .AddTelegramMiddleware<HandleGroupMessageMiddleware>()
                 // The library's default provider: the language of the sender's Telegram app, sent with

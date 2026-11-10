@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,7 +53,8 @@ public class TokenVersionService(DatabaseContext context, ITokenVersionCache cac
 
 /// <summary>
 /// The <see cref="JwtBearerEvents.OnTokenValidated"/> handler every JWT scheme of the web hosts uses -
-/// a token with a stale version fails authentication (401).
+/// a token with a stale version fails authentication (401). A current one records the user as seen
+/// (<see cref="ICoreUserLastSeenService"/>).
 /// </summary>
 public static class TokenVersionValidation
 {
@@ -60,6 +62,12 @@ public static class TokenVersionValidation
     {
         var tokenVersionService = context.HttpContext.RequestServices.GetRequiredService<ITokenVersionService>();
         if (!await tokenVersionService.IsCurrent(context.Principal!, context.HttpContext.RequestAborted))
+        {
             context.Fail("The token was revoked.");
+            return;
+        }
+
+        var lastSeenService = context.HttpContext.RequestServices.GetRequiredService<ICoreUserLastSeenService>();
+        await lastSeenService.Touch(context.Principal!.GetId(), context.HttpContext.RequestAborted);
     }
 }
