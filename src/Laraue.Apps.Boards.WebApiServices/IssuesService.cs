@@ -1852,7 +1852,7 @@ public record SummarizeIssueContentRequest
 {
     public OrganizationAuthData AuthData { get; set; }
 
-    [MaxLength(4096)]
+    [MaxLength(Constraints.MaxContentLength)]
     public required string Content { get; set; }
 
     /// <summary>
@@ -1983,6 +1983,7 @@ public record CreateIssueRequest
     /// <summary>
     /// Issue content. Optional when the title is filled; an empty string means no content.
     /// </summary>
+    [MaxLength(Constraints.MaxContentLength)]
     public string? Content { get; set; }
 
     /// <summary>
@@ -2005,6 +2006,7 @@ public record UpdateIssueRequest
     /// <summary>
     /// Issue content. Optional when the title is filled; an empty string clears it.
     /// </summary>
+    [MaxLength(Constraints.MaxContentLength)]
     public string? Content { get; set; }
 
     /// <summary>
