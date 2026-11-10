@@ -19,6 +19,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<Attachment> Attachments { get; set; }
     public DbSet<User> Users { get; init; }
     public DbSet<UserOnboarding> UserOnboardings { get; init; }
+    public DbSet<UserBotMessage> UserBotMessages { get; init; }
     public DbSet<UserOrganizationPreferences> UserOrganizationPreferences { get; init; }
     public DbSet<Issue> Issues { get; init; }
     public DbSet<IssueAttachment> IssueAttachments { get; init; }
@@ -252,6 +253,14 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
         modelBuilder.Entity<UserOnboarding>(entity =>
         {
             entity.HasKey(x => new { x.UserId, x.OnboardingId });
+        });
+
+        modelBuilder.Entity<UserBotMessage>(entity =>
+        {
+            // One message of each kind per user; a second insert is a duplicate send and is refused.
+            entity.HasKey(x => new { x.UserId, x.Kind });
+            // boards_bot_messages_in_window reads messages sent in the last 1/7/30 days.
+            entity.HasIndex(x => x.SentAt);
         });
         
         modelBuilder.Entity<UserOrganizationPreferences>(entity =>

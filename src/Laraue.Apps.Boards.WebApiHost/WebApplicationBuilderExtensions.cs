@@ -27,12 +27,16 @@ public static class WebApplicationBuilderExtensions
                 .AddFeedbackClient()
                 .AddStorageClient();
             builder.AddValidatedOptions<AgentSignInOptions>(nameof(AgentSignInOptions));
+            // The web app URL, for the "Open board" button of the bot's welcome; the same section as in
+            // TelegramHost and McpHost.
+            builder.AddValidatedOptions<WebAppOptions>("AppOptions");
             builder.Services.AddHttpClient();
 
             builder.Services
                 .AddScoped<ITelegramAuthService, TelegramAuthService>()
                 .AddScoped<IGoogleAuthService, GoogleAuthService>()
                 .AddScoped<IConnectedAccountsService, ConnectedAccountsService>()
+                .AddScoped<IBotWelcomeService, BotWelcomeService>()
                 .AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>()
                 .AddSingleton<ITelegramBotClient, TelegramBotClient>(
                     sp => new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.GetRequiredToken()));

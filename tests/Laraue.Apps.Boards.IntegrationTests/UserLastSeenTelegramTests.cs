@@ -33,4 +33,25 @@ public class UserLastSeenTelegramTests : TelegramIntegrationTest
 
         Assert.NotNull(user.LastSeenAt);
     }
+
+    [Fact]
+    public async Task AnyUpdate_ShouldNotSendWelcome_WhenUserSignsUpByWritingToTheBot()
+    {
+        // The /start reply already explains the bot; the welcome is for web sign-ups only (BRD-354).
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "/link",
+                Chat = GroupChat,
+            }
+        });
+
+        using var scope = host.CreateScope();
+        Assert.Empty(await scope.GetDatabaseContext().UserBotMessages.ToListAsyncLinqToDB());
+    }
 }

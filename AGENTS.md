@@ -221,7 +221,9 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
   `boards_organizations{type}`, `boards_retros{state}` (running, finished), `boards_active_users{window}` (1d, 7d, 30d:
   users whose `LastSeenAt` is in the window, see "Last seen"), `boards_issues_created_in_window{window, via}` (issues
   created in the last 1d/7d/30d by `Issue.CreatedVia`: web, telegram, mcp, agent - deleted ones included, it counts
-  creations; use it rather than `increase(boards_issues_created_total)`, which loses events on restart). Soft-deleted
+  creations; use it rather than `increase(boards_issues_created_total)`, which loses events on restart),
+  `boards_bot_messages_in_window{window, kind, outcome}` (the bot's unprompted messages, see "Bot welcome", by outcome:
+  `failed`, `card_within_24h` - a card from Telegram within a day of the message - or `no_card`). Soft-deleted
   rows aren't counted elsewhere. Query with `max()`.
 - **Funnel** (BRD-348): `boards_funnel_users{cohort, method, step}` - users who signed up in the cohort window (`7d`,
   `30d`, `all`, by `User.CreatedAt`) and reached each step, by their sign-in methods now (`telegram`, `google`, `both`).
@@ -364,6 +366,20 @@ writes at most once an hour per user (a per-host `IMemoryCache` entry, plus a co
 logs instead of throwing, so it never fails a request. The `AddUserLastSeenAt` migration backfilled it from each user's
 latest `OrganizationLog` row; users who had only read stay null until next seen. A new entry point (another host, a
 new auth scheme) must call `Touch` too.
+
+## Bot welcome
+
+A user who signs up with Telegram on the web or in the Mini App never wrote to the bot, so nothing tells them that a
+message sent to it becomes a card (BRD-354). `TelegramAuthService.CreateBearerToken` calls
+`IBotWelcomeService.SendWelcome` (WebApiServices) right after creating such a user: a short text (`Resources/BotMessages`,
+English or Russian by the sign-in language) and an "Open board" Mini App button to `AppOptions:Url` + `/login`. Users who
+sign up by writing to the bot get the `/start` reply instead, so the bot host sends no welcome.
+
+- `UserBotMessage` keeps one row per user and `BotMessageKind`; the key makes each kind go out at most once. The row is
+  claimed (`insert ... on conflict do nothing`) before sending, so two concurrent sign-ins send one message.
+- Sending never fails the sign-in: a Telegram error (typically the user didn't allow the bot to write - the login widget
+  asks for it with `request_access: 'write'`) is logged and recorded as `Failed` with the error text.
+- The bot's other unprompted messages (the day-one reminder, BRD-355) use the same table with their own kind.
 
 ## External services (Identity, Billing, Feedback, Storage) and local mocking
 

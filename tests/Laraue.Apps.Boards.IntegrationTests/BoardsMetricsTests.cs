@@ -266,6 +266,61 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         Assert.Equal("0", Created("30d", "agent"));
     }
 
+    [Fact]
+    public async Task StateMetrics_ShouldCountBotMessagesByOutcome_WhenWelcomesWereSent()
+    {
+        using var testScope = host.CreateTestScope();
+        var now = DateTime.UtcNow;
+
+        // Got the welcome 2 days ago and forwarded a message to the bot an hour later.
+        var convertedId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(convertedId);
+        var issueId = await CreateIssueAsync(testScope, organization, new Actor(convertedId));
+        await testScope.Database.Issues
+            .Where(x => x.Id == issueId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.CreatedVia, IssueCreatedVia.Telegram)
+                .SetProperty(x => x.CreatedAt, now.AddDays(-2).AddHours(1)));
+
+        // Got the welcome and did nothing; the bot couldn't write to the third one.
+        var idleId = await testScope.CreateUser();
+        var unreachableId = await testScope.CreateUser();
+
+        testScope.Database.UserBotMessages.AddRange(
+            Welcome(convertedId, now.AddDays(-2), BotMessageStatus.Sent),
+            Welcome(idleId, now.AddHours(-3), BotMessageStatus.Sent),
+            Welcome(unreachableId, now.AddDays(-10), BotMessageStatus.Failed));
+        await testScope.Database.SaveChangesAsync();
+
+        await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
+        var metrics = await ScrapeAsync(host.CreateClient());
+
+        string Messages(string window, string outcome) => GaugeValue(
+            metrics,
+            "boards_bot_messages_in_window",
+            $"window=\"{window}\"",
+            "kind=\"welcome\"",
+            $"outcome=\"{outcome}\"");
+
+        Assert.Equal("1", Messages("7d", "card_within_24h"));
+        Assert.Equal("1", Messages("7d", "no_card"));
+        Assert.Equal("0", Messages("7d", "failed"));
+        Assert.Equal("1", Messages("30d", "failed"));
+        Assert.Equal("0", Messages("1d", "card_within_24h"));
+        Assert.Equal("1", Messages("1d", "no_card"));
+    }
+
+    private static UserBotMessage Welcome(Guid userId, DateTime sentAt, BotMessageStatus status)
+    {
+        return new UserBotMessage
+        {
+            UserId = userId,
+            Kind = BotMessageKind.Welcome,
+            SentAt = sentAt,
+            Status = status,
+        };
+    }
+
     private static Task UpdateUser(WebApiTestHostScope testScope, Guid userId, DateTime createdAt, DateTime? lastSeenAt)
     {
         return testScope.Database.Users

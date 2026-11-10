@@ -118,6 +118,15 @@ public sealed class BoardsStateMetrics : BackgroundService
             description: "Issues created in the last day, 7 days and 30 days, by how they were created (web, telegram, mcp, agent). Deleted issues count too: it counts creations. Read from the database, so unlike boards_issues_created_total it survives a restart.");
 
         meter.CreateObservableGauge(
+            "boards.bot_messages.in_window",
+            () => _snapshot.BotMessagesInWindow.Select(x => new Measurement<long>(
+                x.Count,
+                new KeyValuePair<string, object?>("window", x.Window),
+                new KeyValuePair<string, object?>("kind", x.Kind),
+                new KeyValuePair<string, object?>("outcome", x.Outcome))),
+            description: "Messages the bot sent users on its own (kind: welcome) in the last day, 7 days and 30 days, by outcome: failed (Telegram refused, e.g. the user didn't allow the bot to write), card_within_24h (the user created a card from Telegram within 24 hours), no_card (none yet - a message younger than a day may still get one).");
+
+        meter.CreateObservableGauge(
             "boards.funnel.users",
             () => _snapshot.Funnel.Select(x => new Measurement<long>(
                 x.Count,
@@ -205,6 +214,8 @@ public sealed class BoardsStateMetrics : BackgroundService
                 counts.SingleOrDefault(c => c.Via == via)?.Count ?? 0)));
         }
 
+        var botMessagesInWindow = await CountBotMessages(context, now, cancellationToken);
+
         var funnel = CountFunnel(await GetFunnelUsers(context, cancellationToken), now);
 
         _snapshot = new Snapshot(
@@ -227,7 +238,55 @@ public sealed class BoardsStateMetrics : BackgroundService
             },
             activeUsers,
             issuesCreatedInWindow,
+            botMessagesInWindow,
             funnel);
+    }
+
+    public const string OutcomeFailed = "failed";
+    public const string OutcomeCardWithin24H = "card_within_24h";
+    public const string OutcomeNoCard = "no_card";
+
+    private static async Task<List<BotMessagesCount>> CountBotMessages(
+        DatabaseContext context,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var since = now - ActiveUserWindows.Max(x => x.Window);
+
+        var messages = await context.UserBotMessages
+            .Where(m => m.SentAt >= since)
+            .Select(m => new
+            {
+                m.Kind,
+                m.SentAt,
+                Outcome = m.Status == BotMessageStatus.Failed
+                    ? OutcomeFailed
+                    : context.Issues.Any(i => i.OwnerId == m.UserId
+                        && i.CreatedVia == IssueCreatedVia.Telegram
+                        && i.CreatedAt >= m.SentAt
+                        && i.CreatedAt < m.SentAt.AddDays(1))
+                        ? OutcomeCardWithin24H
+                        : OutcomeNoCard,
+            })
+            .ToListAsync(cancellationToken);
+
+        var counts = new List<BotMessagesCount>();
+        foreach (var (window, length) in ActiveUserWindows)
+        {
+            foreach (var kind in Enum.GetValues<BotMessageKind>())
+            {
+                foreach (var outcome in new[] { OutcomeFailed, OutcomeCardWithin24H, OutcomeNoCard })
+                {
+                    counts.Add(new BotMessagesCount(
+                        window,
+                        kind.ToString().ToLowerInvariant(),
+                        outcome,
+                        messages.LongCount(m => m.Kind == kind && m.Outcome == outcome && m.SentAt >= now - length)));
+                }
+            }
+        }
+
+        return counts;
     }
 
     /// <summary>
@@ -322,6 +381,8 @@ public sealed class BoardsStateMetrics : BackgroundService
 
     private sealed record IssuesCreatedCount(string Window, string Via, long Count);
 
+    private sealed record BotMessagesCount(string Window, string Kind, string Outcome, long Count);
+
     private sealed record Snapshot(
         long DeletedIssues,
         IReadOnlyDictionary<string, long> Issues,
@@ -330,6 +391,7 @@ public sealed class BoardsStateMetrics : BackgroundService
         IReadOnlyDictionary<string, long> Retros,
         IReadOnlyDictionary<string, long> ActiveUsers,
         IReadOnlyList<IssuesCreatedCount> IssuesCreatedInWindow,
+        IReadOnlyList<BotMessagesCount> BotMessagesInWindow,
         IReadOnlyList<FunnelCount> Funnel)
     {
         public static readonly Snapshot Empty = new(
@@ -339,6 +401,7 @@ public sealed class BoardsStateMetrics : BackgroundService
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),
+            [],
             [],
             []);
     }
