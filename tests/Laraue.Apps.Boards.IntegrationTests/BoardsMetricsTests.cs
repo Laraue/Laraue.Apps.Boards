@@ -221,6 +221,43 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         Assert.Equal("0", Funnel("7d", "google", "returned_d1"));
     }
 
+    [Fact]
+    public async Task StateMetrics_ShouldCountIssuesCreatedPerWindowAndVia_WhenIssuesAreCreatedAtDifferentTimes()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organization.Id, userId, "Metrics key", CancellationToken.None);
+
+        await CreateIssueAsync(testScope, organization, new Actor(userId));
+        await CreateIssueAsync(testScope, organization, new Actor(userId, apiKey.Id));
+        var tenDaysOld = await CreateIssueAsync(testScope, organization, new Actor(userId));
+        var deleted = await CreateIssueAsync(testScope, organization, new Actor(userId));
+        await testScope.Database.Issues
+            .Where(x => x.Id == tenDaysOld)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.CreatedAt, DateTime.UtcNow.AddDays(-10)));
+        await testScope.Database.Issues
+            .Where(x => x.Id == deleted)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.DeletedAt, DateTime.UtcNow));
+
+        await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
+        var metrics = await ScrapeAsync(host.CreateClient());
+
+        string Created(string window, string via) => GaugeValue(
+            metrics,
+            "boards_issues_created_in_window",
+            $"window=\"{window}\"",
+            $"via=\"{via}\"");
+
+        // The deleted issue still counts: the gauge counts creations.
+        Assert.Equal("2", Created("1d", "web"));
+        Assert.Equal("1", Created("1d", "mcp"));
+        Assert.Equal("3", Created("30d", "web"));
+        Assert.Equal("0", Created("30d", "telegram"));
+        Assert.Equal("0", Created("30d", "agent"));
+    }
+
     private static Task UpdateUser(WebApiTestHostScope testScope, Guid userId, DateTime createdAt, DateTime? lastSeenAt)
     {
         return testScope.Database.Users
