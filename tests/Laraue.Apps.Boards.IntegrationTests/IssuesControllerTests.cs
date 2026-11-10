@@ -1,4 +1,6 @@
-﻿using Laraue.Apps.Boards.Services.Storage;
+﻿using System.Net;
+using Laraue.Apps.Boards.DataAccess;
+using Laraue.Apps.Boards.Services.Storage;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
@@ -301,7 +303,60 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         var notFound = ex.HasInnerException<ForbiddenException>();
         Assert.Equal($"Issue: {issueData.Key} update is forbidden", notFound.Message);
     }
-    
+
+    [Fact]
+    public async Task Create_ShouldReturnBadRequest_WhenContentIsTooLong()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId);
+
+        var status = organization.GetStatus(0, 0, 0);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Create(
+                new CreateIssueRequest
+                {
+                    Title = "Title",
+                    Content = new string('a', Constraints.MaxContentLength + 1),
+                    StatusId = status.Id,
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+        Assert.False(await testScope.Database.Issues.AnyAsyncEF());
+    }
+
+    [Fact]
+    public async Task Update_ShouldReturnBadRequest_WhenContentIsTooLong()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, builder => builder.WithContent("Hi")));
+
+        var issueData = organization.GetIssueData(0, 0, 0, 0);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Update(
+                issueData.Key,
+                new UpdateIssueRequest
+                {
+                    Title = "Title",
+                    Content = new string('a', Constraints.MaxContentLength + 1),
+                    AttributeValues = Array.Empty<AttributeValue>(),
+                    AssigneeId = userId,
+                })));
+
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+        var issue = await testScope.Database.FindIssueByKey(organization.Id, issueData.Key);
+        Assert.Equal("Hi", issue!.Content);
+    }
+
     [Fact]
     public async Task User_ShouldUpdateIssue_WhenHasGlobalAccessToUpdateIssues()
     {
