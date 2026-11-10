@@ -241,8 +241,10 @@ public sealed class BoardsStateMetrics : BackgroundService
                 u.CreatedAt,
                 u.TelegramId != null,
                 u.GoogleSubject != null,
+                // The BRD-293 migration marked every organization that existed then as set up at its creation
+                // (setup_completed_at = created_at); only a later completion went through the setup window.
                 context.Organizations
-                    .Any(o => o.OwnerId == u.Id && o.SetupCompletedAt != null),
+                    .Any(o => o.OwnerId == u.Id && o.SetupCompletedAt != null && o.SetupCompletedAt > o.CreatedAt),
                 // The setup window adds its demo issues through the web API right before it completes, so web
                 // issues created up to the completion are the demo's. Telegram and MCP issues always count.
                 context.Issues
