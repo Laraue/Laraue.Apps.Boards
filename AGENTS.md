@@ -219,7 +219,10 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
 - **Gauges are state**, read from the database every 60 s (`BoardsStateMetrics`, WebApiServices, WebApiHost only):
   `boards_issues{state}` (active, completed), `boards_issues_soft_deleted`, `boards_epics{status}`,
   `boards_organizations{type}`, `boards_retros{state}` (running, finished), `boards_active_users{window}` (1d, 7d, 30d:
-  users whose `LastSeenAt` is in the window, see "Last seen"). Soft-deleted rows aren't counted. Query with `max()`.
+  users whose `LastSeenAt` is in the window, see "Last seen"), `boards_issues_created_in_window{window, via}` (issues
+  created in the last 1d/7d/30d by `Issue.CreatedVia`: web, telegram, mcp, agent - deleted ones included, it counts
+  creations; use it rather than `increase(boards_issues_created_total)`, which loses events on restart). Soft-deleted
+  rows aren't counted elsewhere. Query with `max()`.
 - **Funnel** (BRD-348): `boards_funnel_users{cohort, method, step}` - users who signed up in the cohort window (`7d`,
   `30d`, `all`, by `User.CreatedAt`) and reached each step, by their sign-in methods now (`telegram`, `google`, `both`).
   Steps (`BoardsStateMetrics.FunnelSteps`), each counted on its own: `registered`, `setup_completed` (an organization

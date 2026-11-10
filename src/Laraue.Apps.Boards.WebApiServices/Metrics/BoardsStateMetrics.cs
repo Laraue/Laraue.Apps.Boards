@@ -110,6 +110,14 @@ public sealed class BoardsStateMetrics : BackgroundService
             description: "Distinct users seen (a web request, a Telegram update or an MCP call) in the last day, 7 days and 30 days. Seen times are written at most once an hour.");
 
         meter.CreateObservableGauge(
+            "boards.issues.created_in_window",
+            () => _snapshot.IssuesCreatedInWindow.Select(x => new Measurement<long>(
+                x.Count,
+                new KeyValuePair<string, object?>("window", x.Window),
+                new KeyValuePair<string, object?>("via", x.Via))),
+            description: "Issues created in the last day, 7 days and 30 days, by how they were created (web, telegram, mcp, agent). Deleted issues count too: it counts creations. Read from the database, so unlike boards_issues_created_total it survives a restart.");
+
+        meter.CreateObservableGauge(
             "boards.funnel.users",
             () => _snapshot.Funnel.Select(x => new Measurement<long>(
                 x.Count,
@@ -181,6 +189,22 @@ public sealed class BoardsStateMetrics : BackgroundService
                 .LongCountAsync(cancellationToken);
         }
 
+        var issuesCreatedInWindow = new List<IssuesCreatedCount>();
+        foreach (var (label, window) in ActiveUserWindows)
+        {
+            var since = now - window;
+            var counts = await context.Issues
+                .Where(x => x.CreatedAt >= since)
+                .GroupBy(x => x.CreatedVia)
+                .Select(x => new { Via = x.Key, Count = x.LongCount() })
+                .ToListAsync(cancellationToken);
+
+            issuesCreatedInWindow.AddRange(Enum.GetValues<IssueCreatedVia>().Select(via => new IssuesCreatedCount(
+                label,
+                via.ToString().ToLowerInvariant(),
+                counts.SingleOrDefault(c => c.Via == via)?.Count ?? 0)));
+        }
+
         var funnel = CountFunnel(await GetFunnelUsers(context, cancellationToken), now);
 
         _snapshot = new Snapshot(
@@ -202,6 +226,7 @@ public sealed class BoardsStateMetrics : BackgroundService
                 ["finished"] = retros.SingleOrDefault(x => x.IsFinished)?.Count ?? 0,
             },
             activeUsers,
+            issuesCreatedInWindow,
             funnel);
     }
 
@@ -293,6 +318,8 @@ public sealed class BoardsStateMetrics : BackgroundService
 
     private sealed record FunnelCount(string Cohort, string Method, string Step, long Count);
 
+    private sealed record IssuesCreatedCount(string Window, string Via, long Count);
+
     private sealed record Snapshot(
         long DeletedIssues,
         IReadOnlyDictionary<string, long> Issues,
@@ -300,6 +327,7 @@ public sealed class BoardsStateMetrics : BackgroundService
         IReadOnlyDictionary<string, long> Organizations,
         IReadOnlyDictionary<string, long> Retros,
         IReadOnlyDictionary<string, long> ActiveUsers,
+        IReadOnlyList<IssuesCreatedCount> IssuesCreatedInWindow,
         IReadOnlyList<FunnelCount> Funnel)
     {
         public static readonly Snapshot Empty = new(
@@ -309,6 +337,7 @@ public sealed class BoardsStateMetrics : BackgroundService
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),
+            [],
             []);
     }
 }
