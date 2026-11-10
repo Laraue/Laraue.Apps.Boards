@@ -226,7 +226,8 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
 - **Funnel** (BRD-348): `boards_funnel_users{cohort, method, step}` - users who signed up in the cohort window (`7d`,
   `30d`, `all`, by `User.CreatedAt`) and reached each step, by their sign-in methods now (`telegram`, `google`, `both`).
   Steps (`BoardsStateMetrics.FunnelSteps`), each counted on its own: `registered`, `setup_completed` (an organization
-  they own finished setup; organizations from before BRD-293 were backfilled as set up at creation), `first_issue`
+  they own finished setup after it was created - organizations from before BRD-293 were backfilled with
+  `setup_completed_at = created_at` and don't count), `first_issue`
   (an issue they created, not counting web issues created up to their organization's setup completion - the setup
   window's demo data), `org_created` (a team organization, deleted ones too), `teammate_joined` (a team organization
   they own has another current member), `returned_d1`/`returned_w1` (`LastSeenAt` at least 1/7 days after sign-up -

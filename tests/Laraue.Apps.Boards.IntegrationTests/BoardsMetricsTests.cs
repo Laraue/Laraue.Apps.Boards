@@ -176,7 +176,7 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         var activeUserId = await testScope.CreateUser();
         var teammateId = await testScope.CreateUser();
         var teamOrganization = await testScope.InitializeOrganization(activeUserId, org => org.AddUser(teammateId));
-        await SetSetupCompletedAt(testScope, teamOrganization.Id, now.AddDays(-10));
+        await SetOrganizationTimes(testScope, teamOrganization.Id, createdAt: now.AddDays(-10), setupCompletedAt: now.AddDays(-10).AddMinutes(5));
         await CreateIssueAsync(testScope, teamOrganization, new Actor(activeUserId));
         await UpdateUser(testScope, activeUserId, createdAt: now.AddDays(-10), lastSeenAt: now);
 
@@ -188,11 +188,18 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         var googleUserId = await testScope.CreateUser(user => user.TelegramId = null);
         var personalOrganization = await testScope.InitializePersonalOrganization(googleUserId);
         await CreateIssueAsync(testScope, personalOrganization, new Actor(googleUserId));
-        await SetSetupCompletedAt(testScope, personalOrganization.Id, now.AddMinutes(1));
+        await SetOrganizationTimes(testScope, personalOrganization.Id, createdAt: now.AddDays(-2), setupCompletedAt: now.AddMinutes(1));
         await testScope.Database.Users
             .Where(x => x.Id == googleUserId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.GoogleSubject, "google-subject"));
         await UpdateUser(testScope, googleUserId, createdAt: now.AddDays(-2), lastSeenAt: now.AddHours(-47));
+
+        // Signed up before organization setup existed: the BRD-293 migration marked their organization as set
+        // up at its creation, which doesn't count as finishing the setup.
+        var backfilledUserId = await testScope.CreateUser();
+        var backfilledOrganization = await testScope.InitializePersonalOrganization(backfilledUserId);
+        await SetOrganizationTimes(testScope, backfilledOrganization.Id, createdAt: now.AddDays(-90), setupCompletedAt: now.AddDays(-90));
+        await UpdateUser(testScope, backfilledUserId, createdAt: now.AddDays(-90), lastSeenAt: null);
 
         await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
         var metrics = await ScrapeAsync(host.CreateClient());
@@ -211,7 +218,8 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
             Assert.Equal("0", Funnel("all", "both", step));
         }
 
-        Assert.Equal("2", Funnel("all", "telegram", "registered"));
+        Assert.Equal("3", Funnel("all", "telegram", "registered"));
+        Assert.Equal("1", Funnel("all", "telegram", "setup_completed"));
         Assert.Equal("1", Funnel("all", "telegram", "first_issue"));
 
         Assert.Equal("1", Funnel("7d", "google", "registered"));
@@ -267,11 +275,17 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
                 .SetProperty(x => x.LastSeenAt, lastSeenAt));
     }
 
-    private static Task SetSetupCompletedAt(WebApiTestHostScope testScope, long organizationId, DateTime value)
+    private static Task SetOrganizationTimes(
+        WebApiTestHostScope testScope,
+        long organizationId,
+        DateTime createdAt,
+        DateTime setupCompletedAt)
     {
         return testScope.Database.Organizations
             .Where(x => x.Id == organizationId)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.SetupCompletedAt, value));
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.CreatedAt, createdAt)
+                .SetProperty(x => x.SetupCompletedAt, setupCompletedAt));
     }
 
     private static async Task<long> CreateIssueAsync(
