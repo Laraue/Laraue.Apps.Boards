@@ -19,7 +19,8 @@ public class ApiKeyAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
     UrlEncoder encoder,
-    ICoreApiKeysService coreApiKeysService)
+    ICoreApiKeysService coreApiKeysService,
+    ICoreUserLastSeenService lastSeenService)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     private const string HeaderName = "X-Api-Key";
@@ -36,6 +37,8 @@ public class ApiKeyAuthenticationHandler(
         var principal = await coreApiKeysService.ValidateAsync(rawKey, Context.RequestAborted);
         if (principal is null)
             return AuthenticateResult.Fail("Invalid or revoked API key.");
+
+        await lastSeenService.Touch(principal.UserId, Context.RequestAborted);
 
         var identity = new ClaimsIdentity(
             [

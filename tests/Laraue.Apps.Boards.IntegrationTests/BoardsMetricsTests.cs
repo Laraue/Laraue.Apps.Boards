@@ -143,6 +143,9 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         var userId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(userId);
         await CreateIssueAsync(testScope, organization, new Actor(userId));
+        // Another user who was never seen doesn't count as active.
+        await testScope.CreateUser();
+        await UpdateUser(testScope, userId, createdAt: DateTime.UtcNow.AddDays(-3), lastSeenAt: DateTime.UtcNow);
 
         await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
         var metrics = await ScrapeAsync(host.CreateClient());
@@ -160,6 +163,78 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         Assert.Contains(SeriesLines(metrics, "boards_retros"), line => line.Contains("state=\"finished\""));
         Assert.Equal("1", GaugeValue(metrics, "boards_active_users", "window=\"1d\""));
         Assert.Equal("1", GaugeValue(metrics, "boards_active_users", "window=\"30d\""));
+    }
+
+    [Fact]
+    public async Task StateMetrics_ShouldCountFunnelStepsPerCohortAndMethod_WhenUsersReachedDifferentSteps()
+    {
+        using var testScope = host.CreateTestScope();
+        var now = DateTime.UtcNow;
+
+        // Signed up 10 days ago with Telegram and went all the way: a team organization set up, an issue of
+        // their own, a teammate, and still coming back.
+        var activeUserId = await testScope.CreateUser();
+        var teammateId = await testScope.CreateUser();
+        var teamOrganization = await testScope.InitializeOrganization(activeUserId, org => org.AddUser(teammateId));
+        await SetSetupCompletedAt(testScope, teamOrganization.Id, now.AddDays(-10));
+        await CreateIssueAsync(testScope, teamOrganization, new Actor(activeUserId));
+        await UpdateUser(testScope, activeUserId, createdAt: now.AddDays(-10), lastSeenAt: now);
+
+        // The teammate signed up long ago and did nothing themselves.
+        await UpdateUser(testScope, teammateId, createdAt: now.AddDays(-60), lastSeenAt: null);
+
+        // Signed up 2 days ago with Google, finished the setup with demo data and never came back: the demo
+        // issue was created before the setup completed, so it isn't their first issue.
+        var googleUserId = await testScope.CreateUser(user => user.TelegramId = null);
+        var personalOrganization = await testScope.InitializePersonalOrganization(googleUserId);
+        await CreateIssueAsync(testScope, personalOrganization, new Actor(googleUserId));
+        await SetSetupCompletedAt(testScope, personalOrganization.Id, now.AddMinutes(1));
+        await testScope.Database.Users
+            .Where(x => x.Id == googleUserId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.GoogleSubject, "google-subject"));
+        await UpdateUser(testScope, googleUserId, createdAt: now.AddDays(-2), lastSeenAt: now.AddHours(-47));
+
+        await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
+        var metrics = await ScrapeAsync(host.CreateClient());
+
+        string Funnel(string cohort, string method, string step) => GaugeValue(
+            metrics,
+            "boards_funnel_users",
+            $"cohort=\"{cohort}\"",
+            $"method=\"{method}\"",
+            $"step=\"{step}\"");
+
+        foreach (var step in BoardsStateMetrics.FunnelSteps)
+        {
+            Assert.Equal("1", Funnel("30d", "telegram", step));
+            Assert.Equal("0", Funnel("7d", "telegram", step));
+            Assert.Equal("0", Funnel("all", "both", step));
+        }
+
+        Assert.Equal("2", Funnel("all", "telegram", "registered"));
+        Assert.Equal("1", Funnel("all", "telegram", "first_issue"));
+
+        Assert.Equal("1", Funnel("7d", "google", "registered"));
+        Assert.Equal("1", Funnel("7d", "google", "setup_completed"));
+        Assert.Equal("0", Funnel("7d", "google", "first_issue"));
+        Assert.Equal("0", Funnel("7d", "google", "org_created"));
+        Assert.Equal("0", Funnel("7d", "google", "returned_d1"));
+    }
+
+    private static Task UpdateUser(WebApiTestHostScope testScope, Guid userId, DateTime createdAt, DateTime? lastSeenAt)
+    {
+        return testScope.Database.Users
+            .Where(x => x.Id == userId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.CreatedAt, createdAt)
+                .SetProperty(x => x.LastSeenAt, lastSeenAt));
+    }
+
+    private static Task SetSetupCompletedAt(WebApiTestHostScope testScope, long organizationId, DateTime value)
+    {
+        return testScope.Database.Organizations
+            .Where(x => x.Id == organizationId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.SetupCompletedAt, value));
     }
 
     private static async Task<long> CreateIssueAsync(
@@ -187,9 +262,9 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
     private static IEnumerable<string> SeriesLines(string metrics, string series)
         => metrics.Split('\n').Where(line => line.StartsWith(series + "{"));
 
-    private static string GaugeValue(string metrics, string series, string? label = null)
+    private static string GaugeValue(string metrics, string series, params string[] labels)
     {
-        var line = SeriesLines(metrics, series).Single(x => label is null || x.Contains(label));
+        var line = SeriesLines(metrics, series).Single(x => labels.All(x.Contains));
 
         return line[(line.LastIndexOf(' ') + 1)..];
     }

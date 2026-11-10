@@ -133,6 +133,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IIssueNumbersService, IssueNumbersService>()
                 .AddScoped<IOrganizationConcurrencyControlService, OrganizationConcurrencyControlService>()
                 .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
+                .AddScoped<ICoreUserLastSeenService, CoreUserLastSeenService>()
                 .AddScoped<ICoreAgentSignInService, CoreAgentSignInService>()
                 .AddScoped<ICoreSpaceLinksService, CoreSpaceLinksService>()
                 .AddScoped<ICoreAgentRunsService, CoreAgentRunsService>()

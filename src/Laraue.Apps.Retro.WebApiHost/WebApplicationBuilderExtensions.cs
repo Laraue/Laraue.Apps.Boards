@@ -72,6 +72,8 @@ public static class WebApplicationBuilderExtensions
             builder.Services
                 .AddMemoryCache()
                 .AddScoped<ITokenVersionService, TokenVersionService>()
+                // TokenVersionValidation records the user as seen (BRD-348).
+                .AddScoped<ICoreUserLastSeenService, CoreUserLastSeenService>()
                 .AddSingleton<ITokenVersionCache, MemoryTokenVersionCache>();
 
             builder.Services

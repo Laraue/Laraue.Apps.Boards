@@ -219,7 +219,16 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
 - **Gauges are state**, read from the database every 60 s (`BoardsStateMetrics`, WebApiServices, WebApiHost only):
   `boards_issues{state}` (active, completed), `boards_issues_soft_deleted`, `boards_epics{status}`,
   `boards_organizations{type}`, `boards_retros{state}` (running, finished), `boards_active_users{window}` (1d, 7d, 30d:
-  distinct users with an `OrganizationLog` row - edits, not reads). Soft-deleted rows aren't counted. Query with `max()`.
+  users whose `LastSeenAt` is in the window, see "Last seen"). Soft-deleted rows aren't counted. Query with `max()`.
+- **Funnel** (BRD-348): `boards_funnel_users{cohort, method, step}` - users who signed up in the cohort window (`7d`,
+  `30d`, `all`, by `User.CreatedAt`) and reached each step, by their sign-in methods now (`telegram`, `google`, `both`).
+  Steps (`BoardsStateMetrics.FunnelSteps`), each counted on its own: `registered`, `setup_completed` (an organization
+  they own finished setup; organizations from before BRD-293 were backfilled as set up at creation), `first_issue`
+  (an issue they created, not counting web issues created up to their organization's setup completion - the setup
+  window's demo data), `org_created` (a team organization, deleted ones too), `teammate_joined` (a team organization
+  they own has another current member), `returned_d1`/`returned_w1` (`LastSeenAt` at least 1/7 days after sign-up -
+  "still coming back", since only the latest visit is kept). One query loads a row of flags per user; cohorts and
+  methods are split in memory.
   Also in WebApiHost: `boards_storage_operations_pending` and `boards_storage_operations_oldest_age_seconds`, the
   Storage outbox (`StorageReferenceOperationsSender`, see "Uploaded files").
 - **Telegram**: TelegramHost also exports the `Laraue.Telegram.NET` meter (`LaraueTelegramTelemetry.SourceName`):
@@ -340,6 +349,17 @@ sessions end only by revocation (BRD-222): each token has a `tv` claim (`AuthSer
   entry after commit (`ConnectedAccountsService`); other hosts catch up within 30 s. A shared cache (Redis) would make it
   immediate.
 - API keys (McpHost) are validated live against the database and unaffected.
+
+## Last seen
+
+`User.LastSeenAt` (BRD-348) is when the user last used Boards, for activity and retention metrics.
+`ICoreUserLastSeenService.Touch` sets it from every way in: `TokenVersionValidation` (each JWT request of WebApiHost
+and Retro.WebApiHost, after the version check passes), `ApiKeyAuthenticationHandler` (MCP) and `TouchUserMiddleware`
+(every Telegram update, on the way back from the pipeline, since the user is known only after authentication). It
+writes at most once an hour per user (a per-host `IMemoryCache` entry, plus a conditional update for several hosts) and
+logs instead of throwing, so it never fails a request. The `AddUserLastSeenAt` migration backfilled it from each user's
+latest `OrganizationLog` row; users who had only read stay null until next seen. A new entry point (another host, a
+new auth scheme) must call `Touch` too.
 
 ## External services (Identity, Billing, Feedback, Storage) and local mocking
 

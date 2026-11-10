@@ -27,6 +27,14 @@ public class User
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
+    /// When the user last used Boards: an authenticated web request, a Telegram update or an MCP call
+    /// (BRD-348). Written at most once an hour per user, so it can be up to an hour behind. Null for a user
+    /// never seen since the column was added who has no history either (see the migration's backfill).
+    /// Feeds <c>boards_active_users</c> and the retention steps of <c>boards_funnel_users</c>.
+    /// </summary>
+    public DateTime? LastSeenAt { get; set; }
+
+    /// <summary>
     /// UTC timestamp the user was soft-deleted at, or null if the account is active. Set when account
     /// linking moved this user's last sign-in method to another user (their personal organization is
     /// soft-deleted at the same time).
