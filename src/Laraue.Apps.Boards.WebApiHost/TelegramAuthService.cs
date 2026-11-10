@@ -45,7 +45,8 @@ public class TelegramAuthService(
     DatabaseContext context,
     IAuthService authService,
     ICoreUserService coreUserService,
-    IConnectedAccountsService connectedAccountsService)
+    IConnectedAccountsService connectedAccountsService,
+    IBotWelcomeService botWelcomeService)
     : ITelegramAuthService
 {
     public Task<string> Authenticate(
@@ -92,6 +93,10 @@ public class TelegramAuthService(
             return authService.CreateUserToken(data.Id, data.TokenVersion);
 
         var newUserId = await RegisterUser(userData, cancellationToken);
+
+        // A web or Mini App sign-up never wrote to the bot, so the bot tells them what it does (BRD-354).
+        await botWelcomeService.SendWelcome(newUserId, userData.Id, userData.LanguageCode, cancellationToken);
+
         return authService.CreateUserToken(newUserId, tokenVersion: 0);
     }
 

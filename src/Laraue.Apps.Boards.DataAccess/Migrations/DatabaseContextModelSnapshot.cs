@@ -2129,6 +2129,38 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserBotMessage", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("error");
+
+                    b.Property<DateTime>("SentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("UserId", "Kind")
+                        .HasName("pk_user_bot_messages");
+
+                    b.HasIndex("SentAt")
+                        .HasDatabaseName("ix_user_bot_messages_sent_at");
+
+                    b.ToTable("user_bot_messages", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOnboarding", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -3147,6 +3179,18 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasConstraintName("fk_users_users_deleted_by_user_id");
 
                     b.Navigation("DeletedByUser");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserBotMessage", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_bot_messages_users_user_id");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.UserOnboarding", b =>
