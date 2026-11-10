@@ -67,6 +67,9 @@ public class TelegramSaveMessageService(
     IUsageLimitService usageLimitService)
     : ITelegramSaveMessageService
 {
+    // The web app crops previews into 64 px tiles (`object-fit: cover`), so a 90 px size is blurry on a 2-3x screen.
+    private const int PreviewMinLongSide = 320;
+
     public Task<GetOrCreateMessageResult> Save(
         SaveMessageTelegramRequest request,
         CancellationToken cancellationToken)
@@ -587,7 +590,7 @@ public class TelegramSaveMessageService(
         SaveImageMessageTelegramRequest request,
         CancellationToken cancellationToken)
     {
-        var thumbnailPhoto = request.Photos[0];
+        var thumbnailPhoto = GetPreviewPhoto(request.Photos);
         var originalPhoto = request.Photos.Last();
         
         await coreFilesService.DownloadToLocalStorage(thumbnailPhoto.FileId, thumbnailPhoto.MimeType, cancellationToken);
@@ -603,6 +606,23 @@ public class TelegramSaveMessageService(
         };
 
         return await SaveMessageEntity(request, mediaInfo, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// Telegram sends a photo in several sizes, smallest first, the original last (usually 90, 320, 800 and 1280 px on
+    /// the long side). The preview is the smallest size below the original that is at least
+    /// <see cref="PreviewMinLongSide"/> px, else the largest one below it, else the original itself.
+    /// </summary>
+    private static PhotoFile GetPreviewPhoto(PhotoFile[] photos)
+    {
+        var smallerPhotos = photos[..^1];
+        if (smallerPhotos.Length == 0)
+        {
+            return photos[^1];
+        }
+
+        return smallerPhotos.FirstOrDefault(x => Math.Max(x.Width, x.Height) >= PreviewMinLongSide)
+            ?? smallerPhotos[^1];
     }
 
     // New msg, old group
