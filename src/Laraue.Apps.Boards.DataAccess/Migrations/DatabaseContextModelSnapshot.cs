@@ -2100,6 +2100,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("character varying(255)")
                         .HasColumnName("google_subject");
 
+                    b.Property<DateTime?>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
                     b.Property<long?>("TelegramId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_id");
