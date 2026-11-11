@@ -79,7 +79,7 @@ public sealed class BoardsStateMetrics : BackgroundService
         _scopeFactory = scopeFactory;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
-        _internalUserIds = options.Value.InternalUserIds;
+        _internalUserIds = options.Value.GetInternalUserIds();
 
         var meter = meterFactory.Create(BoardsMetrics.MeterName);
 
