@@ -240,12 +240,11 @@ Prometheus on every host's `/_metrics` (`System.Diagnostics.Metrics`, meter `Lar
 - **Telegram**: TelegramHost also exports the `Laraue.Telegram.NET` meter (`LaraueTelegramTelemetry.SourceName`):
   `telegram_requests_started_total{telegram_update_type}`, `telegram_requests_failed_total{telegram_status}`,
   `telegram_request_duration_milliseconds` - the same for every bot host, so one dashboard covers them.
-- **Internal users** (BRD-358): `BoardsMetrics:InternalUserIds` (WebApiHost, comma-separated Boards user ids; empty in
-  `appsettings.json`, set in production through `BoardsMetrics__InternalUserIds` from the server's `.env`) lists the
+- **Internal users** (BRD-358): `BoardsMetrics:InternalUserIds` (WebApiHost `appsettings.json`, Boards user ids) lists the
   team's own accounts. The user metrics - `boards_active_users`, `boards_issues_created_in_window`,
   `boards_bot_messages_in_window`, `boards_funnel_users` - leave them out, with what their API keys and agents do.
-  Content totals (issues, epics, organizations, retros) and the event counters count everyone. Production validates the
-  value on start.
+  Content totals (issues, epics, organizations, retros) and the event counters count everyone. Add a new teammate's or
+  test account's id there.
 - **Labels are low-cardinality** (source, type, state, status, window) - never a user/organization/issue id.
 - **Tests** scrape `/_metrics` (`BoardsMetricsTests`) and assert a series exists, not its count; test hosts disable the
   exporter's scrape cache.
