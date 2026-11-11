@@ -23,7 +23,7 @@ namespace Laraue.Apps.Boards.IntegrationTests;
 public class SignUpSourceTests(WebApiTestHost host) : IClassFixture<WebApiTestHost>
 {
     [Fact]
-    public async Task WidgetSignIn_ShouldStoreAndSendNormalizedSource_WhenNewUserCameFromALink()
+    public async Task WidgetSignIn_ShouldSendSourceAndStoreIdentitysValue_WhenNewUserCameFromALink()
     {
         using var testScope = host.CreateTestScope();
         const long telegramId = 1201;
@@ -34,7 +34,7 @@ public class SignUpSourceTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
         Assert.Equal("producthunt", await GetSource(testScope, telegramId));
         IdentityClientMock.Verify(
             x => x.CreateUserIfNotExistsAsync(
-                It.Is<CreateUserIfNotExistsRequest>(r => r.TelegramId == telegramId && r.Source == "producthunt"),
+                It.Is<CreateUserIfNotExistsRequest>(r => r.TelegramId == telegramId && r.Source == "ProductHunt"),
                 It.IsAny<Metadata>(),
                 It.IsAny<DateTime?>(),
                 It.IsAny<CancellationToken>()),
@@ -51,6 +51,30 @@ public class SignUpSourceTests(WebApiTestHost host) : IClassFixture<WebApiTestHo
         await AuthenticateWithWidget(telegramId, "producthunt");
 
         Assert.Equal("productradar", await GetSource(testScope, telegramId));
+    }
+
+    [Fact]
+    public async Task WidgetSignIn_ShouldStoreIdentitysSource_WhenIdentityKeptAnEarlierOne()
+    {
+        // The user's Boards row in Identity already had a source (e.g. an earlier, interrupted sign-up): Identity
+        // returns that one, and Boards keeps the same value, not the one it sent.
+        using var testScope = host.CreateTestScope();
+        const long telegramId = 1205;
+        IdentityClientMock
+            .Setup(x => x.CreateUserIfNotExistsAsync(
+                It.Is<CreateUserIfNotExistsRequest>(r => r.TelegramId == telegramId),
+                It.IsAny<Metadata>(),
+                It.IsAny<DateTime?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse
+            {
+                UserId = Guid.NewGuid().ToString(),
+                Source = "telegram",
+            }));
+
+        await AuthenticateWithWidget(telegramId, "producthunt");
+
+        Assert.Equal("telegram", await GetSource(testScope, telegramId));
     }
 
     [Fact]

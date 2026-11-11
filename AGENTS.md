@@ -383,8 +383,9 @@ kept per service there - the record other services and payments can join by glob
   the widget's data-check-string; Mini App and Google - `SignUpSource`), which the frontend fills from the landing
   link's `ref`/`utm_source`, the referring site, or `invite`; the Mini App's own signed `start_param` when the
   frontend sent none; the bot's deep link, read from the first update's `/start <param>` by `TelegramUserQueryService`.
-- `SignUpSource.Normalize` (Boards.Services) cleans it exactly like Identity's: lower-case, `a-z 0-9 . - _`, at most
-  64. Only a new user gets it; account linking sends none.
+- Boards doesn't clean it: it sends the value as received, Identity normalizes and stores it and returns what it
+  stored (`CreateUserIfNotExistsResponse.source` - possibly an earlier value), and `User.SignUpSource` is that
+  returned value. The rule lives only in Identity. Only a new user gets it; account linking sends none.
 - Metrics: `boards_funnel_users_by_source{cohort, source, step}`; the label is one of
   `BoardsMetrics:KnownSignUpSources` (WebApiHost `appsettings.json`), `other` or `direct` (none) - raw values from
   links can't be labels.

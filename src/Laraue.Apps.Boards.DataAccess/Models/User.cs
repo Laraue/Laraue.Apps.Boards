@@ -37,9 +37,10 @@ public class User
     /// <summary>
     /// Where the user came to Boards from (BRD-295): a landing link's <c>ref</c>/<c>utm_source</c>, the referring site,
     /// a bot <c>/start</c> parameter, a Mini App <c>start_param</c>, or <c>invite</c> for an invite link. Set once when
-    /// the user is created and never changed; Laraue.Apps.Identity keeps the same value on the user's Boards service
-    /// row. Normalized like Identity does (lower-case, <c>a-z 0-9 . - _</c>, at most
-    /// <see cref="SignUpSourceMaxLength"/>). Null when unknown and for users from before BRD-295.
+    /// the user is created and never changed. It's the value Laraue.Apps.Identity stored on the user's Boards service
+    /// row and returned - Identity normalizes it (lower-case, <c>a-z 0-9 . - _</c>, at most
+    /// <see cref="SignUpSourceMaxLength"/>), Boards keeps a copy for its funnel. Null when unknown and for users from
+    /// before BRD-295.
     /// </summary>
     [MaxLength(SignUpSourceMaxLength)]
     public string? SignUpSource { get; set; }

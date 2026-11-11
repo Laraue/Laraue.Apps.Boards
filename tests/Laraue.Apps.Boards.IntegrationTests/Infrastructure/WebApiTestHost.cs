@@ -141,16 +141,16 @@ public class WebApiTestHost
                     It.IsAny<Metadata>(),
                     It.IsAny<DateTime?>(),
                     It.IsAny<CancellationToken>()))
-                .Returns((CreateUserIfNotExistsRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
-                    GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
+                .Returns((CreateUserIfNotExistsRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.CreatedUser(request.HasSource ? request.Source : null));
             identityClientMock
                 .Setup(x => x.CreateUserIfNotExistsByGoogleAsync(
                     It.IsAny<CreateUserIfNotExistsByGoogleRequest>(),
                     It.IsAny<Metadata>(),
                     It.IsAny<DateTime?>(),
                     It.IsAny<CancellationToken>()))
-                .Returns((CreateUserIfNotExistsByGoogleRequest _, Metadata? _, DateTime? _, CancellationToken _) =>
-                    GrpcTestHelpers.AsyncUnaryCallOf(new CreateUserIfNotExistsResponse { UserId = Guid.NewGuid().ToString() }));
+                .Returns((CreateUserIfNotExistsByGoogleRequest request, Metadata? _, DateTime? _, CancellationToken _) =>
+                    GrpcTestHelpers.CreatedUser(request.HasSource ? request.Source : null));
             identityClientMock
                 .Setup(x => x.LinkTelegramAccountAsync(
                     It.IsAny<LinkTelegramAccountRequest>(),
