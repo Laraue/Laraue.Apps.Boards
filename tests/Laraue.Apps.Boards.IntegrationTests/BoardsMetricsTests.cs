@@ -363,6 +363,46 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
             "step=\"registered\""));
     }
 
+    [Fact]
+    public async Task StateMetrics_ShouldSplitFunnelBySource_WhenUsersCameFromDifferentPlaces()
+    {
+        using var testScope = host.CreateTestScope();
+        var now = DateTime.UtcNow;
+
+        // Product Hunt (a known source) and created a card; a blog nobody listed; and no source at all.
+        var fromProductHuntId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(fromProductHuntId);
+        await CreateIssueAsync(testScope, organization, new Actor(fromProductHuntId));
+        var fromBlogId = await testScope.CreateUser();
+        var directId = await testScope.CreateUser();
+        foreach (var (userId, source) in new[] { (fromProductHuntId, "producthunt"), (fromBlogId, "some-blog"), (directId, (string?)null) })
+        {
+            await testScope.Database.Users
+                .Where(x => x.Id == userId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.CreatedAt, now.AddDays(-3))
+                    .SetProperty(x => x.SignUpSource, source));
+        }
+
+        await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
+        var metrics = await ScrapeAsync(host.CreateClient());
+
+        string BySource(string source, string step) => GaugeValue(
+            metrics,
+            "boards_funnel_users_by_source",
+            "cohort=\"7d\"",
+            $"source=\"{source}\"",
+            $"step=\"{step}\"");
+
+        Assert.Equal("1", BySource("producthunt", "registered"));
+        Assert.Equal("1", BySource("producthunt", "first_issue"));
+        Assert.Equal("1", BySource("other", "registered"));
+        Assert.Equal("0", BySource("other", "first_issue"));
+        Assert.Equal("1", BySource("direct", "registered"));
+        // A known source with nobody yet still has its series.
+        Assert.Equal("0", BySource("invite", "registered"));
+    }
+
     private static UserBotMessage Welcome(Guid userId, DateTime sentAt, BotMessageStatus status)
     {
         return new UserBotMessage

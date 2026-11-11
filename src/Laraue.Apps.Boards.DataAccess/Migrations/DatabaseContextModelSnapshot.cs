@@ -2104,6 +2104,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_seen_at");
 
+                    b.Property<string>("SignUpSource")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sign_up_source");
+
                     b.Property<long?>("TelegramId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_id");

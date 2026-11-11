@@ -15,6 +15,13 @@ public sealed class BoardsMetricsOptions
     public string InternalGlobalUserIds { get; set; } = string.Empty;
 
     /// <summary>
+    /// Sign-up sources (<c>User.SignUpSource</c>, BRD-295) that get their own <c>source</c> label in
+    /// <c>boards_funnel_users_by_source</c>. Anyone can put anything in a link, so the label set is fixed here: other
+    /// values count as <c>other</c>, no source as <c>direct</c>. The raw value stays in the database.
+    /// </summary>
+    public string[] KnownSignUpSources { get; set; } = [];
+
+    /// <summary>
     /// <see cref="InternalGlobalUserIds"/> parsed. Throws on a value that isn't a Guid - production checks
     /// <see cref="IsValid"/> on start, so it doesn't get that far.
     /// </summary>

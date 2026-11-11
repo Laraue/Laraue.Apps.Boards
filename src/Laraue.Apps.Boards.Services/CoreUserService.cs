@@ -124,6 +124,7 @@ public class CoreUserService(
             TelegramId = profile.TelegramId,
             CreatedAt = timestamp,
             GlobalUserId = identity.GlobalUserId,
+            SignUpSource = SignUpSource.Normalize(profile.Source),
         };
         
         var insertedCount = await context.Users
@@ -195,6 +196,7 @@ public class CoreUserService(
             GoogleSubject = profile.GoogleSubject,
             CreatedAt = timestamp,
             GlobalUserId = identity.GlobalUserId,
+            SignUpSource = SignUpSource.Normalize(profile.Source),
         };
 
         var insertedCount = await context.Users
@@ -557,6 +559,7 @@ public class CoreUserService(
         if (profile.FirstName is { } firstName) request.TelegramFirstName = firstName;
         if (profile.LastName is { } lastName) request.TelegramLastName = lastName;
         if (profile.LanguageCode is { } languageCode) request.TelegramLanguageCode = languageCode;
+        if (SignUpSource.Normalize(profile.Source) is { } source) request.Source = source;
 
         var response = await identityClient.CreateUserIfNotExistsAsync(request, cancellationToken: cancellationToken);
 
@@ -577,6 +580,7 @@ public class CoreUserService(
         if (profile.Name is { } name) request.Name = name;
         if (profile.GivenName is { } givenName) request.GivenName = givenName;
         if (profile.FamilyName is { } familyName) request.FamilyName = familyName;
+        if (SignUpSource.Normalize(profile.Source) is { } source) request.Source = source;
 
         var response = await identityClient.CreateUserIfNotExistsByGoogleAsync(request, cancellationToken: cancellationToken);
 
@@ -601,21 +605,23 @@ public sealed record AccountLinkInBoardsResult(Guid? MergedUserId);
 /// A Telegram user's profile as the sign-in method (Mini App, login widget, or the bot itself)
 /// reported it. Used only while creating the user - forwarded to Laraue.Apps.Identity (the source of
 /// truth for profiles) and used to derive the Boards-side display name, initials and personal
-/// organization. Boards doesn't store it.
+/// organization. Boards doesn't store it. <see cref="Source"/> - where the user came from (BRD-295), set only by the
+/// sign-up paths, not by account linking - is stored on the new <see cref="User"/> and sent to Identity.
 /// </summary>
 public sealed record TelegramUserProfile(
     long TelegramId,
     string? UserName,
     string? FirstName,
     string? LastName,
-    string? LanguageCode);
+    string? LanguageCode,
+    string? Source = null);
 
 /// <summary>
 /// A Google account's profile, taken from an already-verified Google ID token. Like
 /// <see cref="TelegramUserProfile"/>, used only while creating the user: forwarded to
 /// Laraue.Apps.Identity and used to derive the Boards-side display name, initials and personal
 /// organization, but not stored. <see cref="LanguageCode"/> isn't part of the ID token - it comes
-/// from the signing-in client (e.g. the browser's language).
+/// from the signing-in client (e.g. the browser's language). <see cref="Source"/> as in <see cref="TelegramUserProfile"/>.
 /// </summary>
 public sealed record GoogleUserProfile(
     string GoogleSubject,
@@ -623,7 +629,8 @@ public sealed record GoogleUserProfile(
     string? Name,
     string? GivenName,
     string? FamilyName,
-    string? LanguageCode);
+    string? LanguageCode,
+    string? Source = null);
 
 public enum AccountLinkOutcome
 {

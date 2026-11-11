@@ -47,6 +47,11 @@ public sealed class GoogleAuthRequest
     /// token itself carries no language.
     /// </summary>
     public string? LanguageCode { get; init; }
+
+    /// <summary>
+    /// Where the user came from (BRD-295), saved by the frontend; stored only for a newly registered user.
+    /// </summary>
+    public string? SignUpSource { get; init; }
 }
 
 /// <summary>
@@ -206,7 +211,8 @@ public class GoogleAuthService(
                 payload.Name,
                 payload.GivenName,
                 payload.FamilyName,
-                request.LanguageCode),
+                request.LanguageCode,
+                request.SignUpSource),
             cancellationToken);
 
         return authService.CreateUserToken(userId, tokenVersion: 0);

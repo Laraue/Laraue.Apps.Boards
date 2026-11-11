@@ -373,6 +373,22 @@ logs instead of throwing, so it never fails a request. The `AddUserLastSeenAt` m
 latest `OrganizationLog` row; users who had only read stay null until next seen. A new entry point (another host, a
 new auth scheme) must call `Touch` too.
 
+## Sign-up source
+
+Where a user came to Boards from (BRD-295), set once when the user is created: `User.SignUpSource`, and the same value
+on the user's Boards row in Laraue.Apps.Identity (`source` on `CreateUserIfNotExists`/`CreateUserIfNotExistsByGoogle`,
+kept per service there - the record other services and payments can join by global id).
+
+- Where it comes from: the web sign-ins' `sign_up_source` (Telegram widget - a declared property, so it stays out of
+  the widget's data-check-string; Mini App and Google - `SignUpSource`), which the frontend fills from the landing
+  link's `ref`/`utm_source`, the referring site, or `invite`; the Mini App's own signed `start_param` when the
+  frontend sent none; the bot's deep link, read from the first update's `/start <param>` by `TelegramUserQueryService`.
+- `SignUpSource.Normalize` (Boards.Services) cleans it exactly like Identity's: lower-case, `a-z 0-9 . - _`, at most
+  64. Only a new user gets it; account linking sends none.
+- Metrics: `boards_funnel_users_by_source{cohort, source, step}`; the label is one of
+  `BoardsMetrics:KnownSignUpSources` (WebApiHost `appsettings.json`), `other` or `direct` (none) - raw values from
+  links can't be labels.
+
 ## Bot welcome
 
 A user who signs up with Telegram on the web or in the Mini App never wrote to the bot, so nothing tells them that a

@@ -49,6 +49,13 @@ public sealed class TelegramWidgetAuthRequest
     public string Hash { get; init; } = string.Empty;
 
     /// <summary>
+    /// Where the user came from (BRD-295), added by the frontend - not a Telegram field, so it isn't signed and isn't
+    /// part of the data-check-string. Named so that it can't clash with a field Telegram may add.
+    /// </summary>
+    [JsonPropertyName("sign_up_source")]
+    public string? SignUpSource { get; init; }
+
+    /// <summary>
     /// The fields Telegram sent that this class does not know yet. Telegram signs all the fields it
     /// sends, so they must be part of the data-check-string, or the hash of a request with a new
     /// field would not match.
