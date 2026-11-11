@@ -9,7 +9,8 @@ public sealed class BoardsMetricsOptions
     /// Boards user ids (<c>User.Id</c>) of the team's own accounts (BRD-358). Their activity - including what their
     /// API keys and agents do - is left out of the user metrics (active users, issues created per window, bot
     /// messages, the funnel), which are about real users. Content totals (issues, epics, organizations) still count
-    /// everything.
+    /// everything. Production sets them with <c>BoardsMetrics__InternalUserIds__0</c>, <c>__1</c>, ...; an empty element
+    /// is skipped.
     /// </summary>
     public Guid[] InternalUserIds { get; set; } = [];
 }
