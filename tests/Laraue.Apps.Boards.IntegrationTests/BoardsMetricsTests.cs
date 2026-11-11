@@ -316,13 +316,13 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         using var testScope = host.CreateTestScope();
         var now = DateTime.UtcNow;
 
-        // The id configured in the tests' BoardsMetrics:InternalUserIds.
-        var internalUserId = Guid.Parse("00000000-0000-0000-0000-0000000005a8");
+        // The global id is the second one in the tests' BoardsMetrics:InternalGlobalUserIds; the Boards id is unrelated.
+        var internalUserId = Guid.NewGuid();
         testScope.Database.Users.Add(new DataAccess.Models.User
         {
             Id = internalUserId,
             TelegramId = 5_000_000_001,
-            GlobalUserId = Guid.NewGuid(),
+            GlobalUserId = Guid.Parse("00000000-0000-0000-0000-0000000005a8"),
             CreatedAt = now.AddDays(-2),
             LastSeenAt = now,
         });
