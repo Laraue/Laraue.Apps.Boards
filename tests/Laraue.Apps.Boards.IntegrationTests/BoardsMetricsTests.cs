@@ -310,6 +310,59 @@ public class BoardsMetricsTests(WebApiTestHost host, RetroWebApiTestHost retroHo
         Assert.Equal("1", Messages("1d", "no_card"));
     }
 
+    [Fact]
+    public async Task StateMetrics_ShouldLeaveOutInternalUsers_WhenTheyAreActive()
+    {
+        using var testScope = host.CreateTestScope();
+        var now = DateTime.UtcNow;
+
+        // The id configured in the tests' BoardsMetrics:InternalUserIds.
+        var internalUserId = Guid.Parse("00000000-0000-0000-0000-0000000005a8");
+        testScope.Database.Users.Add(new DataAccess.Models.User
+        {
+            Id = internalUserId,
+            TelegramId = 5_000_000_001,
+            GlobalUserId = Guid.NewGuid(),
+            CreatedAt = now.AddDays(-2),
+            LastSeenAt = now,
+        });
+        await testScope.Database.SaveChangesAsync();
+        var realUserId = await testScope.CreateUser();
+        await UpdateUser(testScope, realUserId, createdAt: now.AddDays(-2), lastSeenAt: now);
+
+        // Both create an issue today - the internal one through an API key, as an agent would.
+        var internalOrganization = await testScope.InitializeOrganization(internalUserId);
+        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(internalOrganization.Id, internalUserId, "Agent key", CancellationToken.None);
+        await CreateIssueAsync(testScope, internalOrganization, new Actor(internalUserId, apiKey.Id));
+        var realOrganization = await testScope.InitializeOrganization(realUserId);
+        await CreateIssueAsync(testScope, realOrganization, new Actor(realUserId));
+
+        testScope.Database.UserBotMessages.AddRange(
+            Welcome(internalUserId, now.AddHours(-1), BotMessageStatus.Sent),
+            Welcome(realUserId, now.AddHours(-1), BotMessageStatus.Sent));
+        await testScope.Database.SaveChangesAsync();
+
+        await host.Services.GetRequiredService<BoardsStateMetrics>().RefreshAsync(CancellationToken.None);
+        var metrics = await ScrapeAsync(host.CreateClient());
+
+        Assert.Equal("1", GaugeValue(metrics, "boards_active_users", "window=\"1d\""));
+        Assert.Equal("1", GaugeValue(metrics, "boards_issues_created_in_window", "window=\"1d\"", "via=\"web\""));
+        Assert.Equal("0", GaugeValue(metrics, "boards_issues_created_in_window", "window=\"1d\"", "via=\"mcp\""));
+        Assert.Equal("1", GaugeValue(
+            metrics,
+            "boards_bot_messages_in_window",
+            "window=\"1d\"",
+            "kind=\"welcome\"",
+            "outcome=\"no_card\""));
+        Assert.Equal("1", GaugeValue(
+            metrics,
+            "boards_funnel_users",
+            "cohort=\"7d\"",
+            "method=\"telegram\"",
+            "step=\"registered\""));
+    }
+
     private static UserBotMessage Welcome(Guid userId, DateTime sentAt, BotMessageStatus status)
     {
         return new UserBotMessage
