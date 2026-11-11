@@ -6,11 +6,30 @@ namespace Laraue.Apps.Boards.WebApiServices.Metrics;
 public sealed class BoardsMetricsOptions
 {
     /// <summary>
-    /// Boards user ids (<c>User.Id</c>) of the team's own accounts (BRD-358). Their activity - including what their
-    /// API keys and agents do - is left out of the user metrics (active users, issues created per window, bot
-    /// messages, the funnel), which are about real users. Content totals (issues, epics, organizations) still count
-    /// everything. Production sets them with <c>BoardsMetrics__InternalUserIds__0</c>, <c>__1</c>, ...; an empty element
-    /// is skipped.
+    /// Global user ids (Laraue.Apps.Identity, <c>User.GlobalUserId</c>) of the team's own accounts, comma-separated
+    /// (BRD-358). Global, so one list - <c>INTERNAL_GLOBAL_USER_IDS</c> in the server's <c>.env</c> - serves every
+    /// service. Their activity, including what their API keys and agents do, is left out of the user metrics (active
+    /// users, issues created per window, bot messages, the funnel), which are about real users. Content totals
+    /// (issues, epics, organizations) still count everything. Empty: nobody is left out.
     /// </summary>
-    public Guid[] InternalUserIds { get; set; } = [];
+    public string InternalGlobalUserIds { get; set; } = string.Empty;
+
+    /// <summary>
+    /// <see cref="InternalGlobalUserIds"/> parsed. Throws on a value that isn't a Guid - production checks
+    /// <see cref="IsValid"/> on start, so it doesn't get that far.
+    /// </summary>
+    public Guid[] GetInternalGlobalUserIds()
+    {
+        return Split().Select(Guid.Parse).ToArray();
+    }
+
+    public bool IsValid()
+    {
+        return Split().All(x => Guid.TryParse(x, out _));
+    }
+
+    private string[] Split()
+    {
+        return InternalGlobalUserIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
 }
