@@ -30,6 +30,7 @@ public static class WebApplicationBuilderExtensions
             // The web app URL, for the "Open board" button of the bot's welcome; the same section as in
             // TelegramHost and McpHost.
             builder.AddValidatedOptions<WebAppOptions>("AppOptions");
+            builder.AddValidatedOptions<BoardsMetricsOptions>("BoardsMetrics");
             builder.Services.AddHttpClient();
 
             builder.Services

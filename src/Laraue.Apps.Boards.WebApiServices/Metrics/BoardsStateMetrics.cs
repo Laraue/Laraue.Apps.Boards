@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.WebApiServices.Metrics;
 
@@ -64,6 +65,7 @@ public sealed class BoardsStateMetrics : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<BoardsStateMetrics> _logger;
+    private readonly Guid[] _internalUserIds;
 
     private volatile Snapshot _snapshot = Snapshot.Empty;
 
@@ -71,11 +73,13 @@ public sealed class BoardsStateMetrics : BackgroundService
         IMeterFactory meterFactory,
         IServiceScopeFactory scopeFactory,
         IDateTimeProvider dateTimeProvider,
-        ILogger<BoardsStateMetrics> logger)
+        ILogger<BoardsStateMetrics> logger,
+        IOptions<BoardsMetricsOptions> options)
     {
         _scopeFactory = scopeFactory;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
+        _internalUserIds = options.Value.InternalUserIds;
 
         var meter = meterFactory.Create(BoardsMetrics.MeterName);
 
@@ -107,7 +111,7 @@ public sealed class BoardsStateMetrics : BackgroundService
         meter.CreateObservableGauge(
             "boards.active_users",
             () => Measurements(_snapshot.ActiveUsers, "window"),
-            description: "Distinct users seen (a web request, a Telegram update or an MCP call) in the last day, 7 days and 30 days. Seen times are written at most once an hour.");
+            description: "Distinct users seen (a web request, a Telegram update or an MCP call) in the last day, 7 days and 30 days. Seen times are written at most once an hour. Internal users (BoardsMetrics:InternalUserIds) are left out.");
 
         meter.CreateObservableGauge(
             "boards.issues.created_in_window",
@@ -115,7 +119,7 @@ public sealed class BoardsStateMetrics : BackgroundService
                 x.Count,
                 new KeyValuePair<string, object?>("window", x.Window),
                 new KeyValuePair<string, object?>("via", x.Via))),
-            description: "Issues created in the last day, 7 days and 30 days, by how they were created (web, telegram, mcp, agent). Deleted issues count too: it counts creations. Read from the database, so unlike boards_issues_created_total it survives a restart.");
+            description: "Issues created in the last day, 7 days and 30 days, by how they were created (web, telegram, mcp, agent). Deleted issues count too: it counts creations. Read from the database, so unlike boards_issues_created_total it survives a restart. Issues of internal users (BoardsMetrics:InternalUserIds), their API keys included, are left out.");
 
         meter.CreateObservableGauge(
             "boards.bot_messages.in_window",
@@ -124,7 +128,7 @@ public sealed class BoardsStateMetrics : BackgroundService
                 new KeyValuePair<string, object?>("window", x.Window),
                 new KeyValuePair<string, object?>("kind", x.Kind),
                 new KeyValuePair<string, object?>("outcome", x.Outcome))),
-            description: "Messages the bot sent users on its own (kind: welcome) in the last day, 7 days and 30 days, by outcome: failed (Telegram refused, e.g. the user didn't allow the bot to write), card_within_24h (the user created a card from Telegram within 24 hours), no_card (none yet - a message younger than a day may still get one).");
+            description: "Messages the bot sent users on its own (kind: welcome) in the last day, 7 days and 30 days, by outcome: failed (Telegram refused, e.g. the user didn't allow the bot to write), card_within_24h (the user created a card from Telegram within 24 hours), no_card (none yet - a message younger than a day may still get one). Internal users (BoardsMetrics:InternalUserIds) are left out.");
 
         meter.CreateObservableGauge(
             "boards.funnel.users",
@@ -133,7 +137,7 @@ public sealed class BoardsStateMetrics : BackgroundService
                 new KeyValuePair<string, object?>("cohort", x.Cohort),
                 new KeyValuePair<string, object?>("method", x.Method),
                 new KeyValuePair<string, object?>("step", x.Step))),
-            description: "Users who signed up in the cohort window (7d, 30d, all) and reached each step, by sign-in method (telegram, google, both). Steps: registered, setup_completed (finished the setup of an organization they own), first_issue (created an issue, not counting the setup's demo data), org_created (created a team organization), teammate_joined (a team organization they own has another member), returned_d1 and returned_w1 (seen at least 1 and 7 days after signing up).");
+            description: "Users who signed up in the cohort window (7d, 30d, all) and reached each step, by sign-in method (telegram, google, both). Steps: registered, setup_completed (finished the setup of an organization they own), first_issue (created an issue, not counting the setup's demo data), org_created (created a team organization), teammate_joined (a team organization they own has another member), returned_d1 and returned_w1 (seen at least 1 and 7 days after signing up). Internal users (BoardsMetrics:InternalUserIds) are left out.");
     }
 
     private static IEnumerable<Measurement<long>> Measurements(IReadOnlyDictionary<string, long> values, string label)
@@ -189,11 +193,15 @@ public sealed class BoardsStateMetrics : BackgroundService
             .Select(x => new { IsFinished = x.Key, Count = x.LongCount() })
             .ToListAsync(cancellationToken);
 
+        // The user metrics below leave out the team's own accounts (BoardsMetricsOptions.InternalUserIds).
+        var internalUserIds = _internalUserIds;
+
         var activeUsers = new Dictionary<string, long>();
         foreach (var (label, window) in ActiveUserWindows)
         {
             var since = now - window;
             activeUsers[label] = await context.ActiveUsers()
+                .Where(x => !internalUserIds.Contains(x.Id))
                 .Where(x => x.LastSeenAt >= since)
                 .LongCountAsync(cancellationToken);
         }
@@ -203,6 +211,7 @@ public sealed class BoardsStateMetrics : BackgroundService
         {
             var since = now - window;
             var counts = await context.Issues
+                .Where(x => !internalUserIds.Contains(x.OwnerId))
                 .Where(x => x.CreatedAt >= since)
                 .GroupBy(x => x.CreatedVia)
                 .Select(x => new { Via = x.Key, Count = x.LongCount() })
@@ -214,9 +223,9 @@ public sealed class BoardsStateMetrics : BackgroundService
                 counts.SingleOrDefault(c => c.Via == via)?.Count ?? 0)));
         }
 
-        var botMessagesInWindow = await CountBotMessages(context, now, cancellationToken);
+        var botMessagesInWindow = await CountBotMessages(context, now, internalUserIds, cancellationToken);
 
-        var funnel = CountFunnel(await GetFunnelUsers(context, cancellationToken), now);
+        var funnel = CountFunnel(await GetFunnelUsers(context, internalUserIds, cancellationToken), now);
 
         _snapshot = new Snapshot(
             deletedIssues,
@@ -249,11 +258,13 @@ public sealed class BoardsStateMetrics : BackgroundService
     private static async Task<List<BotMessagesCount>> CountBotMessages(
         DatabaseContext context,
         DateTime now,
+        Guid[] internalUserIds,
         CancellationToken cancellationToken)
     {
         var since = now - ActiveUserWindows.Max(x => x.Window);
 
         var messages = await context.UserBotMessages
+            .Where(m => !internalUserIds.Contains(m.UserId))
             .Where(m => m.SentAt >= since)
             .Select(m => new
             {
@@ -293,9 +304,13 @@ public sealed class BoardsStateMetrics : BackgroundService
     /// One row per user with the steps they reached. A row per user rather than a count per step and cohort: the
     /// cohorts and methods are then split in memory from a single query.
     /// </summary>
-    private static Task<List<FunnelUser>> GetFunnelUsers(DatabaseContext context, CancellationToken cancellationToken)
+    private static Task<List<FunnelUser>> GetFunnelUsers(
+        DatabaseContext context,
+        Guid[] internalUserIds,
+        CancellationToken cancellationToken)
     {
         return context.ActiveUsers()
+            .Where(u => !internalUserIds.Contains(u.Id))
             .Select(u => new FunnelUser(
                 u.CreatedAt,
                 u.TelegramId != null,
