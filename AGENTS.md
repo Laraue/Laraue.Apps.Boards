@@ -170,6 +170,9 @@ each step for the user's review instead of one big diff.
   `HandleSave_ShouldReplyWithExistingLink_WhenMessageWasAlreadySaved`.
 - One `[Fact]` per case, unless the setup is long and the cases are a sequence of actions on it.
 - Don't assert on logging (`Mock<ILogger>.Verify`) - assert observable behavior.
+- Test hosts don't watch their config files: `Infrastructure/TestEnvironment` sets
+  `DOTNET_hostBuilder__reloadConfigOnChange=false` before any test runs (guarded by `TestEnvironmentTests`). Each watcher
+  costs an inotify instance on Linux, and the CI runner's limit of 128 was hit once the suite built that many hosts.
 
 ## Database safety
 
