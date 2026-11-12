@@ -49,11 +49,18 @@ public sealed class TelegramWidgetAuthRequest
     public string Hash { get; init; } = string.Empty;
 
     /// <summary>
-    /// Where the user came from (BRD-295), added by the frontend - not a Telegram field, so it isn't signed and isn't
-    /// part of the data-check-string. Named so that it can't clash with a field Telegram may add.
+    /// The first page the user opened on the site (BRD-295), saved by the frontend. Not a Telegram field, so it isn't
+    /// signed and isn't part of the data-check-string; named so that it can't clash with a field Telegram may add.
     /// </summary>
-    [JsonPropertyName("sign_up_source")]
-    public string? SignUpSource { get; init; }
+    [JsonPropertyName("sign_up_landing_url")]
+    public string? SignUpLandingUrl { get; init; }
+
+    /// <summary>
+    /// The site that sent the user to that page (BRD-295), saved by the frontend; not signed, like
+    /// <see cref="SignUpLandingUrl"/>.
+    /// </summary>
+    [JsonPropertyName("sign_up_referrer")]
+    public string? SignUpReferrer { get; init; }
 
     /// <summary>
     /// The fields Telegram sent that this class does not know yet. Telegram signs all the fields it

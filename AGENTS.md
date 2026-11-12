@@ -378,17 +378,18 @@ new auth scheme) must call `Touch` too.
 
 ## Sign-up source
 
-Where a user came to Boards from (BRD-295), set once when the user is created: `User.SignUpSource`, and the same value
-on the user's Boards row in Laraue.Apps.Identity (`source` on `CreateUserIfNotExists`/`CreateUserIfNotExistsByGoogle`,
-kept per service there - the record other services and payments can join by global id).
+Where a user came to Boards from (BRD-295), set once when the user is created: `User.SignUpSource`. Boards doesn't work
+it out: it sends what it saw to Laraue.Apps.Identity, which resolves and normalizes the source (its
+`SignUpSource.Resolve` - the one place these rules live), stores it per service and returns it; Boards keeps the
+returned value for its funnel.
 
-- Where it comes from: the web sign-ins' `sign_up_source` (Telegram widget - a declared property, so it stays out of
-  the widget's data-check-string; Mini App and Google - `SignUpSource`), which the frontend fills from the landing
-  link's `ref`/`utm_source`, the referring site, or `invite`; the Mini App's own signed `start_param` when the
-  frontend sent none; the bot's deep link, read from the first update's `/start <param>` by `TelegramUserQueryService`.
-- Boards doesn't clean it: it sends the value as received, Identity normalizes and stores it and returns what it
-  stored (`CreateUserIfNotExistsResponse.source` - possibly an earlier value), and `User.SignUpSource` is that
-  returned value. The rule lives only in Identity. Only a new user gets it; account linking sends none.
+- What Boards sends (`SignUpOrigin`): the raw landing URL and referrer the frontend saved on the first page a visitor
+  opened (`sign_up_landing_url`/`sign_up_referrer` on the Telegram widget request - declared properties, so they stay
+  out of its signed data-check-string; `SignUpLandingUrl`/`SignUpReferrer` on the Mini App and Google requests), plus
+  an explicit source in three cases: the bot deep link's `/start <param>` (read by `TelegramUserQueryService` from the
+  update that creates the user), the Mini App's signed `start_param`, and `invite` when the landing URL is Boards'
+  invite page (`/join/...` - a Boards route, so that rule is Boards'). Only a new user gets one; account linking sends
+  none.
 - Metrics: `boards_funnel_users_by_source{cohort, source, step}`; the label is one of
   `BoardsMetrics:KnownSignUpSources` (WebApiHost `appsettings.json`), `other` or `direct` (none) - raw values from
   links can't be labels.

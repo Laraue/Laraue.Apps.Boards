@@ -561,8 +561,8 @@ public class CoreUserService(
         if (profile.FirstName is { } firstName) request.TelegramFirstName = firstName;
         if (profile.LastName is { } lastName) request.TelegramLastName = lastName;
         if (profile.LanguageCode is { } languageCode) request.TelegramLanguageCode = languageCode;
-        // Sent as received: Identity normalizes it and returns what it stored, which is the Boards copy too.
-        if (!string.IsNullOrWhiteSpace(profile.Source)) request.Source = profile.Source;
+        // Sent as seen: Identity works out the source, normalizes it and returns what it stored - the Boards copy too.
+        SetSignUpOrigin(profile.SignUp, x => request.Source = x, x => request.LandingUrl = x, x => request.Referrer = x);
 
         var response = await identityClient.CreateUserIfNotExistsAsync(request, cancellationToken: cancellationToken);
 
@@ -583,7 +583,7 @@ public class CoreUserService(
         if (profile.Name is { } name) request.Name = name;
         if (profile.GivenName is { } givenName) request.GivenName = givenName;
         if (profile.FamilyName is { } familyName) request.FamilyName = familyName;
-        if (!string.IsNullOrWhiteSpace(profile.Source)) request.Source = profile.Source;
+        SetSignUpOrigin(profile.SignUp, x => request.Source = x, x => request.LandingUrl = x, x => request.Referrer = x);
 
         var response = await identityClient.CreateUserIfNotExistsByGoogleAsync(request, cancellationToken: cancellationToken);
 
@@ -592,6 +592,21 @@ public class CoreUserService(
 
     /// <param name="SignUpSource">Where the user came to Boards from, as Identity stored it.</param>
     private sealed record GlobalUser(Guid Id, string? SignUpSource);
+
+    /// <summary>
+    /// Copies the non-empty parts of <paramref name="origin"/> onto an Identity create request (the generated request
+    /// types share no interface, hence the setters).
+    /// </summary>
+    private static void SetSignUpOrigin(
+        SignUpOrigin? origin,
+        Action<string> setSource,
+        Action<string> setLandingUrl,
+        Action<string> setReferrer)
+    {
+        if (!string.IsNullOrWhiteSpace(origin?.Source)) setSource(origin.Source);
+        if (!string.IsNullOrWhiteSpace(origin?.LandingUrl)) setLandingUrl(origin.LandingUrl);
+        if (!string.IsNullOrWhiteSpace(origin?.Referrer)) setReferrer(origin.Referrer);
+    }
 }
 
 /// <summary>
@@ -613,8 +628,9 @@ public sealed record AccountLinkInBoardsResult(Guid? MergedUserId);
 /// A Telegram user's profile as the sign-in method (Mini App, login widget, or the bot itself)
 /// reported it. Used only while creating the user - forwarded to Laraue.Apps.Identity (the source of
 /// truth for profiles) and used to derive the Boards-side display name, initials and personal
-/// organization. Boards doesn't store it. <see cref="Source"/> - where the user came from (BRD-295), set only by the
-/// sign-up paths, not by account linking - is stored on the new <see cref="User"/> and sent to Identity.
+/// organization. Boards doesn't store it. <see cref="SignUp"/> - what was seen about where the user came from
+/// (BRD-295), set only by the sign-up paths, not by account linking - goes to Identity, which returns the source the new
+/// <see cref="User"/> keeps.
 /// </summary>
 public sealed record TelegramUserProfile(
     long TelegramId,
@@ -622,14 +638,14 @@ public sealed record TelegramUserProfile(
     string? FirstName,
     string? LastName,
     string? LanguageCode,
-    string? Source = null);
+    SignUpOrigin? SignUp = null);
 
 /// <summary>
 /// A Google account's profile, taken from an already-verified Google ID token. Like
 /// <see cref="TelegramUserProfile"/>, used only while creating the user: forwarded to
 /// Laraue.Apps.Identity and used to derive the Boards-side display name, initials and personal
 /// organization, but not stored. <see cref="LanguageCode"/> isn't part of the ID token - it comes
-/// from the signing-in client (e.g. the browser's language). <see cref="Source"/> as in <see cref="TelegramUserProfile"/>.
+/// from the signing-in client (e.g. the browser's language). <see cref="SignUp"/> as in <see cref="TelegramUserProfile"/>.
 /// </summary>
 public sealed record GoogleUserProfile(
     string GoogleSubject,
@@ -638,7 +654,7 @@ public sealed record GoogleUserProfile(
     string? GivenName,
     string? FamilyName,
     string? LanguageCode,
-    string? Source = null);
+    SignUpOrigin? SignUp = null);
 
 public enum AccountLinkOutcome
 {

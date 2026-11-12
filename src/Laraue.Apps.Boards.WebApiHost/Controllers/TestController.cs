@@ -22,7 +22,7 @@ public class TestController(
     {
         EnsureTestEnvironmentOrThrow();
 
-        return await telegramAuthService.RegisterUser(user, signUpSource: null, ct);
+        return await telegramAuthService.RegisterUser(user, signUp: null, ct);
     }
     
     [HttpGet("user/{id}")]

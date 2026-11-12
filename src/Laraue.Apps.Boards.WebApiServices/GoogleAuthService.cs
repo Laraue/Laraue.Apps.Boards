@@ -49,9 +49,15 @@ public sealed class GoogleAuthRequest
     public string? LanguageCode { get; init; }
 
     /// <summary>
-    /// Where the user came from (BRD-295), saved by the frontend; stored only for a newly registered user.
+    /// The first page the user opened on the site (BRD-295), saved by the frontend; used only for a newly registered
+    /// user.
     /// </summary>
-    public string? SignUpSource { get; init; }
+    public string? SignUpLandingUrl { get; init; }
+
+    /// <summary>
+    /// The site that sent the user to that page (BRD-295), saved by the frontend.
+    /// </summary>
+    public string? SignUpReferrer { get; init; }
 }
 
 /// <summary>
@@ -212,7 +218,7 @@ public class GoogleAuthService(
                 payload.GivenName,
                 payload.FamilyName,
                 request.LanguageCode,
-                request.SignUpSource),
+                SignUpOrigin.FromWeb(request.SignUpLandingUrl, request.SignUpReferrer)),
             cancellationToken);
 
         return authService.CreateUserToken(userId, tokenVersion: 0);
