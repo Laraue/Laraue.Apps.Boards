@@ -35,6 +35,7 @@ public interface ITelegramAuthService
 
     Task<Guid> RegisterUser(
         MiniAppUser user,
+        SignUpOrigin? signUp,
         CancellationToken cancellationToken);
 
     string BuildHash(NameValueCollection collection);
@@ -53,8 +54,13 @@ public class TelegramAuthService(
         AuthenticateViaStringInitDataRequest request,
         CancellationToken cancellationToken)
     {
-        var userData = ValidateInitData(request.InitData);
-        return CreateBearerToken(userData, cancellationToken);
+        var (userData, startParam) = ValidateInitData(request.InitData);
+        var origin = SignUpOrigin.FromWeb(request.SignUpLandingUrl, request.SignUpReferrer);
+        // A Mini App opened by a link with a start parameter: Telegram signs it, and it's the most explicit source.
+        if (!string.IsNullOrWhiteSpace(startParam))
+            origin = origin with { Source = startParam };
+
+        return CreateBearerToken(userData, origin, cancellationToken);
     }
 
     public Task<string> Authenticate(
@@ -62,7 +68,10 @@ public class TelegramAuthService(
         CancellationToken cancellationToken)
     {
         var userData = ValidateWidgetData(request);
-        return CreateBearerToken(userData, cancellationToken);
+        return CreateBearerToken(
+            userData,
+            SignUpOrigin.FromWeb(request.SignUpLandingUrl, request.SignUpReferrer),
+            cancellationToken);
     }
 
     public Task<ConnectAccountResponse> ConnectTelegram(
@@ -78,7 +87,11 @@ public class TelegramAuthService(
             cancellationToken);
     }
 
-    private async Task<string> CreateBearerToken(MiniAppUser userData, CancellationToken cancellationToken)
+    /// <param name="signUp">What was seen about where the user came from (BRD-295); used only when the user is new.</param>
+    private async Task<string> CreateBearerToken(
+        MiniAppUser userData,
+        SignUpOrigin? signUp,
+        CancellationToken cancellationToken)
     {
         var data = await context.Users
             .Where(x => x.TelegramId == userData.Id)
@@ -92,7 +105,7 @@ public class TelegramAuthService(
         if (data is not null)
             return authService.CreateUserToken(data.Id, data.TokenVersion);
 
-        var newUserId = await RegisterUser(userData, cancellationToken);
+        var newUserId = await RegisterUser(userData, signUp, cancellationToken);
 
         // A web or Mini App sign-up never wrote to the bot, so the bot tells them what it does (BRD-354).
         await botWelcomeService.SendWelcome(newUserId, userData.Id, userData.LanguageCode, cancellationToken);
@@ -164,7 +177,8 @@ public class TelegramAuthService(
         };
     }
 
-    private MiniAppUser ValidateInitData(string initData)
+    /// <returns>The user, and the Mini App's <c>start_param</c> if it was opened with one (signed like the rest).</returns>
+    private (MiniAppUser User, string? StartParam) ValidateInitData(string initData)
     {
         var parsedData = HttpUtility.ParseQueryString(initData);
         var receivedHash = parsedData["hash"];
@@ -185,7 +199,7 @@ public class TelegramAuthService(
         EnsureAuthIsFresh(authDate);
         
         var user = parsedData["user"];
-        return JsonSerializer.Deserialize<MiniAppUser>(user!, JsonBotAPI.Options)!;
+        return (JsonSerializer.Deserialize<MiniAppUser>(user!, JsonBotAPI.Options)!, parsedData["start_param"]);
     }
 
     public string BuildHash(NameValueCollection collection)
@@ -209,9 +223,16 @@ public class TelegramAuthService(
     
     public async Task<Guid> RegisterUser(
         MiniAppUser user,
+        SignUpOrigin? signUp,
         CancellationToken cancellationToken)
     {
-        var profile = new TelegramUserProfile(user.Id, user.Username, user.FirstName, user.LastName, user.LanguageCode);
+        var profile = new TelegramUserProfile(
+            user.Id,
+            user.Username,
+            user.FirstName,
+            user.LastName,
+            user.LanguageCode,
+            signUp);
         var identity = await coreUserService.ResolveTelegramIdentity(profile, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);

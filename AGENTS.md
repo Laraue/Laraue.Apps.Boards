@@ -170,6 +170,9 @@ each step for the user's review instead of one big diff.
   `HandleSave_ShouldReplyWithExistingLink_WhenMessageWasAlreadySaved`.
 - One `[Fact]` per case, unless the setup is long and the cases are a sequence of actions on it.
 - Don't assert on logging (`Mock<ILogger>.Verify`) - assert observable behavior.
+- Test hosts don't watch their config files: `Infrastructure/TestEnvironment` sets
+  `DOTNET_hostBuilder__reloadConfigOnChange=false` before any test runs (guarded by `TestEnvironmentTests`). Each watcher
+  costs an inotify instance on Linux, and the CI runner's limit of 128 was hit once the suite built that many hosts.
 
 ## Database safety
 
@@ -372,6 +375,24 @@ writes at most once an hour per user (a per-host `IMemoryCache` entry, plus a co
 logs instead of throwing, so it never fails a request. The `AddUserLastSeenAt` migration backfilled it from each user's
 latest `OrganizationLog` row; users who had only read stay null until next seen. A new entry point (another host, a
 new auth scheme) must call `Touch` too.
+
+## Sign-up source
+
+Where a user came to Boards from (BRD-295), set once when the user is created: `User.SignUpSource`. Boards doesn't work
+it out: it sends what it saw to Laraue.Apps.Identity, which resolves and normalizes the source (its
+`SignUpSource.Resolve` - the one place these rules live), stores it per service and returns it; Boards keeps the
+returned value for its funnel.
+
+- What Boards sends (`SignUpOrigin`): the raw landing URL and referrer the frontend saved on the first page a visitor
+  opened (`sign_up_landing_url`/`sign_up_referrer` on the Telegram widget request - declared properties, so they stay
+  out of its signed data-check-string; `SignUpLandingUrl`/`SignUpReferrer` on the Mini App and Google requests), plus
+  an explicit source in three cases: the bot deep link's `/start <param>` (read by `TelegramUserQueryService` from the
+  update that creates the user), the Mini App's signed `start_param`, and `invite` when the landing URL is Boards'
+  invite page (`/join/...` - a Boards route, so that rule is Boards'). Only a new user gets one; account linking sends
+  none.
+- Metrics: `boards_funnel_users_by_source{cohort, source, step}`; the label is one of
+  `BoardsMetrics:KnownSignUpSources` (WebApiHost `appsettings.json`), `other` or `direct` (none) - raw values from
+  links can't be labels.
 
 ## Bot welcome
 

@@ -66,6 +66,7 @@ public sealed class BoardsStateMetrics : BackgroundService
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<BoardsStateMetrics> _logger;
     private readonly Guid[] _internalGlobalUserIds;
+    private readonly string[] _knownSignUpSources;
 
     private volatile Snapshot _snapshot = Snapshot.Empty;
 
@@ -80,6 +81,11 @@ public sealed class BoardsStateMetrics : BackgroundService
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
         _internalGlobalUserIds = options.Value.GetInternalGlobalUserIds();
+        _knownSignUpSources = options.Value.KnownSignUpSources
+            .Select(x => x.Trim().ToLowerInvariant())
+            .Where(x => x.Length > 0 && x != SourceOther && x != SourceDirect)
+            .Distinct()
+            .ToArray();
 
         var meter = meterFactory.Create(BoardsMetrics.MeterName);
 
@@ -138,7 +144,19 @@ public sealed class BoardsStateMetrics : BackgroundService
                 new KeyValuePair<string, object?>("method", x.Method),
                 new KeyValuePair<string, object?>("step", x.Step))),
             description: "Users who signed up in the cohort window (7d, 30d, all) and reached each step, by sign-in method (telegram, google, both). Steps: registered, setup_completed (finished the setup of an organization they own), first_issue (created an issue, not counting the setup's demo data), org_created (created a team organization), teammate_joined (a team organization they own has another member), returned_d1 and returned_w1 (seen at least 1 and 7 days after signing up). Internal users (BoardsMetrics:InternalGlobalUserIds) are left out.");
+
+        meter.CreateObservableGauge(
+            "boards.funnel.users_by_source",
+            () => _snapshot.FunnelBySource.Select(x => new Measurement<long>(
+                x.Count,
+                new KeyValuePair<string, object?>("cohort", x.Cohort),
+                new KeyValuePair<string, object?>("source", x.Source),
+                new KeyValuePair<string, object?>("step", x.Step))),
+            description: "The funnel of boards_funnel_users by where users signed up from (a link's ref/utm_source, the referring site, a bot /start parameter, a Mini App start_param, invite): one of BoardsMetrics:KnownSignUpSources, other for any other value, direct when there was none. Internal users are left out.");
     }
+
+    public const string SourceOther = "other";
+    public const string SourceDirect = "direct";
 
     private static IEnumerable<Measurement<long>> Measurements(IReadOnlyDictionary<string, long> values, string label)
         => values.Select(x => new Measurement<long>(x.Value, new KeyValuePair<string, object?>(label, x.Key)));
@@ -225,7 +243,9 @@ public sealed class BoardsStateMetrics : BackgroundService
 
         var botMessagesInWindow = await CountBotMessages(context, now, internalUserIds, cancellationToken);
 
-        var funnel = CountFunnel(await GetFunnelUsers(context, internalUserIds, cancellationToken), now);
+        var funnelUsers = await GetFunnelUsers(context, internalUserIds, cancellationToken);
+        var funnel = CountFunnel(funnelUsers, now);
+        var funnelBySource = CountFunnelBySource(funnelUsers, now);
 
         _snapshot = new Snapshot(
             deletedIssues,
@@ -248,7 +268,8 @@ public sealed class BoardsStateMetrics : BackgroundService
             activeUsers,
             issuesCreatedInWindow,
             botMessagesInWindow,
-            funnel);
+            funnel,
+            funnelBySource);
     }
 
     public const string OutcomeFailed = "failed";
@@ -333,7 +354,8 @@ public sealed class BoardsStateMetrics : BackgroundService
                         && o.Type == OrganizationType.Organization
                         && context.ActiveOrganizationUsers().Count(m => m.OrganizationId == o.Id) > 1),
                 u.LastSeenAt != null && u.LastSeenAt >= u.CreatedAt.AddDays(1),
-                u.LastSeenAt != null && u.LastSeenAt >= u.CreatedAt.AddDays(7)))
+                u.LastSeenAt != null && u.LastSeenAt >= u.CreatedAt.AddDays(7),
+                u.SignUpSource))
             .ToListAsync(cancellationToken);
     }
 
@@ -370,7 +392,8 @@ public sealed class BoardsStateMetrics : BackgroundService
         bool OrgCreated,
         bool TeammateJoined,
         bool ReturnedD1,
-        bool ReturnedW1)
+        bool ReturnedW1,
+        string? SignUpSource)
     {
         public string Method => (HasTelegram, HasGoogle) switch
         {
@@ -394,6 +417,40 @@ public sealed class BoardsStateMetrics : BackgroundService
 
     private sealed record FunnelCount(string Cohort, string Method, string Step, long Count);
 
+    private sealed record FunnelBySourceCount(string Cohort, string Source, string Step, long Count);
+
+    /// <summary>
+    /// The same funnel by sign-up source, every known source with every step from the first scrape (zeros included),
+    /// so a new source's series exists before its first user.
+    /// </summary>
+    private List<FunnelBySourceCount> CountFunnelBySource(IReadOnlyList<FunnelUser> users, DateTime now)
+    {
+        string Label(string? source) => source is null
+            ? SourceDirect
+            : _knownSignUpSources.Contains(source) ? source : SourceOther;
+
+        var labels = _knownSignUpSources.Append(SourceOther).Append(SourceDirect).ToArray();
+        var counts = new List<FunnelBySourceCount>();
+
+        foreach (var (cohort, window) in FunnelCohorts)
+        {
+            var since = window is null ? DateTime.MinValue : now - window.Value;
+            var inCohort = users
+                .Where(x => x.CreatedAt >= since)
+                .ToLookup(x => Label(x.SignUpSource));
+
+            foreach (var source in labels)
+            {
+                foreach (var step in FunnelSteps)
+                {
+                    counts.Add(new FunnelBySourceCount(cohort, source, step, inCohort[source].LongCount(x => x.HasReached(step))));
+                }
+            }
+        }
+
+        return counts;
+    }
+
     private sealed record IssuesCreatedCount(string Window, string Via, long Count);
 
     private sealed record BotMessagesCount(string Window, string Kind, string Outcome, long Count);
@@ -407,7 +464,8 @@ public sealed class BoardsStateMetrics : BackgroundService
         IReadOnlyDictionary<string, long> ActiveUsers,
         IReadOnlyList<IssuesCreatedCount> IssuesCreatedInWindow,
         IReadOnlyList<BotMessagesCount> BotMessagesInWindow,
-        IReadOnlyList<FunnelCount> Funnel)
+        IReadOnlyList<FunnelCount> Funnel,
+        IReadOnlyList<FunnelBySourceCount> FunnelBySource)
     {
         public static readonly Snapshot Empty = new(
             0,
@@ -416,6 +474,7 @@ public sealed class BoardsStateMetrics : BackgroundService
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),
             new Dictionary<string, long>(),
+            [],
             [],
             [],
             []);

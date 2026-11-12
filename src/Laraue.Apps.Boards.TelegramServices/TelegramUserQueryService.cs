@@ -5,7 +5,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Laraue.Apps.Boards.TelegramServices;
 
-public class TelegramUserQueryService(DatabaseContext context, ICoreUserService userService)
+public class TelegramUserQueryService(
+    DatabaseContext context,
+    ICoreUserService userService,
+    RequestContext requestContext)
     : ITelegramUserQueryService<Guid>
 {
     public Task<TelegramUserId<Guid>?> FindUserIdAsync(long telegramId, CancellationToken cancellationToken = default)
@@ -23,7 +26,10 @@ public class TelegramUserQueryService(DatabaseContext context, ICoreUserService 
             telegramData.Username,
             telegramData.FirstName,
             telegramData.LastName,
-            telegramData.LanguageCode);
+            telegramData.LanguageCode,
+            // A user is created by their first update, which for a deep link (t.me/<bot>?start=producthunt) is
+            // "/start producthunt": where they came from (BRD-295).
+            SignUpOrigin.FromStartCommand(requestContext.Update.Message?.Text));
         var identity = await userService.ResolveTelegramIdentity(profile, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
