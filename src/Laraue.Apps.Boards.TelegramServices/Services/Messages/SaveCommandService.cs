@@ -1,3 +1,4 @@
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
@@ -131,11 +132,33 @@ public class SaveCommandService(
 
         switch (result.Outcome)
         {
-            // /save is a deliberate, visible action everyone in the chat just watched happen -
-            // a reply with the link is more useful here than a reaction only the sender might
-            // notice. Reactions stay reserved for silent auto-save. The card itself (key, org,
-            // content preview) already makes clear something was saved - no extra status line
-            // needed, whether this is the first save or a repeat.
+            // The chat's reply mode decides, as for auto-save (BRD-361): a reaction on the saved message - 👍 for a
+            // new card, ❤ for an update. Documents that weren't saved still need words, so they come as a reply.
+            case SaveByReplyOutcome.Saved or SaveByReplyOutcome.AlreadySaved
+                when result.ReplyMode == ReplyMode.Reaction:
+                await client.SetMessageReaction(
+                    message.Chat.Id,
+                    repliedMessage.MessageId,
+                    [new ReactionTypeEmoji { Emoji = result.Outcome == SaveByReplyOutcome.Saved ? "👍" : "❤" }],
+                    cancellationToken: cancellationToken);
+
+                if (skippedFilesNotice is not null)
+                {
+                    await client.SendMessage(
+                        message.Chat.Id,
+                        skippedFilesNotice,
+                        replyParameters: new ReplyParameters
+                        {
+                            MessageId = repliedMessage.MessageId,
+                            AllowSendingWithoutReply = true,
+                        },
+                        cancellationToken: cancellationToken);
+                }
+
+                break;
+
+            // Link mode: the card itself (key, org, content preview) makes clear something was saved - no extra
+            // status line needed, whether this is the first save or a repeat.
             case SaveByReplyOutcome.Saved:
             case SaveByReplyOutcome.AlreadySaved:
                 await client.SendIssuePreviewReply(

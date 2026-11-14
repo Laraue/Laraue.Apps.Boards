@@ -113,6 +113,63 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
         Assert.Equal("👍", Assert.IsType<ReactionTypeEmoji>(Assert.Single(reaction.Reaction!)).Emoji);
     }
 
+    [Fact]
+    public async Task HandleSave_ShouldReactInsteadOfLinking_WhenChatIsInReactionMode()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var chat = new Chat { Id = 900, Type = ChatType.Group };
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OwnerId = userId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.Reaction,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 5, Text = "Hello world", Chat = chat },
+        });
+
+        await SendSave(host, chat, commandId: 6, repliedId: 5);
+        await SendSave(host, chat, commandId: 7, repliedId: 5);
+
+        // Both saves are confirmed on the saved message itself: 👍 for the new card, ❤ for the repeat that
+        // updated it. No link reply.
+        Assert.Empty(host.Requests().OfType<SendMessageRequest>());
+
+        var reactions = host.Requests().OfType<SetMessageReactionRequest>().ToList();
+        Assert.All(reactions, x => Assert.Equal(5, x.MessageId));
+        Assert.Equal(
+            ["👍", "❤"],
+            reactions.Select(x => Assert.IsType<ReactionTypeEmoji>(Assert.Single(x.Reaction!)).Emoji));
+
+        var db = host.CreateScope().GetDatabaseContext();
+        Assert.Single(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    private static Task SendSave(AppTelegramTestHost host, Chat chat, int commandId, int repliedId)
+    {
+        return host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = commandId,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = repliedId, Chat = chat },
+            }
+        });
+    }
+
     private static Task SendText(AppTelegramTestHost host, int messageId, string text)
     {
         return host.SendUpdateAsync(new Update

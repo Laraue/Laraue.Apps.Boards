@@ -190,6 +190,7 @@ public class TelegramSaveMessageService(
                 IssueUrl = existingPreview.Url,
                 IssuePreviewText = existingPreview.Text,
                 SkippedFiles = skippedFiles,
+                ReplyMode = linkedChat.ReplyMode,
             };
         }
 
@@ -243,6 +244,7 @@ public class TelegramSaveMessageService(
             IssueUrl = preview.Url,
             IssuePreviewText = preview.Text,
             SkippedFiles = skippedFiles,
+            ReplyMode = linkedChat.ReplyMode,
         };
     }
 
@@ -1244,6 +1246,11 @@ public class SaveByReplyResult
     /// outcome is.
     /// </summary>
     public IReadOnlyList<SkippedFile> SkippedFiles { get; init; } = [];
+
+    /// <summary>
+    /// How the chat confirms a save. Set alongside <see cref="IssueUrl"/>.
+    /// </summary>
+    public ReplyMode? ReplyMode { get; init; }
 }
 
 public enum SaveByReplyOutcome

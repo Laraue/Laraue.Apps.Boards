@@ -412,6 +412,10 @@ public class GroupChatLinkService(
         chat.StatusId = statusId;
         chat.OwnerId = userId;
         chat.SaveMode = saveMode;
+
+        // /link doesn't ask about confirmations yet (BRD-364), so a chat keeps what each save mode did before
+        // BRD-361: auto-save reacts, /save replies with the card link.
+        chat.ReplyMode = saveMode == SaveMode.BotMentionedMessages ? ReplyMode.IssueLink : ReplyMode.Reaction;
         chat.LinkedAt = dateTimeProvider.UtcNow;
         chat.UnlinkedAt = null;
 

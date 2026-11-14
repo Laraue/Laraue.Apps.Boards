@@ -328,6 +328,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal(userId, linkedChat.OwnerId);
         Assert.Equal("Test Group", linkedChat.Title);
         Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
+        // /link doesn't ask about confirmations yet (BRD-364): /save chats reply with the card link, as before.
+        Assert.Equal(ReplyMode.IssueLink, linkedChat.ReplyMode);
         Assert.NotNull(linkedChat.LinkedAt);
     }
 
@@ -794,6 +796,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -856,6 +859,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -911,6 +915,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -962,6 +967,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -999,6 +1005,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1059,6 +1066,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1105,6 +1113,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1280,6 +1289,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1364,6 +1374,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1445,6 +1456,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             Title = "Support chat",
             LinkedAt = DateTime.UtcNow,
         });
@@ -1498,6 +1510,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1584,6 +1597,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1843,6 +1857,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1905,6 +1920,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -1960,6 +1976,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -2031,6 +2048,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -2084,6 +2102,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -2144,6 +2163,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -2204,6 +2224,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -2326,6 +2347,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
         Assert.Equal(chat.Id, linkedChat.ExternalChatId);
         Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
+        // /link doesn't ask about confirmations yet (BRD-364): /save chats reply with the card link, as before.
+        Assert.Equal(ReplyMode.IssueLink, linkedChat.ReplyMode);
         Assert.Null(linkedChat.UnlinkedAt);
     }
 
@@ -3406,6 +3429,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -3464,6 +3488,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -3525,6 +3550,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -4558,6 +4584,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();
@@ -5015,6 +5042,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             StatusId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = DateTime.UtcNow,
         });
         await testScope.Database.SaveChangesAsync();

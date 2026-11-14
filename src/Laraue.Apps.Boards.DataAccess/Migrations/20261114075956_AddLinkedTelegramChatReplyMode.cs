@@ -16,6 +16,10 @@ namespace Laraue.Apps.Boards.DataAccess.Migrations
                 type: "integer",
                 nullable: false,
                 defaultValue: 0);
+
+            // Keep what every existing chat does: auto-save reacts (Reaction = 0, the default above), /save replies
+            // with the card link (SaveMode.BotMentionedMessages = 1 -> ReplyMode.IssueLink = 1).
+            migrationBuilder.Sql("UPDATE linked_telegram_chats SET reply_mode = 1 WHERE save_mode = 1;");
         }
 
         /// <inheritdoc />
