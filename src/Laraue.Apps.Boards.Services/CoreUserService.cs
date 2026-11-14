@@ -158,6 +158,8 @@ public class CoreUserService(
             Status = defaultStatus,
             OwnerId = user.Id,
             SaveMode = SaveMode.EachMessage,
+            // New users see where a message went: the bot replies with the card's link (BRD-361).
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = timestamp,
         });
 
@@ -321,6 +323,8 @@ public class CoreUserService(
             StatusId = personalStatusId.Value,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
+            // New users see where a message went: the bot replies with the card's link (BRD-361).
+            ReplyMode = ReplyMode.IssueLink,
             LinkedAt = dateTimeProvider.UtcNow,
         });
         await context.SaveChangesAsync(cancellationToken);
