@@ -112,12 +112,11 @@ public class TelegramMessageService(
                 request.ExternalMessageId,
                 preview.Text,
                 preview.Url,
-                cancellationToken,
                 linkReply.OfferReactionMode
                     ? new CallbackRoutePath(TelegramRoutes.SwitchToReactions)
-                        .WithPathParameter("messageId", request.ExternalMessageId.ToString())
                         .ToInlineKeyboardButton(Phrases.SwitchToReactionsButton)
-                    : null);
+                    : null,
+                cancellationToken);
 
             return;
         }

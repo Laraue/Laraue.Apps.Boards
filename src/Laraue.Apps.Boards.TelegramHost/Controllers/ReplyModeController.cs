@@ -11,13 +11,11 @@ public class ReplyModeController(IReplyModeService replyModeService) : TelegramC
     [TelegramCallbackRoute(TelegramRoutes.SwitchToReactions)]
     public Task HandleSwitchToReactions(
         RequestContext requestContext,
-        [FromPath] int messageId,
         CancellationToken cancellationToken)
     {
         return replyModeService.HandleSwitchToReactions(
             requestContext.Update.CallbackQuery!,
             requestContext.UserId,
-            messageId,
             cancellationToken);
     }
 }

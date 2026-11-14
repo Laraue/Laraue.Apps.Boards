@@ -14,11 +14,9 @@ public interface IReplyModeService
     /// Handles the "react instead of replying" button on a link reply: switches the chat to
     /// <see cref="ReplyMode.Reaction"/>, keeps the link but drops the button, and reacts 👍 to the saved message.
     /// </summary>
-    /// <param name="savedMessageId">The message the link reply answers.</param>
     Task HandleSwitchToReactions(
         CallbackQuery callbackQuery,
         Guid userId,
-        int savedMessageId,
         CancellationToken cancellationToken);
 }
 
@@ -27,7 +25,6 @@ public class ReplyModeService(DatabaseContext context, ITelegramBotClient client
     public async Task HandleSwitchToReactions(
         CallbackQuery callbackQuery,
         Guid userId,
-        int savedMessageId,
         CancellationToken cancellationToken)
     {
         var message = callbackQuery.Message!;
@@ -51,11 +48,15 @@ public class ReplyModeService(DatabaseContext context, ITelegramBotClient client
             linkRow is null ? null : new InlineKeyboardMarkup(linkRow),
             cancellationToken: cancellationToken);
 
-        await client.SetMessageReaction(
-            message.Chat.Id,
-            savedMessageId,
-            [new ReactionTypeEmoji { Emoji = "👍" }],
-            cancellationToken: cancellationToken);
+        // The link reply answers the saved message; it's gone only if the user deleted that message.
+        if (message.ReplyToMessage is { } savedMessage)
+        {
+            await client.SetMessageReaction(
+                message.Chat.Id,
+                savedMessage.MessageId,
+                [new ReactionTypeEmoji { Emoji = "👍" }],
+                cancellationToken: cancellationToken);
+        }
 
         await client.AnswerCallbackQuery(
             callbackQuery.Id,

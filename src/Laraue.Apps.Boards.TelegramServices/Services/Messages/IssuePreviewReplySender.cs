@@ -18,8 +18,26 @@ public static class IssuePreviewReplySender
         int repliedMessageId,
         string issuePreviewText,
         string issueUrl,
-        CancellationToken cancellationToken,
-        InlineKeyboardButton? extraButton = null)
+        CancellationToken cancellationToken)
+    {
+        return client.SendIssuePreviewReply(
+            chatId,
+            repliedMessageId,
+            issuePreviewText,
+            issueUrl,
+            extraButton: null,
+            cancellationToken);
+    }
+
+    /// <param name="extraButton">A button shown in its own row under the Open button, if any.</param>
+    public static Task SendIssuePreviewReply(
+        this ITelegramBotClient client,
+        long chatId,
+        int repliedMessageId,
+        string issuePreviewText,
+        string issueUrl,
+        InlineKeyboardButton? extraButton,
+        CancellationToken cancellationToken)
     {
         InlineKeyboardButton[][] buttons = extraButton is null
             ? [[OpenIssueButton(issueUrl)]]

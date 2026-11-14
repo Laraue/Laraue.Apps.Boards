@@ -55,7 +55,7 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
 
         var switchButton = Assert.Single(rows[1]);
         Assert.Equal(SwitchToReactionsButtonText, switchButton.Text);
-        Assert.Equal("/reply-mode/reaction/1", switchButton.CallbackData);
+        Assert.Equal("/reply-mode/reaction", switchButton.CallbackData);
     }
 
     [Fact]
@@ -119,6 +119,7 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
                     Id = 100,
                     Chat = DefaultUserChat,
                     ReplyMarkup = new InlineKeyboardMarkup(rows),
+                    ReplyToMessage = new Message { Id = 1, Chat = DefaultUserChat },
                 },
                 Data = Assert.Single(rows[1]).CallbackData,
             }
@@ -159,7 +160,13 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
             {
                 Id = "1",
                 From = DefaultUser,
-                Message = new Message { Id = 100, Chat = DefaultUserChat, ReplyMarkup = new InlineKeyboardMarkup(rows) },
+                Message = new Message
+                {
+                    Id = 100,
+                    Chat = DefaultUserChat,
+                    ReplyMarkup = new InlineKeyboardMarkup(rows),
+                    ReplyToMessage = new Message { Id = 1, Chat = DefaultUserChat },
+                },
                 Data = Assert.Single(rows[1]).CallbackData,
             }
         });
