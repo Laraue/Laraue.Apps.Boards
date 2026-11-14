@@ -10,6 +10,7 @@ public static class TelegramRoutes
     public const string DeleteCommand = "/delete(.*)";
     
     public const string DeleteConfirm = "/delete/confirm/{issueId}";
+    public const string SwitchToReactions = "/reply-mode/reaction/{messageId}";
     public const string Unlink = "/link/unlink";
     public const string LinkOrganization = "/link/organization/{id}";
     public const string LinkSpace = "/link/space/{id}";

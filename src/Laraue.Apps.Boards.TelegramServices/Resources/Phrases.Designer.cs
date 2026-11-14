@@ -427,6 +427,24 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to 👍 React instead of replying.
+        /// </summary>
+        internal static string SwitchToReactionsButton {
+            get {
+                return ResourceManager.GetString("SwitchToReactionsButton", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Done: from now on I'll just react with 👍 to saved messages..
+        /// </summary>
+        internal static string SwitchedToReactions {
+            get {
+                return ResourceManager.GetString("SwitchedToReactions", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Reply to the message you want info about and send /info again..
         /// </summary>
         internal static string InfoNotAReply {

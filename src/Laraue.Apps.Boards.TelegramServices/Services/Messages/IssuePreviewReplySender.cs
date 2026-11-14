@@ -18,8 +18,13 @@ public static class IssuePreviewReplySender
         int repliedMessageId,
         string issuePreviewText,
         string issueUrl,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        InlineKeyboardButton? extraButton = null)
     {
+        InlineKeyboardButton[][] buttons = extraButton is null
+            ? [[OpenIssueButton(issueUrl)]]
+            : [[OpenIssueButton(issueUrl)], [extraButton]];
+
         return client.SendMessage(
             chatId,
             issuePreviewText,
@@ -29,8 +34,12 @@ public static class IssuePreviewReplySender
                 MessageId = repliedMessageId,
                 AllowSendingWithoutReply = true,
             },
-            replyMarkup: new InlineKeyboardMarkup(
-                InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl)),
+            replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken);
+    }
+
+    public static InlineKeyboardButton OpenIssueButton(string issueUrl)
+    {
+        return InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl);
     }
 }

@@ -184,6 +184,12 @@
     <data name="OpenIssueButton" xml:space="preserve">
         <value>🔗 Открыть карточку</value>
     </data>
+    <data name="SwitchToReactionsButton" xml:space="preserve">
+        <value>👍 Ставить реакцию вместо ответа</value>
+    </data>
+    <data name="SwitchedToReactions" xml:space="preserve">
+        <value>Готово: теперь на сохранённые сообщения я буду просто ставить 👍.</value>
+    </data>
     <data name="InfoNotAReply" xml:space="preserve">
         <value>Ответьте на сообщение, о котором нужна информация, и отправьте /info ещё раз.</value>
     </data>

@@ -191,6 +191,12 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="OpenIssueButton" xml:space="preserve">
         <value>🔗 Open issue</value>
     </data>
+    <data name="SwitchToReactionsButton" xml:space="preserve">
+        <value>👍 React instead of replying</value>
+    </data>
+    <data name="SwitchedToReactions" xml:space="preserve">
+        <value>Done: from now on I'll just react with 👍 to saved messages.</value>
+    </data>
     <data name="InfoNotAReply" xml:space="preserve">
         <value>Reply to the message you want info about and send /info again.</value>
     </data>
