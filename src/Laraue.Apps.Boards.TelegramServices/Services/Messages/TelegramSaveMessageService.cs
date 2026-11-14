@@ -190,6 +190,7 @@ public class TelegramSaveMessageService(
                 IssueUrl = existingPreview.Url,
                 IssuePreviewText = existingPreview.Text,
                 SkippedFiles = skippedFiles,
+                ReplyMode = linkedChat.ReplyMode,
             };
         }
 
@@ -243,6 +244,7 @@ public class TelegramSaveMessageService(
             IssueUrl = preview.Url,
             IssuePreviewText = preview.Text,
             SkippedFiles = skippedFiles,
+            ReplyMode = linkedChat.ReplyMode,
         };
     }
 
@@ -951,6 +953,7 @@ public class TelegramSaveMessageService(
         {
             Result = result,
             TelegramMessageId = telegramMessageId,
+            LinkReplyIssueId = linkedChat.ReplyMode == ReplyMode.IssueLink ? issueId : null,
         };
     }
 
@@ -1106,6 +1109,7 @@ public class TelegramSaveMessageService(
                 EpicId = x.Status!.EpicId,
                 OrganizationId = x.Status.Epic!.Space!.OrganizationId,
                 SaveMode = x.SaveMode,
+                ReplyMode = x.ReplyMode,
                 ChatTitle = x.Title,
                 IsTargetDeleted = x.Status.DeletedAt != null,
             })
@@ -1171,6 +1175,12 @@ public class GetOrCreateMessageResult
     /// sender should hear about it, since nothing else shows the file was lost.
     /// </summary>
     public SkippedFile? SkippedFile { get; init; }
+
+    /// <summary>
+    /// The card this request created in a chat with <see cref="ReplyMode.IssueLink"/>: the bot replies with its link
+    /// instead of a reaction.
+    /// </summary>
+    public long? LinkReplyIssueId { get; init; }
 }
 
 public enum Result
@@ -1186,6 +1196,7 @@ internal class LinkedChatToSaveMessage
     public required long EpicId { get; init; }
     public required long OrganizationId { get; init; }
     public required SaveMode SaveMode { get; init; }
+    public required ReplyMode ReplyMode { get; init; }
     public required string? ChatTitle { get; init; }
 
     /// <summary>
@@ -1235,6 +1246,11 @@ public class SaveByReplyResult
     /// outcome is.
     /// </summary>
     public IReadOnlyList<SkippedFile> SkippedFiles { get; init; } = [];
+
+    /// <summary>
+    /// How the chat confirms a save. Set alongside <see cref="IssueUrl"/>.
+    /// </summary>
+    public ReplyMode? ReplyMode { get; init; }
 }
 
 public enum SaveByReplyOutcome

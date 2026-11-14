@@ -54,6 +54,29 @@ public class LinkedTelegramChat
     /// Messages save mode.
     /// </summary>
     public SaveMode SaveMode { get; set; }
+
+    /// <summary>
+    /// How the bot confirms that a message became a card, both on auto-save and on /save. Chats linked before
+    /// BRD-361 got the mode matching what they did then (<see cref="SaveMode.EachMessage"/> reacted, /save linked);
+    /// the personal chat linked at sign-up starts with <see cref="ReplyMode.IssueLink"/>.
+    /// </summary>
+    public ReplyMode ReplyMode { get; set; }
+}
+
+/// <summary>
+/// How the bot replies to a message it saved.
+/// </summary>
+public enum ReplyMode
+{
+    /// <summary>
+    /// A reaction on the message: 👍 when a card is created, ❤ when an edit (or a repeated /save) updates it.
+    /// </summary>
+    Reaction,
+
+    /// <summary>
+    /// A reply to the message with the new card's link, so the user sees where it was saved. Edits still get ❤.
+    /// </summary>
+    IssueLink,
 }
 
 /// <summary>

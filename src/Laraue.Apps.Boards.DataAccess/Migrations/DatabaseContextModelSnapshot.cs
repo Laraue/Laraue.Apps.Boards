@@ -1046,6 +1046,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
 
+                    b.Property<int>("ReplyMode")
+                        .HasColumnType("integer")
+                        .HasColumnName("reply_mode");
+
                     b.Property<int>("SaveMode")
                         .HasColumnType("integer")
                         .HasColumnName("save_mode");

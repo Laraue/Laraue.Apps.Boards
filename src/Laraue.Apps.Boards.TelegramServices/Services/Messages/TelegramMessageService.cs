@@ -8,7 +8,8 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
 public class TelegramMessageService(
     ITelegramBotClient client,
-    ITelegramSaveMessageService saveMessageService)
+    ITelegramSaveMessageService saveMessageService,
+    IIssuePreviewBuilder issuePreviewBuilder)
     : ITelegramMessageService
 {
     public async Task HandleSaveMessage(
@@ -96,6 +97,21 @@ public class TelegramMessageService(
                     AllowSendingWithoutReply = true,
                 },
                 cancellationToken: cancellationToken);
+
+            return;
+        }
+
+        // A chat in link mode gets a reply with the new card, so the user sees where the message went (BRD-361).
+        if (result.LinkReplyIssueId is { } issueId)
+        {
+            var preview = await issuePreviewBuilder.Build(issueId, cancellationToken);
+
+            await client.SendIssuePreviewReply(
+                request.ExternalChatId,
+                request.ExternalMessageId,
+                preview.Text,
+                preview.Url,
+                cancellationToken);
 
             return;
         }
