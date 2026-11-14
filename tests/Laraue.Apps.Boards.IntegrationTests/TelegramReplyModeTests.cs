@@ -2,7 +2,6 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Telegram.NET.Testing;
 using LinqToDB.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
 using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -11,13 +10,11 @@ using Telegram.Bot.Types.ReplyMarkups;
 namespace Laraue.Apps.Boards.IntegrationTests;
 
 /// <summary>
-/// BRD-361: a new user's personal chat answers a saved message with the card's link instead of a 👍, and the first
-/// reply offers to switch back to reactions.
+/// BRD-361: a new user's personal chat answers a saved message with the card's link instead of a 👍; chats linked
+/// before keep reactions.
 /// </summary>
 public class TelegramReplyModeTests : TelegramIntegrationTest
 {
-    private const string SwitchToReactionsButtonText = "👍 React instead of replying";
-
     // A private chat's id is the user's own Telegram id.
     private static Chat DefaultUserChat => new() { Id = DefaultUser.Id, Type = ChatType.Private };
 
@@ -34,7 +31,7 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task HandleTextMessage_ShouldReplyWithLinkAndOfferReactions_WhenFirstCardInPersonalChat()
+    public async Task HandleTextMessage_ShouldReplyWithLink_WhenChatIsInLinkMode()
     {
         using var host = GetTelegramTestHost();
 
@@ -46,20 +43,14 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
         Assert.Equal(1, reply.ReplyParameters?.MessageId);
         Assert.Contains("First note", reply.Text);
 
-        var rows = Assert.IsType<InlineKeyboardMarkup>(reply.ReplyMarkup).InlineKeyboard.ToList();
-        Assert.Equal(2, rows.Count);
-
-        var openButton = Assert.Single(rows[0]);
+        var row = Assert.Single(Assert.IsType<InlineKeyboardMarkup>(reply.ReplyMarkup).InlineKeyboard);
+        var openButton = Assert.Single(row);
         Assert.Equal("🔗 Open issue", openButton.Text);
         Assert.NotNull(openButton.Url);
-
-        var switchButton = Assert.Single(rows[1]);
-        Assert.Equal(SwitchToReactionsButtonText, switchButton.Text);
-        Assert.Equal("/reply-mode/reaction", switchButton.CallbackData);
     }
 
     [Fact]
-    public async Task HandleTextMessage_ShouldReplyWithLinkOnly_WhenNotFirstCardInChat()
+    public async Task HandleTextMessage_ShouldReplyWithLinkToEachNewCard_WhenChatIsInLinkMode()
     {
         using var host = GetTelegramTestHost();
 
@@ -68,11 +59,8 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
 
         Assert.Empty(host.Requests().OfType<SetMessageReactionRequest>());
 
-        var secondReply = host.Requests().OfType<SendMessageRequest>().Last();
-        Assert.Equal(2, secondReply.ReplyParameters?.MessageId);
-
-        var row = Assert.Single(Assert.IsType<InlineKeyboardMarkup>(secondReply.ReplyMarkup).InlineKeyboard);
-        Assert.Equal("🔗 Open issue", Assert.Single(row).Text);
+        var replies = host.Requests().OfType<SendMessageRequest>().ToList();
+        Assert.Equal([1, 2], replies.Select(x => x.ReplyParameters?.MessageId));
     }
 
     [Fact]
@@ -97,87 +85,6 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
 
         var reaction = host.Requests().Single<SetMessageReactionRequest>();
         Assert.Equal("❤", Assert.IsType<ReactionTypeEmoji>(Assert.Single(reaction.Reaction!)).Emoji);
-    }
-
-    [Fact]
-    public async Task SwitchToReactions_ShouldKeepLinkAndReact_WhenButtonTapped()
-    {
-        using var host = GetTelegramTestHost();
-
-        await SendText(host, 1, "First note");
-        var reply = host.Requests().Single<SendMessageRequest>();
-        var rows = Assert.IsType<InlineKeyboardMarkup>(reply.ReplyMarkup).InlineKeyboard.ToList();
-
-        await host.SendUpdateAsync(new Update
-        {
-            CallbackQuery = new CallbackQuery
-            {
-                Id = "1",
-                From = DefaultUser,
-                Message = new Message
-                {
-                    Id = 100,
-                    Chat = DefaultUserChat,
-                    ReplyMarkup = new InlineKeyboardMarkup(rows),
-                    ReplyToMessage = new Message { Id = 1, Chat = DefaultUserChat },
-                },
-                Data = Assert.Single(rows[1]).CallbackData,
-            }
-        });
-
-        var editMarkup = host.Requests().Single<EditMessageReplyMarkupRequest>();
-        Assert.Equal(100, editMarkup.MessageId);
-        var keptRow = Assert.Single(editMarkup.ReplyMarkup!.InlineKeyboard);
-        Assert.Equal("🔗 Open issue", Assert.Single(keptRow).Text);
-
-        var reaction = host.Requests().Single<SetMessageReactionRequest>();
-        Assert.Equal(1, reaction.MessageId);
-        Assert.Equal("👍", Assert.IsType<ReactionTypeEmoji>(Assert.Single(reaction.Reaction!)).Emoji);
-
-        // Telegram.NET also answers every callback on its own, so look for the one with the toast.
-        Assert.Contains(
-            host.Requests().OfType<AnswerCallbackQueryRequest>(),
-            x => x.Text == "Done: from now on I'll just react with 👍 to saved messages.");
-
-        var db = host.CreateScope().GetDatabaseContext();
-        var linkedChat = Assert.Single(await db.LinkedTelegramChats.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal(ReplyMode.Reaction, linkedChat.ReplyMode);
-    }
-
-    [Fact]
-    public async Task HandleTextMessage_ShouldReactOnly_WhenUserSwitchedToReactions()
-    {
-        using var host = GetTelegramTestHost();
-
-        await SendText(host, 1, "First note");
-        var rows = Assert.IsType<InlineKeyboardMarkup>(host.Requests().Single<SendMessageRequest>().ReplyMarkup)
-            .InlineKeyboard
-            .ToList();
-
-        await host.SendUpdateAsync(new Update
-        {
-            CallbackQuery = new CallbackQuery
-            {
-                Id = "1",
-                From = DefaultUser,
-                Message = new Message
-                {
-                    Id = 100,
-                    Chat = DefaultUserChat,
-                    ReplyMarkup = new InlineKeyboardMarkup(rows),
-                    ReplyToMessage = new Message { Id = 1, Chat = DefaultUserChat },
-                },
-                Data = Assert.Single(rows[1]).CallbackData,
-            }
-        });
-
-        await SendText(host, 2, "Second note");
-
-        // Still the one link reply from the first note; the second only gets a 👍.
-        Assert.Single(host.Requests().OfType<SendMessageRequest>());
-        var reaction = host.Requests().OfType<SetMessageReactionRequest>().Last();
-        Assert.Equal(2, reaction.MessageId);
-        Assert.Equal("👍", Assert.IsType<ReactionTypeEmoji>(Assert.Single(reaction.Reaction!)).Emoji);
     }
 
     [Fact]

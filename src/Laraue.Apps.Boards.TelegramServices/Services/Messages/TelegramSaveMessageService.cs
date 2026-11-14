@@ -930,14 +930,6 @@ public class TelegramSaveMessageService(
         Result result,
         CancellationToken cancellationToken)
     {
-        // The first card in a personal chat offers to switch back to reactions; later replies only link the card.
-        var offerReactionMode = linkedChat.ReplyMode == ReplyMode.IssueLink
-            && linkedChat.IsPersonalOrganization
-            && !await context.Issues
-                .AnyAsync(
-                    x => x.TelegramMessage!.LinkedTelegramChatId == linkedChat.LinkedTelegramChatId,
-                    cancellationToken);
-
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         var issueCreate = new IssueCreateRequest(
@@ -959,9 +951,7 @@ public class TelegramSaveMessageService(
         {
             Result = result,
             TelegramMessageId = telegramMessageId,
-            IssueLinkReply = linkedChat.ReplyMode == ReplyMode.IssueLink
-                ? new IssueLinkReply(issueId, offerReactionMode)
-                : null,
+            LinkReplyIssueId = linkedChat.ReplyMode == ReplyMode.IssueLink ? issueId : null,
         };
     }
 
@@ -1118,7 +1108,6 @@ public class TelegramSaveMessageService(
                 OrganizationId = x.Status.Epic!.Space!.OrganizationId,
                 SaveMode = x.SaveMode,
                 ReplyMode = x.ReplyMode,
-                IsPersonalOrganization = x.Status.Epic.Space.Organization!.Type == OrganizationType.Personal,
                 ChatTitle = x.Title,
                 IsTargetDeleted = x.Status.DeletedAt != null,
             })
@@ -1186,16 +1175,11 @@ public class GetOrCreateMessageResult
     public SkippedFile? SkippedFile { get; init; }
 
     /// <summary>
-    /// Set when this request created a card in a chat with <see cref="ReplyMode.IssueLink"/>: the bot replies with
-    /// the card's link instead of a reaction.
+    /// The card this request created in a chat with <see cref="ReplyMode.IssueLink"/>: the bot replies with its link
+    /// instead of a reaction.
     /// </summary>
-    public IssueLinkReply? IssueLinkReply { get; init; }
+    public long? LinkReplyIssueId { get; init; }
 }
-
-/// <param name="IssueId">The card just created.</param>
-/// <param name="OfferReactionMode">The reply also offers to switch the chat back to reactions - only on the first
-/// card in a personal chat.</param>
-public sealed record IssueLinkReply(long IssueId, bool OfferReactionMode);
 
 public enum Result
 {
@@ -1211,7 +1195,6 @@ internal class LinkedChatToSaveMessage
     public required long OrganizationId { get; init; }
     public required SaveMode SaveMode { get; init; }
     public required ReplyMode ReplyMode { get; init; }
-    public required bool IsPersonalOrganization { get; init; }
     public required string? ChatTitle { get; init; }
 
     /// <summary>

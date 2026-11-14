@@ -1,7 +1,6 @@
 ﻿using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Resources;
-using Laraue.Telegram.NET.Core.Routing;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -103,19 +102,15 @@ public class TelegramMessageService(
         }
 
         // A chat in link mode gets a reply with the new card, so the user sees where the message went (BRD-361).
-        if (result.IssueLinkReply is { } linkReply)
+        if (result.LinkReplyIssueId is { } issueId)
         {
-            var preview = await issuePreviewBuilder.Build(linkReply.IssueId, cancellationToken);
+            var preview = await issuePreviewBuilder.Build(issueId, cancellationToken);
 
             await client.SendIssuePreviewReply(
                 request.ExternalChatId,
                 request.ExternalMessageId,
                 preview.Text,
                 preview.Url,
-                linkReply.OfferReactionMode
-                    ? new CallbackRoutePath(TelegramRoutes.SwitchToReactions)
-                        .ToInlineKeyboardButton(Phrases.SwitchToReactionsButton)
-                    : null,
                 cancellationToken);
 
             return;

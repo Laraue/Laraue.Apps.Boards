@@ -20,29 +20,6 @@ public static class IssuePreviewReplySender
         string issueUrl,
         CancellationToken cancellationToken)
     {
-        return client.SendIssuePreviewReply(
-            chatId,
-            repliedMessageId,
-            issuePreviewText,
-            issueUrl,
-            extraButton: null,
-            cancellationToken);
-    }
-
-    /// <param name="extraButton">A button shown in its own row under the Open button, if any.</param>
-    public static Task SendIssuePreviewReply(
-        this ITelegramBotClient client,
-        long chatId,
-        int repliedMessageId,
-        string issuePreviewText,
-        string issueUrl,
-        InlineKeyboardButton? extraButton,
-        CancellationToken cancellationToken)
-    {
-        InlineKeyboardButton[][] buttons = extraButton is null
-            ? [[OpenIssueButton(issueUrl)]]
-            : [[OpenIssueButton(issueUrl)], [extraButton]];
-
         return client.SendMessage(
             chatId,
             issuePreviewText,
@@ -52,12 +29,8 @@ public static class IssuePreviewReplySender
                 MessageId = repliedMessageId,
                 AllowSendingWithoutReply = true,
             },
-            replyMarkup: new InlineKeyboardMarkup(buttons),
+            replyMarkup: new InlineKeyboardMarkup(
+                InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl)),
             cancellationToken: cancellationToken);
-    }
-
-    public static InlineKeyboardButton OpenIssueButton(string issueUrl)
-    {
-        return InlineKeyboardButton.WithUrl(Phrases.OpenIssueButton, issueUrl);
     }
 }
