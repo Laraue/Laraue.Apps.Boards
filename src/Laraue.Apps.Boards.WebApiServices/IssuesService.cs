@@ -137,6 +137,9 @@ public class IssuesService(
         var query = context.ActiveIssues()
             .Where(i => i.StatusId == request.StatusId);
 
+        if (request.AssigneeIds.Length > 0)
+            query = query.Where(x => request.AssigneeIds.Contains(x.AssigneeId));
+
         query = await ApplyFilters(query, request, cancellationToken);
         query = await ApplySorting(query, request, cancellationToken);
             
@@ -209,6 +212,9 @@ public class IssuesService(
         var statusResults = new List<(long StatusId, FullPaginatedResult<IssueListDtoData> Result)>();
         
         var commonQuery = context.ActiveIssues();
+        if (request.AssigneeIds.Length > 0)
+            commonQuery = commonQuery.Where(x => request.AssigneeIds.Contains(x.AssigneeId));
+
         commonQuery = await ApplyFilters(commonQuery, request, cancellationToken);
         commonQuery = await ApplySorting(commonQuery, request, cancellationToken);
         
@@ -676,6 +682,9 @@ public class IssuesService(
                         issues = issues.Where(x => ((IEnumerable<long>)spaceIds).Contains(x.Status!.Epic!.SpaceId));
                 }
                 
+                if (request.AssigneeIds.Length > 0)
+                    issues = issues.Where(x => request.AssigneeIds.Contains(x.AssigneeId));
+
                 issues = await ApplyFilters(issues, request, ct);
                 issues = await ApplySorting(issues, request, ct);
         
@@ -1817,6 +1826,7 @@ public class IssuesService(
 
 public record GetIssuesRequest : BatchRequest, IHasAttributeFilters, IHasSorting
 {
+    public Guid[] AssigneeIds { get; set; } = [];
     public OrganizationAuthData AuthData { get; set; }
     public long StatusId { get; set; }
     public string? SearchString { get; set; }
@@ -1832,6 +1842,7 @@ public record GetIssueRequest
 
 public record GetBoardRequest : IHasAttributeFilters, IHasSorting
 {
+    public Guid[] AssigneeIds { get; set; } = [];
     public OrganizationAuthData AuthData { get; set; }
     public required long EpicId { get; set; }
     
@@ -2114,6 +2125,7 @@ public record DateTimeAttributeFilterValue : AttributeFilterValue
 
 public record SearchRequest : IPaginationData, IHasAttributeFilters, IHasSorting
 {
+    public Guid[] AssigneeIds { get; set; } = [];
     public OrganizationAuthData AuthData { get; set; } = new();
     public long[] EpicIds { get; set; } = [];
     public EpicStatus[] EpicStatuses { get; set; } = [];
