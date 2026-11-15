@@ -1025,6 +1025,71 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
         Assert.Equal(StatusCategory.Review, issue.Status!.Category);
     }
 
+    [Theory]
+    [InlineData("all", 3)]
+    [InlineData("owner", 2)]
+    [InlineData("member", 1)]
+    [InlineData("both", 3)]
+    [InlineData("unknown", 0)]
+    public async Task IssueLists_ShouldFilterByAssignees_BeforePagination(string selection, int expectedCount)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var memberId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddUser(memberId, u => u.SetGlobalAccessLevel(x => x.CanRead = true))
+                .AddIssueToDefaultStatus(userId)
+                .AddIssueToDefaultStatus(memberId)
+                .AddIssueToDefaultStatus(userId));
+        Guid[] assigneeIds = selection switch
+        {
+            "owner" => [userId],
+            "member" => [memberId],
+            "both" => [userId, memberId],
+            "unknown" => [Guid.NewGuid()],
+            _ => [],
+        };
+
+        var search = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(new SearchRequest
+            {
+                AssigneeIds = assigneeIds,
+                Page = 0,
+                PerPage = 1,
+            }));
+        Assert.Equal(Math.Min(1, expectedCount), search!.Data.Count());
+        Assert.Equal(expectedCount > 1, search.HasNextPage);
+        Assert.All(search.Data, issue => Assert.True(assigneeIds.Length == 0 || assigneeIds.Contains(issue.AssigneeId)));
+
+        var columns = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetBoard(new GetBoardRequest
+            {
+                AssigneeIds = assigneeIds,
+                EpicId = organization.GetEpic(0, 0).Id,
+                Take = 1,
+            }));
+        var column = Assert.Single(columns!);
+        Assert.Equal(expectedCount, column.Items.TotalCount);
+        Assert.Equal(expectedCount > 1, column.Items.HasNext);
+        Assert.All(column.Items.Data, issue => Assert.True(assigneeIds.Length == 0 || assigneeIds.Contains(issue.AssigneeId)));
+
+        var status = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetIssuesByStatus(organization.GetStatus(0, 0, 0).Id, new GetIssuesRequest
+            {
+                AssigneeIds = assigneeIds,
+                Skip = 1,
+                Take = 1,
+            }));
+        Assert.Equal(Math.Min(1, Math.Max(0, expectedCount - 1)), status!.Data.Count());
+        Assert.Equal(expectedCount > 2, status.HasNext);
+        Assert.All(status.Data, issue => Assert.True(assigneeIds.Length == 0 || assigneeIds.Contains(issue.AssigneeId)));
+    }
+
     [Fact]
     public async Task User_ShouldGetBoard_WhenIsOrganizationOwner()
     {
