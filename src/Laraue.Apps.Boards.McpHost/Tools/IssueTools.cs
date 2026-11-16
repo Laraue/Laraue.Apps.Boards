@@ -93,7 +93,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     public Task EditIssueStatus(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         [Description("The target status's id, from list_statuses. Can belong to a different epic than the issue's current one.")] long statusId,
-        [Description("A comment to post on the issue as part of this status change, e.g. explaining why, max 4096 characters. Omit to move the status with no comment.")] [MaxLength(Constraints.MaxCommentLength)] string? comment = null,
+        [Description("A comment to post on the issue as part of this status change, e.g. explaining why, max 32768 characters. Omit to move the status with no comment.")] [MaxLength(Constraints.MaxCommentLength)] string? comment = null,
         CancellationToken cancellationToken = default)
     {
         return issueMcpService.EditIssueStatus(
@@ -107,7 +107,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     [McpServerTool]
     [Description("Creates a new issue in the space the given status belongs to, and returns its key. Requires canCreateIssue on that space (see list_spaces).")]
     public Task<string> CreateIssue(
-        [Description("The issue's text content, max 4096 characters.")] [MaxLength(Constraints.MaxContentLength)] string content,
+        [Description("The issue's text content, max 32768 characters.")] [MaxLength(Constraints.MaxContentLength)] string content,
         [Description("The issue's title: a short one-line summary, max 256 characters. Required.")] [MaxLength(Constraints.MaxTitleLength)] string title,
         [Description("The status to create the issue in, from list_statuses - this also determines the destination space.")] long statusId,
         [Description("User id to assign the issue to, from list_members. Must belong to the caller's organization. Omit to assign yourself.")] Guid? assigneeId = null,
@@ -122,7 +122,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     [Description("Fully replaces an issue's text content - not an append or merge. Fetch the existing content via get_issue first if you need to preserve any of it. Also requires the title - pass the current one (from get_issue) to keep it. Does not change status. Requires canEdit (see get_issue/list_issues). Fails while the issue is handed to the agent (an open run in get_issue's latestAgentRun) - cancel_agent_run first.")]
     public Task EditIssue(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
-        [Description("The issue's complete new text content, replacing what's there now, max 4096 characters.")] [MaxLength(Constraints.MaxContentLength)] string content,
+        [Description("The issue's complete new text content, replacing what's there now, max 32768 characters.")] [MaxLength(Constraints.MaxContentLength)] string content,
         [Description("The issue's title: a short one-line summary, max 256 characters. Required - pass the current title to keep it.")] [MaxLength(Constraints.MaxTitleLength)] string title,
         [Description("User id to reassign the issue to, from list_members. Must belong to the caller's organization. Omit to leave the current assignee unchanged.")] Guid? assigneeId = null,
         [Description("Attribute id -> plain-text value, same format as create_issue. Omit to leave every attribute untouched; pass {} to clear all of them.")] IReadOnlyDictionary<long, string>? attributes = null,
@@ -259,7 +259,7 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     [Description("Adds a new comment to an issue, posted as you (the API key's owner; the issue's history also names the key), and returns the comment's id - what edit_comment/delete_comment take. Requires canEdit on the issue (see get_issue/list_issues); an issue you can't read is reported as not found. Everyone who can read the issue sees the comment; no notification is sent. Only you can later edit or delete it. Use it for discussion and progress notes; to change an existing comment use edit_comment, to note why while moving the issue pass edit_issue_status's comment instead, and to change the issue's own text use edit_issue.")]
     public Task<long> CreateComment(
         [Description("The issue to comment on, e.g. 'BRD-42' - a key from list_issues or get_issue.")] string issueKey,
-        [Description("The comment's text, max 4096 characters. Plain text or markdown.")] [MaxLength(Constraints.MaxCommentLength)] string text,
+        [Description("The comment's text, max 32768 characters. Plain text or markdown.")] [MaxLength(Constraints.MaxCommentLength)] string text,
         [Description("Files to attach to the comment, base64-encoded - same format and types as create_issue's files, e.g. a report or config as Markdown/JSON.")] IReadOnlyList<FileAttachment>? files = null,
         CancellationToken cancellationToken = default)
     {
@@ -267,10 +267,10 @@ public class IssueTools(IIssueMcpService issueMcpService, IHttpContextAccessor h
     }
 
     [McpServerTool]
-    [Description("Edits a comment's text (max 4096 characters) and optionally its attachments. Only the comment's own author can edit it - check canManage in list_issue_comments before calling.")]
+    [Description("Edits a comment's text (max 32768 characters) and optionally its attachments. Only the comment's own author can edit it - check canManage in list_issue_comments before calling.")]
     public Task EditComment(
         [Description("The comment's id, from list_issue_comments.")] long commentId,
-        [Description("The comment's new text, replacing what's there now, max 4096 characters.")] [MaxLength(Constraints.MaxCommentLength)] string text,
+        [Description("The comment's new text, replacing what's there now, max 32768 characters.")] [MaxLength(Constraints.MaxCommentLength)] string text,
         [Description("Files to attach, base64-encoded - each becomes a new attachment, in addition to the comment's existing ones. Same format as create_issue.")] IReadOnlyList<FileAttachment>? files = null,
         [Description("Ids of the comment's attachments to remove, from list_issue_comments. Can be combined with files to replace one attachment with another.")] IReadOnlyList<Guid>? removeAttachmentIds = null,
         CancellationToken cancellationToken = default)

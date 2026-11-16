@@ -179,7 +179,7 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
         Assert.True(result.IsError);
         var text = GetText(result);
         Assert.StartsWith("BadRequest: ", text);
-        Assert.Contains("- text: Must be at most 4096 characters.", text);
+        Assert.Contains("- text: Must be at most 32768 characters.", text);
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
         Assert.True(result.IsError);
         var text = GetText(result);
         Assert.StartsWith("BadRequest: ", text);
-        Assert.Contains("- text: Must be at most 4096 characters.", text);
+        Assert.Contains("- text: Must be at most 32768 characters.", text);
     }
 
     [Fact]
@@ -289,7 +289,28 @@ public class McpToolErrorTests(WebApiTestHost webApiHost, McpHostTestHost mcpHos
         Assert.True(result.IsError);
         var text = GetText(result);
         Assert.StartsWith("BadRequest: ", text);
-        Assert.Contains("- content: Must be at most 4096 characters.", text);
+        Assert.Contains("- content: Must be at most 32768 characters.", text);
+    }
+
+    [Fact]
+    public async Task EditIssue_ShouldSucceed_WhenContentHasMaxLength()
+    {
+        using var testScope = webApiHost.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(0, 0, 0, 0).Key;
+        await using var client = await ConnectAsync(testScope, organization.Id, ownerId);
+
+        // The history keeps the whole new content, so its column must take the longest content too.
+        var result = await client.CallToolAsync("edit_issue", new Dictionary<string, object?>
+        {
+            ["issueKey"] = issueKey,
+            ["content"] = new string('a', Constraints.MaxContentLength),
+            ["title"] = "Fix the thing",
+        });
+
+        Assert.NotEqual(true, result.IsError);
     }
 
     private async Task<McpClient> ConnectAsync(WebApiTestHostScope testScope, long organizationId, Guid userId)

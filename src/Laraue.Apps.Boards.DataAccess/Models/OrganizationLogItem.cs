@@ -23,10 +23,14 @@ public class OrganizationLogItem
     [MaxLength(255)]
     public string? PropertyName { get; set; }
     
-    [MaxLength(4096)]
+    /// <summary>
+    /// Holds an issue's whole content for <see cref="PropertyType.Content"/>, so it's as long as the content.
+    /// </summary>
+    [MaxLength(Constraints.MaxContentLength)]
     public string? OldDisplayValue { get; set; }
-    
-    [MaxLength(4096)]
+
+    /// <inheritdoc cref="OldDisplayValue"/>
+    [MaxLength(Constraints.MaxContentLength)]
     public string? NewDisplayValue { get; set; }
 }
 
