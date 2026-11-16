@@ -580,7 +580,12 @@ public class AccessService(DatabaseContext context) : IAccessService
         return result?.EpicId;
     }
 
-    private Task<T> GetUserData<T>(
+    /// <summary>
+    /// Reads the user's organization-level membership data. Returns default when the user isn't an active member of the
+    /// organization (never joined, or left) - e.g. a Telegram user writing in a chat linked to someone else's
+    /// organization - which callers treat as no organization-level access.
+    /// </summary>
+    private Task<T?> GetUserData<T>(
         OrganizationAuthData authData,
         Expression<Func<OrganizationUser, T>> map,
         CancellationToken cancellationToken)
@@ -589,14 +594,14 @@ public class AccessService(DatabaseContext context) : IAccessService
             .Where(o => o.OrganizationId == authData.OrganizationId)
             .Where(o => o.UserId == authData.UserId)
             .Select(map)
-            .FirstAsyncEF(cancellationToken);
+            .FirstOrDefaultAsyncEF(cancellationToken);
     }
     
-    private Task<AccessLevels> GetUserGlobalAccessLevels(
+    private async Task<AccessLevels> GetUserGlobalAccessLevels(
         OrganizationAuthData authData,
         CancellationToken cancellationToken)
     {
-        return GetUserData(
+        var accessLevels = await GetUserData(
             authData,
             user => new AccessLevels
             {
@@ -612,6 +617,9 @@ public class AccessService(DatabaseContext context) : IAccessService
                 CanDeleteIssue =  user.CanDeleteIssues,
             },
             cancellationToken);
+
+        // A non-member has no organization-level access; zero access is an all-false AccessLevels, never null.
+        return accessLevels ?? new AccessLevels();
     }
     
     private Task<AccessLevels?> GetUserSpaceAccessLevels(
