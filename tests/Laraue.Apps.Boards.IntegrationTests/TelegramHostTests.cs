@@ -1959,6 +1959,61 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
+    public async Task HandleSave_ShouldReplyForbidden_WhenSenderIsNotOrganizationMember()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        var organization = await testScope.InitializeOrganization(ownerId);
+        var status = organization.GetStatus(0, 0, 0);
+
+        var chat = new Chat { Id = 785, Type = ChatType.Group };
+
+        testScope.Database.Add(new LinkedTelegramChat
+        {
+            ExternalChatId = chat.Id,
+            StatusId = status.Id,
+            OwnerId = ownerId,
+            SaveMode = SaveMode.BotMentionedMessages,
+            ReplyMode = ReplyMode.IssueLink,
+            LinkedAt = DateTime.UtcNow,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 1,
+                Text = "Hello world",
+                Chat = chat,
+            }
+        });
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = MemberUser,
+                Id = 2,
+                Text = "/save",
+                Chat = chat,
+                ReplyToMessage = new Message { Id = 1, Chat = chat },
+            }
+        });
+
+        var request = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal("This action is not available - you don't have permission to create cards here.", request.Text);
+
+        var scope = host.CreateScope();
+        var db = scope.GetDatabaseContext();
+        Assert.Empty(await db.Issues.ToListAsyncLinqToDB());
+    }
+
+    [Fact]
     public async Task HandleAiSave_ShouldCreateCardFromSummarizedContent_WhenBotMentionedModeAndBareCommand()
     {
         using var host = GetTelegramTestHost();
