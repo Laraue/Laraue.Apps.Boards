@@ -510,8 +510,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnName("assignee_id");
 
                     b.Property<string>("Content")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
+                        .HasMaxLength(32768)
+                        .HasColumnType("character varying(32768)")
                         .HasColumnName("content");
 
                     b.Property<DateTime>("CreatedAt")
@@ -890,8 +890,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     b.Property<string>("Text")
                         .IsRequired()
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
+                        .HasMaxLength(32768)
+                        .HasColumnType("character varying(32768)")
                         .HasColumnName("text");
 
                     b.Property<DateTime>("UpdatedAt")
@@ -1261,8 +1261,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
                     b.Property<string>("NewDisplayValue")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
+                        .HasMaxLength(32768)
+                        .HasColumnType("character varying(32768)")
                         .HasColumnName("new_display_value");
 
                     b.Property<string>("NewValueId")
@@ -1271,8 +1271,8 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                         .HasColumnName("new_value_id");
 
                     b.Property<string>("OldDisplayValue")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)")
+                        .HasMaxLength(32768)
+                        .HasColumnType("character varying(32768)")
                         .HasColumnName("old_display_value");
 
                     b.Property<string>("OldValueId")
