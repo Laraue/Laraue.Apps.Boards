@@ -1317,9 +1317,19 @@ public class OrganizationControllerTests(WebApiTestHost host) : IClassFixture<We
             .WithOrganizationAuthorization(organization.Id, userId)
             .Execute(x => x.GetOrganizationHistory(request));
 
-        var historyItem = Assert.Single(historyData!.Data);
-        Assert.Equal(issueData.Key, historyItem.IssueKey);
-        Assert.Equal(LogAction.Update, historyItem.Action);
+        // Newest first: the space delete records the issue's deletion too (BRD-376).
+        Assert.Collection(
+            historyData!.Data,
+            deleted =>
+            {
+                Assert.Equal(issueData.Key, deleted.IssueKey);
+                Assert.Equal(LogAction.Delete, deleted.Action);
+            },
+            updated =>
+            {
+                Assert.Equal(issueData.Key, updated.IssueKey);
+                Assert.Equal(LogAction.Update, updated.Action);
+            });
     }
 
     [Fact]

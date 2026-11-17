@@ -27,6 +27,20 @@ public interface IIssueHistoryService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Persists one item-less <see cref="OrganizationLog"/> row per id in <paramref name="entityIds"/>, all with the
+    /// same action, actor and time, in one save - for cascades that remove many entities at once (an epic or space
+    /// delete soft-deleting its issues, BRD-376).
+    /// </summary>
+    Task RecordMany(
+        IReadOnlyCollection<long> entityIds,
+        LogEntityType entityType,
+        LogAction action,
+        long organizationId,
+        Actor actor,
+        DateTime createdAt,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Persists an <see cref="OrganizationLog"/> row for the given entity, unless
     /// <paramref name="items"/> is empty - in which case nothing actually changed and there's
     /// nothing worth recording. Returns whether a row was written.
@@ -65,6 +79,32 @@ public class IssueHistoryService(DatabaseContext context) : IIssueHistoryService
             ApiKeyId = actor.ApiKeyId,
             Items = items,
         });
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RecordMany(
+        IReadOnlyCollection<long> entityIds,
+        LogEntityType entityType,
+        LogAction action,
+        long organizationId,
+        Actor actor,
+        DateTime createdAt,
+        CancellationToken cancellationToken)
+    {
+        if (entityIds.Count == 0)
+            return;
+
+        context.AddRange(entityIds.Select(entityId => new OrganizationLog
+        {
+            CreatedAt = createdAt,
+            EntityId = entityId,
+            EntityType = entityType,
+            Action = action,
+            OrganizationId = organizationId,
+            OwnerId = actor.UserId,
+            ApiKeyId = actor.ApiKeyId,
+        }));
 
         await context.SaveChangesAsync(cancellationToken);
     }

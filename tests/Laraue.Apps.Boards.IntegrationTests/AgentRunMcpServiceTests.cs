@@ -380,8 +380,6 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var ex = await Assert.ThrowsAsync<IssueLockedByAgentRunException>(() => issueMcpService.EditIssue(
             setup.EditorAuthData, setup.IssueKey, "Do something else", "Title", null, null, null, null, CancellationToken.None));
         Assert.Equal(System.Net.HttpStatusCode.Conflict, ex.StatusCode);
-        await Assert.ThrowsAsync<IssueLockedByAgentRunException>(() => issueMcpService.DeleteIssue(
-            setup.OwnerAuthData, setup.IssueKey, CancellationToken.None));
 
         await service.CancelAgentRun(setup.EditorAuthData, run.Id, CancellationToken.None);
         await issueMcpService.EditIssue(
@@ -389,6 +387,44 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
 
         var issue = await issueMcpService.GetIssue(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
         Assert.Equal("Do something else", issue.Content);
+    }
+
+    [Fact]
+    public async Task DeleteIssue_ShouldCancelRun_WhenIssueIsHandedOff()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+        var run = await CreateAgentRunMcpService(testScope.Services)
+            .CreateAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        await IssueMcpServiceTests.CreateIssueMcpService(testScope)
+            .DeleteIssue(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        var storedRun = await testScope.Database.IssueAgentRuns
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Cancelled, storedRun.State);
+        var issue = await testScope.Database.Issues
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == storedRun.IssueId);
+        Assert.NotNull(issue.DeletedAt);
+    }
+
+    [Fact]
+    public async Task DeleteIssue_ShouldCancelRun_WhenRunIsWorking()
+    {
+        using var testScope = host.CreateTestScope();
+        var setup = await CreateOwnerIssueWithEditorSetup(testScope);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.StartAgentRun(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        await IssueMcpServiceTests.CreateIssueMcpService(testScope)
+            .DeleteIssue(setup.OwnerAuthData, setup.IssueKey, CancellationToken.None);
+
+        var storedRun = await testScope.Database.IssueAgentRuns
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Cancelled, storedRun.State);
     }
 
     [Fact]

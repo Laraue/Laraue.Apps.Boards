@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -178,6 +179,48 @@ public class SpacesControllerTests(WebApiTestHost host) : IClassFixture<WebApiTe
 
         var deletedIssue = await testScope.Database.Issues.SingleAsyncEF(x => x.Id == issueData.Issue.Id);
         Assert.NotNull(deletedIssue.DeletedAt);
+
+        var deleteLog = await testScope.Database.OrganizationLogs
+            .Where(x => x.EntityType == LogEntityType.Issue
+                && x.Action == LogAction.Delete
+                && x.EntityId == issueData.Issue.Id)
+            .SingleAsyncEF();
+        Assert.Equal(userId, deleteLog.OwnerId);
+    }
+
+    [Fact]
+    public async Task Delete_ShouldKeepEarlierIssueDeletion_WhenIssueWasDeletedBeforeSpace()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var deleterId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic.AddIssue(ownerId, 0)))
+            .AddUser(deleterId, builder => builder
+                .SetSpaceAccessLevel(1, x => x.CanDelete = true)));
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        await host.Controller<IssuesController>()
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.Delete(issueData.Key));
+        var deletedBefore = await testScope.Database.Issues
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+
+        await _spacesController
+            .WithOrganizationAuthorization(organization.Id, deleterId)
+            .Execute(x => x.Delete(organization.GetSpace(1).Key));
+
+        var issue = await testScope.Database.Issues
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(deletedBefore.DeletedAt, issue.DeletedAt);
+        Assert.Equal(ownerId, issue.DeletedByUserId);
+        var deleteLogsCount = await testScope.Database.OrganizationLogs
+            .CountAsync(x => x.EntityType == LogEntityType.Issue
+                && x.Action == LogAction.Delete
+                && x.EntityId == issueData.Issue.Id);
+        Assert.Equal(1, deleteLogsCount);
     }
 
     [Fact]

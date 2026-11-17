@@ -292,7 +292,9 @@ gets `MemberProfile.Unknown`.
 
 `Organization`, `Space`, `Epic`, `Status`, `Issue`, `IssueComment` and `User` have nullable `DeletedAt`/
 `DeletedByUserId`; deleting sets them and cascades the flag down that list (a space soft-deletes its epics, statuses,
-issues). `User` isn't in that cascade: it's soft-deleted only when account linking moves its last sign-in method away
+issues). An epic or space delete soft-deletes its issues through `ICoreIssuesService.DeleteInStatuses`, which writes
+a delete entry to each issue's history like a single delete and leaves issues deleted earlier as they were (BRD-376).
+`User` isn't in that cascade: it's soft-deleted only when account linking moves its last sign-in method away
 (BRD-218), leaving its personal organization unreachable. `OrganizationUser` uses `LeftAt` instead. Everything else is
 hard-deleted.
 
@@ -589,10 +591,11 @@ the agent's, on behalf of the key's owner; keys made by hand stay `User`.
   web card/detail return the latest run.
 - A run belongs to the assignee: only they hand off, and only their key can claim (`AgentRunMcpService.EnsureIsAssignee`,
   `AgentRunsService.Create`; 403 otherwise).
-- While a run is open the issue is locked: `ICoreIssuesService.Update`/`Delete` throw `IssueLockedByAgentRunException`
-  (409) before writing (Telegram's edit sync calls them without a transaction), so every surface refuses field edits
-  and deletion, and the assignee stays fixed. Status changes, comments and cancel stay open to editors; cancelling
-  unlocks.
+- While a run is open the issue is locked: `ICoreIssuesService.Update` throws `IssueLockedByAgentRunException` (409)
+  before writing (Telegram's edit sync calls it without a transaction), so every surface refuses field edits and the
+  assignee stays fixed - the lock guards what the agent was handed. Status changes, comments, cancel and deletion stay
+  open to editors; cancelling unlocks. Deleting the issue, or its epic or space, cancels its open run
+  (`ICoreAgentRunsService.CancelOpenRuns`, BRD-376), so a runner working on it sees the run cancelled.
 - A hand-off needs the issue in a Created status and its epic to have Created, InProgress and Review statuses
   (`AgentRunBoardRequirements`), else 400. The web hand-off (`POST /api/agent-runs`) also needs an active API key in the
   organization (400 otherwise); MCP callers always have one. `IAgentRunsService.GetHandOff` decides once - available,

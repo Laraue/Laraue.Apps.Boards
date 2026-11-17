@@ -73,6 +73,16 @@ public interface ICoreAgentRunsService
         long runId,
         Actor actor,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Cancels every open (Ready or Working) run of <paramref name="issueIds"/>, each like <see cref="Cancel"/> - for
+    /// issues being deleted (BRD-376), so no run stays offered to runners on an issue nobody can read, and a runner
+    /// working on one sees it cancelled.
+    /// </summary>
+    Task CancelOpenRuns(
+        IReadOnlyCollection<long> issueIds,
+        Actor actor,
+        CancellationToken cancellationToken);
 }
 
 public class CoreAgentRunsService(
@@ -276,6 +286,24 @@ public class CoreAgentRunsService(
         }
 
         return false;
+    }
+
+    public async Task CancelOpenRuns(
+        IReadOnlyCollection<long> issueIds,
+        Actor actor,
+        CancellationToken cancellationToken)
+    {
+        if (issueIds.Count == 0)
+            return;
+
+        var openRunIds = await context.IssueAgentRuns
+            .Where(x => issueIds.Contains(x.IssueId)
+                && (x.State == AgentRunState.Ready || x.State == AgentRunState.Working))
+            .Select(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+
+        foreach (var runId in openRunIds)
+            await Cancel(runId, actor, cancellationToken);
     }
 
     private async Task RecordStateChange(

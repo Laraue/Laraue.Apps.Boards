@@ -268,7 +268,7 @@ public class EpicsService(
             .EnsureOrThrowForbidden(a => a.CanDeleteEpic, string.Format(ErrorMessages.EntityNotAccessible, "Epic", request.Id));
 
         await coreEpicsService.Delete(
-            new DeleteRequest { Id = request.Id, DeleterId = request.AuthData.UserId },
+            new DeleteRequest { Id = request.Id, Deleter = request.AuthData.ToActor() },
             cancellationToken);
     }
 }
