@@ -212,7 +212,7 @@ public class SpacesService(
             .OrThrowNotFound(string.Format(ErrorMessages.EntityNotFound, "Space", request.Key))
             .EnsureOrThrowForbidden(a => a.CanDeleteSpace, string.Format(ErrorMessages.EntityNotAccessible, "Space", request.Key));
 
-        await coreSpacesService.Delete(spaceId, request.AuthData.UserId, cancellationToken);
+        await coreSpacesService.Delete(spaceId, request.AuthData.ToActor(), cancellationToken);
     }
 
     public async Task<SpaceMember[]> GetMembers(GetSpaceMembersRequest request, CancellationToken cancellationToken)

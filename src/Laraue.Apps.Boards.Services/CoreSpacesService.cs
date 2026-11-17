@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DataAccess.EFCore.Extensions;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -24,9 +25,13 @@ public interface ICoreSpacesService
         Action<UpdateSettersBuilder<Space>> setters,
         CancellationToken cancellationToken);
     
+    /// <summary>
+    /// Soft-deletes the space with its epics, statuses and issues; the issues get a delete entry in their history
+    /// and their open agent runs are cancelled (<see cref="ICoreIssuesService.DeleteInStatuses"/>).
+    /// </summary>
     Task Delete(
         long id,
-        Guid deleterId,
+        Actor deleter,
         CancellationToken cancellationToken);
 
     Task<long> GetSpaceIdBySpaceKey(
@@ -37,7 +42,8 @@ public interface ICoreSpacesService
 
 public class CoreSpacesService(
     DatabaseContext context,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ICoreIssuesService issuesService)
     : ICoreSpacesService
 {
     public async Task<string> Create(
@@ -102,7 +108,7 @@ public class CoreSpacesService(
         }
     }
 
-    public async Task Delete(long id, Guid deleterId, CancellationToken cancellationToken)
+    public async Task Delete(long id, Actor deleter, CancellationToken cancellationToken)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -116,32 +122,31 @@ public class CoreSpacesService(
             .Where(x => epicIds.Contains(x.EpicId))
             .Select(x => (long?)x.Id);
 
-        await context.Issues
-            .Where(x => statusIds.Contains(x.StatusId))
-            .ExecuteUpdateAsync(u => u
-                .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, deleterId),
-                cancellationToken);
+        await issuesService.DeleteInStatuses(
+            statusIds,
+            deleter,
+            deletedAt,
+            cancellationToken);
 
-        await context.Statuses
+        await context.ActiveStatuses()
             .Where(x => epicIds.Contains(x.EpicId))
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, deleterId),
+                .SetProperty(p => p.DeletedByUserId, deleter.UserId),
                 cancellationToken);
 
-        await context.Epics
+        await context.ActiveEpics()
             .Where(x => x.SpaceId == id)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, deleterId),
+                .SetProperty(p => p.DeletedByUserId, deleter.UserId),
                 cancellationToken);
 
-        await context.Spaces
+        await context.ActiveSpaces()
             .Where(c => c.Id == id)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, deleterId),
+                .SetProperty(p => p.DeletedByUserId, deleter.UserId),
                 cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);

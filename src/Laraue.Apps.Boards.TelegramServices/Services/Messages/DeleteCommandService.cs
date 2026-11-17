@@ -116,20 +116,7 @@ public class DeleteCommandService(
         long issueId,
         CancellationToken cancellationToken)
     {
-        bool deleted;
-        try
-        {
-            deleted = await saveMessageService.DeleteIssue(issueId, userId, cancellationToken);
-        }
-        catch (IssueLockedByAgentRunException)
-        {
-            await client.AnswerCallbackQuery(
-                callbackQuery.Id,
-                Phrases.IssueLockedByAgentRun,
-                showAlert: true,
-                cancellationToken: cancellationToken);
-            return;
-        }
+        var deleted = await saveMessageService.DeleteIssue(issueId, userId, cancellationToken);
 
         if (!deleted)
         {

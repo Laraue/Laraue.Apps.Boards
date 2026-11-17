@@ -1,4 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.WebApiHost.Controllers;
 using Laraue.Apps.Boards.WebApiServices;
@@ -246,6 +247,108 @@ public class EpicControllerTests(WebApiTestHost host) : IClassFixture<WebApiTest
         var epic = await testScope.Database.Epics.SingleAsyncEF(x => x.Id == epicId);
         Assert.NotNull(epic.DeletedAt);
         Assert.Equal(participatorId, epic.DeletedByUserId);
+    }
+
+    [Fact]
+    public async Task Delete_ShouldRecordDeletionInEachIssueHistory_WhenEpicHasIssues()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, org => org
+            .AddSpace(userId, space => space
+                .AddEpic(userId, epic => epic
+                    .AddIssue(userId, 0)
+                    .AddIssue(userId, 0))));
+        var issueIds = new[]
+        {
+            organization.GetIssueData(1, 1, 0, 0).Issue.Id,
+            organization.GetIssueData(1, 1, 0, 1).Issue.Id,
+        };
+
+        await _epicsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(organization.GetEpic(1, 1).Id));
+
+        var issues = await testScope.Database.Issues
+            .Where(x => issueIds.Contains(x.Id))
+            .ToListAsyncEF();
+        Assert.All(issues, issue => Assert.NotNull(issue.DeletedAt));
+        var deleteLogs = await testScope.Database.OrganizationLogs
+            .Where(x => x.EntityType == LogEntityType.Issue
+                && x.Action == LogAction.Delete
+                && issueIds.Contains(x.EntityId!.Value))
+            .ToListAsyncEF();
+        Assert.Equal(issueIds.Order(), deleteLogs.Select(x => x.EntityId!.Value).Order());
+        Assert.All(deleteLogs, log =>
+        {
+            Assert.Equal(userId, log.OwnerId);
+            Assert.Equal(organization.Id, log.OrganizationId);
+        });
+    }
+
+    [Fact]
+    public async Task Delete_ShouldKeepEarlierIssueDeletion_WhenIssueWasDeletedBeforeEpic()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var participatorId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddSpace(ownerId, space => space
+                .AddEpic(ownerId, epic => epic.AddIssue(ownerId, 0)))
+            .AddUser(participatorId, builder => builder
+                .SetSpaceAccessLevel(1, x => x.CanDeleteEpics = true)));
+        var issueData = organization.GetIssueData(1, 1, 0, 0);
+        await host.Controller<IssuesController>()
+            .WithOrganizationAuthorization(organization.Id, ownerId)
+            .Execute(x => x.Delete(issueData.Key));
+        var deletedBefore = await testScope.Database.Issues
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+
+        await _epicsController
+            .WithOrganizationAuthorization(organization.Id, participatorId)
+            .Execute(x => x.Delete(organization.GetEpic(1, 1).Id));
+
+        var issue = await testScope.Database.Issues
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == issueData.Issue.Id);
+        Assert.Equal(deletedBefore.DeletedAt, issue.DeletedAt);
+        Assert.Equal(ownerId, issue.DeletedByUserId);
+        var deleteLog = await testScope.Database.OrganizationLogs
+            .Where(x => x.EntityType == LogEntityType.Issue
+                && x.Action == LogAction.Delete
+                && x.EntityId == issueData.Issue.Id)
+            .SingleAsyncEF();
+        Assert.Equal(ownerId, deleteLog.OwnerId);
+    }
+
+    [Fact]
+    public async Task Delete_ShouldCancelOpenAgentRun_WhenEpicIssueIsHandedOff()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(userId, org => org
+            .AddSpace(userId, space => space
+                .AddEpic(userId, epic => epic.AddIssue(userId, 0))));
+        var run = new IssueAgentRun
+        {
+            IssueId = organization.GetIssueData(1, 1, 0, 0).Issue.Id,
+            State = AgentRunState.Ready,
+            CreatedAt = DateTime.UtcNow,
+            CreatedByUserId = userId,
+        };
+        testScope.Database.IssueAgentRuns.Add(run);
+        await testScope.Database.SaveChangesAsync();
+
+        await _epicsController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Delete(organization.GetEpic(1, 1).Id));
+
+        var storedRun = await testScope.Database.IssueAgentRuns
+            .AsNoTracking()
+            .SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Cancelled, storedRun.State);
+        Assert.NotNull(storedRun.FinishedAt);
     }
 
     [Fact]

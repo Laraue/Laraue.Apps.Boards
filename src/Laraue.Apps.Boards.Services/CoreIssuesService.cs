@@ -46,12 +46,24 @@ public interface ICoreIssuesService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Throws <see cref="IssueLockedByAgentRunException"/> while the issue has an open agent run. Requires a
-    /// transaction (the epic's status is recalculated under a lock).
+    /// Soft-deletes the issue, records it in history and cancels its open agent run - an open run doesn't block
+    /// deletion, only edits (BRD-376). Requires a transaction (the epic's status is recalculated under a lock).
     /// </summary>
     Task Delete(
         long id,
         Actor actor,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The issue part of an epic or space delete: soft-deletes the active issues in <paramref name="statusIds"/>,
+    /// writes a delete entry to each one's history and cancels their open agent runs. Issues deleted earlier keep
+    /// their own deletion. Doesn't recalculate epic statuses - the epics are being deleted too. Requires a
+    /// transaction.
+    /// </summary>
+    Task DeleteInStatuses(
+        IQueryable<long?> statusIds,
+        Actor actor,
+        DateTime deletedAt,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -112,7 +124,8 @@ public class CoreIssuesService(
     IMemberProfileReader memberProfileReader,
     ICoreEpicStateService epicStateService,
     BoardsMetrics metrics,
-    IStorageReferenceOutbox storageReferenceOutbox)
+    IStorageReferenceOutbox storageReferenceOutbox,
+    ICoreAgentRunsService agentRunsService)
     : ICoreIssuesService
 {
     /// <summary>
@@ -498,8 +511,6 @@ public class CoreIssuesService(
         Actor actor,
         CancellationToken cancellationToken)
     {
-        await EnsureNotLockedByAgentRun(id, cancellationToken);
-
         var issueData = await context.ActiveIssues()
             .Where(x => x.Id == id)
             .Select(x => new
@@ -509,6 +520,8 @@ public class CoreIssuesService(
                 x.Status.EpicId,
             })
             .FirstAsyncEF(cancellationToken);
+
+        await agentRunsService.CancelOpenRuns([id], actor, cancellationToken);
 
         await historyService.Record(
             id,
@@ -532,6 +545,52 @@ public class CoreIssuesService(
         await epicStateService.RecalculateStatuses([issueData.EpicId], cancellationToken);
 
         metrics.RecordIssueDeleted();
+    }
+
+    public async Task DeleteInStatuses(
+        IQueryable<long?> statusIds,
+        Actor actor,
+        DateTime deletedAt,
+        CancellationToken cancellationToken)
+    {
+        var issues = await context.ActiveIssues()
+            .Where(x => statusIds.Contains(x.StatusId))
+            .Select(x => new
+            {
+                x.Id,
+                x.Status!.Epic!.Space!.OrganizationId,
+            })
+            .ToArrayAsyncEF(cancellationToken);
+
+        if (issues.Length == 0)
+            return;
+
+        var issueIds = issues
+            .Select(x => x.Id)
+            .ToArray();
+
+        await agentRunsService.CancelOpenRuns(issueIds, actor, cancellationToken);
+
+        foreach (var organizationIssues in issues.GroupBy(x => x.OrganizationId))
+        {
+            await historyService.RecordMany(
+                organizationIssues
+                    .Select(x => x.Id)
+                    .ToArray(),
+                LogEntityType.Issue,
+                LogAction.Delete,
+                organizationIssues.Key,
+                actor,
+                deletedAt,
+                cancellationToken);
+        }
+
+        await context.ActiveIssues()
+            .Where(x => issueIds.Contains(x.Id))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.DeletedAt, deletedAt)
+                .SetProperty(p => p.DeletedByUserId, actor.UserId),
+                cancellationToken);
     }
 
     public async Task<long> AddComment(

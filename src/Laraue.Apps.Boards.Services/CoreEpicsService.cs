@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.Common;
+using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -33,7 +34,10 @@ public interface ICoreEpicsService
         CancellationToken cancellationToken);
 }
 
-public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTimeProvider)
+public class CoreEpicsService(
+    DatabaseContext context,
+    IDateTimeProvider dateTimeProvider,
+    ICoreIssuesService issuesService)
     : ICoreEpicsService
 {
     public async Task<long> Create(
@@ -141,25 +145,24 @@ public class CoreEpicsService(DatabaseContext context, IDateTimeProvider dateTim
             .Where(x => x.EpicId == request.Id)
             .Select(x => (long?)x.Id);
 
-        await context.Issues
-            .Where(x => statusIds.Contains(x.StatusId))
-            .ExecuteUpdateAsync(u => u
-                .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
-                cancellationToken);
+        await issuesService.DeleteInStatuses(
+            statusIds,
+            request.Deleter,
+            deletedAt,
+            cancellationToken);
 
-        await context.Statuses
+        await context.ActiveStatuses()
             .Where(x => x.EpicId == request.Id)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
+                .SetProperty(p => p.DeletedByUserId, request.Deleter.UserId),
                 cancellationToken);
 
-        await context.Epics
+        await context.ActiveEpics()
             .Where(c => c.Id == request.Id)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(p => p.DeletedAt, deletedAt)
-                .SetProperty(p => p.DeletedByUserId, request.DeleterId),
+                .SetProperty(p => p.DeletedByUserId, request.Deleter.UserId),
                 cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -206,5 +209,5 @@ public class Status
 public record DeleteRequest
 {
     public required long Id { get; set; }
-    public required Guid DeleterId { get; set; }
+    public required Actor Deleter { get; set; }
 }
