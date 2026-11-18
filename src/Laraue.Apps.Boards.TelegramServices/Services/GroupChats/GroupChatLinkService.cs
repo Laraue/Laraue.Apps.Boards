@@ -183,7 +183,7 @@ public class GroupChatLinkService(
             .Select(space => new[]
             {
                 new CallbackRoutePath(TelegramRoutes.LinkSpace)
-                    .WithPathParameter("id", space.Id.ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.Id, space.Id.ToString())
                     .ToInlineKeyboardButton($"🗂️ {space.Name}")
             });
 
@@ -248,12 +248,12 @@ public class GroupChatLinkService(
                 return new[]
                 {
                     new CallbackRoutePath(TelegramRoutes.LinkEpic)
-                        .WithPathParameter("id", e.Id.ToString())
+                        .WithPathParameter(TelegramRoutes.Parameters.Id, e.Id.ToString())
                         .ToInlineKeyboardButton($"{epicIcon} {e.Name}")
                 };
             })
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkOrganization)
-                .WithPathParameter("id", space.OrganizationId.ToString()))
+                .WithPathParameter(TelegramRoutes.Parameters.Id, space.OrganizationId.ToString()))
             .AddCancelButton();
 
         await client.EditMessageText(
@@ -324,11 +324,11 @@ public class GroupChatLinkService(
             .Select(status => new[]
             {
                 new CallbackRoutePath(TelegramRoutes.LinkStatus)
-                    .WithPathParameter("id", status.Id.ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.Id, status.Id.ToString())
                     .ToInlineKeyboardButton($"🏷️ {status.Name}")
             })
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkSpace)
-                .WithPathParameter("id", epic.SpaceId.ToString()))
+                .WithPathParameter(TelegramRoutes.Parameters.Id, epic.SpaceId.ToString()))
             .AddCancelButton();
         
         await client.EditMessageText(
@@ -579,9 +579,9 @@ public class GroupChatLinkService(
     {
         InlineKeyboardButton ReplyModeButton(ReplyMode replyMode, string text) =>
             new CallbackRoutePath(TelegramRoutes.LinkReplyMode)
-                .WithPathParameter("statusId", destination.StatusId.ToString())
-                .WithPathParameter("saveMode", ((int)saveMode).ToString())
-                .WithPathParameter("replyMode", ((int)replyMode).ToString())
+                .WithPathParameter(TelegramRoutes.Parameters.StatusId, destination.StatusId.ToString())
+                .WithPathParameter(TelegramRoutes.Parameters.SaveMode, ((int)saveMode).ToString())
+                .WithPathParameter(TelegramRoutes.Parameters.ReplyMode, ((int)replyMode).ToString())
                 .ToInlineKeyboardButton(text);
 
         var buttons = new[]
@@ -612,15 +612,15 @@ public class GroupChatLinkService(
             new[]
             {
                 new CallbackRoutePath(TelegramRoutes.LinkSaveMode)
-                    .WithPathParameter("statusId", statusId.ToString())
-                    .WithPathParameter("mode", ((int)SaveMode.EachMessage).ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.StatusId, statusId.ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.Mode, ((int)SaveMode.EachMessage).ToString())
                     .ToInlineKeyboardButton(Phrases.SaveModeEachMessage)
             },
             new[]
             {
                 new CallbackRoutePath(TelegramRoutes.LinkSaveMode)
-                    .WithPathParameter("statusId", statusId.ToString())
-                    .WithPathParameter("mode", ((int)SaveMode.BotMentionedMessages).ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.StatusId, statusId.ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.Mode, ((int)SaveMode.BotMentionedMessages).ToString())
                     .ToInlineKeyboardButton(Phrases.SaveModeBotMentioned)
             },
         }.AddCancelButton();
@@ -816,7 +816,7 @@ public class GroupChatLinkService(
                 .Select(org => new[]
                 {
                     new CallbackRoutePath(TelegramRoutes.LinkOrganization)
-                        .WithPathParameter("id", org.Id.ToString())
+                        .WithPathParameter(TelegramRoutes.Parameters.Id, org.Id.ToString())
                         .ToInlineKeyboardButton($"🏢 {org.Name}")
                 });
 
@@ -850,7 +850,7 @@ public class GroupChatLinkService(
             new[]
             {
                 new CallbackRoutePath(TelegramRoutes.LinkSettingsSaveMode)
-                    .WithPathParameter("mode", ((int)otherSaveMode).ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.Mode, ((int)otherSaveMode).ToString())
                     .ToInlineKeyboardButton(otherSaveMode == SaveMode.EachMessage
                         ? Phrases.SettingsSwitchToEachMessage
                         : Phrases.SettingsSwitchToBotMentioned),
@@ -858,7 +858,7 @@ public class GroupChatLinkService(
             new[]
             {
                 new CallbackRoutePath(TelegramRoutes.LinkSettingsReplyMode)
-                    .WithPathParameter("mode", ((int)otherReplyMode).ToString())
+                    .WithPathParameter(TelegramRoutes.Parameters.Mode, ((int)otherReplyMode).ToString())
                     .ToInlineKeyboardButton(otherReplyMode == ReplyMode.IssueLink
                         ? Phrases.SettingsSwitchToIssueLink
                         : Phrases.SettingsSwitchToReaction),

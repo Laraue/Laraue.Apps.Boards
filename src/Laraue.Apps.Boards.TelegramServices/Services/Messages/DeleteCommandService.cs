@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.Services;
+﻿using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Telegram.NET.Core.Routing;
@@ -78,7 +78,7 @@ public class DeleteCommandService(
                     new[]
                     {
                         new CallbackRoutePath(TelegramRoutes.DeleteConfirm)
-                            .WithPathParameter("issueId", result.IssueId!.Value.ToString())
+                            .WithPathParameter(TelegramRoutes.Parameters.IssueId, result.IssueId!.Value.ToString())
                             .ToInlineKeyboardButton(Phrases.DeleteConfirmButton),
                     },
                 }.AddCancelButton();
