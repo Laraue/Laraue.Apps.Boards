@@ -104,6 +104,58 @@ public class LinkGroupController(IGroupChatLinkService linkFlowService) : Telegr
             cancellationToken);
     }
 
+    [TelegramCallbackRoute(TelegramRoutes.LinkReplyMode)]
+    public Task HandleReplyModeSelected(
+        RequestContext requestContext,
+        [FromPath] long statusId,
+        [FromPath] SaveMode saveMode,
+        [FromPath] ReplyMode replyMode,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleReplyModeSelected(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            statusId,
+            saveMode,
+            replyMode,
+            cancellationToken);
+    }
+
+    [TelegramCallbackRoute(TelegramRoutes.LinkChangeDestination)]
+    public Task HandleChangeDestination(RequestContext requestContext, CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleChangeDestination(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            cancellationToken);
+    }
+
+    [TelegramCallbackRoute(TelegramRoutes.LinkSettingsSaveMode)]
+    public Task HandleSettingsSaveModeSelected(
+        RequestContext requestContext,
+        [FromPath] SaveMode mode,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleSettingsSaveModeSelected(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            mode,
+            cancellationToken);
+    }
+
+    [TelegramCallbackRoute(TelegramRoutes.LinkSettingsReplyMode)]
+    public Task HandleSettingsReplyModeSelected(
+        RequestContext requestContext,
+        [FromPath] ReplyMode mode,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleSettingsReplyModeSelected(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            mode,
+            cancellationToken);
+    }
+
     [TelegramCallbackRoute(TelegramRoutes.Unlink)]
     public Task HandleUnlinkCallback(RequestContext requestContext, CancellationToken cancellationToken)
     {

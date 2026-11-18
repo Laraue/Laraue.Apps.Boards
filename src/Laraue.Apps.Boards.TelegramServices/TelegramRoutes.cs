@@ -16,7 +16,11 @@ public static class TelegramRoutes
     public const string LinkEpic = "/link/epic/{id}";
     public const string LinkStatus = "/link/status/{id}";
     public const string LinkSaveMode = "/link/save-mode/{statusId}/{mode}";
+    public const string LinkReplyMode = "/link/reply-mode/{statusId}/{saveMode}/{replyMode}";
     public const string BackToLink = "/link/back";
+    public const string LinkSettingsSaveMode = "/link/settings/save-mode/{mode}";
+    public const string LinkSettingsReplyMode = "/link/settings/reply-mode/{mode}";
+    public const string LinkChangeDestination = "/link/destination";
     
     public const string CloseCallbackWindow = "/close-callback";
 }

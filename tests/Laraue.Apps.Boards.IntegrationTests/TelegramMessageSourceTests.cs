@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.DataAccess.Enums;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services.Members;
@@ -20,7 +20,7 @@ public class TelegramMessageSourceTests : TelegramIntegrationTest
     private static readonly DateTime SentAt = new(2026, 10, 20, 9, 30, 0, DateTimeKind.Utc);
 
     [Fact]
-    public async Task HandleSaveModeSelected_ShouldStoreChatUsername_WhenChatIsPublic()
+    public async Task HandleReplyModeSelected_ShouldStoreChatUsername_WhenChatIsPublic()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -38,7 +38,7 @@ public class TelegramMessageSourceTests : TelegramIntegrationTest
                 Id = "1",
                 From = AdminUser,
                 Message = new Message { Id = 42, Chat = chat },
-                Data = $"/link/save-mode/{status.Id}/0",
+                Data = $"/link/reply-mode/{status.Id}/0/0",
             }
         });
 

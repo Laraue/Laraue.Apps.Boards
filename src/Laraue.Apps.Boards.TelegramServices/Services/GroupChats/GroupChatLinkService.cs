@@ -8,6 +8,7 @@ using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Telegram.NET.Core.Routing;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Query;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -63,9 +64,46 @@ public interface IGroupChatLinkService
         SaveMode saveMode,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The last step of linking: the chat is linked with the chosen status, save mode and reply mode.
+    /// </summary>
+    Task HandleReplyModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        long statusId,
+        SaveMode saveMode,
+        ReplyMode replyMode,
+        CancellationToken cancellationToken);
+
     Task HandleUnlink(
         CallbackQuery query,
         Guid userId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// "Change destination" in the settings menu: the organization picker, as for a new link.
+    /// </summary>
+    Task HandleChangeDestination(
+        CallbackQuery query,
+        Guid userId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sets a linked chat's save mode from the settings menu and redraws the menu.
+    /// </summary>
+    Task HandleSettingsSaveModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        SaveMode saveMode,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sets a linked chat's reply mode from the settings menu and redraws the menu.
+    /// </summary>
+    Task HandleSettingsReplyModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        ReplyMode replyMode,
         CancellationToken cancellationToken);
 }
 
@@ -95,8 +133,8 @@ public class GroupChatLinkService(
         if (!await EnsureUserIsGroupAdmin(message, cancellationToken))
             return;
         
-        var destination = await GetActiveDestination(chatId, cancellationToken);
-        if (destination is null)
+        var settings = await GetActiveSettings(chatId, cancellationToken);
+        if (settings is null)
         {
             await client.SendMessage(chatId, Phrases.LinkNotLinked, cancellationToken: cancellationToken);
             return;
@@ -346,6 +384,29 @@ public class GroupChatLinkService(
         if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
             return;
 
+        await SendReplyModePicker(chatId, query.Message.MessageId, destination, saveMode, cancellationToken);
+    }
+
+    public async Task HandleReplyModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        long statusId,
+        SaveMode saveMode,
+        ReplyMode replyMode,
+        CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+        var destination = await LoadOrAnswerNotFound(
+            query,
+            () => LoadDestinationByStatusId(statusId, cancellationToken),
+            cancellationToken);
+
+        if (destination is null)
+            return;
+
+        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
+            return;
+
         await LinkToStatus(
             chatId,
             query.Message.Chat.Title,
@@ -353,6 +414,7 @@ public class GroupChatLinkService(
             destination.StatusId,
             userId,
             saveMode,
+            replyMode,
             cancellationToken);
 
         await SendLinkConfirmed(chatId, query.Message.MessageId, destination, saveMode, cancellationToken);
@@ -389,6 +451,73 @@ public class GroupChatLinkService(
             cancellationToken: cancellationToken);
     }
 
+    public async Task HandleChangeDestination(CallbackQuery query, Guid userId, CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+
+        if (!await EnsureUserIsGroupAdmin(query, cancellationToken))
+            return;
+
+        await SendOrganizationPicker(chatId, userId, query.Message.MessageId, cancellationToken);
+    }
+
+    public Task HandleSettingsSaveModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        SaveMode saveMode,
+        CancellationToken cancellationToken)
+    {
+        return UpdateSettings(
+            query,
+            userId,
+            setters => setters.SetProperty(x => x.SaveMode, saveMode),
+            cancellationToken);
+    }
+
+    public Task HandleSettingsReplyModeSelected(
+        CallbackQuery query,
+        Guid userId,
+        ReplyMode replyMode,
+        CancellationToken cancellationToken)
+    {
+        return UpdateSettings(
+            query,
+            userId,
+            setters => setters.SetProperty(x => x.ReplyMode, replyMode),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Applies one settings-menu change to the chat's active link, then redraws the menu with the new values. The
+    /// buttons carry the value to set, not "toggle", so a repeated tap leaves it as chosen.
+    /// </summary>
+    private async Task UpdateSettings(
+        CallbackQuery query,
+        Guid userId,
+        Action<UpdateSettersBuilder<LinkedTelegramChat>> setters,
+        CancellationToken cancellationToken)
+    {
+        var chatId = query.Message!.Chat.Id;
+        var settings = await LoadOrAnswerNotFound(
+            query,
+            () => GetActiveSettings(chatId, cancellationToken),
+            cancellationToken);
+
+        if (settings is null)
+            return;
+
+        if (!await IsAllowedToLink(query, userId, settings.Destination.OrganizationId, cancellationToken))
+            return;
+
+        await context.LinkedTelegramChats
+            .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
+            .ExecuteUpdateAsync(setters, cancellationToken);
+
+        var updated = await GetActiveSettings(chatId, cancellationToken);
+        if (updated is not null)
+            await SendSettingsMenu(chatId, updated, query.Message.MessageId, cancellationToken);
+    }
+
     private async Task LinkToStatus(
         long externalChatId,
         string? chatTitle,
@@ -396,6 +525,7 @@ public class GroupChatLinkService(
         long statusId,
         Guid userId,
         SaveMode saveMode,
+        ReplyMode replyMode,
         CancellationToken cancellationToken)
     {
         var chat = await context.LinkedTelegramChats
@@ -412,10 +542,7 @@ public class GroupChatLinkService(
         chat.StatusId = statusId;
         chat.OwnerId = userId;
         chat.SaveMode = saveMode;
-
-        // /link doesn't ask about confirmations yet (BRD-364), so a chat keeps what each save mode did before
-        // BRD-361: auto-save reacts, /save replies with the card link.
-        chat.ReplyMode = saveMode == SaveMode.BotMentionedMessages ? ReplyMode.IssueLink : ReplyMode.Reaction;
+        chat.ReplyMode = replyMode;
         chat.LinkedAt = dateTimeProvider.UtcNow;
         chat.UnlinkedAt = null;
 
@@ -440,6 +567,34 @@ public class GroupChatLinkService(
             chatId,
             messageId,
             string.Format(Phrases.LinkConfirmed, destination, instructions),
+            cancellationToken: cancellationToken);
+    }
+
+    private Task SendReplyModePicker(
+        ChatId chatId,
+        int messageId,
+        LinkDestination destination,
+        SaveMode saveMode,
+        CancellationToken cancellationToken)
+    {
+        InlineKeyboardButton ReplyModeButton(ReplyMode replyMode, string text) =>
+            new CallbackRoutePath(TelegramRoutes.LinkReplyMode)
+                .WithPathParameter("statusId", destination.StatusId.ToString())
+                .WithPathParameter("saveMode", ((int)saveMode).ToString())
+                .WithPathParameter("replyMode", ((int)replyMode).ToString())
+                .ToInlineKeyboardButton(text);
+
+        var buttons = new[]
+        {
+            new[] { ReplyModeButton(ReplyMode.IssueLink, Phrases.ReplyModeIssueLink) },
+            new[] { ReplyModeButton(ReplyMode.Reaction, Phrases.ReplyModeReaction) },
+        }.AddCancelButton();
+
+        return client.EditMessageText(
+            chatId,
+            messageId,
+            string.Format(Phrases.LinkChooseReplyMode, destination),
+            replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken);
     }
 
@@ -494,18 +649,23 @@ public class GroupChatLinkService(
             .SingleOrDefaultAsyncEF(cancellationToken);
     }
 
-    private Task<LinkDestination?> GetActiveDestination(long chatId, CancellationToken cancellationToken)
+    private Task<LinkedChatSettings?> GetActiveSettings(long chatId, CancellationToken cancellationToken)
     {
         return context.LinkedTelegramChats
             .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
-            .Select(x => new LinkDestination
+            .Select(x => new LinkedChatSettings
             {
-                OrganizationId = x.Status!.Epic!.Space!.OrganizationId,
-                StatusId = x.Status.Id,
-                EpicName = x.Status.Epic.Name,
-                StatusName = x.Status.Epic.IsDefault ? null : x.Status.Name,
-                SpaceName = x.Status.Epic.Space!.Name,
-                OrganizationName = x.Status.Epic.Space!.Organization!.Name,
+                Destination = new LinkDestination
+                {
+                    OrganizationId = x.Status!.Epic!.Space!.OrganizationId,
+                    StatusId = x.Status.Id,
+                    EpicName = x.Status.Epic.Name,
+                    StatusName = x.Status.Epic.IsDefault ? null : x.Status.Name,
+                    SpaceName = x.Status.Epic.Space!.Name,
+                    OrganizationName = x.Status.Epic.Space!.Organization!.Name,
+                },
+                SaveMode = x.SaveMode,
+                ReplyMode = x.ReplyMode,
             })
             .SingleOrDefaultAsyncEF(cancellationToken);
     }
@@ -621,10 +781,10 @@ public class GroupChatLinkService(
         int? editMessageId,
         CancellationToken cancellationToken)
     {
-        var destination = await GetActiveDestination(chatId, cancellationToken);
-        if (destination is not null)
+        var settings = await GetActiveSettings(chatId, cancellationToken);
+        if (settings is not null)
         {
-            await SendAlreadyLinkedMenu(chatId, destination, editMessageId, cancellationToken);
+            await SendSettingsMenu(chatId, settings, editMessageId, cancellationToken);
             return;
         }
 
@@ -667,22 +827,61 @@ public class GroupChatLinkService(
         await SendOrEdit(chatId, editMessageId, text, markup, cancellationToken);
     }
 
-    private Task SendAlreadyLinkedMenu(
+    /// <summary>
+    /// /link in a linked chat: where it saves and how, with a button per setting showing the value it would switch
+    /// to.
+    /// </summary>
+    private Task SendSettingsMenu(
         ChatId chatId,
-        LinkDestination destination,
+        LinkedChatSettings settings,
         int? editMessageId,
         CancellationToken cancellationToken)
     {
-        var buttons = new []
+        // Path parameters are bound via JSON deserialization, so modes travel as their numeric values.
+        var otherSaveMode = settings.SaveMode == SaveMode.EachMessage
+            ? SaveMode.BotMentionedMessages
+            : SaveMode.EachMessage;
+        var otherReplyMode = settings.ReplyMode == ReplyMode.IssueLink
+            ? ReplyMode.Reaction
+            : ReplyMode.IssueLink;
+
+        var buttons = new[]
         {
-            new [] { new CallbackRoutePath(TelegramRoutes.Unlink).ToInlineKeyboardButton(Phrases.LinkUnlink) }
+            new[]
+            {
+                new CallbackRoutePath(TelegramRoutes.LinkSettingsSaveMode)
+                    .WithPathParameter("mode", ((int)otherSaveMode).ToString())
+                    .ToInlineKeyboardButton(otherSaveMode == SaveMode.EachMessage
+                        ? Phrases.SettingsSwitchToEachMessage
+                        : Phrases.SettingsSwitchToBotMentioned),
+            },
+            new[]
+            {
+                new CallbackRoutePath(TelegramRoutes.LinkSettingsReplyMode)
+                    .WithPathParameter("mode", ((int)otherReplyMode).ToString())
+                    .ToInlineKeyboardButton(otherReplyMode == ReplyMode.IssueLink
+                        ? Phrases.SettingsSwitchToIssueLink
+                        : Phrases.SettingsSwitchToReaction),
+            },
+            new[]
+            {
+                new CallbackRoutePath(TelegramRoutes.LinkChangeDestination)
+                    .ToInlineKeyboardButton(Phrases.SettingsChangeDestination),
+            },
+            new[] { new CallbackRoutePath(TelegramRoutes.Unlink).ToInlineKeyboardButton(Phrases.LinkUnlink) },
         }.AddCancelButton();
 
-        var markup = new InlineKeyboardMarkup(buttons);
+        var text = string.Format(
+            Phrases.LinkSettings,
+            settings.Destination,
+            settings.SaveMode == SaveMode.EachMessage
+                ? Phrases.SettingsSaveModeEachMessage
+                : Phrases.SettingsSaveModeBotMentioned,
+            settings.ReplyMode == ReplyMode.IssueLink
+                ? Phrases.SettingsReplyModeIssueLink
+                : Phrases.SettingsReplyModeReaction);
 
-        var text = string.Format(Phrases.LinkAlreadyLinked, destination);
-
-        return SendOrEdit(chatId, editMessageId, text, markup, cancellationToken);
+        return SendOrEdit(chatId, editMessageId, text, new InlineKeyboardMarkup(buttons), cancellationToken);
     }
 
     /// <summary>
@@ -735,6 +934,13 @@ public class GroupChatLinkService(
     }
     
     private record OrganizationOption(long Id, string Name);
+
+    private record LinkedChatSettings
+    {
+        public required LinkDestination Destination { get; init; }
+        public required SaveMode SaveMode { get; init; }
+        public required ReplyMode ReplyMode { get; init; }
+    }
 
     private record LinkDestination
     {

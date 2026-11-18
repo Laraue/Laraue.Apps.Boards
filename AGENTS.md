@@ -13,6 +13,12 @@ issues ("cards"). Two surfaces:
   - `SaveMode.EachMessage` - every message in a linked chat is saved as a card (an edit updates it). For personal chats.
   - `SaveMode.BotMentionedMessages` - nothing is saved automatically; replying `/save` (optionally with a note) turns
     a message into a card. For busy group chats.
+  - `ReplyMode` (BRD-361) - how the bot confirms a saved card, for auto-save and `/save` alike: `IssueLink` replies
+    with the issue preview card, `Reaction` puts 👍 on the message (❤ when an edit or a repeated `/save` updates it).
+    The personal chat linked at sign-up starts with `IssueLink`; chats linked before BRD-361 kept what they did.
+  - `/link` is also the chat's settings (BRD-364): in a linked chat it shows the destination, save mode and reply mode,
+    with a button per setting that sets the other value (`/link/settings/...` - a value, not a toggle, so a double tap
+    can't flip it back) and "Change destination", which reruns the picker. Linking asks status → save mode → reply mode.
   - Card creation is gated by `IAccessService`, not just by the chat being linked.
   - `/info` - reply to a tracked message to get its card's preview/link without changing anything
     (`TelegramSaveMessageService.GetInfoByReply`, `InfoCommandService`); mostly for `EachMessage` mode, where saving is

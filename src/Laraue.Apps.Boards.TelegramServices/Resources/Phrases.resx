@@ -88,9 +88,39 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkUnlink" xml:space="preserve">
         <value>Unlink</value>
     </data>
-    <data name="LinkAlreadyLinked" xml:space="preserve">
-        <value>This chat is already linked to
-{0}</value>
+    <data name="LinkSettings" xml:space="preserve">
+        <value>This chat saves to
+{0}
+
+Saving: {1}
+Confirmation: {2}</value>
+    </data>
+    <data name="SettingsSaveModeEachMessage" xml:space="preserve">
+        <value>every message</value>
+    </data>
+    <data name="SettingsSaveModeBotMentioned" xml:space="preserve">
+        <value>only via /save</value>
+    </data>
+    <data name="SettingsReplyModeIssueLink" xml:space="preserve">
+        <value>a reply with the card link</value>
+    </data>
+    <data name="SettingsReplyModeReaction" xml:space="preserve">
+        <value>a 👍 reaction</value>
+    </data>
+    <data name="SettingsSwitchToEachMessage" xml:space="preserve">
+        <value>💬 Save every message</value>
+    </data>
+    <data name="SettingsSwitchToBotMentioned" xml:space="preserve">
+        <value>✋ Save only via /save</value>
+    </data>
+    <data name="SettingsSwitchToIssueLink" xml:space="preserve">
+        <value>🔗 Confirm with the card link</value>
+    </data>
+    <data name="SettingsSwitchToReaction" xml:space="preserve">
+        <value>👍 Confirm with a reaction</value>
+    </data>
+    <data name="SettingsChangeDestination" xml:space="preserve">
+        <value>📍 Change destination</value>
     </data>
     <data name="LinkRequireAdmin" xml:space="preserve">
         <value>User should be group admin</value>
@@ -157,6 +187,18 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     </data>
     <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
         <value>Reply to a message and send /save to turn it into a card. Nice for company chats with a lot of discussion, where you only sometimes need to create a card from a message.</value>
+    </data>
+    <data name="LinkChooseReplyMode" xml:space="preserve">
+        <value>How should the bot confirm a saved message in {0}?
+
+🔗 Card link - a reply with the card, so everyone sees where the message went.
+👍 Reaction - quieter, for chats you use a lot.</value>
+    </data>
+    <data name="ReplyModeIssueLink" xml:space="preserve">
+        <value>🔗 Reply with the card link</value>
+    </data>
+    <data name="ReplyModeReaction" xml:space="preserve">
+        <value>👍 React with an emoji</value>
     </data>
     <data name="SaveNotAReply" xml:space="preserve">
         <value>Reply to the message you want to save and send /save again.</value>
