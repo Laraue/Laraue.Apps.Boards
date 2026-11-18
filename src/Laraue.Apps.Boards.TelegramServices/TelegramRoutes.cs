@@ -26,9 +26,8 @@ public static class TelegramRoutes
     public const string CloseCallbackWindow = "/close-callback";
 
     /// <summary>
-    /// Path parameter names of the routes above, for building their callback data with
-    /// <c>CallbackRoutePath.WithPathParameter</c>. A controller action binds each one by its C# parameter name, so
-    /// that name must stay equal to the constant.
+    /// Path parameter names of the routes above: callback data is built with <c>WithPathParameter</c> and controller
+    /// actions bind with <c>[FromPath(...)]</c>, both by these names.
     /// </summary>
     public static class Parameters
     {
