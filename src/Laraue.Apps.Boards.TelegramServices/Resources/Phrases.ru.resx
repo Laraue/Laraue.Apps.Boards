@@ -81,9 +81,39 @@
     <data name="LinkUnlink" xml:space="preserve">
         <value>Отвязать</value>
     </data>
-    <data name="LinkAlreadyLinked" xml:space="preserve">
-        <value>Этот чат уже связан с
-{0}</value>
+    <data name="LinkSettings" xml:space="preserve">
+        <value>Этот чат сохраняет в
+{0}
+
+Сохранение: {1}
+Подтверждение: {2}</value>
+    </data>
+    <data name="SettingsSaveModeEachMessage" xml:space="preserve">
+        <value>каждое сообщение</value>
+    </data>
+    <data name="SettingsSaveModeBotMentioned" xml:space="preserve">
+        <value>только через /save</value>
+    </data>
+    <data name="SettingsReplyModeIssueLink" xml:space="preserve">
+        <value>ответ со ссылкой на карточку</value>
+    </data>
+    <data name="SettingsReplyModeReaction" xml:space="preserve">
+        <value>реакция 👍</value>
+    </data>
+    <data name="SettingsSwitchToEachMessage" xml:space="preserve">
+        <value>💬 Сохранять каждое сообщение</value>
+    </data>
+    <data name="SettingsSwitchToBotMentioned" xml:space="preserve">
+        <value>✋ Сохранять только через /save</value>
+    </data>
+    <data name="SettingsSwitchToIssueLink" xml:space="preserve">
+        <value>🔗 Подтверждать ссылкой на карточку</value>
+    </data>
+    <data name="SettingsSwitchToReaction" xml:space="preserve">
+        <value>👍 Подтверждать реакцией</value>
+    </data>
+    <data name="SettingsChangeDestination" xml:space="preserve">
+        <value>📍 Изменить назначение</value>
     </data>
     <data name="LinkRequireAdmin" xml:space="preserve">
         <value>Пользователь должен быть администратором группы</value>
@@ -150,6 +180,18 @@
     </data>
     <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
         <value>Ответьте на сообщение и отправьте /save, чтобы превратить его в карточку. Хорошо подходит для чатов компании с активным обсуждением, где карточку нужно создавать только иногда.</value>
+    </data>
+    <data name="LinkChooseReplyMode" xml:space="preserve">
+        <value>Как боту подтверждать сохранённое сообщение в {0}?
+
+🔗 Ссылка на карточку - ответ с карточкой, чтобы все видели, куда ушло сообщение.
+👍 Реакция - тише, для чатов, которыми пользуетесь часто.</value>
+    </data>
+    <data name="ReplyModeIssueLink" xml:space="preserve">
+        <value>🔗 Отвечать ссылкой на карточку</value>
+    </data>
+    <data name="ReplyModeReaction" xml:space="preserve">
+        <value>👍 Ставить реакцию</value>
     </data>
     <data name="SaveNotAReply" xml:space="preserve">
         <value>Ответьте на сообщение, которое нужно сохранить, и отправьте /save ещё раз.</value>

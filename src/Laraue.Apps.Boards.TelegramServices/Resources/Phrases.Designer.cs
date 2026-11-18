@@ -122,15 +122,6 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
             }
         }
         
-        /// <summary>
-        ///   Looks up a localized string similar to This chat is already linked to
-        ///{0}.
-        /// </summary>
-        internal static string LinkAlreadyLinked {
-            get {
-                return ResourceManager.GetString("LinkAlreadyLinked", resourceCulture);
-            }
-        }
         
         /// <summary>
         ///   Looks up a localized string similar to ← Back.
@@ -231,6 +222,123 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         internal static string LinkUnlink {
             get {
                 return ResourceManager.GetString("LinkUnlink", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to How should the bot confirm a saved message in {0}?.
+        /// </summary>
+        internal static string LinkChooseReplyMode {
+            get {
+                return ResourceManager.GetString("LinkChooseReplyMode", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🔗 Reply with the card link.
+        /// </summary>
+        internal static string ReplyModeIssueLink {
+            get {
+                return ResourceManager.GetString("ReplyModeIssueLink", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 👍 React with an emoji.
+        /// </summary>
+        internal static string ReplyModeReaction {
+            get {
+                return ResourceManager.GetString("ReplyModeReaction", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This chat saves to.
+        /// </summary>
+        internal static string LinkSettings {
+            get {
+                return ResourceManager.GetString("LinkSettings", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to every message.
+        /// </summary>
+        internal static string SettingsSaveModeEachMessage {
+            get {
+                return ResourceManager.GetString("SettingsSaveModeEachMessage", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to only via /save.
+        /// </summary>
+        internal static string SettingsSaveModeBotMentioned {
+            get {
+                return ResourceManager.GetString("SettingsSaveModeBotMentioned", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to a reply with the card link.
+        /// </summary>
+        internal static string SettingsReplyModeIssueLink {
+            get {
+                return ResourceManager.GetString("SettingsReplyModeIssueLink", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to a 👍 reaction.
+        /// </summary>
+        internal static string SettingsReplyModeReaction {
+            get {
+                return ResourceManager.GetString("SettingsReplyModeReaction", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 💬 Save every message.
+        /// </summary>
+        internal static string SettingsSwitchToEachMessage {
+            get {
+                return ResourceManager.GetString("SettingsSwitchToEachMessage", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ✋ Save only via /save.
+        /// </summary>
+        internal static string SettingsSwitchToBotMentioned {
+            get {
+                return ResourceManager.GetString("SettingsSwitchToBotMentioned", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 🔗 Confirm with the card link.
+        /// </summary>
+        internal static string SettingsSwitchToIssueLink {
+            get {
+                return ResourceManager.GetString("SettingsSwitchToIssueLink", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 👍 Confirm with a reaction.
+        /// </summary>
+        internal static string SettingsSwitchToReaction {
+            get {
+                return ResourceManager.GetString("SettingsSwitchToReaction", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 📍 Change destination.
+        /// </summary>
+        internal static string SettingsChangeDestination {
+            get {
+                return ResourceManager.GetString("SettingsChangeDestination", resourceCulture);
             }
         }
         

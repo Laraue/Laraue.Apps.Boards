@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.TelegramServices;
+﻿using Laraue.Apps.Boards.TelegramServices;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
 using Laraue.Telegram.NET.Abstractions.Request;
 using Laraue.Telegram.NET.Core.Routing;
@@ -11,7 +11,7 @@ public class DeleteConfirmController(IDeleteCommandService deleteCommandService)
     [TelegramCallbackRoute(TelegramRoutes.DeleteConfirm)]
     public Task HandleDeleteConfirmed(
         RequestContext requestContext,
-        [FromPath] long issueId,
+        [FromPath(TelegramRoutes.Parameters.IssueId)] long issueId,
         CancellationToken cancellationToken)
     {
         return deleteCommandService.HandleDeleteConfirmed(

@@ -163,7 +163,7 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task HandleLink_ShouldShowAlreadyLinkedMenu_WhenChatAlreadyLinked()
+    public async Task HandleLink_ShouldShowSettingsMenu_WhenChatAlreadyLinked()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -192,26 +192,30 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        // Repeating /link on an already-linked chat must show the already-linked menu, not
-        // the organization picker. The default epic is the backlog, so its status is omitted
-        // from the destination string.
+        // Repeating /link on an already-linked chat shows its settings, not the organization picker. The default
+        // epic is the backlog, so its status is omitted from the destination string. A seeded chat has the
+        // columns' defaults: every message, reaction.
         var space = organization.GetSpace(0);
         var epic = organization.GetEpic(0, 0);
         var request = host.Requests().Single<SendMessageRequest>();
         Assert.Equal(
-            $"This chat is already linked to\n{organization.Name} → {space.Name} → {epic.Name}".ReplaceLineEndings("\n"),
+            $"This chat saves to\n{organization.Name} → {space.Name} → {epic.Name}\n\nSaving: every message\nConfirmation: a 👍 reaction",
             request.Text.ReplaceLineEndings("\n"));
 
-        var markup = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup);
-        var rows = markup.InlineKeyboard.ToList();
-
-        Assert.Equal(2, rows.Count);
-        var unlinkButton = Assert.Single(rows[0]);
-        Assert.Equal("Unlink", unlinkButton.Text);
-        Assert.Equal("/link/unlink", unlinkButton.CallbackData);
-
-        var cancelButton = Assert.Single(rows[1]);
-        Assert.Equal("✖ Cancel", cancelButton.Text);
+        // Each setting's button offers the value it would switch to.
+        var rows = Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup).InlineKeyboard
+            .Select(row => Assert.Single(row))
+            .Select(button => (button.Text, button.CallbackData))
+            .ToList();
+        Assert.Equal(
+            [
+                ("✋ Save only via /save", "/link/settings/save-mode/1"),
+                ("🔗 Confirm with the card link", "/link/settings/reply-mode/1"),
+                ("📍 Change destination", "/link/destination"),
+                ("Unlink", "/link/unlink"),
+                ("✖ Cancel", "/close-callback"),
+            ],
+            rows);
     }
 
     [Fact]
@@ -316,11 +320,25 @@ public class TelegramHostTests : TelegramIntegrationTest
             messageId,
             $"/link/save-mode/{status.Id}/1");
 
-        Assert.Contains(organization.Name, saveModeSelected.Text);
-        Assert.Contains(space.Name, saveModeSelected.Text);
-        Assert.Contains(epic.Name, saveModeSelected.Text);
-        Assert.Contains(status.Name, saveModeSelected.Text);
-        Assert.Contains("Reply to a message and send /save to turn it into a card.", saveModeSelected.Text);
+        // The save mode alone doesn't link yet: the bot asks how to confirm a saved message.
+        Assert.Contains($"How should the bot confirm a saved message in {organization.Name} → {space.Name} → {epic.Name} → {status.Name}?", saveModeSelected.Text);
+        saveModeSelected.CheckButtonsSequentially(b => b
+            .HasButtonsRow([new ButtonAssert("🔗 Reply with the card link", $"/link/reply-mode/{status.Id}/1/1")])
+            .HasButtonsRow([new ButtonAssert("👍 React with an emoji", $"/link/reply-mode/{status.Id}/1/0")])
+            .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
+        Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
+
+        var replyModeSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/reply-mode/{status.Id}/1/0");
+
+        Assert.Contains(organization.Name, replyModeSelected.Text);
+        Assert.Contains(space.Name, replyModeSelected.Text);
+        Assert.Contains(epic.Name, replyModeSelected.Text);
+        Assert.Contains(status.Name, replyModeSelected.Text);
+        Assert.Contains("Reply to a message and send /save to turn it into a card.", replyModeSelected.Text);
 
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
         Assert.Equal(chatId, linkedChat.ExternalChatId);
@@ -328,8 +346,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal(userId, linkedChat.OwnerId);
         Assert.Equal("Test Group", linkedChat.Title);
         Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
-        // /link doesn't ask about confirmations yet (BRD-364): /save chats reply with the card link, as before.
-        Assert.Equal(ReplyMode.IssueLink, linkedChat.ReplyMode);
+        // What the user picked, not derived from the save mode.
+        Assert.Equal(ReplyMode.Reaction, linkedChat.ReplyMode);
         Assert.NotNull(linkedChat.LinkedAt);
     }
 
@@ -366,19 +384,26 @@ public class TelegramHostTests : TelegramIntegrationTest
             .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
-        var saveModeSelected = await host.SendCallbackAsync(
+        await host.SendCallbackAsync(
             AdminUser,
             chat,
             messageId,
             $"/link/save-mode/{status.Id}/0");
 
-        Assert.Contains("Every message sent here will be added as a card.", saveModeSelected.Text);
+        var replyModeSelected = await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            messageId,
+            $"/link/reply-mode/{status.Id}/0/1");
+
+        Assert.Contains("Every message sent here will be added as a card.", replyModeSelected.Text);
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
         Assert.Equal(status.Id, linkedChat.StatusId);
         Assert.Equal(SaveMode.EachMessage, linkedChat.SaveMode);
+        Assert.Equal(ReplyMode.IssueLink, linkedChat.ReplyMode);
     }
 
     [Fact]
@@ -703,8 +728,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         await testScope.Database.SaveChangesAsync();
 
         // Re-linking a previously-unlinked chat mutates that same row back to active — there's
-        // only ever one LinkedTelegramChats row per external chat. Status selection now leads
-        // to a save-mode picker rather than linking immediately, so drive both steps.
+        // only ever one LinkedTelegramChats row per external chat. Linking happens only after the
+        // save-mode and reply-mode pickers, so drive every step.
         await host.SendCallbackAsync(
             AdminUser,
             chat,
@@ -716,6 +741,12 @@ public class TelegramHostTests : TelegramIntegrationTest
             chat,
             42,
             $"/link/save-mode/{status.Id}/0");
+
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/reply-mode/{status.Id}/0/0");
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
@@ -2397,12 +2428,17 @@ public class TelegramHostTests : TelegramIntegrationTest
             42,
             $"/link/save-mode/{status.Id}/1");
 
+        await host.SendCallbackAsync(
+            AdminUser,
+            chat,
+            42,
+            $"/link/reply-mode/{status.Id}/1/1");
+
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
         Assert.Equal(chat.Id, linkedChat.ExternalChatId);
         Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
-        // /link doesn't ask about confirmations yet (BRD-364): /save chats reply with the card link, as before.
         Assert.Equal(ReplyMode.IssueLink, linkedChat.ReplyMode);
         Assert.Null(linkedChat.UnlinkedAt);
     }
