@@ -156,7 +156,31 @@ public class SearchService(
 
         var searchText = string.Join(' ', freeTextWords).Trim();
 
-        if (!string.IsNullOrWhiteSpace(searchText))
+        // Free text that is a key ("BRD-250") or a bare number ("250", any space) also finds that issue, listed
+        // before the issues that only mention it. Unlike key:, it isn't an exact lookup.
+        int? exactNumber = null;
+        string? exactSpaceKey = null;
+        if (IssueKey.TryParse(searchText, out var issueKey))
+        {
+            exactNumber = issueKey.Number;
+            exactSpaceKey = issueKey.SpaceKey.ToUpperInvariant();
+        }
+        else if (IssueKey.TryParseNumber(searchText, out var issueNumber))
+        {
+            exactNumber = issueNumber;
+        }
+
+        if (exactNumber is not null)
+        {
+            var searchPattern = searchText.AsSearchable();
+            issuesQuery = issuesQuery
+                .Where(x =>
+                    (x.IssueNumber!.Number == exactNumber
+                        && (exactSpaceKey == null || x.Status!.Epic!.Space!.Key == exactSpaceKey))
+                    || x.Title.ILike(searchPattern)
+                    || x.Content!.ILike(searchPattern));
+        }
+        else if (!string.IsNullOrWhiteSpace(searchText))
         {
             // No extra empty-content guard needed here: ILIKE against a non-empty pattern
             // can never match empty content, so this branch already excludes it for free.
@@ -186,12 +210,21 @@ public class SearchService(
         // ShortPaginateLinq2DbAsync is the same "fetch PageSize + 1 rows to tell whether there's
         // a next page" trick used elsewhere in this codebase's paginated endpoints, instead of a
         // separate COUNT query.
-        var paginated = await issuesQuery
-            // Most-recently-created first - with no explicit order, Postgres returns rows in
-            // whatever order its query plan happens to produce, which isn't guaranteed to be
-            // meaningful and can visibly change between otherwise-identical searches (and would
-            // make paging incoherent - rows could shuffle between pages between requests).
-            .OrderByDescending(x => x.Id)
+        // Most-recently-created first - with no explicit order, Postgres returns rows in
+        // whatever order its query plan happens to produce, which isn't guaranteed to be
+        // meaningful and can visibly change between otherwise-identical searches (and would
+        // make paging incoherent - rows could shuffle between pages between requests).
+        var orderedQuery = exactNumber is null
+            ? issuesQuery.OrderByDescending(x => x.Id)
+            : issuesQuery
+                .OrderBy(x =>
+                    x.IssueNumber!.Number == exactNumber
+                    && (exactSpaceKey == null || x.Status!.Epic!.Space!.Key == exactSpaceKey)
+                        ? 0
+                        : 1)
+                .ThenByDescending(x => x.Id);
+
+        var paginated = await orderedQuery
             .Select(x => new IssueSearchRow
             {
                 Key = new IssueKey(x.Status!.Epic!.Space!.Key, x.IssueNumber!.Number),
