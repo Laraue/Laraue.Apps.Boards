@@ -37,7 +37,8 @@ issues ("cards"). Two surfaces:
   - Inline search (`@bot query`) searches issues across every readable space (`SearchService`,
     `TelegramServices/Services/Search`): `key:value` tokens (assignee, organization, space, updated date, direct issue
     key - the `*TokenFilter` classes, `TokenFilterRegistry`) plus free text matched against content with a highlighted
-    snippet (`ContentFragment`).
+    snippet (`ContentFragment`). Free text that is a key ("BRD-250") or a bare number ("250", any space) also finds
+    the issue with that number, listed first (BRD-370; the web `IssuesService.ApplySearch` does the same).
   - Search results and `/save` replies share one "issue preview card" (key · org · snippet, plus "💬 chat · sender ·
     date" for issues from Telegram): `IssuePreviewFormatter`.
   - An issue's source (BRD-324): the web issue and MCP `get_issue` return the Telegram message it was created from

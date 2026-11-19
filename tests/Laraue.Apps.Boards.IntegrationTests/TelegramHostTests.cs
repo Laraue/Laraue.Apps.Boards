@@ -3828,6 +3828,41 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal("key-error", invalidResult.Id);
     }
 
+    [Theory]
+    [InlineData("1", new[] { "BBB-1", "AAA-1", "AAA-2" })]
+    [InlineData("aaa-1", new[] { "AAA-1", "AAA-2" })]
+    public async Task InlineSearch_ShouldListIssueWithThatNumberFirst_WhenSearchTextIsANumberOrKey(
+        string query,
+        string[] expectedKeys)
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+
+        var userId = await testScope.CreateUser(x => x.TelegramId = DefaultUser.Id);
+        await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "AAA", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i.WithContent("Hi"))
+                        .AddIssue(userId, 0, i => i.WithContent("Follow-up to AAA-1"))))
+                .AddSpace(userId, "BBB", s => s
+                    .AddEpic(userId, e => e
+                        .AddIssue(userId, 0, i => i.WithContent("Other")))));
+
+        await host.SendUpdateAsync(new Update
+        {
+            InlineQuery = new InlineQuery { From = DefaultUser, Query = query }
+        });
+
+        // Issues with that number come first (newest first), then the ones that only mention it.
+        var request = host.Requests().Single<AnswerInlineQueryRequest>();
+        Assert.Equal(
+            expectedKeys,
+            request.Results
+                .Select(x => x.Id));
+    }
+
     [Fact]
     public async Task InlineSearch_ShouldShowOnlyTitle_WhenSearchTextMatchesContent()
     {

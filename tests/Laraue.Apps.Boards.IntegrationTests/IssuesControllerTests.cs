@@ -933,6 +933,103 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
     }
 
     [Fact]
+    public async Task User_ShouldFindIssuesWithThatNumberInEverySpace_WhenSearchStringIsANumber()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithTitle("First"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithTitle("Second"))
+                .AddSpace(userId, "TEX", space => space
+                    .AddEpic(userId, epic => epic
+                        .AddIssue(userId, 0, issue => issue.WithTitle("Other first")))));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    SearchString = " 1 ",
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        Assert.Equal(
+            ["First", "Other first"],
+            issuesResult.Data
+                .Select(x => x.Title)
+                .Order());
+    }
+
+    [Fact]
+    public async Task User_ShouldFindIssuesMentioningTheNumber_WhenSearchStringIsANumber()
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue.WithTitle("First"))
+                .AddIssueToDefaultStatus(userId, issue => issue
+                    .WithTitle("Second")
+                    .WithContent("Fixed in build 250")));
+
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    SearchString = "250",
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        Assert.Equal("Second", Assert.Single(issuesResult.Data).Title);
+    }
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData("tex-2")]
+    public async Task User_ShouldGetIssueWithThatKeyFirst_WhenSearchStringIsANumberOrKey(string searchString)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(
+            userId,
+            o => o
+                .AddSpace(userId, "TEX", space => space
+                    .AddEpic(userId, epic => epic
+                        .AddIssue(userId, 0, issue => issue.WithTitle("About TEX-2"))
+                        .AddIssue(userId, 0, issue => issue.WithTitle("Second")))));
+
+        // By title "About TEX-2" comes first; the issue TEX-2 itself still goes before it.
+        var issuesResult = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.Search(
+                new SearchRequest
+                {
+                    SearchString = searchString,
+                    Sorting = new ByPropertyIssueSorting
+                    {
+                        Direction = SortingDirection.Ascending,
+                        Property = IssueProperty.Title,
+                    },
+                    Page = 0,
+                    PerPage = 10,
+                }));
+
+        Assert.NotNull(issuesResult);
+        Assert.Equal(
+            ["Second", "About TEX-2"],
+            issuesResult.Data
+                .Select(x => x.Title));
+    }
+
+    [Fact]
     public async Task User_ShouldSearchIssuesByEpicStatus_WhenEpicStatusesProvided()
     {
         using var testScope = host.CreateTestScope();

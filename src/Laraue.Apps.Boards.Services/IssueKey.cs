@@ -34,6 +34,20 @@ public struct IssueKey
         return match.Success;
     }
 
+    /// <summary>
+    /// Reads <paramref name="value"/> as a bare issue number (e.g. "250"), the key without its space.
+    /// </summary>
+    public static bool TryParseNumber(string value, out int number)
+    {
+        var match = NumberFormat.Match(value.Trim());
+        number = match.Success ? int.Parse(match.Value) : 0;
+
+        return match.Success;
+    }
+
+    // The same 1-9 digits as the number in IssueFormat, so it always fits the int issue number.
+    private static readonly Regex NumberFormat = new(@"^\d{1,9}$", RegexOptions.Compiled);
+
     public IssueKey(string spaceKey, int number)
     {
         SpaceKey = spaceKey;

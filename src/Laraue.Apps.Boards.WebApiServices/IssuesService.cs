@@ -689,7 +689,7 @@ public class IssuesService(
                 issues = await ApplySorting(issues, request, ct);
         
                 if (!string.IsNullOrEmpty(request.SearchString))
-                    issues = ApplySearch(issues, request.SearchString);
+                    issues = ApplySearch(issues, request.SearchString, exactMatchesFirst: true);
 
                 return await ProjectToTemporaryDto(issues)
                     .ShortPaginateLinq2DbAsync(request, ct);
@@ -1436,7 +1436,15 @@ public class IssuesService(
         }
     }
 
-    private static IQueryable<Issue> ApplySearch(IQueryable<Issue> query, string searchString)
+    /// <param name="exactMatchesFirst">
+    /// Puts the issues found by their key or number before those that only mention it. The query must be sorted
+    /// already: linq2db keeps an earlier OrderBy as the next sort key after a later one, so the caller's sort
+    /// still orders each group.
+    /// </param>
+    private static IQueryable<Issue> ApplySearch(
+        IQueryable<Issue> query,
+        string searchString,
+        bool exactMatchesFirst = false)
     {
         var term = searchString.AsSearchable();
 
@@ -1446,10 +1454,27 @@ public class IssuesService(
             var spaceKey = issueKey.SpaceKey.ToUpperInvariant();
             var number = issueKey.Number;
 
-            return query.Where(x =>
+            query = query.Where(x =>
                 (x.IssueNumber!.Number == number && x.IssueNumber.Space!.Key == spaceKey)
                 || x.Title.ILike(term)
                 || x.Content!.ILike(term));
+
+            return exactMatchesFirst
+                ? query.OrderBy(x => x.IssueNumber!.Number == number && x.IssueNumber.Space!.Key == spaceKey ? 0 : 1)
+                : query;
+        }
+
+        // A bare number ("250") is a key without its space: it finds that number in every space the query covers.
+        if (IssueKey.TryParseNumber(searchString, out var issueNumber))
+        {
+            query = query.Where(x =>
+                x.IssueNumber!.Number == issueNumber
+                || x.Title.ILike(term)
+                || x.Content!.ILike(term));
+
+            return exactMatchesFirst
+                ? query.OrderBy(x => x.IssueNumber!.Number == issueNumber ? 0 : 1)
+                : query;
         }
 
         return query.Where(x => x.Title.ILike(term) || x.Content!.ILike(term));
