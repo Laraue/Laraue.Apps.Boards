@@ -126,7 +126,8 @@ public class GroupChatLinkService(
     DatabaseContext context,
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
-    ILinkDestinationReader destinationReader)
+    ILinkDestinationReader destinationReader,
+    IDestinationOptionsReader optionsReader)
     : IGroupChatLinkService
 {
     public async Task HandleLinkCommand(
@@ -185,23 +186,14 @@ public class GroupChatLinkService(
         if (organization is null)
             return;
 
-        var spaces = await accessService.GetAvailableSpaces(
-            new OrganizationAuthData { UserId = userId, OrganizationId = organizationId },
-            x => x
-                .Select(y => new { y.Id, y.Name })
-                .ToListAsyncEF(cancellationToken),
-            includeDeleted: false,
-            cancellationToken: cancellationToken);
+        var spaces = await optionsReader.GetOptionsBelow(
+            LinkDestinationType.Organization,
+            organizationId,
+            organizationId,
+            userId,
+            cancellationToken);
 
-        var spaceButtons = spaces
-            .Select(space => new[]
-            {
-                new CallbackRoutePath(TelegramRoutes.LinkSpace)
-                    .WithPathParameter(TelegramRoutes.Parameters.Id, space.Id.ToString())
-                    .ToInlineKeyboardButton($"🗂️ {space.Name}")
-            });
-
-        var allButtons = spaceButtons
+        var allButtons = OptionButtons(spaces, TelegramRoutes.LinkSpace)
             .Append([ChooseEachTimeButton(LinkDestinationType.Organization, organizationId, Phrases.LinkAskSpaceEachTime)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.BackToLink))
             .AddCancelButton();
@@ -248,25 +240,14 @@ public class GroupChatLinkService(
         if (!await IsAllowedToLink(query, userId, space.OrganizationId, cancellationToken))
             return;
 
-        var epics = await context.ActiveEpics()
-            .Where(x => x.SpaceId == spaceId)
-            .OrderByDescending(x => x.IsDefault)
-            .ThenBy(x => x.Id)
-            .Select(x => new { x.Id, x.Name, x.IsDefault })
-            .ToListAsyncEF(cancellationToken);
+        var epics = await optionsReader.GetOptionsBelow(
+            LinkDestinationType.Space,
+            spaceId,
+            space.OrganizationId,
+            userId,
+            cancellationToken);
 
-        var buttons = epics
-            .Select(e =>
-            {
-                var epicIcon = e.IsDefault ? "📥" : "📋";
-                
-                return new[]
-                {
-                    new CallbackRoutePath(TelegramRoutes.LinkEpic)
-                        .WithPathParameter(TelegramRoutes.Parameters.Id, e.Id.ToString())
-                        .ToInlineKeyboardButton($"{epicIcon} {e.Name}")
-                };
-            })
+        var buttons = OptionButtons(epics, TelegramRoutes.LinkEpic)
             .Append([ChooseEachTimeButton(LinkDestinationType.Space, spaceId, Phrases.LinkAskEpicEachTime)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkOrganization)
                 .WithPathParameter(TelegramRoutes.Parameters.Id, space.OrganizationId.ToString()))
@@ -309,35 +290,29 @@ public class GroupChatLinkService(
         if (!await IsAllowedToLink(query, userId, epic.OrganizationId, cancellationToken))
             return;
 
-        var statuses = await context.ActiveStatuses()
-            .Where(x => x.EpicId == epicId)
-            .OrderBy(x => x.Id)
-            .Select(x => new { x.Id, x.Name })
-            .ToListAsyncEF(cancellationToken);
-
-        // Handle backlog case
+        // A backlog epic has a single status: it's linked to without asking for one.
         if (epic.IsDefault)
         {
-            var status = await LoadOrAnswerNotFound(
-                query,
-                () => Task.FromResult(statuses.FirstOrDefault()),
-                cancellationToken);
-
-            if (status is null)
+            var backlogStatusId = await optionsReader.GetBacklogStatusId(epicId, cancellationToken);
+            if (backlogStatusId is null)
+            {
+                await AnswerItemNotFound(query, cancellationToken);
                 return;
+            }
 
-            await ShowSaveModePicker(query, userId, LinkDestinationType.Status, status.Id, cancellationToken);
+            await ShowSaveModePicker(query, userId, LinkDestinationType.Status, backlogStatusId.Value, cancellationToken);
 
             return;
         }
-        
-        var buttons = statuses
-            .Select(status => new[]
-            {
-                new CallbackRoutePath(TelegramRoutes.LinkStatus)
-                    .WithPathParameter(TelegramRoutes.Parameters.Id, status.Id.ToString())
-                    .ToInlineKeyboardButton($"🏷️ {status.Name}")
-            })
+
+        var statuses = await optionsReader.GetOptionsBelow(
+            LinkDestinationType.Epic,
+            epicId,
+            epic.OrganizationId,
+            userId,
+            cancellationToken);
+
+        var buttons = OptionButtons(statuses, TelegramRoutes.LinkStatus)
             .Append([ChooseEachTimeButton(LinkDestinationType.Epic, epicId, Phrases.LinkAskStatusEachTime)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkSpace)
                 .WithPathParameter(TelegramRoutes.Parameters.Id, epic.SpaceId.ToString()))
@@ -448,6 +423,19 @@ public class GroupChatLinkService(
         return await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken)
             ? destination
             : null;
+    }
+
+    /// <summary>
+    /// One row per option, each opening <paramref name="route"/> for it - the next step of /link.
+    /// </summary>
+    private static IEnumerable<InlineKeyboardButton[]> OptionButtons(IEnumerable<DestinationOption> options, string route)
+    {
+        return options.Select(option => new[]
+        {
+            new CallbackRoutePath(route)
+                .WithPathParameter(TelegramRoutes.Parameters.Id, option.Id.ToString())
+                .ToInlineKeyboardButton(option.Label),
+        });
     }
 
     private static InlineKeyboardButton ChooseEachTimeButton(LinkDestinationType type, long id, string text)

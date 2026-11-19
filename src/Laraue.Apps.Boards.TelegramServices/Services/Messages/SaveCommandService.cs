@@ -84,45 +84,17 @@ public class SaveCommandService(
                     ExternalChatId = message.Chat.Id,
                     RepliedExternalMessageId = repliedMessage.MessageId,
                     UserId = userId,
-                    Title = ExtractTitle(message.Text),
+                    Title = SaveCommandText.ExtractTitle(message.Text),
                     Summarize = summarize,
                 },
                 cancellationToken);
         }
-        catch (ChatNotLinkedException)
+        catch (Exception ex) when (SaveRefusal.GetMessage(ex) is { } refusal)
         {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkNotLinked, cancellationToken);
-            return;
-        }
-        catch (LinkTargetDeletedException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkTargetDeleted, cancellationToken);
-            return;
-        }
-        catch (IssueCreationForbiddenException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
-            return;
-        }
-        catch (AiContentSummarizationException ex)
-        {
-            logger.LogWarning(ex, "AI generation failed for chat {ExternalChatId}", message.Chat.Id);
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.AiSummarizationUnavailable, cancellationToken);
-            return;
-        }
-        catch (InsufficientTokenBalanceException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InsufficientTokenBalance, cancellationToken);
-            return;
-        }
-        catch (IssueLimitExceededException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueLimitExceeded, cancellationToken);
-            return;
-        }
-        catch (IssueLockedByAgentRunException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueLockedByAgentRun, cancellationToken);
+            if (ex is AiContentSummarizationException)
+                logger.LogWarning(ex, "AI generation failed for chat {ExternalChatId}", message.Chat.Id);
+
+            await ephemeralReplySender.SendEphemeralNotice(message, refusal, cancellationToken);
             return;
         }
 
@@ -210,51 +182,5 @@ public class SaveCommandService(
     private static string WithSkippedFilesNotice(string text, string? skippedFilesNotice)
     {
         return skippedFilesNotice is null ? text : $"{text}\n\n{skippedFilesNotice}";
-    }
-
-    /// <summary>
-    /// Everything after the first space in "/save Some title" -&gt; "Some title" (also strips a
-    /// bot @mention, e.g. "/save@mybot Some title"). Null when the command was sent bare.
-    /// </summary>
-    internal static string? ExtractTitle(string? commandText)
-    {
-        if (string.IsNullOrEmpty(commandText))
-            return null;
-
-        var spaceIndex = commandText.IndexOf(' ');
-        if (spaceIndex < 0)
-            return null;
-
-        // Trim in span-space first so a bare "/save " (no real title) doesn't allocate at all,
-        // and a title with surrounding whitespace only allocates once, for the final string.
-        var title = commandText.AsSpan(spaceIndex + 1).Trim();
-        return title.IsEmpty ? null : title.ToString();
-    }
-
-    /// <summary>
-    /// "/save ..." or "/aisave ..." (with or without a bot @mention).
-    /// </summary>
-    internal static bool IsSaveCommand(string? text)
-    {
-        return CommandName(text) is TelegramRoutes.Commands.Save or TelegramRoutes.Commands.AiSave;
-    }
-
-    internal static bool IsAiSaveCommand(string? text)
-    {
-        return CommandName(text) == TelegramRoutes.Commands.AiSave;
-    }
-
-    /// <summary>
-    /// "/aisave@mybot Some title" -&gt; "/aisave". Null when the text isn't a command.
-    /// </summary>
-    private static string? CommandName(string? text)
-    {
-        if (string.IsNullOrEmpty(text) || text[0] != '/')
-            return null;
-
-        var name = text.AsSpan();
-        var end = name.IndexOfAny(' ', '@');
-
-        return (end < 0 ? name : name[..end]).ToString();
     }
 }

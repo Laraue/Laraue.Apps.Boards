@@ -1,9 +1,7 @@
-using Laraue.Apps.Boards.Common;
-using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
-using Laraue.Apps.Boards.Services.Billing;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Apps.Boards.TelegramServices.Services.Search;
@@ -51,8 +49,8 @@ public interface ISaveDestinationPicker
 public class SaveDestinationPicker(
     DatabaseContext context,
     ITelegramBotClient client,
-    IAccessService accessService,
     ILinkDestinationReader destinationReader,
+    IDestinationOptionsReader optionsReader,
     ITelegramSaveMessageService saveMessageService,
     ILogger<SaveDestinationPicker> logger)
     : ISaveDestinationPicker
@@ -108,8 +106,9 @@ public class SaveDestinationPicker(
         }
 
         // In "after /save" mode the picker answers the /save command: its sender owns the pick, and its text carries
-        // the title and /aisave. Otherwise - auto mode, or the command was deleted meanwhile - the message's sender.
-        var command = picker.ReplyToMessage is { } replied && SaveCommandService.IsSaveCommand(replied.Text)
+        // the title and /aisave. Otherwise it answers the saved message, which is never a command - and if the
+        // command was deleted meanwhile, there's no reply at all. Then the message's sender owns the pick.
+        var command = picker.ReplyToMessage is { } replied && replied.IsBotCommand()
             ? replied
             : null;
 
@@ -171,12 +170,12 @@ public class SaveDestinationPicker(
                     TelegramMessageId = telegramMessageId,
                     StatusId = statusId,
                     UserId = userId,
-                    Title = SaveCommandService.ExtractTitle(commandText),
-                    Summarize = SaveCommandService.IsAiSaveCommand(commandText),
+                    Title = SaveCommandText.ExtractTitle(commandText),
+                    Summarize = SaveCommandText.IsAiSave(commandText),
                 },
                 cancellationToken);
         }
-        catch (Exception ex) when (ToRefusal(ex) is { } refusal)
+        catch (Exception ex) when (SaveRefusal.GetMessage(ex) is { } refusal)
         {
             if (ex is AiContentSummarizationException)
                 logger.LogWarning(ex, "AI generation failed for chat {ExternalChatId}", externalChatId);
@@ -254,67 +253,30 @@ public class SaveDestinationPicker(
         if (destination is null)
             return null;
 
-        InlineKeyboardButton PickButton(LinkDestinationType pickedType, long pickedId, string text) =>
-            new CallbackRoutePath(TelegramRoutes.SaveDestinationPicked)
-                .WithPathParameter(TelegramRoutes.Parameters.MessageId, telegramMessageId.ToString())
-                .WithPathParameter(TelegramRoutes.Parameters.DestinationType, ((int)pickedType).ToString())
-                .WithPathParameter(TelegramRoutes.Parameters.DestinationId, pickedId.ToString())
-                .ToInlineKeyboardButton(text);
-
-        IEnumerable<InlineKeyboardButton[]> rows;
-        string prompt;
-        PickerPoint? back;
-
-        switch (type)
+        var (prompt, back) = type switch
         {
-            case LinkDestinationType.Organization:
-                var spaces = await accessService.GetAvailableSpaces(
-                    new OrganizationAuthData { UserId = userId, OrganizationId = destination.OrganizationId },
-                    x => x
-                        .OrderBy(y => y.Id)
-                        .Select(y => new { y.Id, y.Name })
-                        .ToListAsyncEF(cancellationToken),
-                    includeDeleted: false,
-                    cancellationToken: cancellationToken);
-
-                rows = spaces.Select(x => new[] { PickButton(LinkDestinationType.Space, x.Id, $"🗂️ {x.Name}") });
-                prompt = string.Format(Phrases.LinkChooseSpace, destination.OrganizationName);
-                back = null;
-                break;
-
-            case LinkDestinationType.Space:
-                var epics = await context.ActiveEpics()
-                    .Where(x => x.SpaceId == id)
-                    .OrderByDescending(x => x.IsDefault)
-                    .ThenBy(x => x.Id)
-                    .Select(x => new { x.Id, x.Name, x.IsDefault })
-                    .ToListAsyncEF(cancellationToken);
-
-                rows = epics.Select(x => new[]
-                {
-                    PickButton(LinkDestinationType.Epic, x.Id, $"{(x.IsDefault ? "📥" : "📋")} {x.Name}"),
-                });
-                prompt = string.Format(Phrases.LinkChooseEpic, $"{destination.OrganizationName} → {destination.SpaceName}");
-                back = new PickerPoint(LinkDestinationType.Organization, destination.OrganizationId);
-                break;
-
-            case LinkDestinationType.Epic:
-                var statuses = await context.ActiveStatuses()
-                    .Where(x => x.EpicId == id)
-                    .OrderBy(x => x.Id)
-                    .Select(x => new { x.Id, x.Name })
-                    .ToListAsyncEF(cancellationToken);
-
-                rows = statuses.Select(x => new[] { PickButton(LinkDestinationType.Status, x.Id, $"🏷️ {x.Name}") });
-                prompt = string.Format(
+            LinkDestinationType.Organization => (
+                string.Format(Phrases.LinkChooseSpace, destination.OrganizationName),
+                (PickerPoint?)null),
+            LinkDestinationType.Space => (
+                string.Format(Phrases.LinkChooseEpic, $"{destination.OrganizationName} → {destination.SpaceName}"),
+                new PickerPoint(LinkDestinationType.Organization, destination.OrganizationId)),
+            LinkDestinationType.Epic => (
+                string.Format(
                     Phrases.LinkChooseStatus,
-                    $"{destination.OrganizationName} → {destination.SpaceName} → {destination.EpicName}");
-                back = new PickerPoint(LinkDestinationType.Space, destination.SpaceId!.Value);
-                break;
+                    $"{destination.OrganizationName} → {destination.SpaceName} → {destination.EpicName}"),
+                new PickerPoint(LinkDestinationType.Space, destination.SpaceId!.Value)),
+            _ => (null, null),
+        };
 
-            default:
-                return null;
-        }
+        if (prompt is null)
+            return null;
+
+        var options = await optionsReader.GetOptionsBelow(type, id, destination.OrganizationId, userId, cancellationToken);
+        var rows = options.Select(option => new[]
+        {
+            PickRoute(telegramMessageId, new PickerPoint(option.Type, option.Id)).ToInlineKeyboardButton(option.Label),
+        });
 
         // Back goes up only within what the chat leaves to choose - never above its fixed part.
         if (back is not null && back.Type >= chat.DestinationType)
@@ -334,14 +296,9 @@ public class SaveDestinationPicker(
         if (destination.Type == LinkDestinationType.Status)
             return destination.Id;
 
-        if (destination.Type != LinkDestinationType.Epic)
-            return null;
-
-        return await context.ActiveStatuses()
-            .Where(x => x.EpicId == destination.Id && x.Epic!.IsDefault)
-            .OrderBy(x => x.Id)
-            .Select(x => (long?)x.Id)
-            .FirstOrDefaultAsyncEF(cancellationToken);
+        return destination.Type == LinkDestinationType.Epic
+            ? await optionsReader.GetBacklogStatusId(destination.Id, cancellationToken)
+            : null;
     }
 
     /// <summary>
@@ -361,18 +318,6 @@ public class SaveDestinationPicker(
             _ => false,
         };
     }
-
-    private static string? ToRefusal(Exception ex) => ex switch
-    {
-        ChatNotLinkedException => Phrases.LinkNotLinked,
-        LinkTargetDeletedException => Phrases.LinkTargetDeleted,
-        IssueCreationForbiddenException => Phrases.IssueCreationForbidden,
-        IssueLimitExceededException => Phrases.IssueLimitExceeded,
-        IssueLockedByAgentRunException => Phrases.IssueLockedByAgentRun,
-        AiContentSummarizationException => Phrases.AiSummarizationUnavailable,
-        InsufficientTokenBalanceException => Phrases.InsufficientTokenBalance,
-        _ => null,
-    };
 
     private static CallbackRoutePath PickRoute(long telegramMessageId, PickerPoint point)
     {

@@ -237,6 +237,8 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
             From = AdminUser,
             Id = 6,
             Text = "/save Fix login",
+            // Telegram tags a command's text; the picker recognises the /save it answers by that tag.
+            Entities = [new MessageEntity { Type = MessageEntityType.BotCommand, Offset = 0, Length = 5 }],
             Chat = Group,
             ReplyToMessage = new Message { Id = 5, Chat = Group },
         };

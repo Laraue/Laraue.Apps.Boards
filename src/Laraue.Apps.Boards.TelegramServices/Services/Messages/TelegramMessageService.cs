@@ -23,64 +23,10 @@ public class TelegramMessageService(
         {
             result = await saveMessageService.Save(request, cancellationToken);
         }
-        catch (ChatNotLinkedException)
+        catch (Exception ex) when (SaveRefusal.GetMessage(ex) is { } refusal)
         {
             if (notifyOnFailure)
-            {
-                await client.SendMessage(
-                    request.ExternalChatId,
-                    Phrases.LinkNotLinked,
-                    cancellationToken: cancellationToken);
-            }
-
-            return;
-        }
-        catch (LinkTargetDeletedException)
-        {
-            if (notifyOnFailure)
-            {
-                await client.SendMessage(
-                    request.ExternalChatId,
-                    Phrases.LinkTargetDeleted,
-                    cancellationToken: cancellationToken);
-            }
-
-            return;
-        }
-        catch (IssueCreationForbiddenException)
-        {
-            if (notifyOnFailure)
-            {
-                await client.SendMessage(
-                    request.ExternalChatId,
-                    Phrases.IssueCreationForbidden,
-                    cancellationToken: cancellationToken);
-            }
-
-            return;
-        }
-        catch (IssueLimitExceededException)
-        {
-            if (notifyOnFailure)
-            {
-                await client.SendMessage(
-                    request.ExternalChatId,
-                    Phrases.IssueLimitExceeded,
-                    cancellationToken: cancellationToken);
-            }
-
-            return;
-        }
-        catch (IssueLockedByAgentRunException)
-        {
-            // An edited message whose card is with the agent: the card keeps the text that was handed off.
-            if (notifyOnFailure)
-            {
-                await client.SendMessage(
-                    request.ExternalChatId,
-                    Phrases.IssueLockedByAgentRun,
-                    cancellationToken: cancellationToken);
-            }
+                await client.SendMessage(request.ExternalChatId, refusal, cancellationToken: cancellationToken);
 
             return;
         }
