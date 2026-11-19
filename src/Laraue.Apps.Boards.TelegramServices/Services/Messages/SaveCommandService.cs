@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
@@ -32,6 +32,7 @@ public class SaveCommandService(
     ITelegramSaveMessageService saveMessageService,
     ITelegramBotClient client,
     IEphemeralReplySender ephemeralReplySender,
+    ISaveDestinationPicker destinationPicker,
     ILogger<SaveCommandService> logger)
     : ISaveCommandService
 {
@@ -171,6 +172,17 @@ public class SaveCommandService(
                     cancellationToken);
                 break;
 
+            // The chat chooses part of its destination each time (BRD-365): the picker answers this /save command,
+            // so a tap can read its title and /aisave, and who sent it.
+            case SaveByReplyOutcome.DestinationRequired:
+                await destinationPicker.SendPicker(
+                    message.Chat.Id,
+                    message.MessageId,
+                    result.TelegramMessageId!.Value,
+                    userId,
+                    cancellationToken);
+                break;
+
             case SaveByReplyOutcome.NotNeededInAutoMode:
                 await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNotNeededInAutoMode, cancellationToken);
                 break;
@@ -204,7 +216,7 @@ public class SaveCommandService(
     /// Everything after the first space in "/save Some title" -&gt; "Some title" (also strips a
     /// bot @mention, e.g. "/save@mybot Some title"). Null when the command was sent bare.
     /// </summary>
-    private static string? ExtractTitle(string? commandText)
+    internal static string? ExtractTitle(string? commandText)
     {
         if (string.IsNullOrEmpty(commandText))
             return null;
@@ -217,5 +229,32 @@ public class SaveCommandService(
         // and a title with surrounding whitespace only allocates once, for the final string.
         var title = commandText.AsSpan(spaceIndex + 1).Trim();
         return title.IsEmpty ? null : title.ToString();
+    }
+
+    /// <summary>
+    /// "/save ..." or "/aisave ..." (with or without a bot @mention).
+    /// </summary>
+    internal static bool IsSaveCommand(string? text)
+    {
+        return CommandName(text) is "/save" or "/aisave";
+    }
+
+    internal static bool IsAiSaveCommand(string? text)
+    {
+        return CommandName(text) == "/aisave";
+    }
+
+    /// <summary>
+    /// "/aisave@mybot Some title" -&gt; "/aisave". Null when the text isn't a command.
+    /// </summary>
+    private static string? CommandName(string? text)
+    {
+        if (string.IsNullOrEmpty(text) || text[0] != '/')
+            return null;
+
+        var name = text.AsSpan();
+        var end = name.IndexOfAny(' ', '@');
+
+        return (end < 0 ? name : name[..end]).ToString();
     }
 }

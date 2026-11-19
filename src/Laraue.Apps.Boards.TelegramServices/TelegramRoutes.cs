@@ -15,14 +15,20 @@ public static class TelegramRoutes
     public const string LinkSpace = $"/link/space/{{{Parameters.Id}}}";
     public const string LinkEpic = $"/link/epic/{{{Parameters.Id}}}";
     public const string LinkStatus = $"/link/status/{{{Parameters.Id}}}";
-    public const string LinkSaveMode = $"/link/save-mode/{{{Parameters.StatusId}}}/{{{Parameters.Mode}}}";
+    public const string LinkChooseEachTime =
+        $"/link/each-time/{{{Parameters.DestinationType}}}/{{{Parameters.DestinationId}}}";
+    public const string LinkSaveMode =
+        $"/link/save-mode/{{{Parameters.DestinationType}}}/{{{Parameters.DestinationId}}}/{{{Parameters.Mode}}}";
     public const string LinkReplyMode =
-        $"/link/reply-mode/{{{Parameters.StatusId}}}/{{{Parameters.SaveMode}}}/{{{Parameters.ReplyMode}}}";
+        $"/link/reply-mode/{{{Parameters.DestinationType}}}/{{{Parameters.DestinationId}}}/{{{Parameters.SaveMode}}}/{{{Parameters.ReplyMode}}}";
     public const string BackToLink = "/link/back";
     public const string LinkSettingsSaveMode = $"/link/settings/save-mode/{{{Parameters.Mode}}}";
     public const string LinkSettingsReplyMode = $"/link/settings/reply-mode/{{{Parameters.Mode}}}";
     public const string LinkChangeDestination = "/link/destination";
     
+    public const string SaveDestinationPicked =
+        $"/save/where/{{{Parameters.MessageId}}}/{{{Parameters.DestinationType}}}/{{{Parameters.DestinationId}}}";
+
     public const string CloseCallbackWindow = "/close-callback";
 
     /// <summary>
@@ -32,8 +38,10 @@ public static class TelegramRoutes
     public static class Parameters
     {
         public const string Id = "id";
+        public const string MessageId = "messageId";
         public const string IssueId = "issueId";
-        public const string StatusId = "statusId";
+        public const string DestinationType = "destinationType";
+        public const string DestinationId = "destinationId";
         public const string Mode = "mode";
         public const string SaveMode = "saveMode";
         public const string ReplyMode = "replyMode";

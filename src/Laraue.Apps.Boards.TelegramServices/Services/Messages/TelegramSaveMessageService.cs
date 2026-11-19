@@ -5,6 +5,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
+using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Core.DateTime.Services.Abstractions;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,15 @@ public interface ITelegramSaveMessageService
     /// </summary>
     Task<SaveByReplyResult> SaveByReply(
         SaveByReplyRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The last step of picking where a message goes (BRD-365): creates its card in <c>StatusId</c> from what's
+    /// recorded by now, with the same rules as /save (or auto-save's generated title). Returns
+    /// <see cref="SaveByReplyOutcome.AlreadySaved"/> when the message got its card meanwhile.
+    /// </summary>
+    Task<SaveByReplyResult> SaveToStatus(
+        SaveToStatusRequest request,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -64,7 +74,8 @@ public class TelegramSaveMessageService(
     IAiContentSummarizer aiContentSummarizer,
     IBillingTokenClient billingTokenClient,
     ITokenEstimate tokenEstimate,
-    IUsageLimitService usageLimitService)
+    IUsageLimitService usageLimitService,
+    ILinkDestinationReader destinationReader)
     : ITelegramSaveMessageService
 {
     // The web app crops previews into 64 px tiles (`object-fit: cover`), so a 90 px size is blurry on a 2-3x screen.
@@ -97,116 +108,227 @@ public class TelegramSaveMessageService(
         if (linkedChat.SaveMode == SaveMode.EachMessage)
             return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NotNeededInAutoMode };
 
-        var repliedMessage = await context.TelegramMessages
+        var repliedMessageId = await context.TelegramMessages
             .Where(x => x.ExternalMessageId == request.RepliedExternalMessageId)
             .Where(x => x.ExternalChatId == request.ExternalChatId)
-            .Select(x => new { x.Id, x.TelegramMediaGroupId })
+            .Select(x => (long?)x.Id)
             .FirstOrDefaultAsyncEF(cancellationToken);
 
-        if (repliedMessage is null)
+        if (repliedMessageId is null)
             return new SaveByReplyResult { Outcome = SaveByReplyOutcome.MessageNotTracked };
 
-        // Card content and attachments always live on a group's first message - whether the
-        // user replied to that one specifically or another photo in the same album.
-        var groupQuery = repliedMessage.TelegramMediaGroupId is null
-            ? context.TelegramMessages.Where(x => x.Id == repliedMessage.Id)
-            : context.TelegramMessages.Where(x => x.TelegramMediaGroupId == repliedMessage.TelegramMediaGroupId);
+        var group = await LoadRecordedGroup(repliedMessageId.Value, cancellationToken);
+        var cardMessage = group.CardMessage;
 
-        var groupMessages = await groupQuery
-            .OrderBy(x => x.Id)
-            .Select(x => new
+        if (cardMessage.IssueId is not null)
+        {
+            // An existing card already has its place: in a chat that asks where, the permission is checked on the
+            // card's own epic.
+            if (linkedChat.StatusId is not null)
             {
-                x.Id,
-                x.Text,
-                x.AttachmentId,
-                IssueId = x.Issue != null ? (long?)x.Issue.Id : null,
-                x.SkippedFileName,
-                x.SkippedFileReason,
+                await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
+            }
+            else
+            {
+                EnsureTargetExists(linkedChat, request.ExternalChatId);
+                var cardEpicId = await context.Issues
+                    .Where(x => x.Id == cardMessage.IssueId.Value)
+                    .Select(x => x.Status!.EpicId)
+                    .FirstAsyncEF(cancellationToken);
 
-                // Photos have no file name, videos are named by their kind: only a file sent as a document
-                // gives a title.
+                await EnsureCanCreateIssueInEpic(
+                    linkedChat.OrganizationId,
+                    cardEpicId,
+                    request.UserId,
+                    request.ExternalChatId,
+                    cancellationToken);
+            }
+
+            return await UpdateCardByReply(request, linkedChat, group, cancellationToken);
+        }
+
+        if (linkedChat.StatusId is not null)
+            await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
+        else
+            EnsureTargetExists(linkedChat, request.ExternalChatId);
+
+        if (group.HasNothingToSave)
+            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NothingToSave, SkippedFiles = group.SkippedFiles };
+
+        // Part of the destination is chosen each time: the card is created once the user picks where (BRD-365). The
+        // checks that don't depend on the place run now, so nobody picks a place for a save that can't happen.
+        if (linkedChat.StatusId is null)
+        {
+            if (request.Title is null && group.Content is null && group.DocumentTitle is null)
+                return new SaveByReplyResult { Outcome = SaveByReplyOutcome.TitleRequired, SkippedFiles = group.SkippedFiles };
+
+            return new SaveByReplyResult
+            {
+                Outcome = SaveByReplyOutcome.DestinationRequired,
+                TelegramMessageId = cardMessage.Id,
+                SkippedFiles = group.SkippedFiles,
+            };
+        }
+
+        var created = await CreateCardFromRecorded(
+            group,
+            linkedChat.StatusId.Value,
+            linkedChat.OrganizationId,
+            request.UserId,
+            new RecordedCardTitle(request.Title, request.Summarize, GenerateWhenMissing: false),
+            request.ExternalChatId,
+            linkedChat.ChatTitle,
+            cancellationToken);
+
+        return await ToSaveResult(created, group, linkedChat.ReplyMode, cancellationToken);
+    }
+
+    public async Task<SaveByReplyResult> SaveToStatus(SaveToStatusRequest request, CancellationToken cancellationToken)
+    {
+        var linkedChat = await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
+        EnsureTargetExists(linkedChat, request.ExternalChatId);
+
+        var group = await LoadRecordedGroup(request.TelegramMessageId, cancellationToken);
+        if (group.CardMessage.IssueId is { } existingIssueId)
+            return await ToSaveResult(new RecordedCardCreation(SaveByReplyOutcome.AlreadySaved, existingIssueId), group, linkedChat.ReplyMode, cancellationToken);
+
+        var epicId = await context.ActiveStatuses()
+            .Where(x => x.Id == request.StatusId)
+            .Select(x => x.EpicId)
+            .FirstAsyncEF(cancellationToken);
+
+        await EnsureCanCreateIssueInEpic(
+            linkedChat.OrganizationId,
+            epicId,
+            request.UserId,
+            request.ExternalChatId,
+            cancellationToken);
+
+        var created = await CreateCardFromRecorded(
+            group,
+            request.StatusId,
+            linkedChat.OrganizationId,
+            request.UserId,
+            // Auto-save never asks for a title: a caption-less photo gets a generated one, as when saved right away.
+            new RecordedCardTitle(request.Title, request.Summarize, GenerateWhenMissing: linkedChat.SaveMode == SaveMode.EachMessage),
+            request.ExternalChatId,
+            linkedChat.ChatTitle,
+            cancellationToken);
+
+        return await ToSaveResult(created, group, linkedChat.ReplyMode, cancellationToken);
+    }
+
+    /// <summary>
+    /// A repeat /save on a message that already has a card: manual mode never syncs edits into an existing card on
+    /// its own (see Save), so this is the explicit trigger that pulls in whatever has changed since - both the text
+    /// and any new attachments in the group.
+    /// </summary>
+    private async Task<SaveByReplyResult> UpdateCardByReply(
+        SaveByReplyRequest request,
+        LinkedChatToSaveMessage linkedChat,
+        RecordedGroup group,
+        CancellationToken cancellationToken)
+    {
+        var issueId = group.CardMessage.IssueId!.Value;
+        var content = group.Content;
+        var update = new IssueUpdateRequest().LinkExistingAttachments(group.AttachmentIds);
+
+        // A bare /save adds no AI call here: the card already has a title, so only the first line follows a changed
+        // text - unless the user gave a title, which wins. /aisave rewrites the text and brings its own title.
+        if (content is not null)
+        {
+            string? aiTitle = null;
+            if (request.Summarize)
+            {
+                var generated = await GenerateWithAi(
+                    linkedChat.OrganizationId, request.UserId, content, needTitle: true, cancellationToken);
+                (aiTitle, content) = (generated.Title, generated.Content);
+            }
+
+            update.SetContent(content).SetSuggestedTitle(
+                aiTitle ?? BuildTitle(content, "message", dateTimeProvider.UtcNow, request.ExternalChatId, linkedChat.ChatTitle));
+        }
+
+        if (request.Title is not null)
+            update.SetTitle(request.Title);
+
+        await coreIssuesService.Update(issueId, request.UserId, update, cancellationToken);
+
+        return await ToSaveResult(
+            new RecordedCardCreation(SaveByReplyOutcome.AlreadySaved, issueId),
+            group,
+            linkedChat.ReplyMode,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The message (or its whole album) as recorded now: card content and attachments always live on a group's first
+    /// message, whichever member was replied to.
+    /// </summary>
+    private async Task<RecordedGroup> LoadRecordedGroup(long telegramMessageId, CancellationToken cancellationToken)
+    {
+        var mediaGroupId = await context.TelegramMessages
+            .Where(x => x.Id == telegramMessageId)
+            .Select(x => x.TelegramMediaGroupId)
+            .FirstAsyncEF(cancellationToken);
+
+        var groupQuery = mediaGroupId is null
+            ? context.TelegramMessages.Where(x => x.Id == telegramMessageId)
+            : context.TelegramMessages.Where(x => x.TelegramMediaGroupId == mediaGroupId);
+
+        var messages = await groupQuery
+            .OrderBy(x => x.Id)
+            .Select(x => new RecordedMessage
+            {
+                Id = x.Id,
+                ExternalMessageId = x.ExternalMessageId,
+                Text = x.Text,
+                AttachmentId = x.AttachmentId,
+                AttachmentType = x.Attachment != null ? x.Attachment.Type : null,
+                IssueId = x.Issue != null ? x.Issue.Id : null,
+                SkippedFileName = x.SkippedFileName,
+                SkippedFileReason = x.SkippedFileReason,
+                SentAt = x.SentAt,
+
+                // Photos have no file name, videos are named by their kind: only a file sent as a document gives a
+                // title.
                 DocumentName = x.Attachment != null && x.Attachment.Type != AttachmentType.Video
                     ? x.Attachment.File!.Name
                     : null,
             })
             .ToListAsyncEF(cancellationToken);
 
-        var skippedFiles = groupMessages
-            .Where(x => x.SkippedFileName is not null && x.SkippedFileReason is not null)
-            .Select(x => new SkippedFile(x.SkippedFileName!, x.SkippedFileReason!.Value))
-            .ToArray();
+        return new RecordedGroup(messages);
+    }
 
-        // repliedMessage.Id is always one of these rows (either the query above matched it
-        // directly, or it's a member of the group it's filtered by), so this can never be empty.
-        var cardMessage = groupMessages.First();
-
-        await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
-
-        var content = string.IsNullOrWhiteSpace(cardMessage.Text) ? null : cardMessage.Text.Trim();
-        var attachmentIds = groupMessages
-            .Where(x => x.AttachmentId is not null)
-            .Select(x => x.AttachmentId!.Value)
-            .ToArray();
-
-        if (cardMessage.IssueId is not null)
-        {
-            // Manual mode never syncs edits into an existing card on its own (see Save) - a
-            // repeat /save is the explicit trigger that pulls in whatever has changed since,
-            // both the text and any new attachments in the group.
-            var update = new IssueUpdateRequest().LinkExistingAttachments(attachmentIds);
-
-            // A bare /save adds no AI call here: the card already has a title, so only the first line
-            // follows a changed text - unless the user gave a title, which wins. /aisave rewrites the text
-            // and brings its own title.
-            if (content is not null)
-            {
-                string? aiTitle = null;
-                if (request.Summarize)
-                {
-                    var generated = await GenerateWithAi(
-                        linkedChat.OrganizationId, request.UserId, content, needTitle: true, cancellationToken);
-                    (aiTitle, content) = (generated.Title, generated.Content);
-                }
-
-                update.SetContent(content).SetSuggestedTitle(
-                    aiTitle ?? BuildTitle(content, "message", dateTimeProvider.UtcNow, request.ExternalChatId, linkedChat.ChatTitle));
-            }
-
-            if (request.Title is not null)
-                update.SetTitle(request.Title);
-
-            await coreIssuesService.Update(
-                cardMessage.IssueId.Value,
-                request.UserId,
-                update,
-                cancellationToken);
-
-            var existingPreview = await issuePreviewBuilder.Build(cardMessage.IssueId.Value, cancellationToken);
-
-            return new SaveByReplyResult
-            {
-                Outcome = SaveByReplyOutcome.AlreadySaved,
-                TelegramMessageId = cardMessage.Id,
-                IssueUrl = existingPreview.Url,
-                IssuePreviewText = existingPreview.Text,
-                SkippedFiles = skippedFiles,
-                ReplyMode = linkedChat.ReplyMode,
-            };
-        }
-
-        if (content is null && attachmentIds.Length == 0)
-            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.NothingToSave, SkippedFiles = skippedFiles };
+    /// <summary>
+    /// Creates the card for a recorded message (or album) in <paramref name="statusId"/>. The checks run first; the
+    /// card is created under a lock on the message row, and if another request created it meanwhile (a double tap)
+    /// that card is returned instead.
+    /// </summary>
+    private async Task<RecordedCardCreation> CreateCardFromRecorded(
+        RecordedGroup group,
+        long statusId,
+        long organizationId,
+        Guid userId,
+        RecordedCardTitle titleSource,
+        long externalChatId,
+        string? chatTitle,
+        CancellationToken cancellationToken)
+    {
+        if (group.HasNothingToSave)
+            return new RecordedCardCreation(SaveByReplyOutcome.NothingToSave, null);
 
         // /save is deterministic, no AI: "/save Some title" sets the title, a bare /save takes the first line of the
         // text. /aisave always has the AI rewrite the text; a title given with it is kept as it is, without one the
-        // AI writes the title as well.
-        var isTitleSetExplicitly = request.Title is not null;
-        var title = request.Title;
+        // AI writes the title as well. The AI runs before the transaction - it calls Billing.
+        var content = group.Content;
+        var isTitleSetExplicitly = titleSource.Title is not null;
+        var title = titleSource.Title;
 
-        if (content is not null && request.Summarize)
+        if (content is not null && titleSource.Summarize)
         {
-            var generated = await GenerateWithAi(
-                linkedChat.OrganizationId, request.UserId, content, needTitle: title is null, cancellationToken);
+            var generated = await GenerateWithAi(organizationId, userId, content, needTitle: title is null, cancellationToken);
             title ??= generated.Title;
             content = generated.Content;
         }
@@ -216,35 +338,132 @@ public class TelegramSaveMessageService(
         }
 
         // No text to take a title from: a document is named after its file.
-        title ??= groupMessages
-            .Select(x => IssueTitle.Normalize(x.DocumentName))
-            .FirstOrDefault(x => x.Length > 0);
+        title ??= group.DocumentTitle;
 
-        // Nothing to take a title from (only photos or videos, or a text of nothing but markup): the user gives one.
+        // Only photos or videos, or a text of nothing but markup: /save asks for a title, auto-save names it after
+        // its kind, chat and time, as when it saves right away.
+        if (title is null && titleSource.GenerateWhenMissing)
+        {
+            title = BuildTitle(
+                null,
+                group.Kind,
+                group.CardMessage.SentAt ?? dateTimeProvider.UtcNow,
+                externalChatId,
+                chatTitle);
+        }
+
         if (title is null)
-            return new SaveByReplyResult { Outcome = SaveByReplyOutcome.TitleRequired, SkippedFiles = skippedFiles };
+            return new RecordedCardCreation(SaveByReplyOutcome.TitleRequired, null);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var issueCreate = new IssueCreateRequest(linkedChat.StatusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly)
-            .SetContent(content)
-            .SetTelegramMessageId(cardMessage.Id)
-            .LinkExistingAttachments(attachmentIds);
+        await context.LockTelegramMessage(group.CardMessage.Id, cancellationToken);
 
-        var issueId = await coreIssuesService.Create(request.UserId, issueCreate, cancellationToken);
+        var existingIssueId = await context.Issues
+            .Where(x => x.TelegramMessageId == group.CardMessage.Id)
+            .Select(x => (long?)x.Id)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (existingIssueId is not null)
+            return new RecordedCardCreation(SaveByReplyOutcome.AlreadySaved, existingIssueId);
+
+        var issueCreate = new IssueCreateRequest(statusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly)
+            .SetContent(content)
+            .SetTelegramMessageId(group.CardMessage.Id)
+            .LinkExistingAttachments(group.AttachmentIds);
+
+        var issueId = await coreIssuesService.Create(userId, issueCreate, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
 
-        var preview = await issuePreviewBuilder.Build(issueId, cancellationToken);
+        return new RecordedCardCreation(SaveByReplyOutcome.Saved, issueId);
+    }
+
+    private async Task<SaveByReplyResult> ToSaveResult(
+        RecordedCardCreation created,
+        RecordedGroup group,
+        ReplyMode replyMode,
+        CancellationToken cancellationToken)
+    {
+        if (created.IssueId is null)
+            return new SaveByReplyResult { Outcome = created.Outcome, SkippedFiles = group.SkippedFiles };
+
+        var preview = await issuePreviewBuilder.Build(created.IssueId.Value, cancellationToken);
 
         return new SaveByReplyResult
         {
-            Outcome = SaveByReplyOutcome.Saved,
-            TelegramMessageId = cardMessage.Id,
+            Outcome = created.Outcome,
+            TelegramMessageId = group.CardMessage.Id,
+            SavedExternalMessageId = group.CardMessage.ExternalMessageId,
             IssueUrl = preview.Url,
             IssuePreviewText = preview.Text,
-            SkippedFiles = skippedFiles,
-            ReplyMode = linkedChat.ReplyMode,
+            SkippedFiles = group.SkippedFiles,
+            ReplyMode = replyMode,
+        };
+    }
+
+    /// <param name="Title">The title the user gave ("/save Some title"), if any.</param>
+    /// <param name="Summarize">/aisave: the AI rewrites the text, and writes the title when none was given.</param>
+    /// <param name="GenerateWhenMissing">Auto-save: with nothing to take a title from, name the card after its kind,
+    /// chat and time instead of asking for one.</param>
+    private sealed record RecordedCardTitle(string? Title, bool Summarize, bool GenerateWhenMissing);
+
+    private sealed record RecordedCardCreation(SaveByReplyOutcome Outcome, long? IssueId);
+
+    private sealed class RecordedMessage
+    {
+        public required long Id { get; init; }
+        public required int ExternalMessageId { get; init; }
+        public required string? Text { get; init; }
+        public required Guid? AttachmentId { get; init; }
+        public required AttachmentType? AttachmentType { get; init; }
+        public required long? IssueId { get; init; }
+        public required string? SkippedFileName { get; init; }
+        public required SkippedFileReason? SkippedFileReason { get; init; }
+        public required DateTime? SentAt { get; init; }
+        public required string? DocumentName { get; init; }
+    }
+
+    /// <summary>
+    /// A recorded message, or all recorded members of its album, oldest first.
+    /// </summary>
+    private sealed class RecordedGroup(IReadOnlyList<RecordedMessage> messages)
+    {
+        /// <summary>
+        /// The message the card belongs to: an album's first member.
+        /// </summary>
+        public RecordedMessage CardMessage { get; } = messages[0];
+
+        public string? Content { get; } = string.IsNullOrWhiteSpace(messages[0].Text) ? null : messages[0].Text!.Trim();
+
+        public Guid[] AttachmentIds { get; } = messages
+            .Where(x => x.AttachmentId is not null)
+            .Select(x => x.AttachmentId!.Value)
+            .ToArray();
+
+        public SkippedFile[] SkippedFiles { get; } = messages
+            .Where(x => x.SkippedFileName is not null && x.SkippedFileReason is not null)
+            .Select(x => new SkippedFile(x.SkippedFileName!, x.SkippedFileReason!.Value))
+            .ToArray();
+
+        /// <summary>
+        /// The first document's file name, normalized as a title - what a text-less card is named after.
+        /// </summary>
+        public string? DocumentTitle { get; } = messages
+            .Select(x => IssueTitle.Normalize(x.DocumentName))
+            .FirstOrDefault(x => x.Length > 0);
+
+        public bool HasNothingToSave => Content is null && AttachmentIds.Length == 0;
+
+        /// <summary>
+        /// What a generated title calls the card: "image-20260930-101500-Chat name".
+        /// </summary>
+        public string Kind { get; } = messages.Select(x => x.AttachmentType).FirstOrDefault(x => x is not null) switch
+        {
+            DataAccess.Models.AttachmentType.Image => "image",
+            DataAccess.Models.AttachmentType.Video => "video",
+            null => "message",
+            _ => "file",
         };
     }
 
@@ -654,6 +873,16 @@ public class TelegramSaveMessageService(
     /// A message recorded without a card because nothing of it could be saved. Carries the skipped file, if
     /// any, since nothing else tells the sender it was lost.
     /// </summary>
+    /// <summary>
+    /// A recorded message waiting for the sender to pick where it goes (BRD-365).
+    /// </summary>
+    private static GetOrCreateMessageResult DestinationRequired(long telegramMessageId) => new()
+    {
+        Result = null,
+        TelegramMessageId = telegramMessageId,
+        DestinationRequired = true,
+    };
+
     private static GetOrCreateMessageResult NothingSaved(long telegramMessageId, SkippedFile? skippedFile) => new()
     {
         Result = null,
@@ -796,6 +1025,21 @@ public class TelegramSaveMessageService(
         if (HasNothingToSave(request, attachmentId))
             return NothingSaved(savedMessage.Id, isNewMessage ? skippedFile : null);
 
+        // Part of the destination is chosen each time: the card waits for the sender's pick. One picker per album -
+        // sent by its first member with something to save; the card is made from the whole album once picked.
+        if (linkedChat.StatusId is null)
+        {
+            EnsureTargetExists(linkedChat, request.ExternalChatId);
+
+            var pickerAlreadySent = !isNewMessage || await context.TelegramMessages
+                .Where(x => x.TelegramMediaGroupId == groupId && x.Id < savedMessage.Id)
+                .AnyAsync(x => (x.Text != null && x.Text != "") || x.AttachmentId != null, cancellationToken);
+
+            return pickerAlreadySent
+                ? Recorded(savedMessage.Id)
+                : DestinationRequired(firstGroupMessageData?.Id ?? savedMessage.Id);
+        }
+
         await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
 
         // The card always belongs to the group's first message, even when an earlier one had nothing to save.
@@ -908,6 +1152,15 @@ public class TelegramSaveMessageService(
         if (HasNothingToSave(request, attachmentId))
             return NothingSaved(messageId, savedMessage is null ? skippedFile : null);
 
+        // Part of the destination is chosen each time: the card waits for the sender's pick. Only a new message
+        // gets a picker - an edit made while it waits is in the card when it's created.
+        if (linkedChat.StatusId is null)
+        {
+            EnsureTargetExists(linkedChat, request.ExternalChatId);
+
+            return savedMessage is null ? DestinationRequired(messageId) : Recorded(messageId);
+        }
+
         await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
 
         return await CreateCard(
@@ -935,7 +1188,7 @@ public class TelegramSaveMessageService(
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         var issueCreate = new IssueCreateRequest(
-                linkedChat.StatusId,
+                linkedChat.StatusId!.Value,
                 request.SentAt,
                 BuildTitle(request, linkedChat),
                 isTitleSetExplicitly: false)
@@ -1100,22 +1353,42 @@ public class TelegramSaveMessageService(
 
     private async Task<LinkedChatToSaveMessage> GetLinkedChatToSaveMessage(long externalChatId, CancellationToken cancellationToken)
     {
-        var linkedChatData = await context.LinkedTelegramChats
+        var chat = await context.LinkedTelegramChats
             .Where(x => x.ExternalChatId == externalChatId && x.UnlinkedAt == null)
-            .Select(x => new LinkedChatToSaveMessage
+            .Select(x => new
             {
-                LinkedTelegramChatId = x.Id,
-                StatusId = x.StatusId,
-                EpicId = x.Status!.EpicId,
-                OrganizationId = x.Status.Epic!.Space!.OrganizationId,
-                SaveMode = x.SaveMode,
-                ReplyMode = x.ReplyMode,
-                ChatTitle = x.Title,
-                IsTargetDeleted = x.Status.DeletedAt != null,
+                x.Id,
+                x.OrganizationId,
+                x.DestinationType,
+                x.DestinationId,
+                x.SaveMode,
+                x.ReplyMode,
+                x.Title,
             })
-            .FirstOrDefaultAsyncEF(cancellationToken);
+            .FirstOrDefaultAsyncEF(cancellationToken)
+            ?? throw new ChatNotLinkedException(externalChatId);
 
-        return linkedChatData ?? throw new ChatNotLinkedException(externalChatId);
+        var destination = await destinationReader.Load(
+            chat.DestinationType,
+            chat.DestinationId,
+            includeDeleted: true,
+            cancellationToken);
+
+        var isFixed = chat.DestinationType == LinkDestinationType.Status;
+
+        return new LinkedChatToSaveMessage
+        {
+            LinkedTelegramChatId = chat.Id,
+            StatusId = isFixed ? chat.DestinationId : null,
+            EpicId = isFixed ? destination?.EpicId : null,
+            DestinationType = chat.DestinationType,
+            DestinationId = chat.DestinationId,
+            OrganizationId = chat.OrganizationId,
+            SaveMode = chat.SaveMode,
+            ReplyMode = chat.ReplyMode,
+            ChatTitle = chat.Title,
+            IsTargetDeleted = destination is null || destination.IsDeleted,
+        };
     }
 
     /// <summary>
@@ -1123,22 +1396,46 @@ public class TelegramSaveMessageService(
     /// pointing at it), and the chat being linked to an organization doesn't by itself grant the person typing in it
     /// permission to create cards there.
     /// </summary>
-    private async Task EnsureCanCreateIssue(
+    private Task EnsureCanCreateIssue(
         LinkedChatToSaveMessage linkedChat,
         Guid userId,
         long externalChatId,
         CancellationToken cancellationToken)
     {
+        EnsureTargetExists(linkedChat, externalChatId);
+
+        return EnsureCanCreateIssueInEpic(
+            linkedChat.OrganizationId,
+            linkedChat.EpicId!.Value,
+            userId,
+            externalChatId,
+            cancellationToken);
+    }
+
+    private static void EnsureTargetExists(LinkedChatToSaveMessage linkedChat, long externalChatId)
+    {
         if (linkedChat.IsTargetDeleted)
             throw new LinkTargetDeletedException(externalChatId);
+    }
 
-        var authData = new OrganizationAuthData { OrganizationId = linkedChat.OrganizationId, UserId = userId };
-        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, linkedChat.EpicId, includeDeleted: false, cancellationToken: cancellationToken);
+    /// <summary>
+    /// The chat being linked to an organization doesn't by itself grant the person typing in it permission to create
+    /// cards there: they need it on the epic the card goes to, within the plan's limit.
+    /// </summary>
+    private async Task EnsureCanCreateIssueInEpic(
+        long organizationId,
+        long epicId,
+        Guid userId,
+        long externalChatId,
+        CancellationToken cancellationToken)
+    {
+        var authData = new OrganizationAuthData { OrganizationId = organizationId, UserId = userId };
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(authData, epicId, includeDeleted: false, cancellationToken: cancellationToken);
 
         if (accessLevels?.CanCreateIssue != true)
             throw new IssueCreationForbiddenException(externalChatId);
 
-        await usageLimitService.EnsureCanCreateIssueAsync(linkedChat.OrganizationId, userId, cancellationToken);
+        await usageLimitService.EnsureCanCreateIssueAsync(organizationId, userId, cancellationToken);
     }
     
     private async Task<long> GetOrCreateTelegramMediaGroupId(
@@ -1181,6 +1478,12 @@ public class GetOrCreateMessageResult
     /// instead of a reaction.
     /// </summary>
     public long? LinkReplyIssueId { get; init; }
+
+    /// <summary>
+    /// The chat chooses part of its destination each time (BRD-365): no card yet, the bot asks where
+    /// <see cref="TelegramMessageId"/> (the card's message - an album's first) should go.
+    /// </summary>
+    public bool DestinationRequired { get; init; }
 }
 
 public enum Result
@@ -1192,15 +1495,27 @@ public enum Result
 internal class LinkedChatToSaveMessage
 {
     public required long LinkedTelegramChatId { get; init; }
-    public required long StatusId { get; init; }
-    public required long EpicId { get; init; }
+
+    /// <summary>
+    /// The status cards go to, when the chat is fixed down to one. Null when part of the destination is chosen each
+    /// time (BRD-365): the bot asks where before creating the card.
+    /// </summary>
+    public required long? StatusId { get; init; }
+
+    /// <summary>
+    /// The epic of <see cref="StatusId"/>, for the permission check.
+    /// </summary>
+    public required long? EpicId { get; init; }
+
+    public required LinkDestinationType DestinationType { get; init; }
+    public required long DestinationId { get; init; }
     public required long OrganizationId { get; init; }
     public required SaveMode SaveMode { get; init; }
     public required ReplyMode ReplyMode { get; init; }
     public required string? ChatTitle { get; init; }
 
     /// <summary>
-    /// The status (with its board or space) was soft-deleted after the chat was linked.
+    /// The chat's destination (an organization, space, epic or status) was soft-deleted after the chat was linked.
     /// </summary>
     public required bool IsTargetDeleted { get; init; }
 }
@@ -1224,10 +1539,38 @@ public class SaveByReplyRequest
     public bool Summarize { get; init; }
 }
 
+public class SaveToStatusRequest
+{
+    public required long ExternalChatId { get; init; }
+
+    /// <summary>
+    /// The recorded message (any member of an album) to save.
+    /// </summary>
+    public required long TelegramMessageId { get; init; }
+
+    public required long StatusId { get; init; }
+    public required Guid UserId { get; init; }
+
+    /// <summary>
+    /// The title given with /save, if any.
+    /// </summary>
+    public string? Title { get; init; }
+
+    /// <summary>
+    /// /aisave: the AI rewrites the text.
+    /// </summary>
+    public bool Summarize { get; init; }
+}
+
 public class SaveByReplyResult
 {
     public required SaveByReplyOutcome Outcome { get; init; }
     public long? TelegramMessageId { get; init; }
+
+    /// <summary>
+    /// The Telegram id of the message the card belongs to (an album's first member) - where a reaction goes.
+    /// </summary>
+    public int? SavedExternalMessageId { get; init; }
 
     /// <summary>
     /// Set when <see cref="Outcome"/> is <see cref="SaveByReplyOutcome.Saved"/> or
@@ -1277,6 +1620,12 @@ public enum SaveByReplyOutcome
     /// from, so the user has to give one.
     /// </summary>
     TitleRequired,
+
+    /// <summary>
+    /// The chat chooses part of its destination each time (BRD-365): the user picks where before the card is
+    /// created. <see cref="SaveByReplyResult.TelegramMessageId"/> is the message to save.
+    /// </summary>
+    DestinationRequired,
 }
 
 public class InfoByReplyRequest

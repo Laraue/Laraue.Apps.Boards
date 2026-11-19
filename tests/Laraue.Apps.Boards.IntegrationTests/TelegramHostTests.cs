@@ -175,7 +175,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = GroupChat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             LinkedAt = DateTime.UtcNow,
         });
@@ -258,14 +260,17 @@ public class TelegramHostTests : TelegramIntegrationTest
         organizationSelected.CheckMessage($"Choose a space in {organization.Name}:");
         var spaceMarkup = Assert.IsType<InlineKeyboardMarkup>(organizationSelected.ReplyMarkup);
         var spaceRows = spaceMarkup.InlineKeyboard.ToList();
-        Assert.Equal(4, spaceRows.Count);
+        Assert.Equal(5, spaceRows.Count);
         var spaceButtons = spaceRows.Take(2).Select(Assert.Single).ToList();
         Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {defaultSpace.Name}" && btn.CallbackData == $"/link/space/{defaultSpace.Id}");
         Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {space.Name}" && btn.CallbackData == $"/link/space/{space.Id}");
-        Assert.Equal("← Back", Assert.Single(spaceRows[2]).Text);
-        Assert.Equal("/link/back", Assert.Single(spaceRows[2]).CallbackData);
-        Assert.Equal("✖ Cancel", Assert.Single(spaceRows[3]).Text);
-        Assert.Equal("/close-callback", Assert.Single(spaceRows[3]).CallbackData);
+        // BRD-365: the organization alone can be the destination - space, epic and status asked each time.
+        Assert.Equal("❓ Ask for the space each time", Assert.Single(spaceRows[2]).Text);
+        Assert.Equal($"/link/each-time/0/{organization.Id}", Assert.Single(spaceRows[2]).CallbackData);
+        Assert.Equal("← Back", Assert.Single(spaceRows[3]).Text);
+        Assert.Equal("/link/back", Assert.Single(spaceRows[3]).CallbackData);
+        Assert.Equal("✖ Cancel", Assert.Single(spaceRows[4]).Text);
+        Assert.Equal("/close-callback", Assert.Single(spaceRows[4]).CallbackData);
 
         var spaceSelected = await host.SendCallbackAsync(
             AdminUser,
@@ -279,6 +284,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         spaceSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert($"📥 {backlogEpic.Name}", $"/link/epic/{backlogEpic.Id}")])
             .HasButtonsRow([new ButtonAssert($"📋 {epic.Name}", $"/link/epic/{epic.Id}")])
+            .HasButtonsRow([new ButtonAssert("❓ Ask for the epic each time", $"/link/each-time/1/{space.Id}")])
             .HasButtonsRow([new ButtonAssert("← Back", $"/link/organization/{organization.Id}")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
@@ -291,6 +297,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         epicSelected.CheckMessage($"Choose a status in {organization.Name} → {space.Name} -> {epic.Name}:");
         epicSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert($"🏷️ {status.Name}", $"/link/status/{status.Id}")])
+            .HasButtonsRow([new ButtonAssert("❓ Ask for the status each time", $"/link/each-time/2/{epic.Id}")])
             .HasButtonsRow([new ButtonAssert("← Back", $"/link/space/{space.Id}")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
@@ -302,12 +309,12 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         // Nothing is persisted yet — status selection leads to a save-mode picker, not an
         // immediate link.
-        Assert.Contains($"Choose how the bot should save messages in {organization.Name} → {space.Name} → {epic.Name}:", statusSelected.Text);
+        Assert.Contains($"Choose how the bot should save messages in {organization.Name} → {space.Name} → {epic.Name} → {status.Name}:", statusSelected.Text);
         Assert.Contains("Every message is great for solo chats.", statusSelected.Text);
         Assert.Contains("Only via /save works better for chats with different members.", statusSelected.Text);
         statusSelected.CheckButtonsSequentially(b => b
-            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/{status.Id}/0")])
-            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/3/{status.Id}/0")])
+            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/3/{status.Id}/1")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
         var scope = host.CreateScope();
@@ -318,13 +325,13 @@ public class TelegramHostTests : TelegramIntegrationTest
             AdminUser,
             chat,
             messageId,
-            $"/link/save-mode/{status.Id}/1");
+            $"/link/save-mode/3/{status.Id}/1");
 
         // The save mode alone doesn't link yet: the bot asks how to confirm a saved message.
         Assert.Contains($"How should the bot confirm a saved message in {organization.Name} → {space.Name} → {epic.Name} → {status.Name}?", saveModeSelected.Text);
         saveModeSelected.CheckButtonsSequentially(b => b
-            .HasButtonsRow([new ButtonAssert("🔗 Reply with the card link", $"/link/reply-mode/{status.Id}/1/1")])
-            .HasButtonsRow([new ButtonAssert("👍 React with an emoji", $"/link/reply-mode/{status.Id}/1/0")])
+            .HasButtonsRow([new ButtonAssert("🔗 Reply with the card link", $"/link/reply-mode/3/{status.Id}/1/1")])
+            .HasButtonsRow([new ButtonAssert("👍 React with an emoji", $"/link/reply-mode/3/{status.Id}/1/0")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
         Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
 
@@ -332,7 +339,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             AdminUser,
             chat,
             messageId,
-            $"/link/reply-mode/{status.Id}/1/0");
+            $"/link/reply-mode/3/{status.Id}/1/0");
 
         Assert.Contains(organization.Name, replyModeSelected.Text);
         Assert.Contains(space.Name, replyModeSelected.Text);
@@ -342,7 +349,9 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
         Assert.Equal(chatId, linkedChat.ExternalChatId);
-        Assert.Equal(status.Id, linkedChat.StatusId);
+        Assert.Equal(organization.Id, linkedChat.OrganizationId);
+        Assert.Equal(LinkDestinationType.Status, linkedChat.DestinationType);
+        Assert.Equal(status.Id, linkedChat.DestinationId);
         Assert.Equal(userId, linkedChat.OwnerId);
         Assert.Equal("Test Group", linkedChat.Title);
         Assert.Equal(SaveMode.BotMentionedMessages, linkedChat.SaveMode);
@@ -380,28 +389,30 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Contains(space.Name, epicSelected.Text);
         Assert.Contains(epic.Name, epicSelected.Text);
         epicSelected.CheckButtonsSequentially(b => b
-            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/{status.Id}/0")])
-            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/3/{status.Id}/0")])
+            .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/3/{status.Id}/1")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
         await host.SendCallbackAsync(
             AdminUser,
             chat,
             messageId,
-            $"/link/save-mode/{status.Id}/0");
+            $"/link/save-mode/3/{status.Id}/0");
 
         var replyModeSelected = await host.SendCallbackAsync(
             AdminUser,
             chat,
             messageId,
-            $"/link/reply-mode/{status.Id}/0/1");
+            $"/link/reply-mode/3/{status.Id}/0/1");
 
         Assert.Contains("Every message sent here will be added as a card.", replyModeSelected.Text);
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var linkedChat = Assert.Single(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
-        Assert.Equal(status.Id, linkedChat.StatusId);
+        Assert.Equal(organization.Id, linkedChat.OrganizationId);
+        Assert.Equal(LinkDestinationType.Status, linkedChat.DestinationType);
+        Assert.Equal(status.Id, linkedChat.DestinationId);
         Assert.Equal(SaveMode.EachMessage, linkedChat.SaveMode);
         Assert.Equal(ReplyMode.IssueLink, linkedChat.ReplyMode);
     }
@@ -581,7 +592,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 Id = "1",
                 From = AdminUser,
                 Message = new Message { Id = 42, Chat = chat },
-                Data = "/link/save-mode/999999/0",
+                Data = "/link/save-mode/3/999999/0",
             }
         });
 
@@ -634,7 +645,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = GroupChat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             LinkedAt = DateTime.UtcNow,
         });
@@ -678,7 +691,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             LinkedAt = DateTime.UtcNow,
         });
@@ -720,7 +735,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             LinkedAt = DateTime.UtcNow,
             UnlinkedAt = DateTime.UtcNow,
@@ -740,13 +757,13 @@ public class TelegramHostTests : TelegramIntegrationTest
             AdminUser,
             chat,
             42,
-            $"/link/save-mode/{status.Id}/0");
+            $"/link/save-mode/3/{status.Id}/0");
 
         await host.SendCallbackAsync(
             AdminUser,
             chat,
             42,
-            $"/link/reply-mode/{status.Id}/0/0");
+            $"/link/reply-mode/3/{status.Id}/0/0");
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
@@ -824,7 +841,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -887,7 +906,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -943,7 +964,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -995,7 +1018,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1033,7 +1058,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1094,7 +1121,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1141,7 +1170,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1196,7 +1227,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -1317,7 +1350,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1402,7 +1437,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1484,7 +1521,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1538,7 +1577,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1625,7 +1666,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1675,7 +1718,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -1717,7 +1762,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -1782,7 +1829,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = oldChatId,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -1839,7 +1888,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -1885,7 +1936,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -1948,7 +2001,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -2005,7 +2060,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -2059,7 +2116,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -2131,7 +2190,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -2185,7 +2246,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -2246,7 +2309,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -2307,7 +2372,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -2408,7 +2475,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -2426,13 +2495,13 @@ public class TelegramHostTests : TelegramIntegrationTest
             AdminUser,
             chat,
             42,
-            $"/link/save-mode/{status.Id}/1");
+            $"/link/save-mode/3/{status.Id}/1");
 
         await host.SendCallbackAsync(
             AdminUser,
             chat,
             42,
-            $"/link/reply-mode/{status.Id}/1/1");
+            $"/link/reply-mode/3/{status.Id}/1/1");
 
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
@@ -2486,7 +2555,9 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var defaultStatus = await db.Statuses.SingleAsync(s =>
             s.Epic!.IsDefault && s.Epic.Space!.OrganizationId == userOrganization.Id);
-        Assert.Equal(defaultStatus.Id, linkedChat.StatusId);
+        Assert.Equal(userOrganization.Id, linkedChat.OrganizationId);
+        Assert.Equal(LinkDestinationType.Status, linkedChat.DestinationType);
+        Assert.Equal(defaultStatus.Id, linkedChat.DestinationId);
     }
 
     [Fact]
@@ -3517,7 +3588,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -3576,7 +3649,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -3638,7 +3713,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -4615,7 +4692,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -4672,7 +4751,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -4798,7 +4879,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -5045,7 +5128,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -5130,7 +5215,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.IssueLink,
@@ -5184,7 +5271,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = ownerId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -5233,7 +5322,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -5304,7 +5395,9 @@ public class TelegramHostTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = status.Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = status.Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,

@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Telegram.NET.Testing;
 using LinqToDB.EntityFrameworkCore;
@@ -99,7 +99,9 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = DefaultUser.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,
@@ -125,7 +127,9 @@ public class TelegramReplyModeTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = chat.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.BotMentionedMessages,
             ReplyMode = ReplyMode.Reaction,

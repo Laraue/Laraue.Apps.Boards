@@ -9,7 +9,8 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 public class TelegramMessageService(
     ITelegramBotClient client,
     ITelegramSaveMessageService saveMessageService,
-    IIssuePreviewBuilder issuePreviewBuilder)
+    IIssuePreviewBuilder issuePreviewBuilder,
+    ISaveDestinationPicker destinationPicker)
     : ITelegramMessageService
 {
     public async Task HandleSaveMessage(
@@ -97,6 +98,19 @@ public class TelegramMessageService(
                     AllowSendingWithoutReply = true,
                 },
                 cancellationToken: cancellationToken);
+
+            return;
+        }
+
+        // The chat chooses part of its destination each time (BRD-365): the sender picks where, then the card is made.
+        if (result.DestinationRequired)
+        {
+            await destinationPicker.SendPicker(
+                request.ExternalChatId,
+                request.ExternalMessageId,
+                result.TelegramMessageId,
+                request.UserId,
+                cancellationToken);
 
             return;
         }

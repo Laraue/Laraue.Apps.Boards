@@ -38,7 +38,7 @@ public class TelegramMessageSourceTests : TelegramIntegrationTest
                 Id = "1",
                 From = AdminUser,
                 Message = new Message { Id = 42, Chat = chat },
-                Data = $"/link/reply-mode/{status.Id}/0/0",
+                Data = $"/link/reply-mode/3/{status.Id}/0/0",
             }
         });
 
@@ -228,7 +228,9 @@ public class TelegramMessageSourceTests : TelegramIntegrationTest
             ExternalChatId = chatId,
             Title = title,
             Username = username,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             LinkedAt = DateTime.UtcNow,

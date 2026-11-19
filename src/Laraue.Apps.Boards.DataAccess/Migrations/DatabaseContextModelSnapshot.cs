@@ -1034,6 +1034,14 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<long>("DestinationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("destination_id");
+
+                    b.Property<int>("DestinationType")
+                        .HasColumnType("integer")
+                        .HasColumnName("destination_type");
+
                     b.Property<long>("ExternalChatId")
                         .HasColumnType("bigint")
                         .HasColumnName("external_chat_id");
@@ -1041,6 +1049,10 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Property<DateTime?>("LinkedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("linked_at");
+
+                    b.Property<long>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
 
                     b.Property<Guid?>("OwnerId")
                         .HasColumnType("uuid")
@@ -1053,10 +1065,6 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Property<int>("SaveMode")
                         .HasColumnType("integer")
                         .HasColumnName("save_mode");
-
-                    b.Property<long>("StatusId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("status_id");
 
                     b.Property<string>("Title")
                         .HasMaxLength(256)
@@ -1082,11 +1090,11 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.HasIndex("LinkedAt")
                         .HasDatabaseName("ix_linked_telegram_chats_linked_at");
 
+                    b.HasIndex("OrganizationId")
+                        .HasDatabaseName("ix_linked_telegram_chats_organization_id");
+
                     b.HasIndex("OwnerId")
                         .HasDatabaseName("ix_linked_telegram_chats_owner_id");
-
-                    b.HasIndex("StatusId")
-                        .HasDatabaseName("ix_linked_telegram_chats_status_id");
 
                     b.HasIndex("UnlinkedAt")
                         .HasDatabaseName("ix_linked_telegram_chats_unlinked_at");
@@ -2810,21 +2818,21 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.LinkedTelegramChat", b =>
                 {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_linked_telegram_chats_organizations_organization_id");
+
                     b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "Owner")
                         .WithMany()
                         .HasForeignKey("OwnerId")
                         .HasConstraintName("fk_linked_telegram_chats_users_owner_id");
 
-                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Status", "Status")
-                        .WithMany()
-                        .HasForeignKey("StatusId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_linked_telegram_chats_statuses_status_id");
+                    b.Navigation("Organization");
 
                     b.Navigation("Owner");
-
-                    b.Navigation("Status");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
