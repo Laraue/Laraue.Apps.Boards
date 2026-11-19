@@ -294,7 +294,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             messageId,
             $"/link/epic/{epic.Id}");
 
-        epicSelected.CheckMessage($"Choose a status in {organization.Name} → {space.Name} -> {epic.Name}:");
+        epicSelected.CheckMessage($"Choose a status in {organization.Name} → {space.Name} → {epic.Name}:");
         epicSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert($"🏷️ {status.Name}", $"/link/status/{status.Id}")])
             .HasButtonsRow([new ButtonAssert("❓ Ask for the status each time", $"/link/each-time/2/{epic.Id}")])
@@ -309,7 +309,8 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         // Nothing is persisted yet — status selection leads to a save-mode picker, not an
         // immediate link.
-        Assert.Contains($"Choose how the bot should save messages in {organization.Name} → {space.Name} → {epic.Name} → {status.Name}:", statusSelected.Text);
+        // The question names no destination - picked a step ago, and shown again when linked.
+        Assert.StartsWith("Choose how the bot should save messages:", statusSelected.Text);
         Assert.Contains("Every message is great for solo chats.", statusSelected.Text);
         Assert.Contains("Only via /save works better for chats with different members.", statusSelected.Text);
         statusSelected.CheckButtonsSequentially(b => b
@@ -328,7 +329,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             $"/link/save-mode/3/{status.Id}/1");
 
         // The save mode alone doesn't link yet: the bot asks how to confirm a saved message.
-        Assert.Contains($"How should the bot confirm a saved message in {organization.Name} → {space.Name} → {epic.Name} → {status.Name}?", saveModeSelected.Text);
+        Assert.StartsWith("How should the bot confirm a saved message?", saveModeSelected.Text);
         saveModeSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert("🔗 Reply with the card link", $"/link/reply-mode/3/{status.Id}/1/1")])
             .HasButtonsRow([new ButtonAssert("👍 React with an emoji", $"/link/reply-mode/3/{status.Id}/1/0")])
@@ -385,9 +386,8 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         // Selecting the default/backlog epic skips straight to the save-mode picker for its
         // sole status instead of showing a status picker.
-        Assert.Contains(organization.Name, epicSelected.Text);
-        Assert.Contains(space.Name, epicSelected.Text);
-        Assert.Contains(epic.Name, epicSelected.Text);
+        // Straight to the save mode: its buttons carry the backlog's single status.
+        Assert.StartsWith("Choose how the bot should save messages:", epicSelected.Text);
         epicSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/3/{status.Id}/0")])
             .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/3/{status.Id}/1")])
