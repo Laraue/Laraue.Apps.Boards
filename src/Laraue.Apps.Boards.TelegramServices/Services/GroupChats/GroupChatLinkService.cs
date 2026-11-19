@@ -127,7 +127,8 @@ public class GroupChatLinkService(
     IAccessService accessService,
     IDateTimeProvider dateTimeProvider,
     ILinkDestinationReader destinationReader,
-    IDestinationOptionsReader optionsReader)
+    IDestinationOptionsReader optionsReader,
+    IChatSettingsDocs docs)
     : IGroupChatLinkService
 {
     public async Task HandleLinkCommand(
@@ -195,6 +196,7 @@ public class GroupChatLinkService(
 
         var allButtons = OptionButtons(spaces, TelegramRoutes.LinkSpace)
             .Append([ChooseEachTimeButton(LinkDestinationType.Organization, organizationId, Phrases.LinkAskSpaceEachTime)])
+            .Append([docs.WhichToChooseButton(ChatSettingsDocs.Anchors.Destination)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.BackToLink))
             .AddCancelButton();
 
@@ -249,6 +251,7 @@ public class GroupChatLinkService(
 
         var buttons = OptionButtons(epics, TelegramRoutes.LinkEpic)
             .Append([ChooseEachTimeButton(LinkDestinationType.Space, spaceId, Phrases.LinkAskEpicEachTime)])
+            .Append([docs.WhichToChooseButton(ChatSettingsDocs.Anchors.Destination)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkOrganization)
                 .WithPathParameter(TelegramRoutes.Parameters.Id, space.OrganizationId.ToString()))
             .AddCancelButton();
@@ -318,6 +321,7 @@ public class GroupChatLinkService(
 
         var buttons = OptionButtons(statuses, TelegramRoutes.LinkStatus)
             .Append([ChooseEachTimeButton(LinkDestinationType.Epic, epicId, Phrases.LinkAskStatusEachTime)])
+            .Append([docs.WhichToChooseButton(ChatSettingsDocs.Anchors.Destination)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkSpace)
                 .WithPathParameter(TelegramRoutes.Parameters.Id, epic.SpaceId.ToString()))
             .AddCancelButton();
@@ -629,6 +633,7 @@ public class GroupChatLinkService(
         {
             new[] { ReplyModeButton(ReplyMode.IssueLink, Phrases.ReplyModeIssueLink) },
             new[] { ReplyModeButton(ReplyMode.Reaction, Phrases.ReplyModeReaction) },
+            new[] { docs.WhichToChooseButton(ChatSettingsDocs.Anchors.ReplyMode) },
         }.AddCancelButton();
 
         return client.EditMessageText(
@@ -658,6 +663,7 @@ public class GroupChatLinkService(
         {
             new[] { SaveModeButton(SaveMode.EachMessage, Phrases.SaveModeEachMessage) },
             new[] { SaveModeButton(SaveMode.BotMentionedMessages, Phrases.SaveModeBotMentioned) },
+            new[] { docs.WhichToChooseButton(ChatSettingsDocs.Anchors.SaveMode) },
         }.AddCancelButton();
 
         return client.EditMessageText(
@@ -894,6 +900,8 @@ public class GroupChatLinkService(
                 new CallbackRoutePath(TelegramRoutes.LinkChangeDestination)
                     .ToInlineKeyboardButton(Phrases.SettingsChangeDestination),
             },
+            // Which settings fit which chat: the use cases.
+            new[] { docs.WhichToChooseButton(ChatSettingsDocs.Anchors.UseCases) },
             new[] { new CallbackRoutePath(TelegramRoutes.Unlink).ToInlineKeyboardButton(Phrases.LinkUnlink) },
         }.AddCancelButton();
 

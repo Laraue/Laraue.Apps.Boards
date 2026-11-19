@@ -214,6 +214,7 @@ public class TelegramHostTests : TelegramIntegrationTest
                 ("✋ Save only via /save", "/link/settings/save-mode/1"),
                 ("🔗 Confirm with the card link", "/link/settings/reply-mode/1"),
                 ("📍 Change destination", "/link/destination"),
+                ("📖 Which to choose?", null),
                 ("Unlink", "/link/unlink"),
                 ("✖ Cancel", "/close-callback"),
             ],
@@ -260,17 +261,22 @@ public class TelegramHostTests : TelegramIntegrationTest
         organizationSelected.CheckMessage($"Choose a space in {organization.Name}:");
         var spaceMarkup = Assert.IsType<InlineKeyboardMarkup>(organizationSelected.ReplyMarkup);
         var spaceRows = spaceMarkup.InlineKeyboard.ToList();
-        Assert.Equal(5, spaceRows.Count);
+        Assert.Equal(6, spaceRows.Count);
         var spaceButtons = spaceRows.Take(2).Select(Assert.Single).ToList();
         Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {defaultSpace.Name}" && btn.CallbackData == $"/link/space/{defaultSpace.Id}");
         Assert.Contains(spaceButtons, btn => btn.Text == $"🗂️ {space.Name}" && btn.CallbackData == $"/link/space/{space.Id}");
         // BRD-365: the organization alone can be the destination - space, epic and status asked each time.
         Assert.Equal("❓ Ask for the space each time", Assert.Single(spaceRows[2]).Text);
         Assert.Equal($"/link/each-time/0/{organization.Id}", Assert.Single(spaceRows[2]).CallbackData);
-        Assert.Equal("← Back", Assert.Single(spaceRows[3]).Text);
-        Assert.Equal("/link/back", Assert.Single(spaceRows[3]).CallbackData);
-        Assert.Equal("✖ Cancel", Assert.Single(spaceRows[4]).Text);
-        Assert.Equal("/close-callback", Assert.Single(spaceRows[4]).CallbackData);
+        // BRD-377: what each choice means, in the docs.
+        Assert.Equal("📖 Which to choose?", Assert.Single(spaceRows[3]).Text);
+        Assert.Equal(
+            "https://boards.example.com/documentation/integrations/telegram-chat-settings#destination",
+            Assert.Single(spaceRows[3]).Url);
+        Assert.Equal("← Back", Assert.Single(spaceRows[4]).Text);
+        Assert.Equal("/link/back", Assert.Single(spaceRows[4]).CallbackData);
+        Assert.Equal("✖ Cancel", Assert.Single(spaceRows[5]).Text);
+        Assert.Equal("/close-callback", Assert.Single(spaceRows[5]).CallbackData);
 
         var spaceSelected = await host.SendCallbackAsync(
             AdminUser,
@@ -285,6 +291,7 @@ public class TelegramHostTests : TelegramIntegrationTest
             .HasButtonsRow([new ButtonAssert($"📥 {backlogEpic.Name}", $"/link/epic/{backlogEpic.Id}")])
             .HasButtonsRow([new ButtonAssert($"📋 {epic.Name}", $"/link/epic/{epic.Id}")])
             .HasButtonsRow([new ButtonAssert("❓ Ask for the epic each time", $"/link/each-time/1/{space.Id}")])
+            .HasButtonsRow([new ButtonAssert("📖 Which to choose?", null)])
             .HasButtonsRow([new ButtonAssert("← Back", $"/link/organization/{organization.Id}")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
@@ -298,6 +305,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         epicSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert($"🏷️ {status.Name}", $"/link/status/{status.Id}")])
             .HasButtonsRow([new ButtonAssert("❓ Ask for the status each time", $"/link/each-time/2/{epic.Id}")])
+            .HasButtonsRow([new ButtonAssert("📖 Which to choose?", null)])
             .HasButtonsRow([new ButtonAssert("← Back", $"/link/space/{space.Id}")])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
@@ -316,6 +324,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         statusSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/3/{status.Id}/0")])
             .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/3/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("📖 Which to choose?", null)])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
         var scope = host.CreateScope();
@@ -333,6 +342,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         saveModeSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert("🔗 Reply with the card link", $"/link/reply-mode/3/{status.Id}/1/1")])
             .HasButtonsRow([new ButtonAssert("👍 React with an emoji", $"/link/reply-mode/3/{status.Id}/1/0")])
+            .HasButtonsRow([new ButtonAssert("📖 Which to choose?", null)])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
         Assert.Empty(await db.LinkedTelegramChats.ToListAsyncLinqToDB());
 
@@ -391,6 +401,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         epicSelected.CheckButtonsSequentially(b => b
             .HasButtonsRow([new ButtonAssert("💬 Every message", $"/link/save-mode/3/{status.Id}/0")])
             .HasButtonsRow([new ButtonAssert("✋ Only via /save", $"/link/save-mode/3/{status.Id}/1")])
+            .HasButtonsRow([new ButtonAssert("📖 Which to choose?", null)])
             .HasButtonsRow([new ButtonAssert("✖ Cancel", "/close-callback")]));
 
         await host.SendCallbackAsync(

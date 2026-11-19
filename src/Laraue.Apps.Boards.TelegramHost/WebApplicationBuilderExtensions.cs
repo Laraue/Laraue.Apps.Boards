@@ -71,6 +71,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IDeleteCommandService, DeleteCommandService>()
                 .AddScoped<IIssuePreviewBuilder, IssuePreviewBuilder>()
                 .AddScoped<ILinkDestinationReader, LinkDestinationReader>()
+                .AddSingleton<IChatSettingsDocs, ChatSettingsDocs>()
                 .AddScoped<IDestinationOptionsReader, DestinationOptionsReader>()
                 .AddScoped<ISaveDestinationPicker, SaveDestinationPicker>()
                 .AddSingleton<IIssueLinkParser, IssueLinkParser>()
