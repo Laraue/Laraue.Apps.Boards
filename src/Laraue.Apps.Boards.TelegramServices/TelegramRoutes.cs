@@ -27,7 +27,7 @@ public static class TelegramRoutes
     public const string LinkChangeDestination = "/link/destination";
     
     public const string SaveDestinationPicked =
-        $"/save/where/{{{Parameters.MessageId}}}/{{{Parameters.DestinationType}}}/{{{Parameters.DestinationId}}}";
+        $"/save/where/{{{Parameters.MessageId}}}/{{{Parameters.Summarize}}}/{{{Parameters.DestinationType}}}/{{{Parameters.DestinationId}}}";
 
     public const string CloseCallbackWindow = "/close-callback";
 
@@ -52,6 +52,7 @@ public static class TelegramRoutes
     {
         public const string Id = "id";
         public const string MessageId = "messageId";
+        public const string Summarize = "summarize";
         public const string IssueId = "issueId";
         public const string DestinationType = "destinationType";
         public const string DestinationId = "destinationId";

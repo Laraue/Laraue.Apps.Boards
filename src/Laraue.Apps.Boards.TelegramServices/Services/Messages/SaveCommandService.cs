@@ -152,6 +152,7 @@ public class SaveCommandService(
                     message.MessageId,
                     result.TelegramMessageId!.Value,
                     userId,
+                    summarize,
                     cancellationToken);
                 break;
 

@@ -23,15 +23,18 @@ public interface ISaveDestinationPicker
 {
     /// <summary>
     /// Sends the picker as a reply to <paramref name="replyToExternalMessageId"/>: the saved message in auto mode,
-    /// the /save command otherwise (a tap reads the title and /aisave from it).
+    /// the /save command otherwise (a tap reads the title from it).
     /// </summary>
     /// <param name="telegramMessageId">The recorded message to save.</param>
     /// <param name="userId">Whose save it is - the levels list what they can see.</param>
+    /// <param name="summarize">/aisave: the AI rewrites the text when the card is created. Carried by the picker's
+    /// buttons, so it holds even if the command is deleted meanwhile.</param>
     Task SendPicker(
         long externalChatId,
         int replyToExternalMessageId,
         long telegramMessageId,
         Guid userId,
+        bool summarize,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -41,6 +44,7 @@ public interface ISaveDestinationPicker
         CallbackQuery query,
         Guid userId,
         long telegramMessageId,
+        bool summarize,
         LinkDestinationType destinationType,
         long destinationId,
         CancellationToken cancellationToken);
@@ -60,13 +64,15 @@ public class SaveDestinationPicker(
         int replyToExternalMessageId,
         long telegramMessageId,
         Guid userId,
+        bool summarize,
         CancellationToken cancellationToken)
     {
         var chat = await GetChat(externalChatId, cancellationToken);
         if (chat is null)
             return;
 
-        var level = await BuildLevel(chat, telegramMessageId, chat.DestinationType, chat.DestinationId, userId, cancellationToken);
+        var save = new PickerSave(telegramMessageId, summarize);
+        var level = await BuildLevel(chat, save, chat.DestinationType, chat.DestinationId, userId, cancellationToken);
         if (level is null)
             return;
 
@@ -86,6 +92,7 @@ public class SaveDestinationPicker(
         CallbackQuery query,
         Guid userId,
         long telegramMessageId,
+        bool summarize,
         LinkDestinationType destinationType,
         long destinationId,
         CancellationToken cancellationToken)
@@ -106,8 +113,9 @@ public class SaveDestinationPicker(
         }
 
         // In "after /save" mode the picker answers the /save command: its sender owns the pick, and its text carries
-        // the title and /aisave. Otherwise it answers the saved message, which is never a command - and if the
-        // command was deleted meanwhile, there's no reply at all. Then the message's sender owns the pick.
+        // the title (/aisave travels in the buttons). Otherwise it answers the saved message, which is never a
+        // command - and if the command was deleted meanwhile, there's no reply at all. Then the message's sender owns
+        // the pick, and the title comes from the text.
         var command = picker.ReplyToMessage is { } replied && replied.IsBotCommand()
             ? replied
             : null;
@@ -136,7 +144,13 @@ public class SaveDestinationPicker(
         var statusId = await GetStatusToSaveTo(destination, userId, cancellationToken);
         if (statusId is null)
         {
-            var level = await BuildLevel(chat, telegramMessageId, destinationType, destinationId, userId, cancellationToken);
+            var level = await BuildLevel(
+                chat,
+                new PickerSave(telegramMessageId, summarize),
+                destinationType,
+                destinationId,
+                userId,
+                cancellationToken);
             if (level is not null)
             {
                 await client.EditMessageText(
@@ -150,7 +164,7 @@ public class SaveDestinationPicker(
             return;
         }
 
-        await Save(query, userId, telegramMessageId, statusId.Value, command?.Text, cancellationToken);
+        await Save(query, userId, telegramMessageId, statusId.Value, command?.Text, summarize, cancellationToken);
     }
 
     private async Task Save(
@@ -159,6 +173,7 @@ public class SaveDestinationPicker(
         long telegramMessageId,
         long statusId,
         string? commandText,
+        bool summarize,
         CancellationToken cancellationToken)
     {
         var picker = query.Message!;
@@ -175,7 +190,7 @@ public class SaveDestinationPicker(
                     StatusId = statusId,
                     UserId = userId,
                     Title = SaveCommandText.ExtractTitle(commandText),
-                    Summarize = SaveCommandText.IsAiSave(commandText),
+                    Summarize = summarize,
                 },
                 cancellationToken);
         }
@@ -247,7 +262,7 @@ public class SaveDestinationPicker(
     /// </summary>
     private async Task<PickerLevel?> BuildLevel(
         PickerChat chat,
-        long telegramMessageId,
+        PickerSave save,
         LinkDestinationType type,
         long id,
         Guid userId,
@@ -279,12 +294,12 @@ public class SaveDestinationPicker(
         var options = await optionsReader.GetOptionsBelow(type, id, destination.OrganizationId, userId, cancellationToken);
         var rows = options.Select(option => new[]
         {
-            PickRoute(telegramMessageId, new PickerPoint(option.Type, option.Id)).ToInlineKeyboardButton(option.Label),
+            PickRoute(save, new PickerPoint(option.Type, option.Id)).ToInlineKeyboardButton(option.Label),
         });
 
         // Back goes up only within what the chat leaves to choose - never above its fixed part.
         if (back is not null && back.Type >= chat.DestinationType)
-            rows = rows.AddBackButton(PickRoute(telegramMessageId, back));
+            rows = rows.AddBackButton(PickRoute(save, back));
 
         return new PickerLevel(
             $"{Phrases.SavePickerTitle}\n{prompt}",
@@ -323,10 +338,12 @@ public class SaveDestinationPicker(
         };
     }
 
-    private static CallbackRoutePath PickRoute(long telegramMessageId, PickerPoint point)
+    private static CallbackRoutePath PickRoute(PickerSave save, PickerPoint point)
     {
         return new CallbackRoutePath(TelegramRoutes.SaveDestinationPicked)
-            .WithPathParameter(TelegramRoutes.Parameters.MessageId, telegramMessageId.ToString())
+            .WithPathParameter(TelegramRoutes.Parameters.MessageId, save.TelegramMessageId.ToString())
+            // Path parameters are bound from JSON: "true"/"false".
+            .WithPathParameter(TelegramRoutes.Parameters.Summarize, save.Summarize ? "true" : "false")
             .WithPathParameter(TelegramRoutes.Parameters.DestinationType, ((int)point.Type).ToString())
             .WithPathParameter(TelegramRoutes.Parameters.DestinationId, point.Id.ToString());
     }
@@ -347,6 +364,11 @@ public class SaveDestinationPicker(
     private sealed record PickerChat(long OrganizationId, LinkDestinationType DestinationType, long DestinationId);
 
     private sealed record PickerPoint(LinkDestinationType Type, long Id);
+
+    /// <summary>
+    /// What every button of one picker carries: the message to save and whether it was /aisave.
+    /// </summary>
+    private sealed record PickerSave(long TelegramMessageId, bool Summarize);
 
     private sealed record PickerLevel(string Text, InlineKeyboardMarkup Markup);
 }

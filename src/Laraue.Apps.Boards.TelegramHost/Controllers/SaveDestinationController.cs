@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.TelegramServices;
 using Laraue.Apps.Boards.TelegramServices.Services.Messages;
 using Laraue.Telegram.NET.Abstractions.Request;
@@ -13,6 +13,7 @@ public class SaveDestinationController(ISaveDestinationPicker destinationPicker)
     public Task HandlePicked(
         RequestContext requestContext,
         [FromPath(TelegramRoutes.Parameters.MessageId)] long telegramMessageId,
+        [FromPath(TelegramRoutes.Parameters.Summarize)] bool summarize,
         [FromPath(TelegramRoutes.Parameters.DestinationType)] LinkDestinationType destinationType,
         [FromPath(TelegramRoutes.Parameters.DestinationId)] long destinationId,
         CancellationToken cancellationToken)
@@ -21,6 +22,7 @@ public class SaveDestinationController(ISaveDestinationPicker destinationPicker)
             requestContext.Update.CallbackQuery!,
             requestContext.UserId,
             telegramMessageId,
+            summarize,
             destinationType,
             destinationId,
             cancellationToken);

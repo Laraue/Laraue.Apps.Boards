@@ -56,6 +56,7 @@ public class TelegramMessageService(
                 request.ExternalMessageId,
                 result.TelegramMessageId,
                 request.UserId,
+                summarize: false,
                 cancellationToken);
 
             return;

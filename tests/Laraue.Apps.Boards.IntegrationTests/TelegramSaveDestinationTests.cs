@@ -1,4 +1,7 @@
 ﻿using Laraue.Apps.Boards.DataAccess.Models;
+using Moq;
+using Microsoft.Extensions.DependencyInjection;
+using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Telegram.NET.Testing;
 using LinqToDB.EntityFrameworkCore;
@@ -47,7 +50,7 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         var backlogButton = Assert.IsType<InlineKeyboardMarkup>(picker.ReplyMarkup).InlineKeyboard
             .SelectMany(row => row)
             .Single(x => x.Text == $"📥 {backlog.Name}");
-        Assert.Equal($"/save/where/{telegramMessageId}/2/{backlog.Id}", backlogButton.CallbackData);
+        Assert.Equal($"/save/where/{telegramMessageId}/false/2/{backlog.Id}", backlogButton.CallbackData);
 
         // A backlog epic has a single status: picking it saves right away.
         await TapPicker(host, AdminUser, backlogButton.CallbackData!);
@@ -115,25 +118,25 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         var spaces = host.Requests().Single<SendMessageRequest>();
         Assert.Contains($"Choose a space in {organization.Name}:", spaces.Text);
         var spaceButtons = Buttons(spaces.ReplyMarkup);
-        Assert.Contains(spaceButtons, x => x == ($"🗂️ {space.Name}", $"/save/where/{telegramMessageId}/1/{space.Id}"));
+        Assert.Contains(spaceButtons, x => x == ($"🗂️ {space.Name}", $"/save/where/{telegramMessageId}/false/1/{space.Id}"));
         Assert.DoesNotContain(spaceButtons, x => x.Text == "← Back");
 
-        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/1/{space.Id}");
+        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/false/1/{space.Id}");
         var epics = host.Requests().OfType<EditMessageTextRequest>().Last();
         Assert.Contains($"Choose an epic in {organization.Name} → {space.Name}:", epics.Text);
-        Assert.Contains(Buttons(epics.ReplyMarkup), x => x == ($"📋 {epic.Name}", $"/save/where/{telegramMessageId}/2/{epic.Id}"));
-        Assert.Contains(Buttons(epics.ReplyMarkup), x => x == ("← Back", $"/save/where/{telegramMessageId}/0/{organization.Id}"));
+        Assert.Contains(Buttons(epics.ReplyMarkup), x => x == ($"📋 {epic.Name}", $"/save/where/{telegramMessageId}/false/2/{epic.Id}"));
+        Assert.Contains(Buttons(epics.ReplyMarkup), x => x == ("← Back", $"/save/where/{telegramMessageId}/false/0/{organization.Id}"));
 
-        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/2/{epic.Id}");
+        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/false/2/{epic.Id}");
         var statuses = host.Requests().OfType<EditMessageTextRequest>().Last();
         Assert.Contains($"Choose a status in {organization.Name} → {space.Name} → {epic.Name}:", statuses.Text);
-        Assert.Contains(Buttons(statuses.ReplyMarkup), x => x == ($"🏷️ {status.Name}", $"/save/where/{telegramMessageId}/3/{status.Id}"));
+        Assert.Contains(Buttons(statuses.ReplyMarkup), x => x == ($"🏷️ {status.Name}", $"/save/where/{telegramMessageId}/false/3/{status.Id}"));
 
         // Nothing is created until the last level is picked.
         var db = host.CreateScope().GetDatabaseContext();
         Assert.Empty(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
 
-        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/3/{status.Id}");
+        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/false/3/{status.Id}");
 
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal(status.Id, issue.StatusId);
@@ -275,7 +278,7 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         var telegramMessageId = await GetTelegramMessageId(host, 5);
 
         // Forged callback data: a status of an organization the chat isn't linked to.
-        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/3/{otherOrganization.GetStatus(0, 0, 0).Id}");
+        await TapPicker(host, AdminUser, $"/save/where/{telegramMessageId}/false/3/{otherOrganization.GetStatus(0, 0, 0).Id}");
 
         Assert.Contains(
             host.Requests().OfType<AnswerCallbackQueryRequest>(),
@@ -335,13 +338,96 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         await TapPicker(
             host,
             MemberUser,
-            $"/save/where/{telegramMessageId}/1/{hiddenSpace.Id}",
+            $"/save/where/{telegramMessageId}/false/1/{hiddenSpace.Id}",
             replyTo: new Message { Id = 5, Chat = Group, Text = "Buy milk" });
 
         Assert.Contains(
             host.Requests().OfType<AnswerCallbackQueryRequest>(),
             x => x.ShowAlert == true);
         Assert.Empty(host.Requests().OfType<EditMessageTextRequest>());
+    }
+
+    [Fact]
+    public async Task HandleEditedMessage_ShouldAskWhere_WhenEditFirstGivesMessageSomethingToSave()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var (organization, userId) = await CreateOrganization(testScope);
+        await LinkGroup(testScope, organization.Id, LinkDestinationType.Space, organization.GetSpace(0).Id, userId);
+
+        // An unsupported file alone: nothing to save, so no picker - only the notice that the file wasn't saved.
+        var installer = new Document
+        {
+            FileId = "installer",
+            FileUniqueId = "installerUnique",
+            FileName = "setup.exe",
+            MimeType = "application/x-msdownload",
+        };
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 5, Document = installer, Chat = Group },
+        });
+
+        var notice = host.Requests().Single<SendMessageRequest>();
+        Assert.DoesNotContain("Where should this go?", notice.Text);
+
+        // The edit adds a caption: now there's something to save, so it's asked about like a new message.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message { From = AdminUser, Id = 5, Document = installer, Caption = "Installer notes", Chat = Group },
+        });
+
+        var picker = host.Requests().OfType<SendMessageRequest>().Last();
+        Assert.StartsWith("📥 Where should this go?", picker.Text);
+        Assert.Equal(5, picker.ReplyParameters?.MessageId);
+
+        // A further edit waits for the same picker.
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message { From = AdminUser, Id = 5, Document = installer, Caption = "Installer notes v2", Chat = Group },
+        });
+        Assert.Equal(2, host.Requests().OfType<SendMessageRequest>().Count());
+    }
+
+    [Fact]
+    public async Task HandleAiSave_ShouldStillRewriteText_WhenCommandIsDeletedBeforeThePick()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var (organization, userId) = await CreateOrganization(testScope);
+        await LinkGroup(testScope, organization.Id, LinkDestinationType.Space, organization.GetSpace(0).Id, userId, SaveMode.BotMentionedMessages);
+
+        await SendText(host, 5, "fix login bug, fails on retry");
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = AdminUser,
+                Id = 6,
+                Text = "/aisave",
+                Entities = [new MessageEntity { Type = MessageEntityType.BotCommand, Offset = 0, Length = 7 }],
+                Chat = Group,
+                ReplyToMessage = new Message { Id = 5, Chat = Group },
+            }
+        });
+
+        // /aisave travels in the picker's buttons, not only in the command's text.
+        var telegramMessageId = await GetTelegramMessageId(host, 5);
+        var backlogCallback = $"/save/where/{telegramMessageId}/true/2/{organization.GetEpic(0, 0).Id}";
+        Assert.Contains(Buttons(host.Requests().Single<SendMessageRequest>().ReplyMarkup), x => x.CallbackData == backlogCallback);
+
+        var summarizer = host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>();
+        Mock.Get(summarizer)
+            .Setup(x => x.SummarizeAsync("fix login bug, fails on retry", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AiSummarizationResult("Fix login bug", "- Login fails on retry", InputTokensCount: 10, OutputTokensCount: 20));
+
+        // The command is deleted before the pick: the sender of the message picks, and the AI still runs.
+        await TapPicker(host, AdminUser, backlogCallback, replyDeleted: true);
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Fix login bug", issue.Title);
+        Assert.Equal("- Login fails on retry", issue.Content);
     }
 
     /// <remarks>Takes the test's one scope: creating a test scope cleans the database.</remarks>
@@ -361,7 +447,7 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         Organization organization,
         int externalMessageId)
     {
-        return $"/save/where/{await GetTelegramMessageId(host, externalMessageId)}/2/{organization.GetEpic(0, 0).Id}";
+        return $"/save/where/{await GetTelegramMessageId(host, externalMessageId)}/false/2/{organization.GetEpic(0, 0).Id}";
     }
 
     private static async Task<long> GetTelegramMessageId(AppTelegramTestHost host, int externalMessageId)
@@ -413,7 +499,14 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
     }
 
     /// <param name="replyTo">What the picker answers: the saved message in auto mode, the /save command otherwise.</param>
-    private static Task TapPicker(AppTelegramTestHost host, User user, string callbackData, Message? replyTo = null)
+    /// <param name="replyDeleted">The message the picker answers was deleted: Telegram then sends no reply with the
+    /// tap.</param>
+    private static Task TapPicker(
+        AppTelegramTestHost host,
+        User user,
+        string callbackData,
+        Message? replyTo = null,
+        bool replyDeleted = false)
     {
         return host.SendUpdateAsync(new Update
         {
@@ -425,7 +518,7 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
                 {
                     Id = PickerMessageId,
                     Chat = Group,
-                    ReplyToMessage = replyTo ?? new Message { Id = 5, Chat = Group, Text = "Buy milk" },
+                    ReplyToMessage = replyDeleted ? null : replyTo ?? new Message { Id = 5, Chat = Group, Text = "Buy milk" },
                 },
                 Data = callbackData,
             }

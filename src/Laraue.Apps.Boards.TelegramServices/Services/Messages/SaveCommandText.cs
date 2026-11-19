@@ -1,7 +1,7 @@
-namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
+﻿namespace Laraue.Apps.Boards.TelegramServices.Services.Messages;
 
 /// <summary>
-/// Reads what a /save or /aisave command says: its title and whether it asks the AI to rewrite the text.
+/// Reads what a /save or /aisave command says.
 /// </summary>
 public static class SaveCommandText
 {
@@ -22,19 +22,5 @@ public static class SaveCommandText
         // surrounding whitespace only allocates once, for the final string.
         var title = commandText.AsSpan(spaceIndex + 1).Trim();
         return title.IsEmpty ? null : title.ToString();
-    }
-
-    /// <summary>
-    /// "/aisave", with or without a title or a bot @mention.
-    /// </summary>
-    public static bool IsAiSave(string? commandText)
-    {
-        if (string.IsNullOrEmpty(commandText))
-            return false;
-
-        var name = commandText.AsSpan();
-        var end = name.IndexOfAny(' ', '@');
-
-        return (end < 0 ? name : name[..end]).SequenceEqual(TelegramRoutes.Commands.AiSave);
     }
 }

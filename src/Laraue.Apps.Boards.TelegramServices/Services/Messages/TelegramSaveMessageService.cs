@@ -302,10 +302,14 @@ public class TelegramSaveMessageService(
     }
 
     /// <summary>
-    /// Creates the card for a recorded message (or album) in <paramref name="statusId"/>. The checks run first; the
-    /// card is created under a lock on the message row, and if another request created it meanwhile (a double tap)
-    /// that card is returned instead.
+    /// Creates the card for a recorded message (or album) in <paramref name="statusId"/>. Everything runs under a lock
+    /// on the message row: a request that finds the card already created (a double tap) returns it instead, and two
+    /// simultaneous ones run one after another - so /aisave's AI is called, and paid for, once.
     /// </summary>
+    /// <remarks>
+    /// With /aisave the AI call (and Billing's) runs inside the transaction, holding the lock on one message row for
+    /// those seconds. Nothing else waits on that row but another save of the same message.
+    /// </remarks>
     private async Task<RecordedCardCreation> CreateCardFromRecorded(
         RecordedGroup group,
         long statusId,
@@ -319,9 +323,21 @@ public class TelegramSaveMessageService(
         if (group.HasNothingToSave)
             return new RecordedCardCreation(SaveByReplyOutcome.NothingToSave, null);
 
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        await context.LockTelegramMessage(group.CardMessage.Id, cancellationToken);
+
+        var existingIssueId = await context.Issues
+            .Where(x => x.TelegramMessageId == group.CardMessage.Id)
+            .Select(x => (long?)x.Id)
+            .FirstOrDefaultAsyncEF(cancellationToken);
+
+        if (existingIssueId is not null)
+            return new RecordedCardCreation(SaveByReplyOutcome.AlreadySaved, existingIssueId);
+
         // /save is deterministic, no AI: "/save Some title" sets the title, a bare /save takes the first line of the
         // text. /aisave always has the AI rewrite the text; a title given with it is kept as it is, without one the
-        // AI writes the title as well. The AI runs before the transaction - it calls Billing.
+        // AI writes the title as well.
         var content = group.Content;
         var isTitleSetExplicitly = titleSource.Title is not null;
         var title = titleSource.Title;
@@ -354,18 +370,6 @@ public class TelegramSaveMessageService(
 
         if (title is null)
             return new RecordedCardCreation(SaveByReplyOutcome.TitleRequired, null);
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        await context.LockTelegramMessage(group.CardMessage.Id, cancellationToken);
-
-        var existingIssueId = await context.Issues
-            .Where(x => x.TelegramMessageId == group.CardMessage.Id)
-            .Select(x => (long?)x.Id)
-            .FirstOrDefaultAsyncEF(cancellationToken);
-
-        if (existingIssueId is not null)
-            return new RecordedCardCreation(SaveByReplyOutcome.AlreadySaved, existingIssueId);
 
         var issueCreate = new IssueCreateRequest(statusId, dateTimeProvider.UtcNow, title, isTitleSetExplicitly)
             .SetContent(content)
@@ -942,6 +946,10 @@ public class TelegramSaveMessageService(
         LinkedChatToSaveMessage? linkedChat = null;
         var isNewMessage = savedMessage is null;
 
+        // Before this update - see the picker below.
+        var hadSomethingToSave = savedMessage is not null
+            && (!string.IsNullOrEmpty(savedMessage.Text) || savedMessage.AttachmentId is not null);
+
         if (savedMessage is null)
         {
             linkedChat = await GetLinkedChatToSaveMessage(request.ExternalChatId, cancellationToken);
@@ -1026,12 +1034,13 @@ public class TelegramSaveMessageService(
             return NothingSaved(savedMessage.Id, isNewMessage ? skippedFile : null);
 
         // Part of the destination is chosen each time: the card waits for the sender's pick. One picker per album -
-        // sent by its first member with something to save; the card is made from the whole album once picked.
+        // sent when its first member gets something to save (on arrival, or by an edit); the card is made from the
+        // whole album once picked.
         if (linkedChat.StatusId is null)
         {
             EnsureTargetExists(linkedChat, request.ExternalChatId);
 
-            var pickerAlreadySent = !isNewMessage || await context.TelegramMessages
+            var pickerAlreadySent = hadSomethingToSave || await context.TelegramMessages
                 .Where(x => x.TelegramMediaGroupId == groupId && x.Id < savedMessage.Id)
                 .AnyAsync(x => (x.Text != null && x.Text != "") || x.AttachmentId != null, cancellationToken);
 
@@ -1069,6 +1078,10 @@ public class TelegramSaveMessageService(
             {
                 IssueId = x.Issue != null ? (long?)x.Issue.Id : null,
                 x.Id,
+
+                // Before this update: an edit that first gives the message something to save is asked about like a
+                // new message (BRD-365).
+                HadSomethingToSave = (x.Text != null && x.Text != "") || x.AttachmentId != null,
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -1152,13 +1165,14 @@ public class TelegramSaveMessageService(
         if (HasNothingToSave(request, attachmentId))
             return NothingSaved(messageId, savedMessage is null ? skippedFile : null);
 
-        // Part of the destination is chosen each time: the card waits for the sender's pick. Only a new message
-        // gets a picker - an edit made while it waits is in the card when it's created.
+        // Part of the destination is chosen each time: the card waits for the sender's pick. A message gets one
+        // picker, when it first has something to save - usually when it's sent, or an edit adding text to e.g. an
+        // unsupported file. Later edits wait for the same picker and are in the card when it's created.
         if (linkedChat.StatusId is null)
         {
             EnsureTargetExists(linkedChat, request.ExternalChatId);
 
-            return savedMessage is null ? DestinationRequired(messageId) : Recorded(messageId);
+            return savedMessage?.HadSomethingToSave == true ? Recorded(messageId) : DestinationRequired(messageId);
         }
 
         await EnsureCanCreateIssue(linkedChat, request.UserId, request.ExternalChatId, cancellationToken);
