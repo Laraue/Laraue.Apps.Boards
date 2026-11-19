@@ -88,6 +88,12 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkUnlink" xml:space="preserve">
         <value>Unlink</value>
     </data>
+    <data name="DocsChatSettingsPath" xml:space="preserve">
+        <value>/documentation/integrations/telegram-chat-settings</value>
+    </data>
+    <data name="DocsWhichToChooseButton" xml:space="preserve">
+        <value>📖 Which to choose?</value>
+    </data>
     <data name="LinkAskSpaceEachTime" xml:space="preserve">
         <value>❓ Ask for the space each time</value>
     </data>

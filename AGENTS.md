@@ -19,6 +19,9 @@ issues ("cards"). Two surfaces:
   - `/link` is also the chat's settings (BRD-364): in a linked chat it shows the destination, save mode and reply mode,
     with a button per setting that sets the other value (`/link/settings/...` - a value, not a toggle, so a double tap
     can't flip it back) and "Change destination", which reruns the picker. Linking asks status → save mode → reply mode.
+    Each step and the menu have a "📖 Which to choose?" URL button to the web app's chat settings docs (BRD-377,
+    `IChatSettingsDocs`): `AppOptions:Url` + the docs path, a phrase so it's `/ru/...` for Russian users, + a fixed
+    anchor (`ChatSettingsDocs.Anchors`, the docs' explicit heading ids).
   - Destination (BRD-365): a chat always fixes its organization (`LinkedTelegramChat.OrganizationId`, one chat = one
     organization) and is fixed down to `DestinationType` (`Organization`/`Space`/`Epic`/`Status`) + `DestinationId`
     (no FK - it points to one of four tables; `ILinkDestinationReader` resolves it). Below a non-`Status` destination

@@ -226,6 +226,24 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to /documentation/integrations/telegram-chat-settings.
+        /// </summary>
+        internal static string DocsChatSettingsPath {
+            get {
+                return ResourceManager.GetString("DocsChatSettingsPath", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 📖 Which to choose?.
+        /// </summary>
+        internal static string DocsWhichToChooseButton {
+            get {
+                return ResourceManager.GetString("DocsWhichToChooseButton", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to 📥 Where should this go?.
         /// </summary>
         internal static string SavePickerTitle {

@@ -146,7 +146,13 @@ public class TelegramLinkSettingsTests : TelegramIntegrationTest
         var saveModePicker = await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/each-time/1/{space.Id}");
         Assert.StartsWith("Choose how the bot should save messages:", saveModePicker.Text);
 
-        await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/save-mode/1/{space.Id}/0");
+        // Each step links its own section of the docs (BRD-377).
+        Assert.Contains(ButtonsOf(saveModePicker), x => x.Text == "📖 Which to choose?");
+        Assert.Equal($"{DocsUrl}#save-mode", DocsButtonUrl(saveModePicker));
+
+        var replyModePicker = await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/save-mode/1/{space.Id}/0");
+        Assert.Equal($"{DocsUrl}#reply-mode", DocsButtonUrl(replyModePicker));
+
         var confirmed = await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/reply-mode/1/{space.Id}/0/1");
         Assert.Contains($"{organization.Name} → {space.Name} → ❓ chosen each time", confirmed.Text);
 
@@ -198,6 +204,29 @@ public class TelegramLinkSettingsTests : TelegramIntegrationTest
         Assert.Empty(host.Requests().OfType<EditMessageTextRequest>());
     }
 
+    [Theory]
+    [InlineData(null, "https://boards.example.com/documentation/integrations/telegram-chat-settings#use-cases")]
+    [InlineData("ru", "https://boards.example.com/ru/documentation/integrations/telegram-chat-settings#use-cases")]
+    public async Task HandleLink_ShouldLinkTheDocsInTheUsersLanguage_WhenChatIsLinked(string? languageCode, string expectedUrl)
+    {
+        using var host = GetTelegramTestHost();
+        await LinkGroup(host, SaveMode.EachMessage, ReplyMode.Reaction);
+
+        var user = AdminUser;
+        user.LanguageCode = languageCode;
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = user, Id = 2, Text = "/link", Chat = Group },
+        });
+
+        // The settings menu points to the use cases: which settings fit which chat.
+        var docsButton = Assert.IsType<InlineKeyboardMarkup>(host.Requests().Single<SendMessageRequest>().ReplyMarkup)
+            .InlineKeyboard
+            .SelectMany(row => row)
+            .Single(x => x.Url is not null);
+        Assert.Equal(expectedUrl, docsButton.Url);
+    }
+
     /// <returns>The organization's name.</returns>
     private static async Task<string> LinkGroup(AppTelegramTestHost host, SaveMode saveMode, ReplyMode replyMode)
     {
@@ -231,6 +260,16 @@ public class TelegramLinkSettingsTests : TelegramIntegrationTest
             .AsNoTracking()
             .Where(x => x.ExternalChatId == Group.Id)
             .ToListAsyncLinqToDB());
+    }
+
+    private const string DocsUrl = "https://boards.example.com/documentation/integrations/telegram-chat-settings";
+
+    private static string? DocsButtonUrl(EditMessageTextRequest request)
+    {
+        return Assert.IsType<InlineKeyboardMarkup>(request.ReplyMarkup).InlineKeyboard
+            .SelectMany(row => row)
+            .Single(x => x.Url is not null)
+            .Url;
     }
 
     private static List<(string Text, string? CallbackData)> ButtonsOf(EditMessageTextRequest request)
