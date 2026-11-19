@@ -88,6 +88,15 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkUnlink" xml:space="preserve">
         <value>Unlink</value>
     </data>
+    <data name="DocsReadMoreButton" xml:space="preserve">
+        <value>📖 Read more</value>
+    </data>
+    <data name="TipReactions" xml:space="preserve">
+        <value>💡 Did you know? If you save a lot, the bot can confirm with a 👍 instead of replying with each card: send /link in the chat and tap «👍 Confirm with a reaction».</value>
+    </data>
+    <data name="TipSaveOnlyViaSave" xml:space="preserve">
+        <value>💡 Did you know? In a busy group the bot can save only the messages someone replies /save to, instead of every message: send /link in the group and tap «✋ Save only via /save».</value>
+    </data>
     <data name="DocsChatSettingsPath" xml:space="preserve">
         <value>/documentation/integrations/telegram-chat-settings</value>
     </data>

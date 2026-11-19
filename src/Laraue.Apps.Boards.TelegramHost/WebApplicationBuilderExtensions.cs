@@ -72,6 +72,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IIssuePreviewBuilder, IssuePreviewBuilder>()
                 .AddScoped<ILinkDestinationReader, LinkDestinationReader>()
                 .AddSingleton<IChatSettingsDocs, ChatSettingsDocs>()
+                .AddScoped<IBotTipsService, BotTipsService>()
                 .AddScoped<IDestinationOptionsReader, DestinationOptionsReader>()
                 .AddScoped<ISaveDestinationPicker, SaveDestinationPicker>()
                 .AddSingleton<IIssueLinkParser, IssueLinkParser>()

@@ -226,6 +226,33 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to 📖 Read more....
+        /// </summary>
+        internal static string DocsReadMoreButton {
+            get {
+                return ResourceManager.GetString("DocsReadMoreButton", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 💡 Did you know? If you save a lot, the bot can confirm with ....
+        /// </summary>
+        internal static string TipReactions {
+            get {
+                return ResourceManager.GetString("TipReactions", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to 💡 Did you know? In a busy group the bot can save only the me....
+        /// </summary>
+        internal static string TipSaveOnlyViaSave {
+            get {
+                return ResourceManager.GetString("TipSaveOnlyViaSave", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to /documentation/integrations/telegram-chat-settings.
         /// </summary>
         internal static string DocsChatSettingsPath {

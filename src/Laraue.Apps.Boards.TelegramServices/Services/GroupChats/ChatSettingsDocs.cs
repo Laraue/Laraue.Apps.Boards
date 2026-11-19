@@ -15,6 +15,11 @@ public interface IChatSettingsDocs
     /// "📖 Which to choose?" opening the section at <paramref name="anchor"/> - one of <see cref="ChatSettingsDocs.Anchors"/>.
     /// </summary>
     InlineKeyboardButton WhichToChooseButton(string anchor);
+
+    /// <summary>
+    /// "📖 Read more" opening the section at <paramref name="anchor"/>, e.g. under a tip.
+    /// </summary>
+    InlineKeyboardButton ReadMoreButton(string anchor);
 }
 
 public class ChatSettingsDocs(IOptions<AppOptions> options) : IChatSettingsDocs
@@ -28,12 +33,22 @@ public class ChatSettingsDocs(IOptions<AppOptions> options) : IChatSettingsDocs
         public const string Destination = "destination";
         public const string ReplyMode = "reply-mode";
         public const string UseCases = "use-cases";
+        public const string TeamGroup = "team-group";
+        public const string HeavyDailyUse = "heavy-daily-use";
     }
 
     public InlineKeyboardButton WhichToChooseButton(string anchor)
     {
-        var url = $"{options.Value.Url.TrimEnd('/')}{Phrases.DocsChatSettingsPath}#{anchor}";
+        return InlineKeyboardButton.WithUrl(Phrases.DocsWhichToChooseButton, Url(anchor));
+    }
 
-        return InlineKeyboardButton.WithUrl(Phrases.DocsWhichToChooseButton, url);
+    public InlineKeyboardButton ReadMoreButton(string anchor)
+    {
+        return InlineKeyboardButton.WithUrl(Phrases.DocsReadMoreButton, Url(anchor));
+    }
+
+    private string Url(string anchor)
+    {
+        return $"{options.Value.Url.TrimEnd('/')}{Phrases.DocsChatSettingsPath}#{anchor}";
     }
 }

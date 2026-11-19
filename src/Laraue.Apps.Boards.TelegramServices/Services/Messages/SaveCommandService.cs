@@ -33,6 +33,7 @@ public class SaveCommandService(
     ITelegramBotClient client,
     IEphemeralReplySender ephemeralReplySender,
     ISaveDestinationPicker destinationPicker,
+    IBotTipsService botTips,
     ILogger<SaveCommandService> logger)
     : ISaveCommandService
 {
@@ -178,6 +179,10 @@ public class SaveCommandService(
                     cancellationToken);
                 break;
         }
+
+        // After the confirmation: a tip may follow, in the user's private chat (BRD-367).
+        if (result.Outcome == SaveByReplyOutcome.Saved)
+            await botTips.AfterCardCreated(userId, message.Chat.Id, cancellationToken);
     }
 
     private static string WithSkippedFilesNotice(string text, string? skippedFilesNotice)

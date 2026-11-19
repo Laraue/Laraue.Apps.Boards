@@ -425,7 +425,21 @@ sign up by writing to the bot get the `/start` reply instead, so the bot host se
   claimed (`insert ... on conflict do nothing`) before sending, so two concurrent sign-ins send one message.
 - Sending never fails the sign-in: a Telegram error (typically the user didn't allow the bot to write - the login widget
   asks for it with `request_access: 'write'`) is logged and recorded as `Failed` with the error text.
-- The bot's other unprompted messages (the day-one reminder, BRD-355) use the same table with their own kind.
+- The bot's other unprompted messages use the same table with their own kind.
+
+## Bot tips
+
+"💡 Did you know?" (BRD-367, `IBotTipsService`, TelegramServices): when the way someone uses a chat shows a setting
+would help, the bot says so once, in their private chat, with a "📖 Read more" link to the chat settings docs
+(`IChatSettingsDocs`). Checked after a card from Telegram is created and confirmed (auto-save, `/save`, the "where
+should this go?" picker); never fails the save.
+
+- Only for a chat the user linked (`LinkedTelegramChat.OwnerId`) - its settings are theirs to change.
+- `TipReactions`: 10 of the user's cards from a chat replying with the card link within 24 hours → switch to 👍.
+- `TipSaveOnlyViaSave`: 20 cards (by anyone) from a group saving every message within 7 days → save only via /save.
+- One `UserBotMessage` per user and tip, claimed before sending like the welcome; at most one tip in 3 days. The
+  thresholds are constants on `BotTipsService`. A card from Telegram is created at the message's own time, so tests
+  sending messages for the rules set `Message.Date`.
 
 ## External services (Identity, Billing, Feedback, Storage) and local mocking
 
