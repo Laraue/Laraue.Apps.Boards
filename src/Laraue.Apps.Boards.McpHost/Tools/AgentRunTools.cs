@@ -16,7 +16,7 @@ namespace Laraue.Apps.Boards.McpHost.Tools;
 [McpServerToolType]
 public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextAccessor httpContextAccessor)
 {
-    [McpServerTool]
+    [McpServerTool(Title = "Create agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Hands an issue to the agent: creates an agent run in state Ready, which a runner then claims with claim_agent_run. An issue can have only one open run (Ready or Working) - cancel it first to hand the issue off again. A blocked issue can be handed off: its run waits (isBlocked) until every issue blocking it is Completed. While the run is open the issue is locked: edit_issue and delete_issue fail until it's finished or cancelled (status changes and comments still work). Returns the run. Only the issue's assignee can hand it off, with canEdit (see get_issue/list_issues); the issue must be in a Created status, and its epic needs Created, InProgress and Review statuses (see list_statuses) - the agent moves it through them.")]
     public Task<AgentRunSummary> CreateAgentRun(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
@@ -25,7 +25,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
         return agentRunMcpService.CreateAgentRun(GetAuthData(), issueKey, cancellationToken);
     }
 
-    [McpServerTool]
+    [McpServerTool(Title = "List agent runs", ReadOnly = true, OpenWorld = false)]
     [Description("Lists agent runs of the issues the caller can read, oldest first, up to 50 per page - check hasNextPage for more. A runner polls state 'Ready' with excludeBlocked=true and takes the first run it can claim. Each run has its id, the issue (key, title, url), state (Ready, Working, Done, Failed or Cancelled), isBlocked (an issue blocking it isn't Completed yet - see get_issue's links), who handed it off and when, the API key that claimed it, and when it finished and why it failed.")]
     public Task<AgentRunListPage> ListAgentRuns(
         [Description("Only runs of issues in this space (e.g. 'BRD'), from list_spaces. Omit to include every space.")] string? spaceKey = null,
@@ -39,7 +39,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
         return agentRunMcpService.ListAgentRuns(GetAuthData(), spaceKey, state, assigneeIds, excludeBlocked, page, count, cancellationToken);
     }
 
-    [McpServerTool]
+    [McpServerTool(Title = "Claim agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Claims a Ready agent run for this runner, moving it to Working. Returns true when this call claimed it, false when it was no longer Ready (another runner claimed it first, or it was cancelled) or its issue is blocked - on false, skip the run. Atomic: of two runners claiming the same run, exactly one gets true. Only the issue's assignee can claim it (a runner works only on its own user's issues). After claiming, move the issue to its epic's first InProgress status with edit_issue_status. Requires canEdit on the issue.")]
     public Task<bool> ClaimAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,
@@ -48,7 +48,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
         return agentRunMcpService.ClaimAgentRun(GetAuthData(), runId, cancellationToken);
     }
 
-    [McpServerTool]
+    [McpServerTool(Title = "Start agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Starts an agent run that is already Working, for an agent working on an issue together with a person outside a hand-off (e.g. a runner's interactive session) - so the issue shows the agent on it, and the work ends with finish_agent_run (Done or Failed) or cancel_agent_run like any run. Unlike create_agent_run, the issue may be in any status and its epic needs no particular statuses; the issue's status isn't changed. Fails when the issue already has an open run (Ready or Working). While the run is open the issue is locked: edit_issue and delete_issue fail (status changes and comments still work). Returns the run. Only the issue's assignee can start one, with canEdit (see get_issue/list_issues).")]
     public Task<AgentRunSummary> StartAgentRun(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
@@ -57,7 +57,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
         return agentRunMcpService.StartAgentRun(GetAuthData(), issueKey, cancellationToken);
     }
 
-    [McpServerTool]
+    [McpServerTool(Title = "Finish agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Finishes a Working agent run as Done or Failed. Returns true when the run was finished, false when it was no longer Working - a person cancelled it, so stop working on it. Requires canEdit on the issue.")]
     public Task<bool> FinishAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,
@@ -68,7 +68,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
         return agentRunMcpService.FinishAgentRun(GetAuthData(), runId, state, reason, cancellationToken);
     }
 
-    [McpServerTool]
+    [McpServerTool(Title = "Cancel agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Cancels an open (Ready or Working) agent run: a Ready run is no longer offered to runners, and the runner working on a Working run sees it is no longer Working and stops. Cancelling also unlocks the issue for editing. Returns false when the run had already finished or was cancelled. Requires canEdit on the issue.")]
     public Task<bool> CancelAgentRun(
         [Description("The run's id, from list_agent_runs or get_issue's latestAgentRun.")] long runId,
