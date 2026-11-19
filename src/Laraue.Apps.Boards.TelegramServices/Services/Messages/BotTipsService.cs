@@ -1,5 +1,6 @@
-using Laraue.Apps.Boards.DataAccess;
+﻿using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
+using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.TelegramServices.Resources;
 using Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 using Laraue.Core.DateTime.Services.Abstractions;
@@ -131,15 +132,7 @@ public sealed class BotTipsService(
         if (telegramId is null)
             return;
 
-        var claimed = await context.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-             insert into user_bot_messages (user_id, kind, sent_at, status)
-             values ({userId}, {(int)kind}, {dateTimeProvider.UtcNow}, {(int)BotMessageStatus.Sent})
-             on conflict do nothing
-             """,
-            cancellationToken);
-
-        if (claimed == 0)
+        if (!await context.TryClaimBotMessage(userId, kind, dateTimeProvider.UtcNow, cancellationToken))
             return;
 
         try

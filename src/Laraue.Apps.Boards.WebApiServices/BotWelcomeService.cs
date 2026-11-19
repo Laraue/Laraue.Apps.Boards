@@ -45,15 +45,7 @@ public sealed class BotWelcomeService(
         CancellationToken cancellationToken)
     {
         // Claim the message first: of two concurrent sign-ins of the same user only one inserts the row and sends.
-        var claimed = await context.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-             insert into user_bot_messages (user_id, kind, sent_at, status)
-             values ({userId}, {(int)BotMessageKind.Welcome}, {dateTimeProvider.UtcNow}, {(int)BotMessageStatus.Sent})
-             on conflict do nothing
-             """,
-            cancellationToken);
-
-        if (claimed == 0)
+        if (!await context.TryClaimBotMessage(userId, BotMessageKind.Welcome, dateTimeProvider.UtcNow, cancellationToken))
             return;
 
         // The sign-in language decides the text; the bot itself answers in the language of the Telegram app too.
