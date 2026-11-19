@@ -144,7 +144,7 @@ public class TelegramLinkSettingsTests : TelegramIntegrationTest
 
         // "❓ Ask for the epic each time" in the epic picker, then the usual two questions.
         var saveModePicker = await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/each-time/1/{space.Id}");
-        Assert.Contains($"{organization.Name} → {space.Name} → ❓ chosen each time", saveModePicker.Text);
+        Assert.StartsWith("Choose how the bot should save messages:", saveModePicker.Text);
 
         await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/save-mode/1/{space.Id}/0");
         var confirmed = await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/reply-mode/1/{space.Id}/0/1");

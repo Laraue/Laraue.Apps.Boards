@@ -325,7 +325,7 @@ public class GroupChatLinkService(
         await client.EditMessageText(
             chatId,
             query.Message.MessageId,
-            string.Format(Phrases.LinkChooseStatus, $"{epic.OrganizationName} → {epic.SpaceName} -> {epic.Name}"),
+            string.Format(Phrases.LinkChooseStatus, $"{epic.OrganizationName} → {epic.SpaceName} → {epic.Name}"),
             replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken);
     }
@@ -634,7 +634,7 @@ public class GroupChatLinkService(
         return client.EditMessageText(
             chatId,
             messageId,
-            string.Format(Phrases.LinkChooseReplyMode, destination),
+            Phrases.LinkChooseReplyMode,
             replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken);
     }
@@ -663,7 +663,7 @@ public class GroupChatLinkService(
         return client.EditMessageText(
             chatId,
             messageId,
-            string.Format(Phrases.LinkChooseSaveMode, destination),
+            Phrases.LinkChooseSaveMode,
             replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken);
     }

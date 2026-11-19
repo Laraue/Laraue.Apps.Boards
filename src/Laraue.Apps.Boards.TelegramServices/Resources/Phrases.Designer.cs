@@ -280,7 +280,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to How should the bot confirm a saved message in {0}?.
+        ///   Looks up a localized string similar to How should the bot confirm a saved message?.
         /// </summary>
         internal static string LinkChooseReplyMode {
             get {
@@ -451,7 +451,7 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Choose how the bot should save messages in {0}:
+        ///   Looks up a localized string similar to Choose how the bot should save messages:
         ///
         ///💬 Every message is great for solo chats.
         ///✋ Only via /save works better for chats with different members..
