@@ -537,6 +537,9 @@ Lets a program (e.g. Claude via a remote MCP connector) act as an organization m
 - Tool types (`Tools/IssueTools.cs`, `[McpServerToolType]`) are thin adapters: resolve `OrganizationAuthData` from
   `IHttpContextAccessor`, call a service, return. All logic is in `Services/IssueMcpService.cs` (`IIssueMcpService`),
   on the same `IAccessService`/`ICoreIssuesService` path as REST.
+- Every tool's `[McpServerTool(...)]` sets `Title`, `ReadOnly` and `OpenWorld = false`, and a writing tool also
+  `Destructive` (true when it removes or replaces data: `edit_*`, `delete_*`) and `Idempotent` - the Claude connector
+  directory requires a title and readOnly/destructive hints (BRD-362). `McpToolAnnotationsTests` checks every tool.
 - `McpServerOptions.ServerInstructions` (`McpServerInstructions.cs`) goes to every client - keep it a short overview;
   per-tool details belong in `[Description]`.
 - `server.json` (MCP registry manifest, published with `mcp-publisher`) is the single source of name/title/description/
