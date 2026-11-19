@@ -144,18 +144,24 @@ public class CoreUserService(
                 .FirstAsyncEF(cancellationToken);
         }
 
-        var defaultStatus = AddPersonalWorkspace(
+        var workspace = AddPersonalWorkspace(
             user.Id,
             OrganizationDefaults.GetPersonalOrganizationSlug(profile.UserName),
             profile.LanguageCode,
             timestamp,
             identity.Profile);
 
+        // The chat's destination is a plain id with no navigation, so the workspace is saved first to get it. Both
+        // writes are in the caller's transaction.
+        await context.SaveChangesAsync(cancellationToken);
+
         context.LinkedTelegramChats.Add(new LinkedTelegramChat
         {
             ExternalChatId = profile.TelegramId,
             Title = profile.UserName ?? profile.FirstName,
-            Status = defaultStatus,
+            OrganizationId = workspace.Organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = workspace.DefaultStatus.Id,
             OwnerId = user.Id,
             SaveMode = SaveMode.EachMessage,
             // New users see where a message went: the bot replies with the card's link (BRD-361).
@@ -310,8 +316,8 @@ public class CoreUserService(
 
         var hasPersonalChat = await context.LinkedTelegramChats
             .AnyAsync(x => x.OwnerId == userId && x.ExternalChatId == profile.TelegramId, cancellationToken);
-        var personalStatusId = await GetPersonalOrganizationDefaultStatusIdAsync(userId, cancellationToken);
-        if (hasPersonalChat || personalStatusId is null)
+        var personalStatus = await GetPersonalOrganizationDefaultStatusAsync(userId, cancellationToken);
+        if (hasPersonalChat || personalStatus is null)
         {
             return new AccountLinkInBoardsResult(mergedUserId);
         }
@@ -320,7 +326,9 @@ public class CoreUserService(
         {
             ExternalChatId = profile.TelegramId,
             Title = profile.UserName ?? profile.FirstName,
-            StatusId = personalStatusId.Value,
+            OrganizationId = personalStatus.OrganizationId,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = personalStatus.StatusId,
             OwnerId = userId,
             SaveMode = SaveMode.EachMessage,
             // New users see where a message went: the bot replies with the card's link (BRD-361).
@@ -482,7 +490,7 @@ public class CoreUserService(
     /// The first status of the backlog in the personal organization's oldest active space - the space sign-up
     /// created, unless the user deleted it. Null when the personal organization has no active space.
     /// </summary>
-    private Task<long?> GetPersonalOrganizationDefaultStatusIdAsync(Guid userId, CancellationToken cancellationToken)
+    private Task<PersonalStatus?> GetPersonalOrganizationDefaultStatusAsync(Guid userId, CancellationToken cancellationToken)
     {
         return context.ActiveStatuses()
             .Where(x => x.Epic!.IsDefault
@@ -494,16 +502,18 @@ public class CoreUserService(
             .OrderBy(x => x.Epic!.Space!.CreatedAt)
             .ThenBy(x => x.Epic!.SpaceId)
             .ThenBy(x => x.SortOrder)
-            .Select(x => (long?)x.Id)
+            .Select(x => new PersonalStatus(x.Epic!.Space!.OrganizationId, x.Id))
             .FirstOrDefaultAsyncEF(cancellationToken);
     }
+
+    private sealed record PersonalStatus(long OrganizationId, long StatusId);
 
     /// <summary>
     /// Adds (without saving) what every newly registered user gets regardless of how they signed
     /// in: a personal organization, named in the sign-in method's language. Returns the personal
     /// organization's default status.
     /// </summary>
-    private DataAccess.Models.Status AddPersonalWorkspace(
+    private PersonalWorkspace AddPersonalWorkspace(
         Guid userId,
         string slug,
         string? languageCode,
@@ -521,8 +531,11 @@ public class CoreUserService(
 
         context.Organizations.Add(organization);
 
-        return organization.Spaces!.Single().Epics!.Single().Statuses!.Single();
+        return new PersonalWorkspace(organization, organization.Spaces!.Single().Epics!.Single().Statuses!.Single());
     }
+
+    /// <param name="DefaultStatus">Where the personal chat saves: the default space's backlog.</param>
+    private sealed record PersonalWorkspace(Organization Organization, DataAccess.Models.Status DefaultStatus);
 
     private static string? GetEmailLocalPart(string? email)
     {

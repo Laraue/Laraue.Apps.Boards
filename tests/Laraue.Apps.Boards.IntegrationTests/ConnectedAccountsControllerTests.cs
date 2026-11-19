@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Grpc.Core;
@@ -46,12 +46,16 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
         await ConnectTelegramAsync(userId, 502);
 
         var chat = await testScope.Database.LinkedTelegramChats
-            .Include(x => x.Status!.Epic!.Space!.Organization)
+            .Include(x => x.Organization)
             .SingleAsync(x => x.ExternalChatId == 502);
         Assert.Equal(userId, chat.OwnerId);
         Assert.Equal(SaveMode.EachMessage, chat.SaveMode);
-        Assert.Equal(OrganizationType.Personal, chat.Status!.Epic!.Space!.Organization!.Type);
-        Assert.Equal(userId, chat.Status.Epic.Space.Organization.OwnerId);
+        Assert.Equal(OrganizationType.Personal, chat.Organization!.Type);
+        Assert.Equal(userId, chat.Organization.OwnerId);
+        // Fixed down to the personal organization's default status, as before BRD-365.
+        Assert.Equal(LinkDestinationType.Status, chat.DestinationType);
+        Assert.True(await testScope.Database.Statuses.AnyAsync(x =>
+            x.Id == chat.DestinationId && x.Epic!.Space!.OrganizationId == chat.OrganizationId));
     }
 
     [Fact]
@@ -71,10 +75,10 @@ public class ConnectedAccountsControllerTests(WebApiTestHost host) : IClassFixtu
         Assert.Equal(userId, owner.DeletedByUserId);
         Assert.Equal(503, (await testScope.Database.Users.SingleAsync(x => x.Id == userId)).TelegramId);
         var chat = await testScope.Database.LinkedTelegramChats
-            .Include(x => x.Status!.Epic!.Space!.Organization)
+            .Include(x => x.Organization)
             .SingleAsync(x => x.ExternalChatId == 503);
         Assert.Equal(userId, chat.OwnerId);
-        Assert.Equal(userId, chat.Status!.Epic!.Space!.Organization!.OwnerId);
+        Assert.Equal(userId, chat.Organization!.OwnerId);
     }
 
     [Fact]

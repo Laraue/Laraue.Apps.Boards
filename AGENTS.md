@@ -19,6 +19,14 @@ issues ("cards"). Two surfaces:
   - `/link` is also the chat's settings (BRD-364): in a linked chat it shows the destination, save mode and reply mode,
     with a button per setting that sets the other value (`/link/settings/...` - a value, not a toggle, so a double tap
     can't flip it back) and "Change destination", which reruns the picker. Linking asks status → save mode → reply mode.
+  - Destination (BRD-365): a chat always fixes its organization (`LinkedTelegramChat.OrganizationId`, one chat = one
+    organization) and is fixed down to `DestinationType` (`Organization`/`Space`/`Epic`/`Status`) + `DestinationId`
+    (no FK - it points to one of four tables; `ILinkDestinationReader` resolves it). Below a non-`Status` destination
+    the sender picks each time: `SaveDestinationPicker` replies with space → epic → status buttons
+    (`/save/where/{messageId}/{type}/{id}` - to the saved message in auto mode, to the `/save` command otherwise, whose
+    text gives the title and `/aisave` on the last tap) and creates the card from what's recorded then
+    (`ITelegramSaveMessageService.SaveToStatus`, under a row lock on the message). Only the sender / `/save` issuer
+    can pick; a backlog epic needs no status step.
   - Card creation is gated by `IAccessService`, not just by the chat being linked.
   - `/info` - reply to a tracked message to get its card's preview/link without changing anything
     (`TelegramSaveMessageService.GetInfoByReply`, `InfoCommandService`); mostly for `EachMessage` mode, where saving is

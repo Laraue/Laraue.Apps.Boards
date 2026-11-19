@@ -70,6 +70,9 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IInfoCommandService, InfoCommandService>()
                 .AddScoped<IDeleteCommandService, DeleteCommandService>()
                 .AddScoped<IIssuePreviewBuilder, IssuePreviewBuilder>()
+                .AddScoped<ILinkDestinationReader, LinkDestinationReader>()
+                .AddScoped<IDestinationOptionsReader, DestinationOptionsReader>()
+                .AddScoped<ISaveDestinationPicker, SaveDestinationPicker>()
                 .AddSingleton<IIssueLinkParser, IssueLinkParser>()
                 .AddSingleton<IEphemeralReplySender, EphemeralReplySender>();
 

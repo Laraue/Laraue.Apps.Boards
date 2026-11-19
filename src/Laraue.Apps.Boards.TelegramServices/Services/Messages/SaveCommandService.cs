@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
@@ -32,6 +32,7 @@ public class SaveCommandService(
     ITelegramSaveMessageService saveMessageService,
     ITelegramBotClient client,
     IEphemeralReplySender ephemeralReplySender,
+    ISaveDestinationPicker destinationPicker,
     ILogger<SaveCommandService> logger)
     : ISaveCommandService
 {
@@ -83,45 +84,17 @@ public class SaveCommandService(
                     ExternalChatId = message.Chat.Id,
                     RepliedExternalMessageId = repliedMessage.MessageId,
                     UserId = userId,
-                    Title = ExtractTitle(message.Text),
+                    Title = SaveCommandText.ExtractTitle(message.Text),
                     Summarize = summarize,
                 },
                 cancellationToken);
         }
-        catch (ChatNotLinkedException)
+        catch (Exception ex) when (SaveRefusal.GetMessage(ex) is { } refusal)
         {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkNotLinked, cancellationToken);
-            return;
-        }
-        catch (LinkTargetDeletedException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.LinkTargetDeleted, cancellationToken);
-            return;
-        }
-        catch (IssueCreationForbiddenException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueCreationForbidden, cancellationToken);
-            return;
-        }
-        catch (AiContentSummarizationException ex)
-        {
-            logger.LogWarning(ex, "AI generation failed for chat {ExternalChatId}", message.Chat.Id);
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.AiSummarizationUnavailable, cancellationToken);
-            return;
-        }
-        catch (InsufficientTokenBalanceException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.InsufficientTokenBalance, cancellationToken);
-            return;
-        }
-        catch (IssueLimitExceededException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueLimitExceeded, cancellationToken);
-            return;
-        }
-        catch (IssueLockedByAgentRunException)
-        {
-            await ephemeralReplySender.SendEphemeralNotice(message, Phrases.IssueLockedByAgentRun, cancellationToken);
+            if (ex is AiContentSummarizationException)
+                logger.LogWarning(ex, "AI generation failed for chat {ExternalChatId}", message.Chat.Id);
+
+            await ephemeralReplySender.SendEphemeralNotice(message, refusal, cancellationToken);
             return;
         }
 
@@ -171,6 +144,18 @@ public class SaveCommandService(
                     cancellationToken);
                 break;
 
+            // The chat chooses part of its destination each time (BRD-365): the picker answers this /save command,
+            // so a tap can read its title and /aisave, and who sent it.
+            case SaveByReplyOutcome.DestinationRequired:
+                await destinationPicker.SendPicker(
+                    message.Chat.Id,
+                    message.MessageId,
+                    result.TelegramMessageId!.Value,
+                    userId,
+                    summarize,
+                    cancellationToken);
+                break;
+
             case SaveByReplyOutcome.NotNeededInAutoMode:
                 await ephemeralReplySender.SendEphemeralNotice(message, Phrases.SaveNotNeededInAutoMode, cancellationToken);
                 break;
@@ -198,24 +183,5 @@ public class SaveCommandService(
     private static string WithSkippedFilesNotice(string text, string? skippedFilesNotice)
     {
         return skippedFilesNotice is null ? text : $"{text}\n\n{skippedFilesNotice}";
-    }
-
-    /// <summary>
-    /// Everything after the first space in "/save Some title" -&gt; "Some title" (also strips a
-    /// bot @mention, e.g. "/save@mybot Some title"). Null when the command was sent bare.
-    /// </summary>
-    private static string? ExtractTitle(string? commandText)
-    {
-        if (string.IsNullOrEmpty(commandText))
-            return null;
-
-        var spaceIndex = commandText.IndexOf(' ');
-        if (spaceIndex < 0)
-            return null;
-
-        // Trim in span-space first so a bare "/save " (no real title) doesn't allocate at all,
-        // and a title with surrounding whitespace only allocates once, for the final string.
-        var title = commandText.AsSpan(spaceIndex + 1).Trim();
-        return title.IsEmpty ? null : title.ToString();
     }
 }

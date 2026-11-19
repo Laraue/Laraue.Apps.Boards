@@ -61,6 +61,25 @@ public static class DatabaseExtensions
     }
 
     /// <summary>
+    /// Locks a recorded Telegram message (<c>SELECT ... FOR UPDATE</c>) until the transaction ends, so two requests
+    /// turning it into a card run one after another and the second sees the first's card.
+    /// </summary>
+    public static Task LockTelegramMessage(
+        this DatabaseContext context,
+        long telegramMessageId,
+        CancellationToken cancellationToken = default)
+    {
+        context.Database.EnsureTransactionStarted();
+
+        return context.TelegramMessages
+            .ToLinqToDB()
+            .Where(x => x.Id == telegramMessageId)
+            .Select(x => x.Id)
+            .QueryHint(PostgreSQLHints.ForUpdate)
+            .ToListAsyncLinqToDB(cancellationToken);
+    }
+
+    /// <summary>
     /// Locks the given epics (<c>SELECT ... FOR UPDATE</c>) until the transaction ends, in id order like
     /// <see cref="LockUsers"/>.
     /// </summary>

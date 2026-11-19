@@ -89,17 +89,34 @@ public class LinkGroupController(IGroupChatLinkService linkFlowService) : Telegr
             cancellationToken);
     }
 
+    [TelegramCallbackRoute(TelegramRoutes.LinkChooseEachTime)]
+    public Task HandleChooseEachTime(
+        RequestContext requestContext,
+        [FromPath(TelegramRoutes.Parameters.DestinationType)] LinkDestinationType destinationType,
+        [FromPath(TelegramRoutes.Parameters.DestinationId)] long destinationId,
+        CancellationToken cancellationToken)
+    {
+        return linkFlowService.HandleChooseEachTime(
+            requestContext.Update.CallbackQuery!,
+            requestContext.UserId,
+            destinationType,
+            destinationId,
+            cancellationToken);
+    }
+
     [TelegramCallbackRoute(TelegramRoutes.LinkSaveMode)]
     public Task HandleSaveModeSelected(
         RequestContext requestContext,
-        [FromPath(TelegramRoutes.Parameters.StatusId)] long statusId,
+        [FromPath(TelegramRoutes.Parameters.DestinationType)] LinkDestinationType destinationType,
+        [FromPath(TelegramRoutes.Parameters.DestinationId)] long destinationId,
         [FromPath(TelegramRoutes.Parameters.Mode)] SaveMode mode,
         CancellationToken cancellationToken)
     {
         return linkFlowService.HandleSaveModeSelected(
             requestContext.Update.CallbackQuery!,
             requestContext.UserId,
-            statusId,
+            destinationType,
+            destinationId,
             mode,
             cancellationToken);
     }
@@ -107,7 +124,8 @@ public class LinkGroupController(IGroupChatLinkService linkFlowService) : Telegr
     [TelegramCallbackRoute(TelegramRoutes.LinkReplyMode)]
     public Task HandleReplyModeSelected(
         RequestContext requestContext,
-        [FromPath(TelegramRoutes.Parameters.StatusId)] long statusId,
+        [FromPath(TelegramRoutes.Parameters.DestinationType)] LinkDestinationType destinationType,
+        [FromPath(TelegramRoutes.Parameters.DestinationId)] long destinationId,
         [FromPath(TelegramRoutes.Parameters.SaveMode)] SaveMode saveMode,
         [FromPath(TelegramRoutes.Parameters.ReplyMode)] ReplyMode replyMode,
         CancellationToken cancellationToken)
@@ -115,7 +133,8 @@ public class LinkGroupController(IGroupChatLinkService linkFlowService) : Telegr
         return linkFlowService.HandleReplyModeSelected(
             requestContext.Update.CallbackQuery!,
             requestContext.UserId,
-            statusId,
+            destinationType,
+            destinationId,
             saveMode,
             replyMode,
             cancellationToken);

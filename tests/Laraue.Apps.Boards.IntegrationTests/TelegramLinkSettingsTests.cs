@@ -1,3 +1,4 @@
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Telegram.NET.Testing;
@@ -132,6 +133,71 @@ public class TelegramLinkSettingsTests : TelegramIntegrationTest
             x => x.CallbackData == "/link/settings/reply-mode/0");
     }
 
+    [Fact]
+    public async Task LinkFlow_ShouldSaveSpaceAsDestination_WhenEpicIsAskedEachTime()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var organization = await testScope.InitializeOrganization(userId);
+        var space = organization.GetSpace(0);
+
+        // "❓ Ask for the epic each time" in the epic picker, then the usual two questions.
+        var saveModePicker = await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/each-time/1/{space.Id}");
+        Assert.Contains($"{organization.Name} → {space.Name} → ❓ chosen each time", saveModePicker.Text);
+
+        await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/save-mode/1/{space.Id}/0");
+        var confirmed = await host.SendCallbackAsync(AdminUser, Group, MenuMessageId, $"/link/reply-mode/1/{space.Id}/0/1");
+        Assert.Contains($"{organization.Name} → {space.Name} → ❓ chosen each time", confirmed.Text);
+
+        var chat = await GetChat(host);
+        Assert.Equal(organization.Id, chat.OrganizationId);
+        Assert.Equal(LinkDestinationType.Space, chat.DestinationType);
+        Assert.Equal(space.Id, chat.DestinationId);
+
+        // /link then shows the partial destination in the settings menu.
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = AdminUser, Id = 2, Text = "/link", Chat = Group },
+        });
+
+        var menu = host.Requests().OfType<SendMessageRequest>().Last();
+        Assert.StartsWith(
+            $"This chat saves to\n{organization.Name} → {space.Name} → ❓ chosen each time\n",
+            menu.Text.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task LinkFlow_ShouldRefuse_WhenUserCanLinkChatsButCannotReadTheSpace()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // May link chats in the organization, but has no read access to its space.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId, b => b.SetAdminAccessLevel(AdminAccessLevel.LinkChats)));
+        var space = organization.GetSpace(0);
+        var privateChat = new Chat { Id = MemberUser.Id, Type = ChatType.Private };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = MemberUser,
+                Message = new Message { Id = MenuMessageId, Chat = privateChat },
+                Data = $"/link/each-time/1/{space.Id}",
+            }
+        });
+
+        Assert.Contains(
+            host.Requests().OfType<AnswerCallbackQueryRequest>(),
+            x => x.Text == "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.");
+        Assert.Empty(host.Requests().OfType<EditMessageTextRequest>());
+    }
+
     /// <returns>The organization's name.</returns>
     private static async Task<string> LinkGroup(AppTelegramTestHost host, SaveMode saveMode, ReplyMode replyMode)
     {
@@ -142,7 +208,9 @@ public class TelegramLinkSettingsTests : TelegramIntegrationTest
         testScope.Database.Add(new LinkedTelegramChat
         {
             ExternalChatId = Group.Id,
-            StatusId = organization.GetStatus(0, 0, 0).Id,
+            OrganizationId = organization.Id,
+            DestinationType = LinkDestinationType.Status,
+            DestinationId = organization.GetStatus(0, 0, 0).Id,
             OwnerId = userId,
             SaveMode = saveMode,
             ReplyMode = replyMode,

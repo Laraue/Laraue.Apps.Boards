@@ -57,10 +57,22 @@ public interface IGroupChatLinkService
         long statusId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// "Ask ... each time" in the space, epic or status picker: the destination ends at the given level, and the
+    /// flow goes on to the save mode.
+    /// </summary>
+    Task HandleChooseEachTime(
+        CallbackQuery query,
+        Guid userId,
+        LinkDestinationType destinationType,
+        long destinationId,
+        CancellationToken cancellationToken);
+
     Task HandleSaveModeSelected(
         CallbackQuery query,
         Guid userId,
-        long statusId,
+        LinkDestinationType destinationType,
+        long destinationId,
         SaveMode saveMode,
         CancellationToken cancellationToken);
 
@@ -70,7 +82,8 @@ public interface IGroupChatLinkService
     Task HandleReplyModeSelected(
         CallbackQuery query,
         Guid userId,
-        long statusId,
+        LinkDestinationType destinationType,
+        long destinationId,
         SaveMode saveMode,
         ReplyMode replyMode,
         CancellationToken cancellationToken);
@@ -112,7 +125,9 @@ public class GroupChatLinkService(
     ITelegramBotClient client,
     DatabaseContext context,
     IAccessService accessService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ILinkDestinationReader destinationReader,
+    IDestinationOptionsReader optionsReader)
     : IGroupChatLinkService
 {
     public async Task HandleLinkCommand(
@@ -171,23 +186,15 @@ public class GroupChatLinkService(
         if (organization is null)
             return;
 
-        var spaces = await accessService.GetAvailableSpaces(
-            new OrganizationAuthData { UserId = userId, OrganizationId = organizationId },
-            x => x
-                .Select(y => new { y.Id, y.Name })
-                .ToListAsyncEF(cancellationToken),
-            includeDeleted: false,
-            cancellationToken: cancellationToken);
+        var spaces = await optionsReader.GetOptionsBelow(
+            LinkDestinationType.Organization,
+            organizationId,
+            organizationId,
+            userId,
+            cancellationToken);
 
-        var spaceButtons = spaces
-            .Select(space => new[]
-            {
-                new CallbackRoutePath(TelegramRoutes.LinkSpace)
-                    .WithPathParameter(TelegramRoutes.Parameters.Id, space.Id.ToString())
-                    .ToInlineKeyboardButton($"🗂️ {space.Name}")
-            });
-
-        var allButtons = spaceButtons
+        var allButtons = OptionButtons(spaces, TelegramRoutes.LinkSpace)
+            .Append([ChooseEachTimeButton(LinkDestinationType.Organization, organizationId, Phrases.LinkAskSpaceEachTime)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.BackToLink))
             .AddCancelButton();
 
@@ -233,25 +240,15 @@ public class GroupChatLinkService(
         if (!await IsAllowedToLink(query, userId, space.OrganizationId, cancellationToken))
             return;
 
-        var epics = await context.ActiveEpics()
-            .Where(x => x.SpaceId == spaceId)
-            .OrderByDescending(x => x.IsDefault)
-            .ThenBy(x => x.Id)
-            .Select(x => new { x.Id, x.Name, x.IsDefault })
-            .ToListAsyncEF(cancellationToken);
+        var epics = await optionsReader.GetOptionsBelow(
+            LinkDestinationType.Space,
+            spaceId,
+            space.OrganizationId,
+            userId,
+            cancellationToken);
 
-        var buttons = epics
-            .Select(e =>
-            {
-                var epicIcon = e.IsDefault ? "📥" : "📋";
-                
-                return new[]
-                {
-                    new CallbackRoutePath(TelegramRoutes.LinkEpic)
-                        .WithPathParameter(TelegramRoutes.Parameters.Id, e.Id.ToString())
-                        .ToInlineKeyboardButton($"{epicIcon} {e.Name}")
-                };
-            })
+        var buttons = OptionButtons(epics, TelegramRoutes.LinkEpic)
+            .Append([ChooseEachTimeButton(LinkDestinationType.Space, spaceId, Phrases.LinkAskEpicEachTime)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkOrganization)
                 .WithPathParameter(TelegramRoutes.Parameters.Id, space.OrganizationId.ToString()))
             .AddCancelButton();
@@ -293,40 +290,34 @@ public class GroupChatLinkService(
         if (!await IsAllowedToLink(query, userId, epic.OrganizationId, cancellationToken))
             return;
 
-        var statuses = await context.ActiveStatuses()
-            .Where(x => x.EpicId == epicId)
-            .OrderBy(x => x.Id)
-            .Select(x => new { x.Id, x.Name })
-            .ToListAsyncEF(cancellationToken);
-
-        // Handle backlog case
+        // A backlog epic has a single status: it's linked to without asking for one.
         if (epic.IsDefault)
         {
-            var status = await LoadOrAnswerNotFound(
-                query,
-                () => Task.FromResult(statuses.FirstOrDefault()),
+            var backlogStatusId = await optionsReader.GetBacklogStatusId(
+                epicId,
+                epic.OrganizationId,
+                userId,
                 cancellationToken);
-
-            if (status is null)
+            if (backlogStatusId is null)
+            {
+                await AnswerItemNotFound(query, cancellationToken);
                 return;
+            }
 
-            await SendSaveModePicker(
-                chatId,
-                query.Message.MessageId,
-                status.Id,
-                $"{epic.OrganizationName} → {epic.SpaceName} → {epic.Name}",
-                cancellationToken);
+            await ShowSaveModePicker(query, userId, LinkDestinationType.Status, backlogStatusId.Value, cancellationToken);
 
             return;
         }
-        
-        var buttons = statuses
-            .Select(status => new[]
-            {
-                new CallbackRoutePath(TelegramRoutes.LinkStatus)
-                    .WithPathParameter(TelegramRoutes.Parameters.Id, status.Id.ToString())
-                    .ToInlineKeyboardButton($"🏷️ {status.Name}")
-            })
+
+        var statuses = await optionsReader.GetOptionsBelow(
+            LinkDestinationType.Epic,
+            epicId,
+            epic.OrganizationId,
+            userId,
+            cancellationToken);
+
+        var buttons = OptionButtons(statuses, TelegramRoutes.LinkStatus)
+            .Append([ChooseEachTimeButton(LinkDestinationType.Epic, epicId, Phrases.LinkAskStatusEachTime)])
             .AddBackButton(new CallbackRoutePath(TelegramRoutes.LinkSpace)
                 .WithPathParameter(TelegramRoutes.Parameters.Id, epic.SpaceId.ToString()))
             .AddCancelButton();
@@ -339,85 +330,132 @@ public class GroupChatLinkService(
             cancellationToken: cancellationToken);
     }
 
-    public async Task HandleStatusSelected(
+    public Task HandleStatusSelected(
         CallbackQuery query,
         Guid userId,
         long statusId,
         CancellationToken cancellationToken)
     {
-        var chatId = query.Message!.Chat.Id;
-        var destination = await LoadOrAnswerNotFound(
-            query,
-            () => LoadDestinationByStatusId(statusId, cancellationToken),
-            cancellationToken);
+        return ShowSaveModePicker(query, userId, LinkDestinationType.Status, statusId, cancellationToken);
+    }
 
-        if (destination is null)
-            return;
-
-        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
-            return;
-
-        await SendSaveModePicker(
-            chatId,
-            query.Message.MessageId,
-            destination.StatusId,
-            $"{destination.OrganizationName} → {destination.SpaceName} → {destination.EpicName}",
-            cancellationToken);
+    public Task HandleChooseEachTime(
+        CallbackQuery query,
+        Guid userId,
+        LinkDestinationType destinationType,
+        long destinationId,
+        CancellationToken cancellationToken)
+    {
+        return ShowSaveModePicker(query, userId, destinationType, destinationId, cancellationToken);
     }
 
     public async Task HandleSaveModeSelected(
         CallbackQuery query,
         Guid userId,
-        long statusId,
+        LinkDestinationType destinationType,
+        long destinationId,
         SaveMode saveMode,
         CancellationToken cancellationToken)
     {
-        var chatId = query.Message!.Chat.Id;
-        var destination = await LoadOrAnswerNotFound(
-            query,
-            () => LoadDestinationByStatusId(statusId, cancellationToken),
-            cancellationToken);
-
+        var destination = await LoadDestinationToLink(query, userId, destinationType, destinationId, cancellationToken);
         if (destination is null)
             return;
 
-        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
-            return;
-
-        await SendReplyModePicker(chatId, query.Message.MessageId, destination, saveMode, cancellationToken);
+        await SendReplyModePicker(query.Message!.Chat.Id, query.Message.MessageId, destination, saveMode, cancellationToken);
     }
 
     public async Task HandleReplyModeSelected(
         CallbackQuery query,
         Guid userId,
-        long statusId,
+        LinkDestinationType destinationType,
+        long destinationId,
         SaveMode saveMode,
         ReplyMode replyMode,
         CancellationToken cancellationToken)
     {
-        var chatId = query.Message!.Chat.Id;
-        var destination = await LoadOrAnswerNotFound(
-            query,
-            () => LoadDestinationByStatusId(statusId, cancellationToken),
-            cancellationToken);
-
+        var destination = await LoadDestinationToLink(query, userId, destinationType, destinationId, cancellationToken);
         if (destination is null)
             return;
 
-        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
-            return;
-
-        await LinkToStatus(
-            chatId,
-            query.Message.Chat.Title,
-            query.Message.Chat.Username,
-            destination.StatusId,
+        var message = query.Message!;
+        await LinkChat(
+            message.Chat.Id,
+            message.Chat.Title,
+            message.Chat.Username,
+            destination,
             userId,
             saveMode,
             replyMode,
             cancellationToken);
 
-        await SendLinkConfirmed(chatId, query.Message.MessageId, destination, saveMode, cancellationToken);
+        await SendLinkConfirmed(message.Chat.Id, message.MessageId, destination, saveMode, cancellationToken);
+    }
+
+    private async Task ShowSaveModePicker(
+        CallbackQuery query,
+        Guid userId,
+        LinkDestinationType destinationType,
+        long destinationId,
+        CancellationToken cancellationToken)
+    {
+        var destination = await LoadDestinationToLink(query, userId, destinationType, destinationId, cancellationToken);
+        if (destination is null)
+            return;
+
+        await SendSaveModePicker(query.Message!.Chat.Id, query.Message.MessageId, destination, cancellationToken);
+    }
+
+    /// <summary>
+    /// The destination a step of the link flow carries, if it still exists and the user may link chats to its
+    /// organization. Otherwise the callback is answered (not found / not allowed) and null is returned.
+    /// </summary>
+    private async Task<LinkDestination?> LoadDestinationToLink(
+        CallbackQuery query,
+        Guid userId,
+        LinkDestinationType destinationType,
+        long destinationId,
+        CancellationToken cancellationToken)
+    {
+        var destination = await LoadOrAnswerNotFound(
+            query,
+            () => destinationReader.Load(destinationType, destinationId, includeDeleted: false, cancellationToken),
+            cancellationToken);
+
+        if (destination is null)
+            return null;
+
+        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
+            return null;
+
+        // Linking chats in an organization doesn't by itself let a chat save into a space the user can't read.
+        if (!await optionsReader.CanRead(destination, userId, cancellationToken))
+        {
+            await AnswerItemNotFound(query, cancellationToken);
+            return null;
+        }
+
+        return destination;
+    }
+
+    /// <summary>
+    /// One row per option, each opening <paramref name="route"/> for it - the next step of /link.
+    /// </summary>
+    private static IEnumerable<InlineKeyboardButton[]> OptionButtons(IEnumerable<DestinationOption> options, string route)
+    {
+        return options.Select(option => new[]
+        {
+            new CallbackRoutePath(route)
+                .WithPathParameter(TelegramRoutes.Parameters.Id, option.Id.ToString())
+                .ToInlineKeyboardButton(option.Label),
+        });
+    }
+
+    private static InlineKeyboardButton ChooseEachTimeButton(LinkDestinationType type, long id, string text)
+    {
+        return new CallbackRoutePath(TelegramRoutes.LinkChooseEachTime)
+            .WithPathParameter(TelegramRoutes.Parameters.DestinationType, ((int)type).ToString())
+            .WithPathParameter(TelegramRoutes.Parameters.DestinationId, id.ToString())
+            .ToInlineKeyboardButton(text);
     }
 
     public async Task HandleUnlink(CallbackQuery query, Guid userId, CancellationToken cancellationToken)
@@ -427,7 +465,7 @@ public class GroupChatLinkService(
             query,
             () => context.LinkedTelegramChats
                 .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
-                .Select(x => new { x.Status!.Epic!.Space!.OrganizationId })
+                .Select(x => new { x.OrganizationId })
                 .FirstOrDefaultAsyncEF(cancellationToken),
             cancellationToken);
 
@@ -518,11 +556,11 @@ public class GroupChatLinkService(
             await SendSettingsMenu(chatId, updated, query.Message.MessageId, cancellationToken);
     }
 
-    private async Task LinkToStatus(
+    private async Task LinkChat(
         long externalChatId,
         string? chatTitle,
         string? chatUsername,
-        long statusId,
+        LinkDestination destination,
         Guid userId,
         SaveMode saveMode,
         ReplyMode replyMode,
@@ -539,7 +577,9 @@ public class GroupChatLinkService(
 
         chat.Title = chatTitle;
         chat.Username = chatUsername;
-        chat.StatusId = statusId;
+        chat.OrganizationId = destination.OrganizationId;
+        chat.DestinationType = destination.Type;
+        chat.DestinationId = destination.Id;
         chat.OwnerId = userId;
         chat.SaveMode = saveMode;
         chat.ReplyMode = replyMode;
@@ -579,7 +619,8 @@ public class GroupChatLinkService(
     {
         InlineKeyboardButton ReplyModeButton(ReplyMode replyMode, string text) =>
             new CallbackRoutePath(TelegramRoutes.LinkReplyMode)
-                .WithPathParameter(TelegramRoutes.Parameters.StatusId, destination.StatusId.ToString())
+                .WithPathParameter(TelegramRoutes.Parameters.DestinationType, ((int)destination.Type).ToString())
+                .WithPathParameter(TelegramRoutes.Parameters.DestinationId, destination.Id.ToString())
                 .WithPathParameter(TelegramRoutes.Parameters.SaveMode, ((int)saveMode).ToString())
                 .WithPathParameter(TelegramRoutes.Parameters.ReplyMode, ((int)replyMode).ToString())
                 .ToInlineKeyboardButton(text);
@@ -601,28 +642,22 @@ public class GroupChatLinkService(
     private Task SendSaveModePicker(
         ChatId chatId,
         int messageId,
-        long statusId,
-        string destination,
+        LinkDestination destination,
         CancellationToken cancellationToken)
     {
-        // Path parameters are bound via JSON deserialization, so the mode has to travel as its
-        // numeric underlying value — an unquoted enum name isn't valid JSON.
+        // Path parameters are bound via JSON deserialization, so enums travel as their numeric values - an unquoted
+        // enum name isn't valid JSON.
+        InlineKeyboardButton SaveModeButton(SaveMode saveMode, string text) =>
+            new CallbackRoutePath(TelegramRoutes.LinkSaveMode)
+                .WithPathParameter(TelegramRoutes.Parameters.DestinationType, ((int)destination.Type).ToString())
+                .WithPathParameter(TelegramRoutes.Parameters.DestinationId, destination.Id.ToString())
+                .WithPathParameter(TelegramRoutes.Parameters.Mode, ((int)saveMode).ToString())
+                .ToInlineKeyboardButton(text);
+
         var buttons = new[]
         {
-            new[]
-            {
-                new CallbackRoutePath(TelegramRoutes.LinkSaveMode)
-                    .WithPathParameter(TelegramRoutes.Parameters.StatusId, statusId.ToString())
-                    .WithPathParameter(TelegramRoutes.Parameters.Mode, ((int)SaveMode.EachMessage).ToString())
-                    .ToInlineKeyboardButton(Phrases.SaveModeEachMessage)
-            },
-            new[]
-            {
-                new CallbackRoutePath(TelegramRoutes.LinkSaveMode)
-                    .WithPathParameter(TelegramRoutes.Parameters.StatusId, statusId.ToString())
-                    .WithPathParameter(TelegramRoutes.Parameters.Mode, ((int)SaveMode.BotMentionedMessages).ToString())
-                    .ToInlineKeyboardButton(Phrases.SaveModeBotMentioned)
-            },
+            new[] { SaveModeButton(SaveMode.EachMessage, Phrases.SaveModeEachMessage) },
+            new[] { SaveModeButton(SaveMode.BotMentionedMessages, Phrases.SaveModeBotMentioned) },
         }.AddCancelButton();
 
         return client.EditMessageText(
@@ -633,41 +668,32 @@ public class GroupChatLinkService(
             cancellationToken: cancellationToken);
     }
 
-    private Task<LinkDestination?> LoadDestinationByStatusId(long statusId, CancellationToken cancellationToken)
+    private async Task<LinkedChatSettings?> GetActiveSettings(long chatId, CancellationToken cancellationToken)
     {
-        return context.ActiveStatuses()
-            .Where(x => x.Id == statusId)
-            .Select(x => new LinkDestination
-            {
-                OrganizationId = x.Epic!.Space!.OrganizationId,
-                StatusId = x.Id,
-                OrganizationName = x.Epic.Space.Organization!.Name,
-                SpaceName = x.Epic.Space.Name,
-                EpicName = x.Epic.Name,
-                StatusName = x.Epic.IsDefault ? null : x.Name,
-            })
-            .SingleOrDefaultAsyncEF(cancellationToken);
-    }
-
-    private Task<LinkedChatSettings?> GetActiveSettings(long chatId, CancellationToken cancellationToken)
-    {
-        return context.LinkedTelegramChats
+        var chat = await context.LinkedTelegramChats
             .Where(x => x.ExternalChatId == chatId && x.UnlinkedAt == null)
-            .Select(x => new LinkedChatSettings
-            {
-                Destination = new LinkDestination
-                {
-                    OrganizationId = x.Status!.Epic!.Space!.OrganizationId,
-                    StatusId = x.Status.Id,
-                    EpicName = x.Status.Epic.Name,
-                    StatusName = x.Status.Epic.IsDefault ? null : x.Status.Name,
-                    SpaceName = x.Status.Epic.Space!.Name,
-                    OrganizationName = x.Status.Epic.Space!.Organization!.Name,
-                },
-                SaveMode = x.SaveMode,
-                ReplyMode = x.ReplyMode,
-            })
+            .Select(x => new { x.DestinationType, x.DestinationId, x.SaveMode, x.ReplyMode })
             .SingleOrDefaultAsyncEF(cancellationToken);
+
+        if (chat is null)
+            return null;
+
+        // A deleted destination still shows here (names included), so the chat can be relinked or unlinked.
+        var destination = await destinationReader.Load(
+            chat.DestinationType,
+            chat.DestinationId,
+            includeDeleted: true,
+            cancellationToken);
+
+        if (destination is null)
+            return null;
+
+        return new LinkedChatSettings
+        {
+            Destination = destination,
+            SaveMode = chat.SaveMode,
+            ReplyMode = chat.ReplyMode,
+        };
     }
 
     // In a private chat the user is talking to the bot 1-on-1, so there is no separate "chat
@@ -940,25 +966,5 @@ public class GroupChatLinkService(
         public required LinkDestination Destination { get; init; }
         public required SaveMode SaveMode { get; init; }
         public required ReplyMode ReplyMode { get; init; }
-    }
-
-    private record LinkDestination
-    {
-        public required long OrganizationId { get; init; }
-        public required long StatusId { get; init; }
-        public required string OrganizationName { get; init; }
-        public required string SpaceName { get; init; }
-        public required string EpicName { get; init; }
-        public required string? StatusName { get; init; }
-
-        public override string ToString()
-        {
-            var parts = new List<string> { OrganizationName, SpaceName, EpicName };
-
-            if (StatusName is not null)
-                parts.Add(StatusName);
-
-            return string.Join(" → ", parts);
-        }
     }
 }

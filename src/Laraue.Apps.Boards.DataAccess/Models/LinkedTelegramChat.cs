@@ -3,8 +3,8 @@
 namespace Laraue.Apps.Boards.DataAccess.Models;
 
 /// <summary>
-/// A Telegram group/supergroup chat linked to an organization (and optionally a
-/// space/epic/status) so that messages in it can be turned into cards.
+/// A Telegram chat (a group, or the user's private chat with the bot) linked to an organization - and optionally
+/// down to a space, epic or status - so that messages in it can be turned into cards.
 /// </summary>
 public class LinkedTelegramChat
 {
@@ -29,10 +29,22 @@ public class LinkedTelegramChat
     public string? Username { get; set; }
 
     /// <summary>
-    /// Status of entities that will be created through the chat. 
+    /// The organization cards from the chat go to - always fixed: one chat saves to one organization.
     /// </summary>
-    public long StatusId { get; set; }
-    public Status? Status { get; set; }
+    public long OrganizationId { get; set; }
+    public Organization? Organization { get; set; }
+
+    /// <summary>
+    /// How far down the destination is fixed (BRD-365). Whatever is below it is asked for each time a message is
+    /// saved; <see cref="LinkDestinationType.Status"/> means everything is fixed and cards are saved right away.
+    /// </summary>
+    public LinkDestinationType DestinationType { get; set; }
+
+    /// <summary>
+    /// The id of the <see cref="DestinationType"/> entity - an organization, space, epic or status. No foreign key,
+    /// since it points to one of four tables; they're only soft-deleted, and a deleted target is checked in code.
+    /// </summary>
+    public long DestinationId { get; set; }
 
     /// <summary>
     /// Who creates the link.
@@ -77,6 +89,32 @@ public enum ReplyMode
     /// A reply to the message with the new card's link, so the user sees where it was saved. Edits still get ❤.
     /// </summary>
     IssueLink,
+}
+
+/// <summary>
+/// The level a chat's destination is fixed down to. The levels below it are chosen each time a message is saved.
+/// </summary>
+public enum LinkDestinationType
+{
+    /// <summary>
+    /// Only the organization: space, epic and status are chosen each time.
+    /// </summary>
+    Organization,
+
+    /// <summary>
+    /// The space: epic and status are chosen each time.
+    /// </summary>
+    Space,
+
+    /// <summary>
+    /// The epic: the status is chosen each time (a backlog epic has a single status, so nothing is asked).
+    /// </summary>
+    Epic,
+
+    /// <summary>
+    /// Everything is fixed: cards are saved right away.
+    /// </summary>
+    Status,
 }
 
 /// <summary>

@@ -226,6 +226,60 @@ namespace Laraue.Apps.Boards.TelegramServices.Resources {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to 📥 Where should this go?.
+        /// </summary>
+        internal static string SavePickerTitle {
+            get {
+                return ResourceManager.GetString("SavePickerTitle", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Only the person who saved this message can choose where it goes..
+        /// </summary>
+        internal static string SavePickerNotYours {
+            get {
+                return ResourceManager.GetString("SavePickerNotYours", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ❓ Ask for the space each time.
+        /// </summary>
+        internal static string LinkAskSpaceEachTime {
+            get {
+                return ResourceManager.GetString("LinkAskSpaceEachTime", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ❓ Ask for the epic each time.
+        /// </summary>
+        internal static string LinkAskEpicEachTime {
+            get {
+                return ResourceManager.GetString("LinkAskEpicEachTime", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ❓ Ask for the status each time.
+        /// </summary>
+        internal static string LinkAskStatusEachTime {
+            get {
+                return ResourceManager.GetString("LinkAskStatusEachTime", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to ❓ chosen each time.
+        /// </summary>
+        internal static string LinkDestinationChosenEachTime {
+            get {
+                return ResourceManager.GetString("LinkDestinationChosenEachTime", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to How should the bot confirm a saved message in {0}?.
         /// </summary>
         internal static string LinkChooseReplyMode {

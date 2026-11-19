@@ -759,7 +759,9 @@ public class IssuesControllerTests(WebApiTestHost host)  : IClassFixture<WebApiT
                 ExternalChatId = -1007777777777,
                 Title = "Team",
                 Username = "team_chat",
-                StatusId = organization.GetStatus(0, 0, 0).Id,
+                OrganizationId = organization.Id,
+                DestinationType = LinkDestinationType.Status,
+                DestinationId = organization.GetStatus(0, 0, 0).Id,
             },
         };
         testScope.Database.Add(message);

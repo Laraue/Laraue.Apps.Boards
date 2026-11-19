@@ -81,6 +81,18 @@
     <data name="LinkUnlink" xml:space="preserve">
         <value>Отвязать</value>
     </data>
+    <data name="LinkAskSpaceEachTime" xml:space="preserve">
+        <value>❓ Спрашивать пространство каждый раз</value>
+    </data>
+    <data name="LinkAskEpicEachTime" xml:space="preserve">
+        <value>❓ Спрашивать эпик каждый раз</value>
+    </data>
+    <data name="LinkAskStatusEachTime" xml:space="preserve">
+        <value>❓ Спрашивать статус каждый раз</value>
+    </data>
+    <data name="LinkDestinationChosenEachTime" xml:space="preserve">
+        <value>❓ выбирается каждый раз</value>
+    </data>
     <data name="LinkSettings" xml:space="preserve">
         <value>Этот чат сохраняет в
 {0}
@@ -180,6 +192,12 @@
     </data>
     <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
         <value>Ответьте на сообщение и отправьте /save, чтобы превратить его в карточку. Хорошо подходит для чатов компании с активным обсуждением, где карточку нужно создавать только иногда.</value>
+    </data>
+    <data name="SavePickerTitle" xml:space="preserve">
+        <value>📥 Куда сохранить?</value>
+    </data>
+    <data name="SavePickerNotYours" xml:space="preserve">
+        <value>Выбрать, куда сохранить, может только тот, кто сохраняет это сообщение.</value>
     </data>
     <data name="LinkChooseReplyMode" xml:space="preserve">
         <value>Как боту подтверждать сохранённое сообщение в {0}?

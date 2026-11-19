@@ -88,6 +88,18 @@ Full-text search, sorting, filtering, and more — right from your boards: {0} (
     <data name="LinkUnlink" xml:space="preserve">
         <value>Unlink</value>
     </data>
+    <data name="LinkAskSpaceEachTime" xml:space="preserve">
+        <value>❓ Ask for the space each time</value>
+    </data>
+    <data name="LinkAskEpicEachTime" xml:space="preserve">
+        <value>❓ Ask for the epic each time</value>
+    </data>
+    <data name="LinkAskStatusEachTime" xml:space="preserve">
+        <value>❓ Ask for the status each time</value>
+    </data>
+    <data name="LinkDestinationChosenEachTime" xml:space="preserve">
+        <value>❓ chosen each time</value>
+    </data>
     <data name="LinkSettings" xml:space="preserve">
         <value>This chat saves to
 {0}
@@ -187,6 +199,12 @@ Confirmation: {2}</value>
     </data>
     <data name="SaveModeInstructionsBotMentioned" xml:space="preserve">
         <value>Reply to a message and send /save to turn it into a card. Nice for company chats with a lot of discussion, where you only sometimes need to create a card from a message.</value>
+    </data>
+    <data name="SavePickerTitle" xml:space="preserve">
+        <value>📥 Where should this go?</value>
+    </data>
+    <data name="SavePickerNotYours" xml:space="preserve">
+        <value>Only the person who saved this message can choose where it goes.</value>
     </data>
     <data name="LinkChooseReplyMode" xml:space="preserve">
         <value>How should the bot confirm a saved message in {0}?
