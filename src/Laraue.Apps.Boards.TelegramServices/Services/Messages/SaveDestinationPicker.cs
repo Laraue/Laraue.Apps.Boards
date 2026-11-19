@@ -122,14 +122,18 @@ public class SaveDestinationPicker(
             return;
         }
 
+        // Stale or forged callback data: outside the chat's fixed part, or in a space the user can't read (whose name
+        // the next level would show).
         var destination = await destinationReader.Load(destinationType, destinationId, includeDeleted: false, cancellationToken);
-        if (destination is null || !IsWithinChatDestination(chat, destination))
+        if (destination is null
+            || !IsWithinChatDestination(chat, destination)
+            || !await optionsReader.CanRead(destination, userId, cancellationToken))
         {
             await AnswerAlert(query, Phrases.LinkItemNotFound, cancellationToken);
             return;
         }
 
-        var statusId = await GetStatusToSaveTo(destination, cancellationToken);
+        var statusId = await GetStatusToSaveTo(destination, userId, cancellationToken);
         if (statusId is null)
         {
             var level = await BuildLevel(chat, telegramMessageId, destinationType, destinationId, userId, cancellationToken);
@@ -291,13 +295,13 @@ public class SaveDestinationPicker(
     /// The status to save to once it's known: a picked status, or the single status of a picked backlog epic (never
     /// shown by name, as in /link). Null when a level is still to be chosen.
     /// </summary>
-    private async Task<long?> GetStatusToSaveTo(LinkDestination destination, CancellationToken cancellationToken)
+    private async Task<long?> GetStatusToSaveTo(LinkDestination destination, Guid userId, CancellationToken cancellationToken)
     {
         if (destination.Type == LinkDestinationType.Status)
             return destination.Id;
 
         return destination.Type == LinkDestinationType.Epic
-            ? await optionsReader.GetBacklogStatusId(destination.Id, cancellationToken)
+            ? await optionsReader.GetBacklogStatusId(destination.Id, destination.OrganizationId, userId, cancellationToken)
             : null;
     }
 

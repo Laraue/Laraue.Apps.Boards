@@ -284,6 +284,66 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         Assert.Empty(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
     }
 
+    [Fact]
+    public async Task HandleTextMessage_ShouldListNoEpics_WhenSenderCannotReadTheChatsSpace()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // A member with no access to anything in the organization.
+        var organization = await testScope.InitializeOrganization(ownerId, o => o.AddUser(memberId));
+        await LinkGroup(testScope, organization.Id, LinkDestinationType.Space, organization.GetSpace(0).Id, ownerId);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = MemberUser, Id = 5, Text = "Buy milk", Chat = Group },
+        });
+
+        // The space's epics are readable only with the space: nothing to pick but Cancel.
+        var picker = host.Requests().Single<SendMessageRequest>();
+        Assert.Equal([("✖ Cancel", "/close-callback")], Buttons(picker.ReplyMarkup));
+    }
+
+    [Fact]
+    public async Task HandlePicked_ShouldOnlyListAndOpenReadableSpaces_WhenChatFixesOnlyTheOrganization()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o
+                .AddSpace(ownerId, "AAA", s => s.AddEpic(ownerId, e => e.WithName("Secret plans")))
+                .AddUser(memberId, b => b.SetSpaceAccessLevel(0, x => x.CanRead = true)));
+        var readableSpace = organization.GetSpace(0);
+        var hiddenSpace = organization.GetSpace(1);
+        await LinkGroup(testScope, organization.Id, LinkDestinationType.Organization, organization.Id, ownerId);
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message { From = MemberUser, Id = 5, Text = "Buy milk", Chat = Group },
+        });
+        var telegramMessageId = await GetTelegramMessageId(host, 5);
+
+        var spaces = Buttons(host.Requests().Single<SendMessageRequest>().ReplyMarkup);
+        Assert.Contains(spaces, x => x.Text == $"🗂️ {readableSpace.Name}");
+        Assert.DoesNotContain(spaces, x => x.Text == $"🗂️ {hiddenSpace.Name}");
+
+        // Forged callback data opening the space the member can't read: refused, its epics never shown.
+        await TapPicker(
+            host,
+            MemberUser,
+            $"/save/where/{telegramMessageId}/1/{hiddenSpace.Id}",
+            replyTo: new Message { Id = 5, Chat = Group, Text = "Buy milk" });
+
+        Assert.Contains(
+            host.Requests().OfType<AnswerCallbackQueryRequest>(),
+            x => x.ShowAlert == true);
+        Assert.Empty(host.Requests().OfType<EditMessageTextRequest>());
+    }
+
     /// <remarks>Takes the test's one scope: creating a test scope cleans the database.</remarks>
     private static async Task<(Organization Organization, Guid UserId)> CreateOrganization(
         AppTelegramTestHost.AppTelegramTestHostScope testScope)

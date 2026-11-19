@@ -293,7 +293,11 @@ public class GroupChatLinkService(
         // A backlog epic has a single status: it's linked to without asking for one.
         if (epic.IsDefault)
         {
-            var backlogStatusId = await optionsReader.GetBacklogStatusId(epicId, cancellationToken);
+            var backlogStatusId = await optionsReader.GetBacklogStatusId(
+                epicId,
+                epic.OrganizationId,
+                userId,
+                cancellationToken);
             if (backlogStatusId is null)
             {
                 await AnswerItemNotFound(query, cancellationToken);
@@ -420,9 +424,17 @@ public class GroupChatLinkService(
         if (destination is null)
             return null;
 
-        return await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken)
-            ? destination
-            : null;
+        if (!await IsAllowedToLink(query, userId, destination.OrganizationId, cancellationToken))
+            return null;
+
+        // Linking chats in an organization doesn't by itself let a chat save into a space the user can't read.
+        if (!await optionsReader.CanRead(destination, userId, cancellationToken))
+        {
+            await AnswerItemNotFound(query, cancellationToken);
+            return null;
+        }
+
+        return destination;
     }
 
     /// <summary>

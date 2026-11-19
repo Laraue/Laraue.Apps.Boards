@@ -1,4 +1,5 @@
-﻿using Laraue.Apps.Boards.DataAccess.Models;
+﻿using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Telegram.NET.Testing;
 using LinqToDB.EntityFrameworkCore;
@@ -164,6 +165,37 @@ public class TelegramLinkSettingsTests : TelegramIntegrationTest
         Assert.StartsWith(
             $"This chat saves to\n{organization.Name} → {space.Name} → ❓ chosen each time\n",
             menu.Text.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task LinkFlow_ShouldRefuse_WhenUserCanLinkChatsButCannotReadTheSpace()
+    {
+        using var host = GetTelegramTestHost();
+        var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser(x => x.TelegramId = AdminUser.Id);
+        var memberId = await testScope.CreateUser(x => x.TelegramId = MemberUser.Id);
+        // May link chats in the organization, but has no read access to its space.
+        var organization = await testScope.InitializeOrganization(
+            ownerId,
+            o => o.AddUser(memberId, b => b.SetAdminAccessLevel(AdminAccessLevel.LinkChats)));
+        var space = organization.GetSpace(0);
+        var privateChat = new Chat { Id = MemberUser.Id, Type = ChatType.Private };
+
+        await host.SendUpdateAsync(new Update
+        {
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "1",
+                From = MemberUser,
+                Message = new Message { Id = MenuMessageId, Chat = privateChat },
+                Data = $"/link/each-time/1/{space.Id}",
+            }
+        });
+
+        Assert.Contains(
+            host.Requests().OfType<AnswerCallbackQueryRequest>(),
+            x => x.Text == "This item no longer exists — it may have been renamed, moved or deleted. Please start over with /link.");
+        Assert.Empty(host.Requests().OfType<EditMessageTextRequest>());
     }
 
     /// <returns>The organization's name.</returns>

@@ -1,4 +1,4 @@
-using Laraue.Apps.Boards.Common;
+﻿using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
@@ -11,10 +11,16 @@ namespace Laraue.Apps.Boards.TelegramServices.Services.GroupChats;
 /// labelled the same way wherever a destination is picked: in /link and in the "where should this go?" picker. Each
 /// caller makes its own buttons from the options.
 /// </summary>
+/// <remarks>
+/// Only what the user can read is listed. Permissions live on organizations and spaces - an epic or a status has
+/// none of its own and is readable with its space - so spaces are filtered one by one, and a space's epics or an
+/// epic's statuses are listed only when that space is readable. That holds for forged callback data too.
+/// </remarks>
 public interface IDestinationOptionsReader
 {
-    /// <param name="userId">Spaces are those this user can see in the organization.</param>
-    /// <returns>Empty for a status: nothing is below it.</returns>
+    /// <param name="userId">Whose read access decides what's listed.</param>
+    /// <returns>Empty for a status (nothing is below it), and when the user can't read the space the options are
+    /// in.</returns>
     Task<IReadOnlyList<DestinationOption>> GetOptionsBelow(
         LinkDestinationType type,
         long id,
@@ -24,9 +30,19 @@ public interface IDestinationOptionsReader
 
     /// <summary>
     /// A backlog epic has a single status, never picked by name: picking the epic means that status. Null for any
-    /// other epic, whose status is picked from its options.
+    /// other epic, whose status is picked from its options, and when the user can't read the epic's space.
     /// </summary>
-    Task<long?> GetBacklogStatusId(long epicId, CancellationToken cancellationToken);
+    Task<long?> GetBacklogStatusId(
+        long epicId,
+        long organizationId,
+        Guid userId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The user can read <paramref name="destination"/>: its space, for a space, epic or status. An organization
+    /// alone is readable here - what's below it is filtered space by space.
+    /// </summary>
+    Task<bool> CanRead(LinkDestination destination, Guid userId, CancellationToken cancellationToken);
 }
 
 public class DestinationOptionsReader(DatabaseContext context, IAccessService accessService) : IDestinationOptionsReader
@@ -38,11 +54,13 @@ public class DestinationOptionsReader(DatabaseContext context, IAccessService ac
         Guid userId,
         CancellationToken cancellationToken)
     {
+        var authData = new OrganizationAuthData { UserId = userId, OrganizationId = organizationId };
+
         switch (type)
         {
             case LinkDestinationType.Organization:
                 return await accessService.GetAvailableSpaces(
-                    new OrganizationAuthData { UserId = userId, OrganizationId = organizationId },
+                    authData,
                     x => x
                         .OrderBy(y => y.Id)
                         .Select(y => new DestinationOption(LinkDestinationType.Space, y.Id, "🗂️ " + y.Name))
@@ -52,6 +70,9 @@ public class DestinationOptionsReader(DatabaseContext context, IAccessService ac
 
             // The backlog comes first.
             case LinkDestinationType.Space:
+                if (!await CanReadSpace(authData, id, cancellationToken))
+                    return [];
+
                 return await context.ActiveEpics()
                     .Where(x => x.SpaceId == id)
                     .OrderByDescending(x => x.IsDefault)
@@ -60,6 +81,9 @@ public class DestinationOptionsReader(DatabaseContext context, IAccessService ac
                     .ToListAsyncEF(cancellationToken);
 
             case LinkDestinationType.Epic:
+                if (!await CanReadEpic(authData, id, cancellationToken))
+                    return [];
+
                 return await context.ActiveStatuses()
                     .Where(x => x.EpicId == id)
                     .OrderBy(x => x.Id)
@@ -71,13 +95,56 @@ public class DestinationOptionsReader(DatabaseContext context, IAccessService ac
         }
     }
 
-    public Task<long?> GetBacklogStatusId(long epicId, CancellationToken cancellationToken)
+    public async Task<long?> GetBacklogStatusId(
+        long epicId,
+        long organizationId,
+        Guid userId,
+        CancellationToken cancellationToken)
     {
-        return context.ActiveStatuses()
+        var authData = new OrganizationAuthData { UserId = userId, OrganizationId = organizationId };
+        if (!await CanReadEpic(authData, epicId, cancellationToken))
+            return null;
+
+        return await context.ActiveStatuses()
             .Where(x => x.EpicId == epicId && x.Epic!.IsDefault)
             .OrderBy(x => x.Id)
             .Select(x => (long?)x.Id)
             .FirstOrDefaultAsyncEF(cancellationToken);
+    }
+
+    public async Task<bool> CanRead(LinkDestination destination, Guid userId, CancellationToken cancellationToken)
+    {
+        if (destination.SpaceId is not { } spaceId)
+            return true;
+
+        var authData = new OrganizationAuthData { UserId = userId, OrganizationId = destination.OrganizationId };
+
+        return await CanReadSpace(authData, spaceId, cancellationToken);
+    }
+
+    private async Task<bool> CanReadSpace(OrganizationAuthData authData, long spaceId, CancellationToken cancellationToken)
+    {
+        var accessLevels = await accessService.GetAccessLevelsBySpaceId(
+            authData,
+            spaceId,
+            includeDeleted: false,
+            cancellationToken);
+
+        return accessLevels?.CanRead == true;
+    }
+
+    /// <summary>
+    /// An epic is readable with its space - <see cref="IAccessService.GetAccessLevelsByEpicId"/> resolves to it.
+    /// </summary>
+    private async Task<bool> CanReadEpic(OrganizationAuthData authData, long epicId, CancellationToken cancellationToken)
+    {
+        var accessLevels = await accessService.GetAccessLevelsByEpicId(
+            authData,
+            epicId,
+            includeDeleted: false,
+            cancellationToken);
+
+        return accessLevels?.CanRead == true;
     }
 }
 
