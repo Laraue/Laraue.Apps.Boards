@@ -236,12 +236,12 @@ public class SaveCommandService(
     /// </summary>
     internal static bool IsSaveCommand(string? text)
     {
-        return CommandName(text) is "/save" or "/aisave";
+        return CommandName(text) is TelegramRoutes.Commands.Save or TelegramRoutes.Commands.AiSave;
     }
 
     internal static bool IsAiSaveCommand(string? text)
     {
-        return CommandName(text) == "/aisave";
+        return CommandName(text) == TelegramRoutes.Commands.AiSave;
     }
 
     /// <summary>

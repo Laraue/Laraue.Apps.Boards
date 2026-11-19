@@ -2,12 +2,12 @@
 
 public static class TelegramRoutes
 {
-    public const string LinkCommand = "/link(.*)";
-    public const string UnlinkCommand = "/unlink(.*)";
-    public const string SaveCommand = "/save(.*)";
-    public const string AiSaveCommand = "/aisave(.*)";
-    public const string InfoCommand = "/info(.*)";
-    public const string DeleteCommand = "/delete(.*)";
+    public const string LinkCommand = $"{Commands.Link}(.*)";
+    public const string UnlinkCommand = $"{Commands.Unlink}(.*)";
+    public const string SaveCommand = $"{Commands.Save}(.*)";
+    public const string AiSaveCommand = $"{Commands.AiSave}(.*)";
+    public const string InfoCommand = $"{Commands.Info}(.*)";
+    public const string DeleteCommand = $"{Commands.Delete}(.*)";
     
     public const string DeleteConfirm = $"/delete/confirm/{{{Parameters.IssueId}}}";
     public const string Unlink = "/link/unlink";
@@ -30,6 +30,19 @@ public static class TelegramRoutes
         $"/save/where/{{{Parameters.MessageId}}}/{{{Parameters.DestinationType}}}/{{{Parameters.DestinationId}}}";
 
     public const string CloseCallbackWindow = "/close-callback";
+
+    /// <summary>
+    /// The bot's commands as typed, for the command routes above and for code that reads a command's text.
+    /// </summary>
+    public static class Commands
+    {
+        public const string Link = "/link";
+        public const string Unlink = "/unlink";
+        public const string Save = "/save";
+        public const string AiSave = "/aisave";
+        public const string Info = "/info";
+        public const string Delete = "/delete";
+    }
 
     /// <summary>
     /// Path parameter names of the routes above: callback data is built with <c>WithPathParameter</c> and controller
