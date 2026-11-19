@@ -81,6 +81,15 @@
     <data name="LinkUnlink" xml:space="preserve">
         <value>Отвязать</value>
     </data>
+    <data name="DocsReadMoreButton" xml:space="preserve">
+        <value>📖 Подробнее</value>
+    </data>
+    <data name="TipReactions" xml:space="preserve">
+        <value>💡 А вы знали? Если сохраняете много, бот может ставить 👍 вместо ответа с каждой карточкой: отправьте /link в этот чат и нажмите «👍 Подтверждать реакцией».</value>
+    </data>
+    <data name="TipSaveOnlyViaSave" xml:space="preserve">
+        <value>💡 А вы знали? В активной группе бот может сохранять не каждое сообщение, а только те, на которые ответили /save: отправьте /link в группу и нажмите «✋ Сохранять только через /save».</value>
+    </data>
     <data name="DocsChatSettingsPath" xml:space="preserve">
         <value>/ru/documentation/integrations/telegram-chat-settings</value>
     </data>

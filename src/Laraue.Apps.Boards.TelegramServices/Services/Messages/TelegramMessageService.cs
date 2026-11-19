@@ -10,7 +10,8 @@ public class TelegramMessageService(
     ITelegramBotClient client,
     ITelegramSaveMessageService saveMessageService,
     IIssuePreviewBuilder issuePreviewBuilder,
-    ISaveDestinationPicker destinationPicker)
+    ISaveDestinationPicker destinationPicker,
+    IBotTipsService botTips)
     : ITelegramMessageService
 {
     public async Task HandleSaveMessage(
@@ -73,16 +74,21 @@ public class TelegramMessageService(
                 preview.Text,
                 preview.Url,
                 cancellationToken);
-
-            return;
         }
-
         // If message was created with that request then response,
         // otherwise it is the second, third etc. parts of message
-        if (result.Result is Result.MainMessageCreated)
+        else if (result.Result is Result.MainMessageCreated)
+        {
             await SetReaction(request, "👍", cancellationToken);
+        }
         else if (result.Result is Result.MainMessageUpdated)
+        {
             await SetReaction(request, "❤", cancellationToken);
+        }
+
+        // After the confirmation: a tip may follow, in the user's private chat (BRD-367).
+        if (result.CardCreated)
+            await botTips.AfterCardCreated(request.UserId, request.ExternalChatId, cancellationToken);
     }
 
     private async Task SetReaction(

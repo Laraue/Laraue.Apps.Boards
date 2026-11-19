@@ -1221,6 +1221,7 @@ public class TelegramSaveMessageService(
             Result = result,
             TelegramMessageId = telegramMessageId,
             LinkReplyIssueId = linkedChat.ReplyMode == ReplyMode.IssueLink ? issueId : null,
+            CardCreated = true,
         };
     }
 
@@ -1498,6 +1499,11 @@ public class GetOrCreateMessageResult
     /// <see cref="TelegramMessageId"/> (the card's message - an album's first) should go.
     /// </summary>
     public bool DestinationRequired { get; init; }
+
+    /// <summary>
+    /// This request created the message's card (an edit or another album member that only updates it doesn't).
+    /// </summary>
+    public bool CardCreated { get; init; }
 }
 
 public enum Result

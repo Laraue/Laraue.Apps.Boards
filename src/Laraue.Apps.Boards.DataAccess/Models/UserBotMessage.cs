@@ -38,6 +38,16 @@ public enum BotMessageKind
     /// up by writing to the bot get the <c>/start</c> reply instead.
     /// </summary>
     Welcome = 1,
+
+    /// <summary>
+    /// A tip (BRD-367): someone saving a lot in a chat that replies with the card link can switch to a 👍 reaction.
+    /// </summary>
+    TipReactions = 2,
+
+    /// <summary>
+    /// A tip (BRD-367): the owner of a busy group that saves every message can save only via /save.
+    /// </summary>
+    TipSaveOnlyViaSave = 3,
 }
 
 public enum BotMessageStatus

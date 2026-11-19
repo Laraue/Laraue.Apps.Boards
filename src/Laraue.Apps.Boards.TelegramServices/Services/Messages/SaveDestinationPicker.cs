@@ -56,6 +56,7 @@ public class SaveDestinationPicker(
     ILinkDestinationReader destinationReader,
     IDestinationOptionsReader optionsReader,
     ITelegramSaveMessageService saveMessageService,
+    IBotTipsService botTips,
     ILogger<SaveDestinationPicker> logger)
     : ISaveDestinationPicker
 {
@@ -254,6 +255,10 @@ public class SaveDestinationPicker(
                 await client.EditMessageText(externalChatId, picker.MessageId, Phrases.SaveTitleRequired, cancellationToken: cancellationToken);
                 break;
         }
+
+        // After the confirmation: a tip may follow, in the user's private chat (BRD-367).
+        if (result.Outcome == SaveByReplyOutcome.Saved)
+            await botTips.AfterCardCreated(userId, externalChatId, cancellationToken);
     }
 
     /// <summary>

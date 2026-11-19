@@ -17,6 +17,37 @@ public static class DatabaseExtensions
             throw new InvalidOperationException("Database transaction is required.");
     }
 
+    /// <summary>
+    /// Claims the bot's unprompted message of <paramref name="kind"/> for the user before it's sent - a
+    /// <see cref="UserBotMessage"/> row, at most one per user and kind. Insert-if-not-exists (on Postgres
+    /// <c>on conflict do nothing</c>), so of two requests at once exactly one gets <c>true</c> and sends; a duplicate
+    /// is no error. EF Core has no such insert, so this goes through LinqToDB.
+    /// </summary>
+    /// <returns>True when this call claimed the message and should send it.</returns>
+    public static async Task<bool> TryClaimBotMessage(
+        this DatabaseContext context,
+        Guid userId,
+        BotMessageKind kind,
+        DateTime sentAt,
+        CancellationToken cancellationToken)
+    {
+        var inserted = await context.UserBotMessages
+            .ToLinqToDBTable()
+            .InsertOrUpdateAsync(
+                () => new UserBotMessage
+                {
+                    UserId = userId,
+                    Kind = kind,
+                    SentAt = sentAt,
+                    Status = BotMessageStatus.Sent,
+                },
+                // No setters: nothing to update when the row exists - insert if not exists.
+                _ => new UserBotMessage(),
+                cancellationToken);
+
+        return inserted > 0;
+    }
+
     public static Task PgAdvisoryXactLock(this DatabaseFacade facade, string lockKey, CancellationToken cancellationToken = default)
     {
         facade.EnsureTransactionStarted();
