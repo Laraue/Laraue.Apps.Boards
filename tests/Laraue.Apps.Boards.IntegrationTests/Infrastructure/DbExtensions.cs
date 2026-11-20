@@ -31,6 +31,7 @@ public static class DbExtensions
         dbContext.Attachments.ExecuteDelete();
         dbContext.LinkedTelegramChats.ExecuteDelete();
         dbContext.AgentSignInRequests.ExecuteDelete();
+        dbContext.OAuthAuthorizationRequests.ExecuteDelete();
         dbContext.Users.ExecuteDelete();
         dbContext.TelegramMediaGroups.ExecuteDelete();
     }

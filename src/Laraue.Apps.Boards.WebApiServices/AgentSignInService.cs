@@ -13,7 +13,8 @@ namespace Laraue.Apps.Boards.WebApiServices;
 /// <summary>
 /// "Connect this machine" for the agent runner (BRD-309): `boards-agent setup` starts a sign-in and polls for its API
 /// key, while the person allows it on the web app's Allow page for one of their organizations. See
-/// <see cref="ICoreAgentSignInService"/>. Not OAuth - a general sign-in server belongs to Laraue.Apps.Identity.
+/// <see cref="ICoreAgentSignInService"/>. Not OAuth - see <see cref="OAuth.IOAuthService"/> for that; both only hand
+/// out organization-scoped Boards keys, and a general sign-in server belongs to Laraue.Apps.Identity.
 /// </summary>
 public interface IAgentSignInService
 {
@@ -154,15 +155,7 @@ public class AgentSignInService(
         ApproveAgentSignInRequest request,
         CancellationToken cancellationToken)
     {
-        var isMember = await accessService.GetOrganizations(
-            userId,
-            organizationUsers => organizationUsers
-                .AnyAsync(
-                    x => x.OrganizationId == request.OrganizationId
-                        && x.Organization!.DeletedAt == null,
-                    cancellationToken));
-
-        if (!isMember)
+        if (!await accessService.IsActiveMember(userId, request.OrganizationId, cancellationToken))
         {
             throw new NotFoundException(
                 string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Organization", request.OrganizationId));

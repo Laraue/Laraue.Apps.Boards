@@ -9,7 +9,8 @@ namespace Laraue.Apps.Boards.DataAccess.Models;
 /// the person opens the Allow page by <see cref="UserCode"/>, picks an organization and allows or denies it. On the
 /// first poll after Allow, the key is created for that user and organization and returned once - the raw key is
 /// never stored here.
-/// Not OAuth: a real sign-in server belongs to Laraue.Apps.Identity; this only hands out a Boards key.
+/// Not OAuth (that is <see cref="OAuthAuthorizationRequest"/>): this only hands out a Boards key; a general sign-in
+/// server belongs to Laraue.Apps.Identity.
 /// </summary>
 public class AgentSignInRequest
 {

@@ -53,6 +53,7 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
     public DbSet<IssueAgentRun> IssueAgentRuns { get; init; }
     public DbSet<IssueLink> IssueLinks { get; init; }
     public DbSet<AgentSignInRequest> AgentSignInRequests { get; init; }
+    public DbSet<OAuthAuthorizationRequest> OAuthAuthorizationRequests { get; init; }
     public DbSet<SpaceLink> SpaceLinks { get; init; }
     
     public DbSet<Attribute> Attributes { get; set; }
@@ -358,6 +359,30 @@ public class DatabaseContext : DbContext, IUpdatesQueueDbContext, IInterceptorsD
                 .HasOne(x => x.ReplacesApiKey)
                 .WithMany()
                 .HasForeignKey(x => x.ReplacesApiKeyId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<OAuthAuthorizationRequest>(entity =>
+        {
+            // The snake case convention would split "OAuth" into "o_auth".
+            entity.ToTable("oauth_authorization_requests");
+
+            // The token request finds the request by its code; set only on Allow.
+            entity
+                .HasIndex(x => x.CodeHash)
+                .IsUnique()
+                .HasFilter("code_hash IS NOT NULL");
+
+            // Connecting a client again finds the key it got before for the same person and organization.
+            entity
+                .HasIndex(x => new { x.OrganizationId, x.UserId, x.ClientId })
+                .HasFilter("api_key_id IS NOT NULL");
+
+            // Deleting the issued key keeps the request - it only loses the link.
+            entity
+                .HasOne(x => x.ApiKey)
+                .WithMany()
+                .HasForeignKey(x => x.ApiKeyId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

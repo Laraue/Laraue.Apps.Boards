@@ -135,6 +135,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
                 .AddScoped<ICoreUserLastSeenService, CoreUserLastSeenService>()
                 .AddScoped<ICoreAgentSignInService, CoreAgentSignInService>()
+                .AddScoped<OAuth.ICoreOAuthAuthorizationService, OAuth.CoreOAuthAuthorizationService>()
                 .AddScoped<ICoreSpaceLinksService, CoreSpaceLinksService>()
                 .AddScoped<ICoreAgentRunsService, CoreAgentRunsService>()
                 .AddScoped<IAgentRunBoardRequirements, AgentRunBoardRequirements>()
@@ -306,6 +307,23 @@ public static class WebApplicationBuilderExtensions
                     .ConfigurePrimaryHttpMessageHandler(
                         sp => new Storage.FakeStorageHttpHandler(sp.GetRequiredService<Storage.FakeStorageServiceClient>()));
             }
+
+            return builder;
+        }
+
+        /// <summary>
+        /// Fetching MCP clients' metadata documents for OAuth (BRD-362) - only the host serving the authorize endpoint
+        /// needs it. Only the clients in the <c>OAuth</c> section's <c>AllowedClientIds</c> are fetched.
+        /// </summary>
+        public WebApplicationBuilder AddOAuthClientMetadataFetcher()
+        {
+            builder.AddValidatedOptions<OAuth.OAuthClientsOptions>("OAuth");
+            builder.Services.AddMemoryCache();
+            builder.Services
+                .AddHttpClient<OAuth.IOAuthClientMetadataFetcher, OAuth.OAuthClientMetadataFetcher>(
+                    OAuth.OAuthClientMetadataFetcher.ConfigureClient)
+                // A listed URL that redirected elsewhere would fetch a document from a host nobody listed.
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
             return builder;
         }

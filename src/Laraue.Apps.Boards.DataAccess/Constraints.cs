@@ -54,4 +54,26 @@ public class Constraints
     /// With <see cref="MaxAgentSignInClientNameLength"/>, the key name "client (machine)" fits the key name's 64 characters.
     /// </summary>
     public const int MaxAgentSignInMachineNameLength = 37;
+
+    /// <summary>
+    /// An OAuth client's URLs - its <c>client_id</c>, redirect URI and the requested resource, see
+    /// <see cref="Models.OAuthAuthorizationRequest"/>.
+    /// </summary>
+    public const int MaxOAuthUrlLength = 2048;
+
+    /// <summary>
+    /// An OAuth client's <c>client_name</c> as stored - longer names from its metadata document are cut.
+    /// </summary>
+    public const int MaxOAuthClientNameLength = 100;
+
+    /// <summary>
+    /// An OAuth client's <c>state</c> - an opaque value it gets back unchanged.
+    /// </summary>
+    public const int MaxOAuthStateLength = 1024;
+
+    /// <summary>
+    /// A PKCE <c>code_challenge</c>: an S256 one is 43 characters, the limit leaves room for a malformed one to be
+    /// rejected by validation rather than by the column.
+    /// </summary>
+    public const int MaxOAuthCodeChallengeLength = 128;
 }

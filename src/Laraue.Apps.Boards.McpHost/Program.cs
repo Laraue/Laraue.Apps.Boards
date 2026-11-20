@@ -8,6 +8,7 @@ using Laraue.Apps.Boards.Services.Links;
 using Laraue.Apps.Boards.Services.Sources;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.AspNetCore.Authentication;
 using Laraue.Apps.Boards.Services.Metrics;
 using OpenTelemetry.Metrics;
 using Telegram.Bot;
@@ -23,11 +24,22 @@ public sealed class Program
         const string dbConnectionStringName = "Postgre";
 
         // No JWT scheme here - this host is machine-to-machine only (an MCP client authenticates
-        // with a long-lived API key, never a browser session), so ApiKey is both registered and
-        // the default.
+        // with a long-lived API key, never a browser session), so ApiKey authenticates every request.
+        // A refused request is challenged by the SDK's MCP scheme instead (BRD-362): a 401 whose
+        // WWW-Authenticate points at this server's protected resource metadata, which the same scheme
+        // serves, so an OAuth client finds the authorization server and signs in.
         builder.Services
-            .AddAuthentication(AuthSchemas.ApiKey)
-            .AddApiKeyAuthentication();
+            .AddAuthentication(options =>
+            {
+                options.DefaultScheme = AuthSchemas.ApiKey;
+                options.DefaultChallengeScheme = McpAuthenticationDefaults.AuthenticationScheme;
+            })
+            .AddApiKeyAuthentication()
+            .AddMcp();
+        builder.AddValidatedOptions<McpOAuthOptions>("OAuth");
+        builder.Services
+            .AddOptions<McpAuthenticationOptions>(McpAuthenticationDefaults.AuthenticationScheme)
+            .Configure<IOptions<ServerCardOptions>, IOptions<McpOAuthOptions>>(McpOAuthOptions.Configure);
         builder.Services.AddAuthorization();
 
         // AddCoreServices() registers ICoreFilesService, which depends on ITelegramBotClient (file

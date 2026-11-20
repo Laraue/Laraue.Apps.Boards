@@ -45,6 +45,15 @@ public static class StringGenerator
 
     private const string UserCodeChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+    /// <summary>
+    /// An OAuth authorization code, handed to the client in its redirect and exchanged once for its key - as long and
+    /// random as an agent sign-in's device code. Letters and digits only, so it needs no escaping in a URL.
+    /// </summary>
+    public static string GenerateOAuthAuthorizationCode()
+    {
+        return GenerateRandomString(43);
+    }
+
     private static string GenerateRandomString(int length, string chars = Chars)
     {
         return string.Create(length, (chars, length), (span, state) =>

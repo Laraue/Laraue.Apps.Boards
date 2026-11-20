@@ -13,6 +13,8 @@ using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
 using Laraue.Apps.Boards.Services.Sources;
 
+using Laraue.Apps.Boards.WebApiServices.OAuth;
+
 namespace Laraue.Apps.Boards.WebApiHost;
 
 public static class WebApplicationBuilderExtensions
@@ -27,6 +29,9 @@ public static class WebApplicationBuilderExtensions
                 .AddFeedbackClient()
                 .AddStorageClient();
             builder.AddValidatedOptions<AgentSignInOptions>(nameof(AgentSignInOptions));
+            // OAuth for MCP clients (BRD-362): the client allowlist and the server's own addresses share one section.
+            builder.AddOAuthClientMetadataFetcher();
+            builder.AddValidatedOptions<OAuthServerOptions>("OAuth");
             // The web app URL, for the "Open board" button of the bot's welcome; the same section as in
             // TelegramHost and McpHost.
             builder.AddValidatedOptions<WebAppOptions>("AppOptions");
@@ -72,6 +77,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<IMovementService, MovementService>()
                 .AddScoped<IApiKeysService, ApiKeysService>()
                 .AddScoped<IAgentSignInService, AgentSignInService>()
+                .AddScoped<IOAuthService, OAuthService>()
                 .AddScoped<IAgentRunsService, AgentRunsService>()
                 .AddScoped<IUserFeedbackService, UserFeedbackService>();
 

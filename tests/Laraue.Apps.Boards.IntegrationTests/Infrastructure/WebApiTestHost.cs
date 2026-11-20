@@ -6,6 +6,7 @@ using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.Services;
 using Laraue.Apps.Boards.Services.Ai;
 using Laraue.Apps.Boards.Services.Billing;
+using Laraue.Apps.Boards.Services.OAuth;
 using Laraue.Apps.Boards.WebApiHost;
 using Laraue.Apps.Boards.WebApiServices;
 using Laraue.Apps.Feedback.Internal.Contracts;
@@ -73,6 +74,24 @@ public class WebApiTestHost
     /// Stands in for Laraue.Apps.Storage: uploads are kept in memory, and their public URLs are served from it.
     /// </summary>
     public FakeStorageServiceClient StorageClient { get; } = new();
+
+    /// <summary>
+    /// The client documents OAuth fetches. Defaults to ChatGPT's (<see cref="OAuthTestClient"/>) and
+    /// <see cref="OAuthClientMetadataError.UnknownClient"/> for anything else - tests of other answers re-<c>Setup</c>
+    /// it themselves.
+    /// </summary>
+    public Mock<IOAuthClientMetadataFetcher> OAuthClientMetadataFetcherMock { get; } = CreateDefaultOAuthClientMetadataFetcherMock();
+
+    private static Mock<IOAuthClientMetadataFetcher> CreateDefaultOAuthClientMetadataFetcherMock()
+    {
+        var mock = new Mock<IOAuthClientMetadataFetcher>();
+        mock.Setup(x => x.Fetch(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OAuthClientMetadataResult.Fail(OAuthClientMetadataError.UnknownClient));
+        mock.Setup(x => x.Fetch(OAuthTestClient.ClientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OAuthClientMetadataResult.Ok(OAuthTestClient.Metadata));
+
+        return mock;
+    }
 
     private static Mock<FeedbackService.FeedbackServiceClient> CreateDefaultFeedbackClientMock()
     {
@@ -174,6 +193,7 @@ public class WebApiTestHost
             services.AddSingleton(BillingPaymentClientMock.Object);
             services.AddSingleton(FeedbackClientMock.Object);
             services.AddSingleton(GoogleIdTokenValidatorMock.Object);
+            services.AddSingleton(OAuthClientMetadataFetcherMock.Object);
 
             // Overrides the default (unnamed) IHttpClientFactory client's primary handler, so
             // CoreFilesService.GetFileContent's Telegram-download fallback (a raw, unnamed
