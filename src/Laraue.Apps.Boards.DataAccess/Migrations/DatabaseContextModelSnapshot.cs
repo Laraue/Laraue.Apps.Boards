@@ -1102,6 +1102,105 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.ToTable("linked_telegram_chats", (string)null);
                 });
 
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OAuthAuthorizationRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<string>("ClientId")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("ClientName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("client_name");
+
+                    b.Property<string>("ClientState")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("client_state");
+
+                    b.Property<string>("CodeChallenge")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("code_challenge");
+
+                    b.Property<string>("CodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("code_hash");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<long?>("OrganizationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("organization_id");
+
+                    b.Property<string>("RedirectUri")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("redirect_uri");
+
+                    b.Property<string>("Resource")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("resource");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer")
+                        .HasColumnName("state");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_oauth_authorization_requests");
+
+                    b.HasIndex("ApiKeyId")
+                        .HasDatabaseName("ix_oauth_authorization_requests_api_key_id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_oauth_authorization_requests_code_hash")
+                        .HasFilter("code_hash IS NOT NULL");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_oauth_authorization_requests_user_id");
+
+                    b.HasIndex("OrganizationId", "UserId", "ClientId")
+                        .HasDatabaseName("ix_oauth_authorization_requests_organization_id_user_id_client")
+                        .HasFilter("api_key_id IS NOT NULL");
+
+                    b.ToTable("oauth_authorization_requests", (string)null);
+                });
+
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
                 {
                     b.Property<long>("Id")
@@ -2833,6 +2932,31 @@ namespace Laraue.Apps.StructuredMessages.DataAccess.Migrations
                     b.Navigation("Organization");
 
                     b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.OAuthAuthorizationRequest", b =>
+                {
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.ApiKey", "ApiKey")
+                        .WithMany()
+                        .HasForeignKey("ApiKeyId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_oauth_authorization_requests_api_keys_api_key_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .HasConstraintName("fk_oauth_authorization_requests_organizations_organization_id");
+
+                    b.HasOne("Laraue.Apps.Boards.DataAccess.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .HasConstraintName("fk_oauth_authorization_requests_users_user_id");
+
+                    b.Navigation("ApiKey");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Laraue.Apps.Boards.DataAccess.Models.Organization", b =>
