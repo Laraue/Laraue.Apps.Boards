@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.Services;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
@@ -55,6 +56,29 @@ public class McpOAuthTests(WebApiTestHost webApiHost, McpHostTestHost mcpHost)
         Assert.Equal(
             "https://boards.laraue.com",
             Assert.Single(json.RootElement.GetProperty("authorization_servers").EnumerateArray()).GetString());
+    }
+
+    [Theory]
+    [InlineData("https", HttpStatusCode.OK)]
+    [InlineData(null, HttpStatusCode.NotFound)]
+    public async Task ResourceMetadata_ShouldBeServed_WhenProxySaysRequestCameOverHttps(
+        string? forwardedProto,
+        HttpStatusCode expected)
+    {
+        // As in production: an https public URL, and nginx forwarding the request over http with X-Forwarded-Proto.
+        using var factory = mcpHost.WithWebHostBuilder(builder =>
+            builder.UseSetting("ServerCard:PublicMcpUrl", "https://boards.laraue.com/boards-mcp/mcp"));
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/.well-known/oauth-protected-resource/boards-mcp/mcp");
+        request.Headers.Host = "boards.laraue.com";
+        if (forwardedProto is not null)
+            request.Headers.Add("X-Forwarded-Proto", forwardedProto);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(expected, response.StatusCode);
     }
 
     [Fact]
