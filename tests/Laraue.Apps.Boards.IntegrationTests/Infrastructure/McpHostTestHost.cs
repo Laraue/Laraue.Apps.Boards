@@ -38,9 +38,11 @@ public class McpHostTestHost : WebApplicationFactory<Program>
 
     /// <summary>
     /// A real MCP client connected to this host's <c>/mcp</c> endpoint, authenticated with
-    /// <paramref name="rawApiKey"/> - for tests that need to see exactly what a client receives.
+    /// <paramref name="rawApiKey"/> - for tests that need to see exactly what a client receives. The key goes in
+    /// <c>X-Api-Key</c>, or with <paramref name="asBearer"/> as <c>Authorization: Bearer</c>, the way an OAuth client
+    /// sends its access token.
     /// </summary>
-    public Task<McpClient> ConnectMcpClientAsync(string rawApiKey)
+    public Task<McpClient> ConnectMcpClientAsync(string rawApiKey, bool asBearer = false)
     {
         var httpClient = CreateClient();
         var transport = new HttpClientTransport(
@@ -48,7 +50,9 @@ public class McpHostTestHost : WebApplicationFactory<Program>
             {
                 Endpoint = new Uri(httpClient.BaseAddress!, "mcp"),
                 TransportMode = HttpTransportMode.StreamableHttp,
-                AdditionalHeaders = new Dictionary<string, string> { ["X-Api-Key"] = rawApiKey },
+                AdditionalHeaders = asBearer
+                    ? new Dictionary<string, string> { ["Authorization"] = $"Bearer {rawApiKey}" }
+                    : new Dictionary<string, string> { ["X-Api-Key"] = rawApiKey },
             },
             httpClient,
             ownsHttpClient: true);
