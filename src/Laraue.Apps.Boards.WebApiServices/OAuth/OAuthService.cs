@@ -7,6 +7,7 @@ using Laraue.Apps.Boards.Services.OAuth;
 using Laraue.Apps.Boards.WebApiServices.Resources;
 using Laraue.Core.DateTime.Services.Abstractions;
 using Laraue.Core.Exceptions.Web;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -373,27 +374,57 @@ public sealed class OAuthServerMetadata
 }
 
 /// <summary>
-/// The authorize request's query parameters, all optional here so a missing one is answered in OAuth's terms.
+/// The authorize request's query parameters, all optional here so a missing one is answered in OAuth's terms. Query
+/// binding has no naming policy, so each OAuth name is given.
 /// </summary>
-public sealed record OAuthAuthorizeRequest(
-    string? ResponseType,
-    string? ClientId,
-    string? RedirectUri,
-    string? CodeChallenge,
-    string? CodeChallengeMethod,
-    string? State,
-    string? Resource);
+public sealed class OAuthAuthorizeRequest
+{
+    [FromQuery(Name = "response_type")]
+    public string? ResponseType { get; init; }
+
+    [FromQuery(Name = "client_id")]
+    public string? ClientId { get; init; }
+
+    [FromQuery(Name = "redirect_uri")]
+    public string? RedirectUri { get; init; }
+
+    [FromQuery(Name = "code_challenge")]
+    public string? CodeChallenge { get; init; }
+
+    [FromQuery(Name = "code_challenge_method")]
+    public string? CodeChallengeMethod { get; init; }
+
+    [FromQuery(Name = "state")]
+    public string? State { get; init; }
+
+    [FromQuery(Name = "resource")]
+    public string? Resource { get; init; }
+}
 
 /// <summary>
-/// The token request's form fields, all optional here so a missing one is answered in OAuth's terms.
+/// The token request's form fields, all optional here so a missing one is answered in OAuth's terms. Form binding has
+/// no naming policy, so each OAuth name is given.
 /// </summary>
-public sealed record OAuthTokenFormRequest(
-    string? GrantType,
-    string? Code,
-    string? ClientId,
-    string? RedirectUri,
-    string? CodeVerifier,
-    string? Resource);
+public sealed class OAuthTokenFormRequest
+{
+    [FromForm(Name = "grant_type")]
+    public string? GrantType { get; init; }
+
+    [FromForm(Name = "code")]
+    public string? Code { get; init; }
+
+    [FromForm(Name = "client_id")]
+    public string? ClientId { get; init; }
+
+    [FromForm(Name = "redirect_uri")]
+    public string? RedirectUri { get; init; }
+
+    [FromForm(Name = "code_verifier")]
+    public string? CodeVerifier { get; init; }
+
+    [FromForm(Name = "resource")]
+    public string? Resource { get; init; }
+}
 
 /// <summary>
 /// The token response (RFC 6749 5.1) or error (5.2). The key doesn't expire, so there's no <c>expires_in</c>, and no
