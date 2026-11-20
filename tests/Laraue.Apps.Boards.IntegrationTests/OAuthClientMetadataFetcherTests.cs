@@ -50,6 +50,8 @@ public class OAuthClientMetadataFetcherTests
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["javascript:alert(1)"]}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["http://chatgpt.com/cb"]}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["https://chatgpt.com/cb"], "token_endpoint_auth_method": "client_secret_basic"}""")]
+    [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["https://chatgpt.com/cb", null]}""")]
+    [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "client_name": 5, "redirect_uris": ["https://chatgpt.com/cb"]}""")]
     [InlineData("""["not", "an", "object"]""")]
     [InlineData("not json")]
     public async Task Fetch_ShouldReturnInvalidDocument_WhenDocumentCannotBeUsed(string document)

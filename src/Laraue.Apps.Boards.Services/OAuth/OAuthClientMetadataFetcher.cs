@@ -128,66 +128,46 @@ public class OAuthClientMetadataFetcher(
     /// </summary>
     public static OAuthClientMetadata? Parse(string clientId, ReadOnlySpan<byte> document)
     {
-        JsonDocument json;
+        ClientMetadataDocument? parsed;
         try
         {
-            var reader = new Utf8JsonReader(document);
-            if (!JsonDocument.TryParseValue(ref reader, out var parsed))
-                return null;
-            json = parsed;
+            // Wrong types (a number for client_name, an object for redirect_uris, an array as the root) throw too.
+            parsed = JsonSerializer.Deserialize<ClientMetadataDocument>(document, DocumentJsonOptions);
         }
         catch (JsonException)
         {
             return null;
         }
 
-        using (json)
-        {
-            var root = json.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-                return null;
-
-            if (!root.TryGetProperty("client_id", out var documentClientId)
-                || documentClientId.ValueKind != JsonValueKind.String
-                || documentClientId.GetString() != clientId)
-            {
-                return null;
-            }
-
+        if (parsed?.ClientId != clientId
             // Boards has no client secrets: only public clients, which prove themselves with PKCE.
-            if (root.TryGetProperty("token_endpoint_auth_method", out var authMethod)
-                && (authMethod.ValueKind != JsonValueKind.String || authMethod.GetString() != "none"))
-            {
-                return null;
-            }
-
-            if (!root.TryGetProperty("redirect_uris", out var redirectUrisElement)
-                || redirectUrisElement.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            var redirectUris = new List<string>();
-            foreach (var element in redirectUrisElement.EnumerateArray())
-            {
-                if (element.ValueKind != JsonValueKind.String || !IsUsableRedirectUri(element.GetString()!))
-                    return null;
-                redirectUris.Add(element.GetString()!);
-            }
-
-            if (redirectUris.Count == 0)
-                return null;
-
-            var host = new Uri(clientId).Host;
-            var clientName = root.TryGetProperty("client_name", out var nameElement)
-                && nameElement.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(nameElement.GetString())
-                    ? nameElement.GetString()!.Trim()
-                    : host;
-
-            return new OAuthClientMetadata(clientId, clientName, redirectUris);
+            || parsed.TokenEndpointAuthMethod is not (null or "none")
+            || parsed.RedirectUris is not { Length: > 0 } redirectUris
+            || !redirectUris.All(uri => uri is not null && IsUsableRedirectUri(uri)))
+        {
+            return null;
         }
+
+        var clientName = string.IsNullOrWhiteSpace(parsed.ClientName)
+            ? new Uri(clientId).Host
+            : parsed.ClientName.Trim();
+
+        return new OAuthClientMetadata(clientId, clientName, redirectUris!);
     }
+
+    private static readonly JsonSerializerOptions DocumentJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    };
+
+    /// <summary>
+    /// The fields of a client metadata document Boards reads; the others are ignored.
+    /// </summary>
+    private sealed record ClientMetadataDocument(
+        string? ClientId,
+        string? ClientName,
+        string?[]? RedirectUris,
+        string? TokenEndpointAuthMethod);
 
     /// <summary>
     /// A redirect URI Boards will send a code to: absolute, no fragment, HTTPS or loopback HTTP, or a native app's
