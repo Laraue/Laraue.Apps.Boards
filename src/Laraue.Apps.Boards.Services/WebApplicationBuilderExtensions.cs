@@ -320,8 +320,8 @@ public static class WebApplicationBuilderExtensions
             builder.AddValidatedOptions<OAuth.OAuthClientsOptions>("OAuth");
             builder.Services.AddMemoryCache();
             builder.Services
-                .AddSingleton<OAuth.IOAuthClientMetadataFetcher, OAuth.OAuthClientMetadataFetcher>()
-                .AddHttpClient(OAuth.OAuthClientMetadataFetcher.HttpClientName)
+                .AddHttpClient<OAuth.IOAuthClientMetadataFetcher, OAuth.OAuthClientMetadataFetcher>(
+                    OAuth.OAuthClientMetadataFetcher.ConfigureClient)
                 // A listed URL that redirected elsewhere would fetch a document from a host nobody listed.
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 

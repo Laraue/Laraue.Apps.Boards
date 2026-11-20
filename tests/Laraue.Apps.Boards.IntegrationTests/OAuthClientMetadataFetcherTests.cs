@@ -138,10 +138,17 @@ public class OAuthClientMetadataFetcherTests
     private static OAuthClientMetadataFetcher CreateFetcher(Func<HttpRequestMessage, HttpResponseMessage> respond)
     {
         return new OAuthClientMetadataFetcher(
-            new SingleHandlerFactory(new StubHandler(respond)),
+            CreateClient(new StubHandler(respond)),
             new MemoryCache(new MemoryCacheOptions()),
             Options.Create(new OAuthClientsOptions { AllowedClientIds = [ClientId] }),
             NullLogger<OAuthClientMetadataFetcher>.Instance);
+    }
+
+    private static HttpClient CreateClient(HttpMessageHandler handler)
+    {
+        var client = new HttpClient(handler);
+        OAuthClientMetadataFetcher.ConfigureClient(client);
+        return client;
     }
 
     private static Func<HttpRequestMessage, HttpResponseMessage> Json(object document)
@@ -157,18 +164,6 @@ public class OAuthClientMetadataFetcherTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             return Task.FromResult(respond(request));
-        }
-    }
-
-    /// <summary>
-    /// Hands out clients over one handler that the fetcher's disposing of a client leaves alone, the way a factory-made
-    /// client shares its handler.
-    /// </summary>
-    private sealed class SingleHandlerFactory(HttpMessageHandler handler) : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name)
-        {
-            return new HttpClient(handler, disposeHandler: false);
         }
     }
 }

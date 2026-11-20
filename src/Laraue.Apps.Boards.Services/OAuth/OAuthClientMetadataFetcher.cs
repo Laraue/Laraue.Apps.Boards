@@ -33,21 +33,32 @@ public sealed class OAuthClientsOptions
     public string[] AllowedClientIds { get; set; } = [];
 }
 
+/// <param name="httpClient">
+/// A typed client, set up by <see cref="ConfigureClient"/>, that follows no redirects.
+/// </param>
 public class OAuthClientMetadataFetcher(
-    IHttpClientFactory httpClientFactory,
+    HttpClient httpClient,
     IMemoryCache memoryCache,
     IOptions<OAuthClientsOptions> options,
     ILogger<OAuthClientMetadataFetcher> logger)
     : IOAuthClientMetadataFetcher
 {
-    public const string HttpClientName = "OAuthClientMetadata";
-
     /// <summary>
     /// The CIMD draft's suggested limit - a document holds a name and a few URLs.
     /// </summary>
     public const int MaxDocumentBytes = 5 * 1024;
 
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The typed client's limits: <see cref="Timeout"/> for the whole request and <see cref="MaxDocumentBytes"/> for
+    /// the body.
+    /// </summary>
+    public static void ConfigureClient(HttpClient client)
+    {
+        client.Timeout = Timeout;
+        client.MaxResponseContentBufferSize = MaxDocumentBytes;
+    }
 
     private static readonly TimeSpan DefaultCacheDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan MinCacheDuration = TimeSpan.FromMinutes(1);
@@ -68,14 +79,12 @@ public class OAuthClientMetadataFetcher(
         TimeSpan cacheDuration;
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(Timeout);
-
-            using var client = httpClientFactory.CreateClient(HttpClientName);
             using var request = new HttpRequestMessage(HttpMethod.Get, clientId);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            // The whole body is read before SendAsync returns, so the client's timeout covers it too, and a body over
+            // its MaxResponseContentBufferSize throws HttpRequestException.
+            using var response = await httpClient.SendAsync(request, cancellationToken);
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 logger.LogWarning(
@@ -85,14 +94,7 @@ public class OAuthClientMetadataFetcher(
                 return OAuthClientMetadataResult.Fail(OAuthClientMetadataError.Unreachable);
             }
 
-            var read = await ReadLimited(response.Content, timeout.Token);
-            if (read is null)
-            {
-                logger.LogWarning("Client metadata document {ClientId} is over {Limit} bytes", clientId, MaxDocumentBytes);
-                return OAuthClientMetadataResult.Fail(OAuthClientMetadataError.Unreachable);
-            }
-
-            document = read;
+            document = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             cacheDuration = CacheDuration(response.Headers.CacheControl);
         }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException
@@ -181,24 +183,6 @@ public class OAuthClientMetadataFetcher(
             return uri.IsLoopback;
 
         return !ForbiddenRedirectSchemes.Contains(uri.Scheme, StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static async Task<byte[]?> ReadLimited(HttpContent content, CancellationToken cancellationToken)
-    {
-        if (content.Headers.ContentLength > MaxDocumentBytes)
-            return null;
-
-        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
-        var buffer = new byte[MaxDocumentBytes + 1];
-        var total = 0;
-        int read;
-        while (total < buffer.Length
-            && (read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken)) > 0)
-        {
-            total += read;
-        }
-
-        return total > MaxDocumentBytes ? null : buffer[..total];
     }
 
     private static TimeSpan CacheDuration(CacheControlHeaderValue? cacheControl)
