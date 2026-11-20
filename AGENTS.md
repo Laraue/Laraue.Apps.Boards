@@ -521,8 +521,9 @@ Lets a program (e.g. Claude via a remote MCP connector) act as an organization m
   own keys via `/api/api-keys` (Organization JWT); no admin view of others' keys. Listing (`ApiKeysService`, a plain
   read) shows active keys unless `IncludeRevoked` is set.
 - **`AuthSchemas.ApiKey` + `ApiKeyAuthenticationHandler`** (`Services.Auth`, registered only by McpHost) - reads
-  `X-Api-Key`, calls `ValidateAsync`, and builds a principal with the same `orgId`/`id` claims as the JWTs (plus
-  `apiKeyId`), so `GetOrganizationAuthData()` and all checks work unchanged.
+  `X-Api-Key`, or `Authorization: Bearer` (an OAuth client's access token is an API key, see "OAuth for MCP clients"),
+  calls `ValidateAsync`, and builds a principal with the same `orgId`/`id` claims as the JWTs (plus `apiKeyId`), so
+  `GetOrganizationAuthData()` and all checks work unchanged.
 - **`Actor`** (`Common`, `readonly record struct Actor(Guid UserId, Guid? ApiKeyId = null)`) - who made a change, for
   history. `ICoreIssuesService`'s history-writing methods (`Create`/`Update`/`Delete`/`AddComment`/`UpdateComment`/
   `DeleteComment`/`UpdateIssuesStatus`) and `IIssueHistoryService.Record`/`RecordIfChanged` take it. The implicit
@@ -602,8 +603,45 @@ editing/deleting a comment). Guardrails:
 - Signing in again revokes nothing by name: the runner sends the key it held (`replacesApiKey`, proof of possession),
   and only that key is revoked, only if it's the approving user's key in the same organization.
 - Refusals (pending, slow down, denied, expired) are a 200 with `AgentSignInPollOutcome`, like `AccountLinkOutcome`.
-- Shaped like the OAuth device grant, but not OAuth: a general sign-in server belongs in Laraue.Apps.Identity; Boards
-  only issues its organization-scoped keys.
+- Shaped like the OAuth device grant, but not OAuth. Like "OAuth for MCP clients", it's a way to hand out an
+  organization-scoped Boards key; a general sign-in server (Boards as an identity provider for other apps) still
+  belongs in Laraue.Apps.Identity.
+
+**OAuth for MCP clients** (BRD-362, `OAuthAuthorizationRequest`, `ICoreOAuthAuthorizationService`, `OAuthService`/
+`OAuthController`, `/api/oauth`) - how Claude and ChatGPT connect from their connector directories, which don't accept
+a pasted key. Authorization code + PKCE S256 for public clients only, hand-written (no OAuth library: Duende charges per
+dynamically registered client, and both would bring token tables next to `ApiKey`).
+
+- **Discovery**: a refused `/mcp` request gets `401` + `WWW-Authenticate: Bearer resource_metadata=...` from the SDK's
+  MCP scheme (`AddMcp()`, McpHost's default challenge; `McpOAuthOptions` configures it), which also serves RFC 9728
+  protected resource metadata at `/.well-known/oauth-protected-resource` + `ServerCard:PublicMcpUrl`'s path. That names
+  `OAuth:AuthorizationServer` (`https://boards.laraue.com`), whose RFC 8414 metadata WebApiHost serves at
+  `/.well-known/oauth-authorization-server` (`OAuthMetadataController`). nginx passes both well-known paths unchanged.
+- **Clients**: identified by Client ID Metadata Documents (CIMD) - the `client_id` is the URL of a JSON document on
+  the client's own host. Only the URLs in `OAuth:AllowedClientIds` (WebApiHost) are fetched
+  (`OAuthClientMetadataFetcher`, typed `HttpClient`, 5 s / 5 KB, no redirects, cached by `Cache-Control` within
+  1 min - 1 h), so the authorize request can't make Boards fetch an address of the caller's choice - accepting any URL
+  would need SSRF guards (private addresses, DNS rebinding) we decided not to own. A new client is a config change. No
+  dynamic client registration (deprecated by the MCP spec; both clients prefer CIMD). `token_endpoint_auth_method`
+  isn't checked: ChatGPT's document says `private_key_jwt` but supports `none`, the only method Boards offers.
+- **Authorize** (`GET /api/oauth/authorize`, anonymous): fetches the client document, checks `redirect_uri` against its
+  `redirect_uris` (exact, but any port for a loopback one), then `response_type=code`, PKCE S256 and `resource` =
+  `OAuth:Resource` (the MCP URL). Until the redirect URI is trusted, errors go to the web app's consent page
+  (`OAuth:ConsentPagePath` with `?error=`); after that to the client with `error`, `state` and `iss` (RFC 9207). A valid
+  request is saved and the browser goes to the consent page with `?request=<id>`.
+- **Consent** (`/api/oauth/requests/{id}`, get/approve/deny, `AuthSchemas.User`): laraue-boards' `/oauth/consent` page
+  shows the client name and the host its `client_id` is on, and the user picks an organization (non-member → 404, the
+  same `IAccessService.IsActiveMember` as agent sign-in). Approve stores the code's hash and returns `redirectUrl` (the
+  client's redirect URI with `code`, `state`, `iss`); deny returns it with `access_denied`.
+- **Token** (`POST /api/oauth/token`, form-encoded, anonymous): checks the code, `client_id`, `redirect_uri`, `resource`
+  (if sent) and the PKCE verifier, and returns `{"access_token": "<api key>", "token_type": "Bearer"}` - a new
+  `ApiKey` named `<client_name> (<client_id host>)`, e.g. `ChatGPT (chatgpt.com)`, no expiry, no refresh token. So the
+  API keys page, history (`ApiKeyName`, `Actor`), `LastSeenAt` and live permission checks work unchanged; issues it
+  creates are `CreatedVia.Mcp` (only agent sign-in keys are `Agent`). Errors are OAuth's (`invalid_grant`, ...) with 400,
+  never our exception format. Connecting the same client again for the same user and organization revokes its previous
+  key; a code used twice revokes the key it issued, so the token request commits even on `invalid_grant`.
+- Same state machine as agent sign-in: Pending -> Approved/Denied -> Completed, each step one conditional `UPDATE`,
+  10 minutes from start to token.
 
 **How an issue was created and agent authors** (BRD-325): `Issue.CreatedVia` (`Web | Telegram | Mcp | Agent`) and
 `Issue.CreatedByApiKeyId` are stored on create by `CoreIssuesService` (a Telegram message wins; a key issued by agent

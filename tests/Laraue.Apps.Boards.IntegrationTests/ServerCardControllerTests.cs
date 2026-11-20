@@ -32,7 +32,8 @@ public class ServerCardControllerTests(McpHostTestHost host) : IClassFixture<Mcp
 
         var header = Assert.Single(remote.Headers);
         Assert.Equal("X-Api-Key", header.Name);
-        Assert.True(header.IsRequired);
+        // Optional since OAuth (BRD-362): an OAuth client sends its token as Authorization: Bearer instead.
+        Assert.False(header.IsRequired);
         Assert.True(header.IsSecret);
     }
 

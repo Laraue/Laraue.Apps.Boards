@@ -131,9 +131,10 @@ public class OAuthClientMetadataFetcher(
             return null;
         }
 
+        // token_endpoint_auth_method isn't checked: ChatGPT's document says private_key_jwt and lists none among the
+        // methods it supports. Boards' metadata offers only none, and the token request relies on PKCE whatever the
+        // client sends.
         if (parsed?.ClientId != clientId
-            // Boards has no client secrets: only public clients, which prove themselves with PKCE.
-            || parsed.TokenEndpointAuthMethod is not (null or "none")
             || parsed.RedirectUris is not { Length: > 0 } redirectUris
             // The redirect URIs aren't checked further: the document comes from a listed client's own host, and
             // the authorize request's redirect_uri must match one of them (OAuthClientMetadata.AllowsRedirectUri).
@@ -160,8 +161,7 @@ public class OAuthClientMetadataFetcher(
     private sealed record ClientMetadataDocument(
         string? ClientId,
         string? ClientName,
-        string?[]? RedirectUris,
-        string? TokenEndpointAuthMethod);
+        string?[]? RedirectUris);
 
     private static TimeSpan CacheDuration(CacheControlHeaderValue? cacheControl)
     {

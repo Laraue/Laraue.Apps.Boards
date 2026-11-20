@@ -31,6 +31,25 @@ public class OAuthClientMetadataFetcherTests
     }
 
     [Fact]
+    public async Task Fetch_ShouldAcceptChatGptsDocument_WhenItPrefersPrivateKeyJwt()
+    {
+        // ChatGPT's document as it was served on 2026-11-20: it asks for private_key_jwt and also supports none.
+        const string document = """
+            {"client_id":"https://chatgpt.com/oauth/client.json","client_uri":"https://chatgpt.com/","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"],"token_endpoint_auth_method":"private_key_jwt","token_endpoint_auth_methods_supported":["none","private_key_jwt"],"grant_types":["authorization_code","refresh_token","urn:ietf:params:oauth:grant-type:jwt-bearer"],"response_types":["code"],"client_name":"ChatGPT","logo_uri":"https://persistent.oaistatic.com/sonic/misc/openai-logo.png","token_endpoint_auth_signing_alg":"RS256","jwks_uri":"https://chatgpt.com/oauth/jwks.json"}
+            """;
+        var fetcher = CreateFetcher(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(document, Encoding.UTF8, "application/json"),
+        });
+
+        var result = await fetcher.Fetch(ClientId, CancellationToken.None);
+
+        Assert.Null(result.Error);
+        Assert.Equal("ChatGPT", result.Metadata!.ClientName);
+        Assert.True(result.Metadata.AllowsRedirectUri("https://chatgpt.com/connector_platform_oauth_redirect"));
+    }
+
+    [Fact]
     public async Task Fetch_ShouldNameClientByHost_WhenDocumentHasNoName()
     {
         var fetcher = CreateFetcher(Json(new
@@ -48,7 +67,6 @@ public class OAuthClientMetadataFetcherTests
     [InlineData("""{"client_id": "https://evil.example/client.json", "redirect_uris": ["https://chatgpt.com/cb"]}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": []}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json"}""")]
-    [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["https://chatgpt.com/cb"], "token_endpoint_auth_method": "client_secret_basic"}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["https://chatgpt.com/cb", null]}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "client_name": 5, "redirect_uris": ["https://chatgpt.com/cb"]}""")]
     [InlineData("""["not", "an", "object"]""")]
