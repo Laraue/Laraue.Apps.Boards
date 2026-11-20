@@ -618,7 +618,7 @@ dynamically registered client, and both would bring token tables next to `ApiKey
   `OAuth:AuthorizationServer` (`https://boards.laraue.com`), whose RFC 8414 metadata WebApiHost serves at
   `/.well-known/oauth-authorization-server` (`OAuthMetadataController`). nginx passes both well-known paths unchanged.
 - **Clients**: identified by Client ID Metadata Documents (CIMD) - the `client_id` is the URL of a JSON document on
-  the client's own host. Only the URLs in `OAuth:AllowedClientIds` (WebApiHost) are fetched
+  the client's own host. Only the URLs in `OAuth:AllowedClientIds` (WebApiHost: Claude, Claude Code, ChatGPT) are fetched
   (`OAuthClientMetadataFetcher`, typed `HttpClient`, 5 s / 5 KB, no redirects, cached by `Cache-Control` within
   1 min - 1 h), so the authorize request can't make Boards fetch an address of the caller's choice - accepting any URL
   would need SSRF guards (private addresses, DNS rebinding) we decided not to own. A new client is a config change. No
@@ -638,8 +638,10 @@ dynamically registered client, and both would bring token tables next to `ApiKey
   `ApiKey` named `<client_name> (<client_id host>)`, e.g. `ChatGPT (chatgpt.com)`, no expiry, no refresh token. So the
   API keys page, history (`ApiKeyName`, `Actor`), `LastSeenAt` and live permission checks work unchanged; issues it
   creates are `CreatedVia.Mcp` (only agent sign-in keys are `Agent`). Errors are OAuth's (`invalid_grant`, ...) with 400,
-  never our exception format. Connecting the same client again for the same user and organization revokes its previous
-  key; a code used twice revokes the key it issued, so the token request commits even on `invalid_grant`.
+  never our exception format. Connecting the same web client again for the same user and organization revokes its
+  previous key; a native one (loopback redirect URI, e.g. Claude Code) connects once per machine under one client id, so
+  its earlier keys stay. A code used twice revokes the key it issued, so the token request commits even on
+  `invalid_grant`.
 - Same state machine as agent sign-in: Pending -> Approved/Denied -> Completed, each step one conditional `UPDATE`,
   10 minutes from start to token.
 

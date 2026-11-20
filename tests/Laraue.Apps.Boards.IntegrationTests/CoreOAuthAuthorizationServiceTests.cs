@@ -153,6 +153,37 @@ public class CoreOAuthAuthorizationServiceTests(WebApiTestHost host) : IClassFix
     }
 
     [Fact]
+    public async Task Redeem_ShouldKeepEarlierKey_WhenNativeClientConnectsFromAnotherMachine()
+    {
+        const string claudeCode = "https://claude.ai/oauth/claude-code-client-metadata";
+        using var testScope = host.CreateTestScope();
+        var laptop = await ApproveAsync(testScope, clientId: claudeCode, redirectUri: "http://localhost:53682/callback");
+        var laptopKey = await RedeemAsync(testScope, new OAuthTokenRequest(
+            laptop.Code,
+            claudeCode,
+            "http://localhost:53682/callback",
+            Verifier,
+            Resource));
+
+        var desktop = await ApproveAsync(
+            testScope,
+            laptop.UserId,
+            laptop.OrganizationId,
+            claudeCode,
+            "http://localhost:61000/callback");
+        var desktopKey = await RedeemAsync(testScope, new OAuthTokenRequest(
+            desktop.Code,
+            claudeCode,
+            "http://localhost:61000/callback",
+            Verifier,
+            Resource));
+
+        var keys = Service<ICoreApiKeysService>(testScope);
+        Assert.NotNull(await keys.ValidateAsync(laptopKey.ApiKey!.RawKey, CancellationToken.None));
+        Assert.NotNull(await keys.ValidateAsync(desktopKey.ApiKey!.RawKey, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Approve_ShouldReturnNull_WhenRequestWasDenied()
     {
         using var testScope = host.CreateTestScope();

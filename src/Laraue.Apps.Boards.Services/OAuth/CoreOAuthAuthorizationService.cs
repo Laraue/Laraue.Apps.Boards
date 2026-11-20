@@ -48,7 +48,7 @@ public interface ICoreOAuthAuthorizationService
 
     /// <summary>
     /// The token request: exchanges the code for a new API key, revoking the key this client got before for the same
-    /// person and organization. A code sent again after it was redeemed revokes the key it was redeemed for (RFC 6749
+    /// person and organization - unless it's a native client (a loopback redirect URI), which connects per machine. A code sent again after it was redeemed revokes the key it was redeemed for (RFC 6749
     /// 4.1.2: someone else may have it). The caller must have opened a transaction, and commits it whatever the
     /// outcome - an <see cref="OAuthTokenOutcome.InvalidGrant"/> may have revoked a key.
     /// </summary>
@@ -247,23 +247,29 @@ public class CoreOAuthAuthorizationService(
         if (completedCount == 0)
             return InvalidGrant;
 
-        var previousKeyIds = await context.OAuthAuthorizationRequests
-            .Where(x => x.OrganizationId == organizationId
-                && x.UserId == userId
-                && x.ClientId == request.ClientId
-                && x.ApiKeyId != null
-                && x.ApiKey!.RevokedAt == null)
-            .Select(x => x.ApiKeyId!.Value)
-            .ToListAsync(cancellationToken);
-
-        // RevokeAsync only touches the user's own key in this organization.
-        foreach (var previousKeyId in previousKeyIds)
+        // A web client (Claude, ChatGPT) has one connection per account, so connecting again replaces the key. A
+        // native one (Claude Code) redirects to loopback and connects once per machine under the same client id -
+        // its other machines keep their keys.
+        if (!IsLoopbackRedirect(request.RedirectUri))
         {
-            await coreApiKeysService.RevokeAsync(
-                organizationId,
-                userId,
-                previousKeyId,
-                cancellationToken);
+            var previousKeyIds = await context.OAuthAuthorizationRequests
+                .Where(x => x.OrganizationId == organizationId
+                    && x.UserId == userId
+                    && x.ClientId == request.ClientId
+                    && x.ApiKeyId != null
+                    && x.ApiKey!.RevokedAt == null)
+                .Select(x => x.ApiKeyId!.Value)
+                .ToListAsync(cancellationToken);
+
+            // RevokeAsync only touches the user's own key in this organization.
+            foreach (var previousKeyId in previousKeyIds)
+            {
+                await coreApiKeysService.RevokeAsync(
+                    organizationId,
+                    userId,
+                    previousKeyId,
+                    cancellationToken);
+            }
         }
 
         var apiKey = await coreApiKeysService.CreateAsync(
@@ -310,6 +316,13 @@ public class CoreOAuthAuthorizationService(
         return CryptographicOperations.FixedTimeEquals(
             Encoding.ASCII.GetBytes(computed),
             Encoding.ASCII.GetBytes(codeChallenge));
+    }
+
+    private static bool IsLoopbackRedirect(string redirectUri)
+    {
+        return Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttp
+            && uri.IsLoopback;
     }
 
     private static bool IsUnreserved(char c)
