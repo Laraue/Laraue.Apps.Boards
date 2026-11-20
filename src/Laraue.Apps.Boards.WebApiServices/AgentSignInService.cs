@@ -154,15 +154,7 @@ public class AgentSignInService(
         ApproveAgentSignInRequest request,
         CancellationToken cancellationToken)
     {
-        var isMember = await accessService.GetOrganizations(
-            userId,
-            organizationUsers => organizationUsers
-                .AnyAsync(
-                    x => x.OrganizationId == request.OrganizationId
-                        && x.Organization!.DeletedAt == null,
-                    cancellationToken));
-
-        if (!isMember)
+        if (!await accessService.IsActiveMember(userId, request.OrganizationId, cancellationToken))
         {
             throw new NotFoundException(
                 string.Format(ErrorMessages.EntityNotFoundOrNotAccessible, "Organization", request.OrganizationId));
