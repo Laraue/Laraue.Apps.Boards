@@ -135,6 +135,7 @@ public static class WebApplicationBuilderExtensions
                 .AddScoped<ICoreApiKeysService, CoreApiKeysService>()
                 .AddScoped<ICoreUserLastSeenService, CoreUserLastSeenService>()
                 .AddScoped<ICoreAgentSignInService, CoreAgentSignInService>()
+                .AddScoped<OAuth.ICoreOAuthAuthorizationService, OAuth.CoreOAuthAuthorizationService>()
                 .AddScoped<ICoreSpaceLinksService, CoreSpaceLinksService>()
                 .AddScoped<ICoreAgentRunsService, CoreAgentRunsService>()
                 .AddScoped<IAgentRunBoardRequirements, AgentRunBoardRequirements>()
@@ -306,6 +307,22 @@ public static class WebApplicationBuilderExtensions
                     .ConfigurePrimaryHttpMessageHandler(
                         sp => new Storage.FakeStorageHttpHandler(sp.GetRequiredService<Storage.FakeStorageServiceClient>()));
             }
+
+            return builder;
+        }
+
+        /// <summary>
+        /// Fetching MCP clients' metadata documents for OAuth (BRD-362) - only the host serving the authorize endpoint
+        /// needs it. Its HTTP client connects to public addresses only, see
+        /// <see cref="OAuth.OAuthClientMetadataFetcher.CreateHandler"/>.
+        /// </summary>
+        public WebApplicationBuilder AddOAuthClientMetadataFetcher()
+        {
+            builder.Services.AddMemoryCache();
+            builder.Services
+                .AddSingleton<OAuth.IOAuthClientMetadataFetcher, OAuth.OAuthClientMetadataFetcher>()
+                .AddHttpClient(OAuth.OAuthClientMetadataFetcher.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(OAuth.OAuthClientMetadataFetcher.CreateHandler);
 
             return builder;
         }
