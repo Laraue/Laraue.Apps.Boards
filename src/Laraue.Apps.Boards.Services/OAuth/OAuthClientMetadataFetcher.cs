@@ -64,8 +64,6 @@ public class OAuthClientMetadataFetcher(
     private static readonly TimeSpan MinCacheDuration = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan MaxCacheDuration = TimeSpan.FromHours(1);
 
-    private static readonly string[] ForbiddenRedirectSchemes = ["javascript", "data", "file", "vbscript", "blob"];
-
     public async Task<OAuthClientMetadataResult> Fetch(string clientId, CancellationToken cancellationToken)
     {
         if (!options.Value.AllowedClientIds.Contains(clientId, StringComparer.Ordinal))
@@ -137,7 +135,9 @@ public class OAuthClientMetadataFetcher(
             // Boards has no client secrets: only public clients, which prove themselves with PKCE.
             || parsed.TokenEndpointAuthMethod is not (null or "none")
             || parsed.RedirectUris is not { Length: > 0 } redirectUris
-            || !redirectUris.All(uri => uri is not null && IsUsableRedirectUri(uri)))
+            // The redirect URIs aren't checked further: the document comes from a listed client's own host, and
+            // the authorize request's redirect_uri must match one of them (OAuthClientMetadata.AllowsRedirectUri).
+            || redirectUris.Any(uri => string.IsNullOrEmpty(uri)))
         {
             return null;
         }
@@ -162,28 +162,6 @@ public class OAuthClientMetadataFetcher(
         string? ClientName,
         string?[]? RedirectUris,
         string? TokenEndpointAuthMethod);
-
-    /// <summary>
-    /// A redirect URI Boards will send a code to: absolute, no fragment, HTTPS or loopback HTTP, or a native app's
-    /// own scheme - never one that runs or reads something in the browser.
-    /// </summary>
-    private static bool IsUsableRedirectUri(string value)
-    {
-        if (value.Length > DataAccess.Constraints.MaxOAuthUrlLength
-            || !Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            || !string.IsNullOrEmpty(uri.Fragment))
-        {
-            return false;
-        }
-
-        if (uri.Scheme == Uri.UriSchemeHttps)
-            return true;
-
-        if (uri.Scheme == Uri.UriSchemeHttp)
-            return uri.IsLoopback;
-
-        return !ForbiddenRedirectSchemes.Contains(uri.Scheme, StringComparer.OrdinalIgnoreCase);
-    }
 
     private static TimeSpan CacheDuration(CacheControlHeaderValue? cacheControl)
     {

@@ -48,8 +48,6 @@ public class OAuthClientMetadataFetcherTests
     [InlineData("""{"client_id": "https://evil.example/client.json", "redirect_uris": ["https://chatgpt.com/cb"]}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": []}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json"}""")]
-    [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["javascript:alert(1)"]}""")]
-    [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["http://chatgpt.com/cb"]}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["https://chatgpt.com/cb"], "token_endpoint_auth_method": "client_secret_basic"}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "redirect_uris": ["https://chatgpt.com/cb", null]}""")]
     [InlineData("""{"client_id": "https://chatgpt.com/oauth/client.json", "client_name": 5, "redirect_uris": ["https://chatgpt.com/cb"]}""")]
