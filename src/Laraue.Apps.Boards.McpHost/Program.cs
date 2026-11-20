@@ -6,6 +6,7 @@ using Laraue.Apps.Boards.Services.Auth;
 using Laraue.Apps.Boards.Services.History;
 using Laraue.Apps.Boards.Services.Links;
 using Laraue.Apps.Boards.Services.Sources;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore.Authentication;
@@ -80,6 +81,17 @@ public sealed class Program
 
         builder.Services.AddHealthChecks();
 
+        // nginx terminates TLS and passes X-Forwarded-Proto. The SDK's MCP scheme serves the protected resource
+        // metadata only to a request whose scheme matches its https URL, so the original scheme must be restored.
+        // Only the scheme is taken, and from any address: this host is reachable only through nginx, inside the
+        // Docker network.
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedProto;
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+        });
+
         builder.Services
             .AddOpenTelemetry()
             .WithMetrics(metrics => metrics
@@ -91,6 +103,7 @@ public sealed class Program
 
         var app = builder.Build();
 
+        app.UseForwardedHeaders();
         app.UseAuthentication();
         app.UseAuthorization();
 
