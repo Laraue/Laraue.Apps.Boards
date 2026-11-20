@@ -53,14 +53,13 @@ public sealed record OAuthClientMetadata(
 public enum OAuthClientMetadataError
 {
     /// <summary>
-    /// The <c>client_id</c> isn't an HTTPS URL with a path on the default port, or has a fragment, credentials or dot
-    /// segments.
+    /// The <c>client_id</c> isn't one of <see cref="OAuthClientsOptions.AllowedClientIds"/>.
     /// </summary>
-    InvalidClientId,
+    UnknownClient,
 
     /// <summary>
-    /// The document couldn't be fetched: the host resolves to a private address, didn't answer in time, answered with
-    /// something other than 200, or sent more than the size limit.
+    /// The document couldn't be fetched: the host didn't answer in time, answered with something other than 200, or
+    /// sent more than the size limit.
     /// </summary>
     Unreachable,
 

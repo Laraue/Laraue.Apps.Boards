@@ -313,16 +313,17 @@ public static class WebApplicationBuilderExtensions
 
         /// <summary>
         /// Fetching MCP clients' metadata documents for OAuth (BRD-362) - only the host serving the authorize endpoint
-        /// needs it. Its HTTP client connects to public addresses only, see
-        /// <see cref="OAuth.OAuthClientMetadataFetcher.CreateHandler"/>.
+        /// needs it. Only the clients in the <c>OAuth</c> section's <c>AllowedClientIds</c> are fetched.
         /// </summary>
         public WebApplicationBuilder AddOAuthClientMetadataFetcher()
         {
+            builder.AddValidatedOptions<OAuth.OAuthClientsOptions>("OAuth");
             builder.Services.AddMemoryCache();
             builder.Services
                 .AddSingleton<OAuth.IOAuthClientMetadataFetcher, OAuth.OAuthClientMetadataFetcher>()
                 .AddHttpClient(OAuth.OAuthClientMetadataFetcher.HttpClientName)
-                .ConfigurePrimaryHttpMessageHandler(OAuth.OAuthClientMetadataFetcher.CreateHandler);
+                // A listed URL that redirected elsewhere would fetch a document from a host nobody listed.
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
             return builder;
         }

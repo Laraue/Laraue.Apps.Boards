@@ -1,25 +1,42 @@
+using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.Services.OAuth;
 
 /// <summary>
-/// Fetches an MCP client's Client ID Metadata Document - its <c>client_id</c> is the document's URL (BRD-362). The URL
-/// comes from whoever starts the authorize request, so fetching it must not reach anything inside our network: see
-/// <see cref="CreateHandler"/>. Usable documents are cached, by their <c>Cache-Control</c> within limits.
+/// Fetches an MCP client's Client ID Metadata Document - its <c>client_id</c> is the document's URL (BRD-362). Only
+/// the URLs listed in <see cref="OAuthClientsOptions.AllowedClientIds"/> are fetched, so the authorize request can't
+/// make Boards request an address of the caller's choice. Usable documents are cached, by their <c>Cache-Control</c>
+/// within limits.
 /// </summary>
 public interface IOAuthClientMetadataFetcher
 {
     Task<OAuthClientMetadataResult> Fetch(string clientId, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Which MCP clients may sign in with OAuth - config section <c>OAuth</c>.
+/// </summary>
+public sealed class OAuthClientsOptions
+{
+    /// <summary>
+    /// The clients' <c>client_id</c>s - the exact URLs of their metadata documents, e.g.
+    /// <c>https://chatgpt.com/oauth/client.json</c>. A client not listed here can't start a sign-in.
+    /// </summary>
+    [Required]
+    [MinLength(1)]
+    public string[] AllowedClientIds { get; set; } = [];
+}
+
 public class OAuthClientMetadataFetcher(
     IHttpClientFactory httpClientFactory,
     IMemoryCache memoryCache,
+    IOptions<OAuthClientsOptions> options,
     ILogger<OAuthClientMetadataFetcher> logger)
     : IOAuthClientMetadataFetcher
 {
@@ -40,8 +57,8 @@ public class OAuthClientMetadataFetcher(
 
     public async Task<OAuthClientMetadataResult> Fetch(string clientId, CancellationToken cancellationToken)
     {
-        if (!IsValidClientId(clientId))
-            return OAuthClientMetadataResult.Fail(OAuthClientMetadataError.InvalidClientId);
+        if (!options.Value.AllowedClientIds.Contains(clientId, StringComparer.Ordinal))
+            return OAuthClientMetadataResult.Fail(OAuthClientMetadataError.UnknownClient);
 
         var cacheKey = $"oauth-client-metadata:{clientId}";
         if (memoryCache.TryGetValue(cacheKey, out OAuthClientMetadata? cached) && cached is not null)
@@ -61,7 +78,7 @@ public class OAuthClientMetadataFetcher(
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (response.StatusCode != HttpStatusCode.OK)
             {
-                logger.LogInformation(
+                logger.LogWarning(
                     "Client metadata document {ClientId} answered {StatusCode}",
                     clientId,
                     (int)response.StatusCode);
@@ -71,24 +88,24 @@ public class OAuthClientMetadataFetcher(
             var read = await ReadLimited(response.Content, timeout.Token);
             if (read is null)
             {
-                logger.LogInformation("Client metadata document {ClientId} is over {Limit} bytes", clientId, MaxDocumentBytes);
+                logger.LogWarning("Client metadata document {ClientId} is over {Limit} bytes", clientId, MaxDocumentBytes);
                 return OAuthClientMetadataResult.Fail(OAuthClientMetadataError.Unreachable);
             }
 
             document = read;
             cacheDuration = CacheDuration(response.Headers.CacheControl);
         }
-        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or SocketException
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException
             && !cancellationToken.IsCancellationRequested)
         {
-            logger.LogInformation(exception, "Client metadata document {ClientId} couldn't be fetched", clientId);
+            logger.LogWarning(exception, "Client metadata document {ClientId} couldn't be fetched", clientId);
             return OAuthClientMetadataResult.Fail(OAuthClientMetadataError.Unreachable);
         }
 
         var metadata = Parse(clientId, document);
         if (metadata is null)
         {
-            logger.LogInformation("Client metadata document {ClientId} is invalid", clientId);
+            logger.LogWarning("Client metadata document {ClientId} is invalid", clientId);
             return OAuthClientMetadataResult.Fail(OAuthClientMetadataError.InvalidDocument);
         }
 
@@ -96,31 +113,6 @@ public class OAuthClientMetadataFetcher(
             memoryCache.Set(cacheKey, metadata, cacheDuration);
 
         return OAuthClientMetadataResult.Ok(metadata);
-    }
-
-    /// <summary>
-    /// The CIMD draft's rules for a <c>client_id</c> URL: HTTPS, a path, no fragment, credentials or dot segments.
-    /// Also the default port only and no IP literal, so a client id can't name an arbitrary port or address.
-    /// </summary>
-    public static bool IsValidClientId(string clientId)
-    {
-        if (clientId.Length > DataAccess.Constraints.MaxOAuthUrlLength
-            || !Uri.TryCreate(clientId, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        return uri.Scheme == Uri.UriSchemeHttps
-            && uri.IsDefaultPort
-            && uri.HostNameType == UriHostNameType.Dns
-            && string.IsNullOrEmpty(uri.UserInfo)
-            && string.IsNullOrEmpty(uri.Fragment)
-            && !clientId.Contains('#')
-            && uri.AbsolutePath.Length > 1
-            && !HasDotSegment(clientId)
-            // Uri normalizes what it parses; a client id must already be in that form, since the document's
-            // client_id is compared with it as a string.
-            && uri.AbsoluteUri == clientId;
     }
 
     /// <summary>
@@ -189,103 +181,6 @@ public class OAuthClientMetadataFetcher(
             return uri.IsLoopback;
 
         return !ForbiddenRedirectSchemes.Contains(uri.Scheme, StringComparer.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// The handler for <see cref="HttpClientName"/>: connects only to public addresses, checked on the address it
-    /// actually connects to (so a DNS answer can't change between the check and the connection), follows no
-    /// redirects and uses no proxy.
-    /// </summary>
-    public static SocketsHttpHandler CreateHandler()
-    {
-        return new SocketsHttpHandler
-        {
-            AllowAutoRedirect = false,
-            UseProxy = false,
-            UseCookies = false,
-            ConnectTimeout = Timeout,
-            ConnectCallback = async (context, cancellationToken) =>
-            {
-                var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, cancellationToken);
-
-                // A name resolving to any private address is refused whole, rather than trying its public ones.
-                if (addresses.Length == 0 || !addresses.All(IsPublicAddress))
-                {
-                    throw new HttpRequestException(
-                        $"{context.DnsEndPoint.Host} doesn't resolve to public addresses only.");
-                }
-
-                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                try
-                {
-                    await socket.ConnectAsync(new IPEndPoint(addresses[0], context.DnsEndPoint.Port), cancellationToken);
-                    return new NetworkStream(socket, ownsSocket: true);
-                }
-                catch
-                {
-                    socket.Dispose();
-                    throw;
-                }
-            },
-        };
-    }
-
-    /// <summary>
-    /// Whether an address is on the public internet - not loopback, private, link-local, carrier-grade NAT, multicast,
-    /// reserved or documentation ranges, in IPv4 or IPv6 (an IPv4-mapped IPv6 address is checked as IPv4).
-    /// </summary>
-    public static bool IsPublicAddress(IPAddress address)
-    {
-        if (address.IsIPv4MappedToIPv6)
-            address = address.MapToIPv4();
-
-        if (IPAddress.IsLoopback(address)
-            || address.Equals(IPAddress.Any)
-            || address.Equals(IPAddress.IPv6Any)
-            || address.Equals(IPAddress.Broadcast))
-        {
-            return false;
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var b = address.GetAddressBytes();
-            return !(b[0] == 0
-                || b[0] == 10
-                || b[0] == 127
-                || (b[0] == 100 && b[1] >= 64 && b[1] <= 127)
-                || (b[0] == 169 && b[1] == 254)
-                || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
-                || (b[0] == 192 && b[1] == 0 && b[2] == 0)
-                || (b[0] == 192 && b[1] == 0 && b[2] == 2)
-                || (b[0] == 192 && b[1] == 168)
-                || (b[0] == 198 && (b[1] == 18 || b[1] == 19))
-                || (b[0] == 198 && b[1] == 51 && b[2] == 100)
-                || (b[0] == 203 && b[1] == 0 && b[2] == 113)
-                || b[0] >= 224);
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            var b = address.GetAddressBytes();
-            return !(address.IsIPv6LinkLocal
-                || address.IsIPv6SiteLocal
-                || address.IsIPv6Multicast
-                || address.IsIPv6UniqueLocal
-                || (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8)
-                // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) carry an IPv4 address that isn't checked here.
-                || (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b)
-                || (b[0] == 0x20 && b[1] == 0x02));
-        }
-
-        return false;
-    }
-
-    private static bool HasDotSegment(string url)
-    {
-        var path = url.Split('?')[0];
-        return path.Split('/').Any(segment => segment is "." or ".." || segment.Equals("%2e", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals("%2e%2e", StringComparison.OrdinalIgnoreCase));
     }
 
     private static async Task<byte[]?> ReadLimited(HttpContent content, CancellationToken cancellationToken)

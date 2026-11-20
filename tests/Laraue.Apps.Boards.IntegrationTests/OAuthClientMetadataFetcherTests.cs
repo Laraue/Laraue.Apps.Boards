@@ -3,6 +3,7 @@ using System.Text;
 using Laraue.Apps.Boards.Services.OAuth;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Laraue.Apps.Boards.IntegrationTests;
 
@@ -106,68 +107,16 @@ public class OAuthClientMetadataFetcherTests
     }
 
     [Theory]
-    [InlineData("http://chatgpt.com/oauth/client.json")]
-    [InlineData("https://chatgpt.com")]
-    [InlineData("https://chatgpt.com/")]
-    [InlineData("https://chatgpt.com:8443/oauth/client.json")]
-    [InlineData("https://127.0.0.1/oauth/client.json")]
-    [InlineData("https://user:pass@chatgpt.com/oauth/client.json")]
-    [InlineData("https://chatgpt.com/oauth/client.json#x")]
-    [InlineData("https://chatgpt.com/oauth/../client.json")]
-    [InlineData("not a url")]
-    public async Task Fetch_ShouldReturnInvalidClientId_WhenUrlBreaksRules(string clientId)
+    [InlineData("https://evil.example/oauth/client.json")]
+    [InlineData("https://chatgpt.com/oauth/client.json?x=1")]
+    [InlineData("https://localhost/oauth/client.json")]
+    public async Task Fetch_ShouldReturnUnknownClient_WhenClientIdIsNotAllowed(string clientId)
     {
         var fetcher = CreateFetcher(_ => throw new InvalidOperationException("Must not be fetched."));
 
         var result = await fetcher.Fetch(clientId, CancellationToken.None);
 
-        Assert.Equal(OAuthClientMetadataError.InvalidClientId, result.Error);
-    }
-
-    [Fact]
-    public async Task CreateHandler_ShouldRefuseConnection_WhenHostResolvesToPrivateAddress()
-    {
-        using var client = new HttpClient(OAuthClientMetadataFetcher.CreateHandler());
-
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.GetAsync("https://localhost/oauth/client.json"));
-
-        Assert.Contains("doesn't resolve to public addresses only", exception.ToString());
-    }
-
-    [Fact]
-    public async Task Fetch_ShouldReturnUnreachable_WhenHostResolvesToPrivateAddress()
-    {
-        using var handler = OAuthClientMetadataFetcher.CreateHandler();
-        var fetcher = new OAuthClientMetadataFetcher(
-            new SingleHandlerFactory(handler),
-            new MemoryCache(new MemoryCacheOptions()),
-            NullLogger<OAuthClientMetadataFetcher>.Instance);
-
-        var result = await fetcher.Fetch("https://localhost/oauth/client.json", CancellationToken.None);
-
-        Assert.Equal(OAuthClientMetadataError.Unreachable, result.Error);
-    }
-
-    [Theory]
-    [InlineData("8.8.8.8", true)]
-    [InlineData("2606:4700:4700::1111", true)]
-    [InlineData("127.0.0.1", false)]
-    [InlineData("10.1.2.3", false)]
-    [InlineData("172.20.0.5", false)]
-    [InlineData("192.168.1.1", false)]
-    [InlineData("169.254.169.254", false)]
-    [InlineData("100.64.0.1", false)]
-    [InlineData("0.0.0.0", false)]
-    [InlineData("224.0.0.1", false)]
-    [InlineData("::1", false)]
-    [InlineData("fd00::1", false)]
-    [InlineData("fe80::1", false)]
-    [InlineData("::ffff:10.0.0.1", false)]
-    [InlineData("64:ff9b::a00:1", false)]
-    public void IsPublicAddress_ShouldTellPublicFromInternal(string address, bool expected)
-    {
-        Assert.Equal(expected, OAuthClientMetadataFetcher.IsPublicAddress(IPAddress.Parse(address)));
+        Assert.Equal(OAuthClientMetadataError.UnknownClient, result.Error);
     }
 
     [Theory]
@@ -191,6 +140,7 @@ public class OAuthClientMetadataFetcherTests
         return new OAuthClientMetadataFetcher(
             new SingleHandlerFactory(new StubHandler(respond)),
             new MemoryCache(new MemoryCacheOptions()),
+            Options.Create(new OAuthClientsOptions { AllowedClientIds = [ClientId] }),
             NullLogger<OAuthClientMetadataFetcher>.Instance);
     }
 
