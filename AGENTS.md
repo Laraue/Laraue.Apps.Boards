@@ -680,7 +680,10 @@ the agent's, on behalf of the key's owner; keys made by hand stay `User`.
 - Started runs (BRD-320, `start_agent_run`, `ICoreAgentRunsService.Start`): `lba continue` - the person working with
   the agent directly - opens a run already Working, claimed by the caller's key, in one step. No status or board
   requirements and no status change (nothing is handed off), but otherwise a claim's rules: assignee only, one open run
-  (400), the issue locked, a `none -> Working` history item with the API key. It ends like any run.
+  (400), the issue locked, a `none -> Working` history item with the API key. It ends like any run. Only `lba continue`
+  calls it (from its own code, not the model). BRD-363: the MCP instructions and tool descriptions tell other clients
+  (a Claude chat with the connector) not to open or finish runs for issues they work on - such runs showed agent plates
+  on issues that were never handed off.
 - Send back (BRD-315, `POST /api/agent-runs/send-back`, `IAgentRunsService.SendBack`): for an issue the agent already
   worked on, one transaction posts the assignee's comment (`ICoreIssuesService.AddComment`), moves the issue to its
   board's first Created status and creates a new run. `AgentHandOff.CanSendBack` says when it's offered - the same checks
