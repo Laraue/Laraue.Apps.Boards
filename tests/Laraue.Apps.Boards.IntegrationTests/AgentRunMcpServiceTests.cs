@@ -1,6 +1,7 @@
 using Laraue.Apps.Boards.Common;
 using Laraue.Apps.Boards.DataAccess;
 using Laraue.Apps.Boards.DataAccess.Enums;
+using Laraue.Apps.Boards.DataAccess.Models;
 using Laraue.Apps.Boards.IntegrationTests.Infrastructure;
 using Laraue.Apps.Boards.McpHost.Services;
 using Laraue.Apps.Boards.Services;
@@ -41,6 +42,109 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         return new OrganizationAuthData { OrganizationId = organizationId, UserId = userId, ApiKeyId = apiKeyId };
     }
 
+    // The agent runner's auth data: a key from agent sign-in, the only kind that claims, starts and finishes runs.
+    private static async Task<OrganizationAuthData> RunnerAuthDataFor(
+        WebApiTestHostScope testScope,
+        long organizationId,
+        Guid userId)
+    {
+        var apiKeyId = await CreateAgentSignInKey(testScope, organizationId, userId, "Claude Code agent");
+
+        return AuthDataFor(organizationId, userId, apiKeyId);
+    }
+
+    // A key as agent sign-in leaves it: an API key with the completed sign-in request that issued it.
+    private static async Task<Guid> CreateAgentSignInKey(
+        WebApiTestHostScope testScope,
+        long organizationId,
+        Guid userId,
+        string name)
+    {
+        var key = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organizationId, userId, name, CancellationToken.None);
+        testScope.Database.Add(new AgentSignInRequest
+        {
+            DeviceCodeHash = Guid.NewGuid().ToString("N"),
+            UserCode = Guid.NewGuid().ToString("N")[..9],
+            ClientName = name,
+            MachineName = "dev-laptop",
+            State = AgentSignInState.Completed,
+            UserId = userId,
+            OrganizationId = organizationId,
+            ApiKeyId = key.Id,
+        });
+        await testScope.Database.SaveChangesAsync();
+
+        return key.Id;
+    }
+
+    // A key made by hand on the API keys page - what a Claude chat with the connector uses (an OAuth key is the same:
+    // an API key no agent sign-in issued).
+    private static async Task<OrganizationAuthData> ChatAuthDataFor(
+        WebApiTestHostScope testScope,
+        long organizationId,
+        Guid userId)
+    {
+        var key = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
+            .CreateAsync(organizationId, userId, "Claude MCP", CancellationToken.None);
+
+        return AuthDataFor(organizationId, userId, key.Id);
+    }
+
+    [Fact]
+    public async Task ClaimAgentRun_ShouldThrowForbidden_WhenKeyIsNotFromAgentSignIn()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var chatAuthData = await ChatAuthDataFor(testScope, organization.Id, ownerId);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.CreateAgentRun(chatAuthData, issueKey, CancellationToken.None);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.ClaimAgentRun(chatAuthData, run.Id, CancellationToken.None));
+
+        var storedRun = await testScope.Database.IssueAgentRuns.SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Ready, storedRun.State);
+    }
+
+    [Fact]
+    public async Task StartAgentRun_ShouldThrowForbidden_WhenKeyIsNotFromAgentSignIn()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var chatAuthData = await ChatAuthDataFor(testScope, organization.Id, ownerId);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => CreateAgentRunMcpService(testScope.Services)
+            .StartAgentRun(chatAuthData, issueKey, CancellationToken.None));
+
+        Assert.Equal(0, await testScope.Database.IssueAgentRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task FinishAgentRun_ShouldThrowForbidden_WhenKeyIsNotFromAgentSignIn()
+    {
+        using var testScope = host.CreateTestScope();
+        var ownerId = await testScope.CreateUser();
+        var organization = await testScope.InitializeOrganization(ownerId, org => org
+            .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
+        var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
+        var runnerAuthData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
+        var service = CreateAgentRunMcpService(testScope.Services);
+        var run = await service.StartAgentRun(runnerAuthData, issueKey, CancellationToken.None);
+        var chatAuthData = await ChatAuthDataFor(testScope, organization.Id, ownerId);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.FinishAgentRun(
+            chatAuthData, run.Id, AgentRunFinishState.Done, null, CancellationToken.None));
+
+        var storedRun = await testScope.Database.IssueAgentRuns.SingleAsyncEF(x => x.Id == run.Id);
+        Assert.Equal(AgentRunState.Working, storedRun.State);
+    }
+
     [Fact]
     public async Task ClaimAgentRun_ShouldReturnTrueForExactlyOneCaller_WhenTwoRunnersClaimInParallel()
     {
@@ -49,9 +153,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var apiKeys = testScope.Services.GetRequiredService<ICoreApiKeysService>();
-        var firstKey = await apiKeys.CreateAsync(organization.Id, ownerId, "Runner 1", CancellationToken.None);
-        var secondKey = await apiKeys.CreateAsync(organization.Id, ownerId, "Runner 2", CancellationToken.None);
+        var firstKeyId = await CreateAgentSignInKey(testScope, organization.Id, ownerId, "Runner 1");
+        var secondKeyId = await CreateAgentSignInKey(testScope, organization.Id, ownerId, "Runner 2");
         var run = await CreateAgentRunMcpService(testScope.Services)
             .CreateAgentRun(AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
 
@@ -61,14 +164,14 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         using var secondScope = host.Services.CreateScope();
         var claims = await Task.WhenAll(
             Task.Run(() => CreateAgentRunMcpService(firstScope.ServiceProvider)
-                .ClaimAgentRun(AuthDataFor(organization.Id, ownerId, firstKey.Id), run.Id, CancellationToken.None)),
+                .ClaimAgentRun(AuthDataFor(organization.Id, ownerId, firstKeyId), run.Id, CancellationToken.None)),
             Task.Run(() => CreateAgentRunMcpService(secondScope.ServiceProvider)
-                .ClaimAgentRun(AuthDataFor(organization.Id, ownerId, secondKey.Id), run.Id, CancellationToken.None)));
+                .ClaimAgentRun(AuthDataFor(organization.Id, ownerId, secondKeyId), run.Id, CancellationToken.None)));
 
         Assert.Single(claims, claimed => claimed);
         Assert.Single(claims, claimed => !claimed);
 
-        var winnerKeyId = claims[0] ? firstKey.Id : secondKey.Id;
+        var winnerKeyId = claims[0] ? firstKeyId : secondKeyId;
         var storedRun = await testScope.Database.IssueAgentRuns.SingleAsyncEF(x => x.Id == run.Id);
         Assert.Equal(AgentRunState.Working, storedRun.State);
         Assert.Equal(winnerKeyId, storedRun.ClaimedByApiKeyId);
@@ -83,7 +186,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
 
@@ -99,7 +202,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
 
@@ -166,7 +269,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Not handed off")));
         var handedOffKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var claimedKey = organization.GetIssueData(1, 1, 0, 1).Key;
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var readyRun = await service.CreateAgentRun(authData, handedOffKey, CancellationToken.None);
         var claimedRun = await service.CreateAgentRun(authData, claimedKey, CancellationToken.None);
@@ -295,7 +398,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         }
 
         return new BlockedIssueSetup(
-            AuthDataFor(organization.Id, ownerId),
+            await RunnerAuthDataFor(testScope, organization.Id, ownerId),
             blocker.Key,
             blocked.Key,
             organization.GetStatus(1, 1, 1).Id);
@@ -460,7 +563,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
 
         return new OwnerIssueWithEditorSetup(
-            AuthDataFor(organization.Id, ownerId),
+            await RunnerAuthDataFor(testScope, organization.Id, ownerId),
             AuthDataFor(organization.Id, editorId),
             organization.GetIssueData(1, 1, 0, 0).Key);
     }
@@ -503,7 +606,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var ownerId = await testScope.CreateUser();
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
@@ -527,7 +630,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
         await service.ClaimAgentRun(authData, run.Id, CancellationToken.None);
@@ -550,7 +653,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
         await service.ClaimAgentRun(authData, run.Id, CancellationToken.None);
@@ -571,7 +674,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
         await service.ClaimAgentRun(authData, run.Id, CancellationToken.None);
@@ -620,12 +723,11 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
-            .CreateAsync(organization.Id, ownerId, "Claude Code agent", CancellationToken.None);
+        var apiKeyId = await CreateAgentSignInKey(testScope, organization.Id, ownerId, "Claude Code agent");
         var service = CreateAgentRunMcpService(testScope.Services);
         var run = await service.CreateAgentRun(AuthDataFor(organization.Id, ownerId), issueKey, CancellationToken.None);
 
-        await service.ClaimAgentRun(AuthDataFor(organization.Id, ownerId, apiKey.Id), run.Id, CancellationToken.None);
+        await service.ClaimAgentRun(AuthDataFor(organization.Id, ownerId, apiKeyId), run.Id, CancellationToken.None);
 
         var history = await IssueMcpServiceTests.CreateIssueMcpService(testScope)
             .GetIssueHistory(AuthDataFor(organization.Id, ownerId), issueKey, null, null, CancellationToken.None);
@@ -651,9 +753,8 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var apiKey = await testScope.Services.GetRequiredService<ICoreApiKeysService>()
-            .CreateAsync(organization.Id, ownerId, "Claude Code agent", CancellationToken.None);
-        var runnerAuthData = AuthDataFor(organization.Id, ownerId, apiKey.Id);
+        var apiKeyId = await CreateAgentSignInKey(testScope, organization.Id, ownerId, "Claude Code agent");
+        var runnerAuthData = AuthDataFor(organization.Id, ownerId, apiKeyId);
         var service = CreateAgentRunMcpService(testScope.Services);
         var failedRun = await service.CreateAgentRun(runnerAuthData, issueKey, CancellationToken.None);
         await service.ClaimAgentRun(runnerAuthData, failedRun.Id, CancellationToken.None);
@@ -685,7 +786,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
         var organization = await testScope.InitializeOrganization(ownerId, org => org
             .AddIssueToAgentBoard(ownerId, issue => issue.WithContent("Fix the thing")));
         var issueKey = organization.GetIssueData(1, 1, 0, 0).Key;
-        var authData = AuthDataFor(organization.Id, ownerId);
+        var authData = await RunnerAuthDataFor(testScope, organization.Id, ownerId);
         var service = CreateAgentRunMcpService(testScope.Services);
         await service.CreateAgentRun(authData, issueKey, CancellationToken.None);
 
@@ -703,7 +804,7 @@ public class AgentRunMcpServiceTests(WebApiTestHost host) : IClassFixture<WebApi
             .AddIssueToDefaultStatus(ownerId, issue => issue.WithContent("In the backlog")));
 
         var run = await CreateAgentRunMcpService(testScope.Services)
-            .StartAgentRun(AuthDataFor(organization.Id, ownerId), organization.GetIssueData(0, 0, 0, 0).Key, CancellationToken.None);
+            .StartAgentRun(await RunnerAuthDataFor(testScope, organization.Id, ownerId), organization.GetIssueData(0, 0, 0, 0).Key, CancellationToken.None);
 
         Assert.Equal("Working", run.State);
     }

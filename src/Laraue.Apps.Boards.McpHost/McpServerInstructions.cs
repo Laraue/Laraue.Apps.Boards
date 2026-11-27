@@ -41,8 +41,8 @@ public static class McpServerInstructions
           to an InProgress status, works, and ends with finish_agent_run (Done or Failed). Anyone who can
           edit the issue can cancel_agent_run, which also unlocks it; a runner whose finish_agent_run
           returns false was cancelled and should stop. get_issue's latestAgentRun shows the current one.
-          Working on an issue in a chat is not a hand-off: don't open, claim or finish a run for it - a run
-          marks the issue as worked on by the agent and locks it.
+          Claiming, starting and finishing runs is for agent runners only (a key from agent sign-in); working
+          on an issue in a chat is not a run - edit, move and comment on it without one.
         - When you mention an issue to the user, link it with its url from list_issues/get_issue.
         - A failed call says why ('NotFound: ...', 'Forbidden: ...', or 'BadRequest: ...' with a line
           per invalid field) - fix the request instead of retrying it unchanged.

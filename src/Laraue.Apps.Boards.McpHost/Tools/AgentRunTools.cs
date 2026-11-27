@@ -40,7 +40,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool(Title = "Claim agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Claims a Ready agent run for this runner, moving it to Working. Returns true when this call claimed it, false when it was no longer Ready (another runner claimed it first, or it was cancelled) or its issue is blocked - on false, skip the run. Atomic: of two runners claiming the same run, exactly one gets true. Only the issue's assignee can claim it (a runner works only on its own user's issues). After claiming, move the issue to its epic's first InProgress status with edit_issue_status. Requires canEdit on the issue.")]
+    [Description("Claims a Ready agent run for this runner, moving it to Working. Returns true when this call claimed it, false when it was no longer Ready (another runner claimed it first, or it was cancelled) or its issue is blocked - on false, skip the run. Atomic: of two runners claiming the same run, exactly one gets true. Only the issue's assignee can claim it (a runner works only on its own user's issues). After claiming, move the issue to its epic's first InProgress status with edit_issue_status. Requires canEdit on the issue. Only an agent runner can call it: its key must come from agent sign-in (lba setup) - any other key gets Forbidden.")]
     public Task<bool> ClaimAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,
         CancellationToken cancellationToken)
@@ -49,7 +49,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool(Title = "Start agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Starts an agent run that is already Working, for a runner's interactive session about an issue (`lba continue`), which calls it itself - so the issue shows the agent on it, and the work ends with finish_agent_run (Done or Failed) or cancel_agent_run like any run. Unlike create_agent_run, the issue may be in any status and its epic needs no particular statuses; the issue's status isn't changed. Fails when the issue already has an open run (Ready or Working). While the run is open the issue is locked: edit_issue and delete_issue fail (status changes and comments still work). Returns the run. Only the issue's assignee can start one, with canEdit (see get_issue/list_issues). Don't call it just because you are working on an issue in a chat: that is not an agent run, and the run would mark the issue as worked on by the agent and lock it.")]
+    [Description("Starts an agent run that is already Working, for a runner's interactive session about an issue (`lba continue`), which calls it itself - so the issue shows the agent on it, and the work ends with finish_agent_run (Done or Failed) or cancel_agent_run like any run. Unlike create_agent_run, the issue may be in any status and its epic needs no particular statuses; the issue's status isn't changed. Fails when the issue already has an open run (Ready or Working). While the run is open the issue is locked: edit_issue and delete_issue fail (status changes and comments still work). Returns the run. Only the issue's assignee can start one, with canEdit (see get_issue/list_issues). Don't call it just because you are working on an issue in a chat: that is not an agent run, and the run would mark the issue as worked on by the agent and lock it. Only an agent runner can call it: its key must come from agent sign-in (lba setup) - any other key gets Forbidden.")]
     public Task<AgentRunSummary> StartAgentRun(
         [Description("The issue's key, e.g. 'BRD-42'.")] string issueKey,
         CancellationToken cancellationToken)
@@ -58,7 +58,7 @@ public class AgentRunTools(IAgentRunMcpService agentRunMcpService, IHttpContextA
     }
 
     [McpServerTool(Title = "Finish agent run", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Finishes a Working agent run as Done or Failed - only a run you claimed with claim_agent_run or were given the id of (a runner's prompt names it). Returns true when the run was finished, false when it was no longer Working - a person cancelled it, so stop working on it. Requires canEdit on the issue.")]
+    [Description("Finishes a Working agent run as Done or Failed - only a run you claimed with claim_agent_run or were given the id of (a runner's prompt names it). Returns true when the run was finished, false when it was no longer Working - a person cancelled it, so stop working on it. Requires canEdit on the issue. Only an agent runner can call it: its key must come from agent sign-in (lba setup) - any other key gets Forbidden.")]
     public Task<bool> FinishAgentRun(
         [Description("The run's id, from list_agent_runs.")] long runId,
         [Description("Done when the work is finished, Failed when the agent gave up.")] AgentRunFinishState state,

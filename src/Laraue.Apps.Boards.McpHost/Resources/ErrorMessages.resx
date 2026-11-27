@@ -63,4 +63,7 @@
     <data name="AgentRunStartOnlyAssignee" xml:space="preserve">
         <value>Issue: {0} can be worked on by the agent only for its assignee</value>
     </data>
+    <data name="AgentRunOnlyAgentRunner" xml:space="preserve">
+        <value>Agent runs are claimed, started and finished only by an agent runner (lba), with the key it got from agent sign-in. Working on an issue in a chat is not an agent run: edit the issue, change its status and comment without one.</value>
+    </data>
 </root>
