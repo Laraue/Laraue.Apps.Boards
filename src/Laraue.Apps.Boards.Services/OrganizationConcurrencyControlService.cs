@@ -1,5 +1,5 @@
 ﻿using Laraue.Apps.Boards.DataAccess;
-using Laraue.Apps.Boards.DataAccess.Models;
+using Microsoft.EntityFrameworkCore;
 using LinqToDB.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -46,17 +46,25 @@ public class OrganizationConcurrencyControlService(
 
     private async Task RebalanceOrganizationLexoRank(long organizationId, CancellationToken ct)
     {
-        var issues = await context.ActiveIssues()
+        var issueIds = await context.ActiveIssues()
             .Where(x => x.Status!.Epic!.Space!.OrganizationId == organizationId)
             .OrderBy(x => x.LexoRank)
-            .Select(x => new Issue { Id = x.Id, LexoRank = x.LexoRank })
-            .ToListAsyncEF(ct);
+            .Select(x => x.Id)
+            .ToArrayAsyncEF(ct);
 
-        var freshRanks = LexoRank.CreateEvenlySpaced(issues.Count);
+        var freshRanks = LexoRank.CreateEvenlySpaced(issueIds.Length)
+            .Select(x => x.ToString())
+            .ToArray();
 
-        for (var i = 0; i < issues.Count; i++)
-            issues[i].LexoRank = freshRanks[i].ToString();
-
-        await context.SaveChangesAsync(ct);
+        // One statement for the whole organization. Issues projected into new entities aren't
+        // tracked, so SaveChanges used to write nothing here and the retry failed again (BRD-389).
+        await context.Database.ExecuteSqlAsync(
+            $"""
+             UPDATE issues
+             SET lexo_rank = fresh.rank
+             FROM unnest({issueIds}, {freshRanks}) AS fresh(id, rank)
+             WHERE issues.id = fresh.id
+             """,
+            ct);
     }
 }

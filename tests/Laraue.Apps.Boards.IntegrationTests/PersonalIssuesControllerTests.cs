@@ -1086,4 +1086,62 @@ public class PersonalIssuesControllerTests(WebApiTestHost host)  : IClassFixture
         // request, so it stays last rather than ending up between issue2 and the moved issues.
         Assert.Equal(["2", "3", "1", "4"], issues.Select(i => i.Content));
     }
+
+    [Theory]
+    [InlineData("0|i0000000000000000000000000000000", new[] { "C" }, new[] { "A", "C", "B" })]
+    [InlineData("0|i0000000000000000000000000000001", new[] { "C", "D" }, new[] { "A", "C", "D", "B" })]
+    public async Task User_ShouldReorderIssues_WhenNoRankFitsBetweenNeighbours(
+        string rankOfB,
+        string[] issuesToMove,
+        string[] expectedOrder)
+    {
+        using var testScope = host.CreateTestScope();
+        var userId = await testScope.CreateUser();
+
+        // A and B are adjacent (or nearly), so moving issues right after A runs out of ranks
+        // and needs a rebalance (BRD-389). C and D come last by default.
+        var organization = await testScope.InitializePersonalOrganization(
+            userId,
+            o => o
+                .AddIssueToDefaultStatus(userId, issue => issue
+                    .WithContent("A")
+                    .WithLexoRank(LexoRank.Parse("0|hzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")))
+                .AddIssueToDefaultStatus(userId, issue => issue
+                    .WithContent("B")
+                    .WithLexoRank(LexoRank.Parse(rankOfB)))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("C"))
+                .AddIssueToDefaultStatus(userId, issue => issue.WithContent("D")));
+
+        var issueKeysByContent = new[] { "A", "B", "C", "D" }
+            .Select((content, index) => (content, organization.GetIssueData(0, 0, 0, index).Key))
+            .ToDictionary(x => x.content, x => x.Key);
+
+        var request = new ChangesIssuesOrderRequest
+        {
+            TargetKey = issueKeysByContent["A"],
+            IssueKeys = issuesToMove
+                .Select(x => issueKeysByContent[x])
+                .ToArray(),
+            TargetType = OrderTargetType.After,
+        };
+
+        await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.UpdateOrder(request));
+
+        var result = await _issuesController
+            .WithOrganizationAuthorization(organization.Id, userId)
+            .Execute(x => x.GetBoard(new GetBoardRequest
+            {
+                EpicId = organization.GetEpic(0, 0).Id,
+                Take = 20,
+            }));
+
+        var column = Assert.Single(result!);
+        var notMoved = new[] { "A", "B", "C", "D" }
+            .Except(expectedOrder);
+        Assert.Equal(
+            expectedOrder.Concat(notMoved),
+            column.Items.Data.Select(i => i.Content));
+    }
 }

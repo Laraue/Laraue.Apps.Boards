@@ -1024,17 +1024,24 @@ public class CoreIssuesService(
             ? (targetLexoRank, closestLexoRank)
             : (closestLexoRank, targetLexoRank);
         
-        foreach (var issueId in issueIds)
+        // Compute every rank before attaching anything: when the space runs out on a later issue,
+        // the caller rebalances and retries, and an issue attached by this attempt would be
+        // attached twice (BRD-389).
+        var newRanks = new LexoRank[issueIds.Length];
+        for (var i = 0; i < issueIds.Length; i++)
         {
-            var newRank = LexoRank.Between(previous, next);
-            previous = newRank;
+            newRanks[i] = LexoRank.Between(previous, next);
+            previous = newRanks[i];
+        }
 
+        for (var i = 0; i < issueIds.Length; i++)
+        {
             var entity = new Issue
             {
-                Id = issueId,
-                LexoRank = newRank.ToString(),
+                Id = issueIds[i],
+                LexoRank = newRanks[i].ToString(),
             };
-            
+
             context.Attach(entity);
             context.Entry(entity).Property(x => x.LexoRank).IsModified = true;
         }
