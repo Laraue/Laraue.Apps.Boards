@@ -228,6 +228,7 @@ public class AgentRunMcpService(
             authData.UserId,
             string.Format(ErrorMessages.AgentRunClaimOnlyAssignee, runId),
             cancellationToken);
+        await EnsureIsAgentRunner(authData, cancellationToken);
 
         // A blocked issue's run waits - the same rule as isBlocked and excludeBlocked: a blocker the caller can read
         // that isn't Completed. Checked before the claim, not inside its update: a blocker linked in between counts
@@ -263,6 +264,7 @@ public class AgentRunMcpService(
             authData.UserId,
             string.Format(ErrorMessages.AgentRunStartOnlyAssignee, key),
             cancellationToken);
+        await EnsureIsAgentRunner(authData, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var runId = await coreAgentRunsService.Start(issueId, authData.ToActor(), cancellationToken);
@@ -292,6 +294,7 @@ public class AgentRunMcpService(
         };
 
         await EnsureCanUpdateRun(authData, runId, cancellationToken);
+        await EnsureIsAgentRunner(authData, cancellationToken);
 
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var finished = await coreAgentRunsService.Finish(runId, finishState, reason, authData.ToActor(), cancellationToken);
@@ -443,6 +446,21 @@ public class AgentRunMcpService(
 
         if (assigneeId != userId)
             throw new ForbiddenException(message);
+    }
+
+    // Claiming, starting and finishing a run are the agent runner's (BRD-363): it calls with a key from agent sign-in
+    // (an AgentSignInRequest has it - the rule CoreIssuesService uses for CreatedVia.Agent), and passes the same key to
+    // the coding agent it runs. A chat with the connector (a key made by hand or through OAuth) working on an issue
+    // isn't a hand-off, and a run it opened or finished would show the agent on an issue that was never handed off.
+    // Checked after the access checks, so a caller who can't read the issue still gets a 404.
+    private async Task EnsureIsAgentRunner(OrganizationAuthData authData, CancellationToken cancellationToken)
+    {
+        var isAgentKey = authData.ApiKeyId is { } apiKeyId
+            && await context.AgentSignInRequests
+                .AnyAsync(x => x.ApiKeyId == apiKeyId, cancellationToken);
+
+        if (!isAgentKey)
+            throw new ForbiddenException(ErrorMessages.AgentRunOnlyAgentRunner);
     }
 
     // 404 when the issue is missing or not readable, 403 when it's readable but the caller can't change it - see
