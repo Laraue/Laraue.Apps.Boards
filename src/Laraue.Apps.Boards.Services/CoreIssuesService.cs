@@ -314,9 +314,10 @@ public class CoreIssuesService(
     /// doesn't pin a title that Telegram derives. A hand-set title stays; otherwise a system-suggested
     /// one (Telegram's first line or AI summary) applies, and without either the title is unchanged.
     /// <c>IsChosen</c> is true when a client changed the title - only that is worth a history entry, a
-    /// suggested title just follows the content change the history already shows.
+    /// suggested title just follows the content change the history already shows. <c>IsSuggested</c> is true when
+    /// the suggested title is the one picked.
     /// </summary>
-    private static (string Title, bool IsSetExplicitly, bool IsChosen) ResolveTitle(
+    private static (string Title, bool IsSetExplicitly, bool IsChosen, bool IsSuggested) ResolveTitle(
         IssueUpdateRequest request,
         string currentTitle,
         bool isCurrentExplicit)
@@ -325,16 +326,16 @@ public class CoreIssuesService(
         {
             var isChanged = requestedTitle != currentTitle;
 
-            return (requestedTitle, isCurrentExplicit || isChanged, isChanged);
+            return (requestedTitle, isCurrentExplicit || isChanged, isChanged, false);
         }
 
         if (isCurrentExplicit)
-            return (currentTitle, true, false);
+            return (currentTitle, true, false, false);
 
         if (request.SuggestedTitle is { } suggestedTitle)
-            return (suggestedTitle, false, false);
+            return (suggestedTitle, false, false, true);
 
-        return (currentTitle, false, false);
+        return (currentTitle, false, false, false);
     }
 
     public async Task Update(
@@ -365,15 +366,20 @@ public class CoreIssuesService(
         Action<UpdateSettersBuilder<Issue>> settersBuilder = builder
             => builder.SetProperty(x => x.UpdatedAt, date);
 
-        if (request.Content.IsSet && issueData.Content != request.Content.Value)
+        var (newTitle, isTitleSetExplicitly, isTitleChosen, isTitleSuggested) = ResolveTitle(
+            request, issueData.Title, issueData.IsTitleSetExplicitly);
+
+        // A suggested title taken from the content comes with the content left without it.
+        var content = isTitleSuggested && request.ContentWithSuggestedTitle.IsSet
+            ? request.ContentWithSuggestedTitle
+            : request.Content;
+
+        if (content.IsSet && issueData.Content != content.Value)
         {
-            var newContent = request.Content.Value;
+            var newContent = content.Value;
             settersBuilder += builder => builder.SetProperty(x => x.Content, newContent);
             items.Add(logItemFactory.ContentChanged(issueData.Content, newContent));
         }
-
-        var (newTitle, isTitleSetExplicitly, isTitleChosen) = ResolveTitle(
-            request, issueData.Title, issueData.IsTitleSetExplicitly);
 
         if (isTitleSetExplicitly != issueData.IsTitleSetExplicitly)
             settersBuilder += builder => builder.SetProperty(x => x.IsTitleSetExplicitly, isTitleSetExplicitly);
@@ -382,7 +388,9 @@ public class CoreIssuesService(
         {
             settersBuilder += builder => builder.SetProperty(x => x.Title, newTitle);
 
-            if (isTitleChosen)
+            // A suggested title usually just follows the content change the history shows, but a title split off
+            // the content isn't in it any more - so its change is recorded too.
+            if (isTitleChosen || (isTitleSuggested && request.ContentWithSuggestedTitle.IsSet))
                 items.Add(logItemFactory.TitleChanged(issueData.Title, newTitle));
         }
 

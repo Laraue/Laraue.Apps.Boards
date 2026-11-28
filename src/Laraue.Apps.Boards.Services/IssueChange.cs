@@ -37,11 +37,15 @@ public abstract class IssueChange<TSelf> where TSelf : IssueChange<TSelf>
     /// </summary>
     public TSelf SetContent(string? content)
     {
-        Content = ChangedValue<string?>.Of(
-            string.IsNullOrEmpty(content)
-                ? null
-                : content.ReplaceLineEndings(IssueContentFormat.LineSeparatorString));
+        Content = ChangedValue<string?>.Of(NormalizeContent(content));
         return (TSelf)this;
+    }
+
+    private protected static string? NormalizeContent(string? content)
+    {
+        return string.IsNullOrEmpty(content)
+            ? null
+            : content.ReplaceLineEndings(IssueContentFormat.LineSeparatorString);
     }
 
     public TSelf SetAssignee(Guid assigneeId)

@@ -56,7 +56,8 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         await TapPicker(host, AdminUser, backlogButton.CallbackData!);
 
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Buy milk", issue.Content);
+        Assert.Equal("Buy milk", issue.Title);
+        Assert.Null(issue.Content);
         Assert.Equal(organization.GetStatus(0, 0, 0).Id, issue.StatusId);
 
         // Link mode: the picker itself becomes the card.
@@ -182,7 +183,7 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
         await TapPicker(host, AdminUser, await BacklogCallback(host, organization, 5));
 
         var db = host.CreateScope().GetDatabaseContext();
-        Assert.Equal("Buy oat milk", Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB()).Content);
+        Assert.Equal("Buy oat milk", Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB()).Title);
     }
 
     [Fact]
@@ -222,7 +223,8 @@ public class TelegramSaveDestinationTests : TelegramIntegrationTest
 
         var db = host.CreateScope().GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Holiday", issue.Content);
+        Assert.Equal("Holiday", issue.Title);
+        Assert.Null(issue.Content);
         Assert.Equal(2, (await db.IssueAttachments.AsNoTracking().Where(x => x.IssueId == issue.Id).ToListAsyncLinqToDB()).Count);
     }
 

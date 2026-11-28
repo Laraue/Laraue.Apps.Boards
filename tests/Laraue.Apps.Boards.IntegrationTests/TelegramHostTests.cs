@@ -899,7 +899,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         Assert.Equal("🔗 Open issue", button.Text);
 
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("Hello world", issue.Content);
+        Assert.Equal("Hello world", issue.Title);
+        Assert.Null(issue.Content);
     }
 
     [Fact]
@@ -1007,9 +1008,9 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var db = host.CreateScope().GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        // No AI: the text is saved as written and the title is its first sentence.
-        Assert.Equal("## Fix login retry. It fails on the second attempt\nNeed logs please", issue.Content);
-        Assert.Equal("Fix login retry", issue.Title);
+        // No AI: the title is the first sentence and the text after it is saved as written.
+        Assert.Equal("It fails on the second attempt\nNeed logs please", issue.Content);
+        Assert.Equal("## Fix login retry", issue.Title);
         Assert.False(issue.IsTitleSetExplicitly);
         var summarizer = Mock.Get(host.CreateScope().ServiceProvider.GetRequiredService<IAiContentSummarizer>());
         summarizer.Verify(
@@ -1019,7 +1020,7 @@ public class TelegramHostTests : TelegramIntegrationTest
     }
 
     [Fact]
-    public async Task HandleSave_ShouldAskForTitle_WhenTextHasNothingToTakeATitleFrom()
+    public async Task HandleSave_ShouldTakeTitleAsTyped_WhenTextLooksLikeMarkdown()
     {
         using var host = GetTelegramTestHost();
         var testScope = host.CreateTestScope();
@@ -1052,10 +1053,10 @@ public class TelegramHostTests : TelegramIntegrationTest
             }
         });
 
-        Assert.Equal(
-            "There's no text to make a title from - set one yourself: reply with /save and the title, e.g. /save Fix login bug.",
-            host.Requests().Single<SendMessageRequest>().Text);
-        Assert.Empty(await host.CreateScope().GetDatabaseContext().Issues.ToListAsyncLinqToDB());
+        // A title shows no markdown, so the text is taken as written.
+        var issue = Assert.Single(await host.CreateScope().GetDatabaseContext().Issues.ToListAsyncLinqToDB());
+        Assert.Equal("***", issue.Title);
+        Assert.Null(issue.Content);
     }
 
     [Fact]
@@ -1425,7 +1426,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("Album caption", issue.Content);
+        Assert.Equal("Album caption", issue.Title);
+        Assert.Null(issue.Content);
 
         var attachments = await db.IssueAttachments
             .Where(x => x.IssueId == issue.Id)
@@ -1624,7 +1626,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Original text", issue.Content);
+        Assert.Equal("Original text", issue.Title);
+        Assert.Null(issue.Content);
 
         // Editing the source message must not touch the card - unlike EachMessage mode, manual
         // mode only syncs on an explicit /save.
@@ -1640,7 +1643,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Original text", issue.Content);
+        Assert.Equal("Original text", issue.Title);
+        Assert.Null(issue.Content);
 
         var storedMessage = Assert.Single(await db.TelegramMessages.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal("Edited text", storedMessage.Text);
@@ -1659,7 +1663,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Edited text", issue.Content);
+        Assert.Equal("Edited text", issue.Title);
+        Assert.Null(issue.Content);
     }
 
     [Fact]
@@ -1882,7 +1887,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("Hello from the supergroup", issue.Content);
+        Assert.Equal("Hello from the supergroup", issue.Title);
+        Assert.Null(issue.Content);
     }
 
     [Fact]
@@ -2624,7 +2630,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var db = scope.GetDatabaseContext();
         
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Test message", issue.Content);
+        Assert.Equal("Test message", issue.Title);
+        Assert.Null(issue.Content);
         
         await host.SendUpdateAsync(new Update
         {
@@ -2638,7 +2645,130 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
         
         issue = Assert.Single(await db.Issues.ToListAsyncLinqToDB());
-        Assert.Equal("Edited Test message", issue.Content);
+        Assert.Equal("Edited Test message", issue.Title);
+        Assert.Null(issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldKeepTitleAsTypedWithNoDescription_WhenMessageIsOneLine()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "[Sim] Magti",
+                Chat = PrivateChat,
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("[Sim] Magti", issue.Title);
+        Assert.Null(issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldPutSecondSentenceInDescription_WhenMessageHasTwoSentences()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Buy a SIM. Magti has the best coverage.",
+                Chat = PrivateChat,
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Buy a SIM", issue.Title);
+        Assert.Equal("Magti has the best coverage.", issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleTextMessage_ShouldNotRepeatFirstLineInDescription_WhenMessageHasSeveralLines()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Buy a SIM\nMagti or Silknet",
+                Chat = PrivateChat,
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Buy a SIM", issue.Title);
+        Assert.Equal("Magti or Silknet", issue.Content);
+
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Buy two SIMs\nMagti or Silknet",
+                Chat = PrivateChat,
+            }
+        });
+
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Buy two SIMs", issue.Title);
+        Assert.Equal("Magti or Silknet", issue.Content);
+    }
+
+    [Fact]
+    public async Task HandleEditedMessage_ShouldKeepWholeTextInDescription_WhenTitleWasSetByHand()
+    {
+        using var host = GetTelegramTestHost();
+
+        await host.SendUpdateAsync(new Update
+        {
+            Message = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Buy a SIM\nMagti",
+                Chat = PrivateChat,
+            }
+        });
+
+        var db = host.CreateScope().GetDatabaseContext();
+        var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        await db.Issues
+            .Where(x => x.Id == issue.Id)
+            .ExecuteUpdateAsync(x => x
+                .SetProperty(i => i.Title, "Georgian SIM")
+                .SetProperty(i => i.IsTitleSetExplicitly, true));
+
+        await host.SendUpdateAsync(new Update
+        {
+            EditedMessage = new Message
+            {
+                From = DefaultUser,
+                Id = 1,
+                Text = "Buy a SIM\nMagti or Silknet",
+                Chat = PrivateChat,
+            }
+        });
+
+        // The renamed title doesn't come from the text, so the text is kept whole.
+        issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
+        Assert.Equal("Georgian SIM", issue.Title);
+        Assert.Equal("Buy a SIM\nMagti or Silknet", issue.Content);
     }
 
     [Fact]
@@ -2681,7 +2811,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Test message", issue.Content);
+        Assert.Equal("Test message", issue.Title);
+        Assert.Null(issue.Content);
         var reply = host.Requests().OfType<SendMessageRequest>().Last();
         Assert.Equal(
             "This card is handed to the agent and can't be changed until the run is finished or cancelled.",
@@ -2726,14 +2857,15 @@ public class TelegramHostTests : TelegramIntegrationTest
             .ToArrayAsyncLinqToDB();
 
         // First log entry is issue creation; the edit should append a second, Update entry
-        // recording the content change - this used to be silently skipped for Telegram edits.
+        // recording the change - this used to be silently skipped for Telegram edits. A one-line
+        // message is all title, so the title is what changes.
         Assert.Equal(2, logs.Length);
         var updateLog = logs[1];
         Assert.Equal(LogAction.Update, updateLog.Action);
-        var contentItem = Assert.Single(updateLog.Items);
-        Assert.Equal(PropertyType.Content, contentItem.PropertyType);
-        Assert.Equal("Test message", contentItem.OldDisplayValue);
-        Assert.Equal("Edited Test message", contentItem.NewDisplayValue);
+        var titleItem = Assert.Single(updateLog.Items);
+        Assert.Equal(PropertyType.Title, titleItem.PropertyType);
+        Assert.Equal("Test message", titleItem.OldDisplayValue);
+        Assert.Equal("Edited Test message", titleItem.NewDisplayValue);
     }
 
     [Fact]
@@ -2861,7 +2993,7 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
         
         issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Caption", issue.Content);
+        Assert.Null(issue.Content);
         Assert.Equal("Caption", issue.Title);
         
         telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
@@ -3069,7 +3201,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         
         // One group should be merged into one issue
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Caption1", issue.Content);
+        Assert.Equal("Caption1", issue.Title);
+        Assert.Null(issue.Content);
         
         var telegramFiles = await db.TelegramFiles.AsNoTracking().OrderBy(x => x.Id).ToArrayAsyncLinqToDB();
         Assert.Equal(4, telegramFiles.Length);
@@ -3246,7 +3379,7 @@ public class TelegramHostTests : TelegramIntegrationTest
 
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal("Meeting notes", issue.Title);
-        Assert.Equal("Meeting notes", issue.Content);
+        Assert.Null(issue.Content);
 
         var attachment = Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal(AttachmentType.Document, attachment.Type);
@@ -3395,7 +3528,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var db = scope.GetDatabaseContext();
 
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Spec v2", issue.Content);
+        Assert.Equal("Spec v2", issue.Title);
+        Assert.Null(issue.Content);
         Assert.Single(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Equal(["docId1"], host.DownloadedFileIds);
     }
@@ -3422,7 +3556,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Installer for the client", issue.Content);
+        Assert.Equal("Installer for the client", issue.Title);
+        Assert.Null(issue.Content);
         Assert.Empty(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
     }
 
@@ -3478,7 +3613,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         });
 
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Spec", issue.Content);
+        Assert.Equal("Spec", issue.Title);
+        Assert.Null(issue.Content);
         Assert.Empty(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
         Assert.Empty(SkippedFileNotices(host));
     }
@@ -3517,7 +3653,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var db = scope.GetDatabaseContext();
 
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("Contract and notes", issue.Content);
+        Assert.Equal("Contract and notes", issue.Title);
+        Assert.Null(issue.Content);
 
         var attachments = await db.Attachments
             .AsNoTracking()
@@ -3705,7 +3842,8 @@ public class TelegramHostTests : TelegramIntegrationTest
         var scope = host.CreateScope();
         var db = scope.GetDatabaseContext();
         var issue = Assert.Single(await db.Issues.AsNoTracking().ToListAsyncLinqToDB());
-        Assert.Equal("New installer", issue.Content);
+        Assert.Equal("New installer", issue.Title);
+        Assert.Null(issue.Content);
         Assert.Empty(await db.Attachments.AsNoTracking().ToListAsyncLinqToDB());
     }
 

@@ -46,6 +46,46 @@ public class IssueTitleTests
         Assert.Equal(content, IssueTitle.FromContent(content));
     }
 
+    [Theory]
+    [InlineData("[Sim] Magti", "[Sim] Magti", null)]
+    [InlineData("**Fix**   the `login`", "**Fix** the `login`", null)]
+    [InlineData("Fix the login.", "Fix the login.", null)]
+    [InlineData("Fix the login. Then check the logs.", "Fix the login", "Then check the logs.")]
+    [InlineData("Fix the login. **Then** check\nthe logs", "Fix the login", "**Then** check\nthe logs")]
+    [InlineData("Fix the login\nThen check the logs", "Fix the login", "Then check the logs")]
+    [InlineData("\n# Fix the login\n\n- first\n- second\n\n", "# Fix the login", "- first\n- second")]
+    [InlineData("Fix the login\n---\nThen check the logs", "Fix the login", "---\nThen check the logs")]
+    [InlineData("Fix the login\r\nThen check the logs", "Fix the login", "Then check the logs")]
+    public void Split_ShouldTakeTitleAsWrittenAndLeaveContentWithoutIt_WhenTextHasOne(
+        string content,
+        string expectedTitle,
+        string? expectedContent)
+    {
+        var split = IssueTitle.Split(content);
+
+        Assert.Equal(new IssueTitleSplit(expectedTitle, expectedContent), split);
+    }
+
+    [Theory]
+    [InlineData("  \n \t")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Split_ShouldKeepContent_WhenItHasNoTitle(string? content)
+    {
+        Assert.Equal(new IssueTitleSplit(string.Empty, content), IssueTitle.Split(content));
+    }
+
+    [Fact]
+    public void Split_ShouldKeepContent_WhenTitleIsCut()
+    {
+        var content = string.Join(' ', Enumerable.Repeat("word", 100)) + "\nsecond line";
+
+        var split = IssueTitle.Split(content);
+
+        Assert.EndsWith("word…", split.Title);
+        Assert.Equal(content, split.Content);
+    }
+
     [Fact]
     public void Normalize_ShouldNotShortenToFirstSentence_WhenTitleWasTypedByHand()
     {

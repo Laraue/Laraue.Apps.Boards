@@ -38,8 +38,29 @@ public class IssueUpdateRequest : IssueChange<IssueUpdateRequest>
     public IssueUpdateRequest SetSuggestedTitle(string? title)
     {
         SuggestedTitle = IssueTitle.Normalize(title) is { Length: > 0 } normalized ? normalized : null;
+        ContentWithSuggestedTitle = ChangedValue<string?>.Unset;
         return this;
     }
+
+    /// <summary>
+    /// Suggests the title taken from the new content (<see cref="IssueTitle.Split"/>). While it applies, the
+    /// content is stored without the part the title was made from; a title set by hand keeps the whole content
+    /// given to <see cref="IssueChange{TSelf}.SetContent"/>.
+    /// </summary>
+    public IssueUpdateRequest SetSuggestedTitle(IssueTitleSplit split)
+    {
+        SetSuggestedTitle(split.Title);
+        if (SuggestedTitle is not null)
+            ContentWithSuggestedTitle = ChangedValue<string?>.Of(NormalizeContent(split.Content));
+
+        return this;
+    }
+
+    /// <summary>
+    /// The content to store instead of <see cref="IssueChange{TSelf}.Content"/> when <see cref="SuggestedTitle"/>
+    /// becomes the title.
+    /// </summary>
+    internal ChangedValue<string?> ContentWithSuggestedTitle { get; private set; } = ChangedValue<string?>.Unset;
 
     internal List<Guid> AttachmentIdsToUnlink { get; } = [];
 
