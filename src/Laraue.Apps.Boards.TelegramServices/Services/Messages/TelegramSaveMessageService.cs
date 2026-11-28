@@ -245,8 +245,17 @@ public class TelegramSaveMessageService(
                 (aiTitle, content) = (generated.Title, generated.Content);
             }
 
-            update.SetContent(content).SetSuggestedTitle(
-                aiTitle ?? BuildTitle(content, "message", dateTimeProvider.UtcNow, request.ExternalChatId, linkedChat.ChatTitle));
+            update.SetContent(content);
+
+            if (aiTitle is not null)
+                update.SetSuggestedTitle(aiTitle);
+            else
+                update.SetSuggestedTitle(SplitText(
+                    content,
+                    "message",
+                    dateTimeProvider.UtcNow,
+                    request.ExternalChatId,
+                    linkedChat.ChatTitle));
         }
 
         if (request.Title is not null)
@@ -348,15 +357,16 @@ public class TelegramSaveMessageService(
             title ??= generated.Title;
             content = generated.Content;
         }
-        else if (title is null && content is not null)
+        else if (title is null && IssueTitle.Split(content) is { Title.Length: > 0 } split)
         {
-            title = IssueTitle.FromContent(content) is { Length: > 0 } firstLine ? firstLine : null;
+            // The description doesn't repeat the title taken from it.
+            (title, content) = (split.Title, split.Content);
         }
 
         // No text to take a title from: a document is named after its file.
         title ??= group.DocumentTitle;
 
-        // Only photos or videos, or a text of nothing but markup: /save asks for a title, auto-save names it after
+        // Only photos or videos, or a blank text: /save asks for a title, auto-save names it after
         // its kind, chat and time, as when it saves right away.
         if (title is null && titleSource.GenerateWhenMissing)
         {
@@ -1001,7 +1011,7 @@ public class TelegramSaveMessageService(
                 if (contentChanged)
                 {
                     // TODO - here we can detect and remove previous messages. But should we?
-                    update.SetContent(request.Text).SetSuggestedTitle(BuildTitle(request, linkedChat));
+                    update.SetContent(request.Text).SetSuggestedTitle(SplitText(request, linkedChat));
                 }
 
                 if (attachmentId is not null)
@@ -1134,7 +1144,7 @@ public class TelegramSaveMessageService(
 
             var update = new IssueUpdateRequest()
                 .SetContent(request.Text)
-                .SetSuggestedTitle(BuildTitle(request, linkedChat));
+                .SetSuggestedTitle(SplitText(request, linkedChat));
 
             if (attachmentId is not null)
                 update.LinkExistingAttachment(attachmentId.Value);
@@ -1201,12 +1211,14 @@ public class TelegramSaveMessageService(
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
+        var split = SplitText(request, linkedChat);
+
         var issueCreate = new IssueCreateRequest(
                 linkedChat.StatusId!.Value,
                 request.SentAt,
-                BuildTitle(request, linkedChat),
+                split.Title,
                 isTitleSetExplicitly: false)
-            .SetContent(request.Text)
+            .SetContent(split.Content)
             .SetTelegramMessageId(telegramMessageId);
 
         if (attachmentId is not null)
@@ -1225,11 +1237,38 @@ public class TelegramSaveMessageService(
         };
     }
 
+    /// <summary>
+    /// The title for a message's card and its content without that title (<see cref="IssueTitle.Split"/>). A
+    /// message with no text to take a title from keeps its text whole under a title made up by
+    /// <see cref="BuildTitle(SaveMessageTelegramRequest, LinkedChatToSaveMessage)"/>.
+    /// </summary>
+    private static IssueTitleSplit SplitText(SaveMessageTelegramRequest request, LinkedChatToSaveMessage linkedChat)
+    {
+        return IssueTitle.Split(request.Text) is { Title.Length: > 0 } split
+            ? split
+            : new IssueTitleSplit(BuildTitle(request, linkedChat), request.Text);
+    }
+
+    /// <summary>
+    /// <see cref="SplitText(SaveMessageTelegramRequest, LinkedChatToSaveMessage)"/> for a recorded text.
+    /// </summary>
+    private static IssueTitleSplit SplitText(
+        string? text,
+        string kind,
+        DateTime sentAt,
+        long externalChatId,
+        string? chatTitle)
+    {
+        return IssueTitle.Split(text) is { Title.Length: > 0 } split
+            ? split
+            : new IssueTitleSplit(BuildTitle(text, kind, sentAt, externalChatId, chatTitle), text);
+    }
+
     private static string BuildTitle(SaveMessageTelegramRequest request, LinkedChatToSaveMessage linkedChat)
     {
         // A document without a caption is named after its file.
         if (request is SaveDocumentMessageTelegramRequest { Document.FileName: { } fileName }
-            && IssueTitle.FromContent(request.Text).Length == 0
+            && IssueTitle.Split(request.Text).Title.Length == 0
             && IssueTitle.Normalize(fileName) is { Length: > 0 } fileTitle)
         {
             return fileTitle;
@@ -1248,12 +1287,12 @@ public class TelegramSaveMessageService(
 
     /// <summary>
     /// The first line of <paramref name="text"/> - Telegram is the only place a title is derived from the
-    /// content. A caption-less photo or video (or a text with nothing but markup) has no first line, so it
+    /// content. A caption-less photo or video (or a blank text) has no first line, so it
     /// is called "image-20260930-101500-Chat name".
     /// </summary>
     private static string BuildTitle(string? text, string kind, DateTime sentAt, long externalChatId, string? chatTitle)
     {
-        var title = IssueTitle.FromContent(text);
+        var title = IssueTitle.Split(text).Title;
         if (title.Length > 0)
             return title;
 

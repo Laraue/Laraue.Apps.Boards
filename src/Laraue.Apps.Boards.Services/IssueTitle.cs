@@ -9,8 +9,9 @@ using Laraue.Interpreter.Markdown.Body.Blocks;
 namespace Laraue.Apps.Boards.Services;
 
 /// <summary>
-/// Derives an issue title from free-form markdown content. The <c>AddIssueTitle</c> migration
-/// backfills existing issues with a similar rule in SQL (regex based, no word-boundary cut).
+/// Derives an issue title: from a text someone typed (<see cref="Split"/>), or from markdown such as an AI reply
+/// (<see cref="FromContent"/>). The <c>AddIssueTitle</c> migration backfilled existing issues with a similar
+/// rule in SQL (regex based, no word-boundary cut).
 /// </summary>
 public static partial class IssueTitle
 {
@@ -21,7 +22,8 @@ public static partial class IssueTitle
     /// text nodes (emphasis, headers, quotes and list bullets are dropped, links keep their text),
     /// collapses whitespace, keeps only the first sentence (see <see cref="FirstSentence"/>) and cuts the
     /// result to <see cref="Constraints.MaxTitleLength"/> on a word boundary with an ellipsis. Returns an
-    /// empty string for empty content. The <c>AddIssueTitle</c> migration backfills with the same rule in SQL.
+    /// empty string for empty content. For markdown that may carry formatting, e.g. an AI reply - a text someone
+    /// typed goes through <see cref="Split"/>, which keeps it as written.
     /// </summary>
     public static string FromContent(string? content)
     {
@@ -31,9 +33,59 @@ public static partial class IssueTitle
 
         var line = firstLine.Trim().ToString();
 
-        var text = Whitespace().Replace(TryGetText(line), " ").Trim();
+        var text = PlainText(line);
 
         return Normalize(FirstSentence(text));
+    }
+
+    /// <summary>
+    /// Takes the title from a text someone typed (a Telegram message) and returns the text without it, so a card
+    /// doesn't repeat its title in the description. The text is taken as written, not as markdown - a title shows
+    /// no markdown, so "[Sim] Magti" stays "[Sim] Magti". The title is the first non-empty line with whitespace
+    /// collapsed, its first sentence when it has several (see <see cref="FirstSentence"/>): a one-line text gives
+    /// a title and no content, "First. Second." gives "First" and "Second.", several lines give the first one as
+    /// the title and the rest as the content. The text stays whole when it has no title or the title had to be
+    /// cut to <see cref="Constraints.MaxTitleLength"/> - then it doesn't hold the whole text.
+    /// </summary>
+    public static IssueTitleSplit Split(string? text)
+    {
+        if (text is null)
+            return new IssueTitleSplit(string.Empty, null);
+
+        var lines = text
+            .ReplaceLineEndings(IssueContentFormat.LineSeparatorString)
+            .Split(IssueContentFormat.LineSeparator);
+
+        var titleLineIndex = Array.FindIndex(lines, x => !string.IsNullOrWhiteSpace(x));
+        if (titleLineIndex < 0)
+            return new IssueTitleSplit(string.Empty, text);
+
+        var line = lines[titleLineIndex].Trim();
+        var sentence = FirstSentence(Whitespace().Replace(line, " "));
+        var title = Normalize(sentence);
+
+        if (sentence.Length > Constraints.MaxTitleLength)
+            return new IssueTitleSplit(title, text);
+
+        var rest = new List<string>();
+        var nextLines = lines.Skip(titleLineIndex + 1);
+
+        // The rest of the title line after its first sentence, as written.
+        if (SentenceEnd().Match(line) is { Success: true } match)
+            rest.Add(line[(match.Index + match.Length - 1)..]);
+        else
+            nextLines = nextLines.SkipWhile(string.IsNullOrWhiteSpace);
+
+        rest.AddRange(nextLines);
+
+        var remainingContent = string.Join(IssueContentFormat.LineSeparator, rest).TrimEnd();
+
+        return new IssueTitleSplit(title, remainingContent.Length > 0 ? remainingContent : null);
+    }
+
+    private static string PlainText(string line)
+    {
+        return Whitespace().Replace(TryGetText(line), " ").Trim();
     }
 
     /// <summary>
@@ -169,3 +221,9 @@ public static partial class IssueTitle
     [GeneratedRegex(@"^(?<first>.+?)\.\s+\S")]
     private static partial Regex SentenceEnd();
 }
+
+/// <summary>
+/// A title taken from content (<see cref="IssueTitle.Split"/>) and the content left without it - null when the
+/// title took all of it. <see cref="Title"/> is empty when the content has no text to make a title from.
+/// </summary>
+public sealed record IssueTitleSplit(string Title, string? Content);
